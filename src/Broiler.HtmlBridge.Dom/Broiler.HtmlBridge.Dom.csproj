@@ -46,8 +46,8 @@
          media image abstraction, which is what makes getImageData/toDataURL report real pixels. Both
          are dependency leaves here: Broiler.Graphics references only Broiler.Media.Image, and neither
          references this assembly, so there is no cycle. -->
-    <ProjectReference Include="..\..\Broiler.Graphics\Broiler.Graphics\Broiler.Graphics.csproj" />
-    <ProjectReference Include="..\..\Broiler.Media\Broiler.Media.Image\Broiler.Media.Image.csproj" />
+    <ProjectReference Include="..\..\Broiler.Graphics\src\Broiler.Graphics\Broiler.Graphics.csproj" />
+    <ProjectReference Include="..\..\Broiler.Media\src\Broiler.Media.Image\Broiler.Media.Image.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Globals\Broiler.JavaScript.Globals.csproj" />
