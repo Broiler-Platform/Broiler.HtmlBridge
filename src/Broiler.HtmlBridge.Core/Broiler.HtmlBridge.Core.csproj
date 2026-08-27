@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Broiler.HtmlBridge</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>Shared HtmlBridge DOM models, logging, scripting support, and lightweight bridge infrastructure.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler" />
+    <InternalsVisibleTo Include="Broiler.Cli" />
+    <InternalsVisibleTo Include="Broiler.Cli.Tests" />
+    <InternalsVisibleTo Include="Broiler.DevConsole" />
+    <InternalsVisibleTo Include="Broiler.DevConsole.Tests" />
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Dom" />
+    <InternalsVisibleTo Include="Broiler.Wpt" />
+    <InternalsVisibleTo Include="Broiler.Wpt.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom\Broiler.Dom.csproj" />
+    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom.Html\Broiler.Dom.Html.csproj" />
+    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
+    <!-- For Broiler.Layout.Net.BroilerUserAgent alone: the external-script fetcher here is one of
+         the loaders that has to identify itself, and the engine gets to say what it is called in
+         exactly one place. Broiler.Layout is the assembly every other loader — including the ones
+         inside the Broiler.HTML submodule — already reaches, so putting the constant anywhere else
+         buys this reference back somewhere worse. Nothing in Broiler.Layout's own closure references
+         HtmlBridge, so it cannot cycle, and every consumer of this project already had Broiler.Layout
+         in its closure. -->
+    <ProjectReference Include="..\..\Broiler.Layout\Broiler.Layout\Broiler.Layout.csproj" />
+  </ItemGroup>
+
+</Project>

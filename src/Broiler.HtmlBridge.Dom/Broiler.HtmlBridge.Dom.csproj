@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Broiler.HtmlBridge</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>DOM bridge, HTML tree building, and JavaScript DOM object integration for HtmlBridge.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Phase 3 work item 6: content-rendering polyfill JavaScript as a versioned embedded asset
+         (externalized from inline C# string literals in Registration/Polyfills.cs). -->
+    <EmbeddedResource Include="Polyfills\content-rendering-polyfills.js">
+      <LogicalName>Broiler.HtmlBridge.Polyfills.content-rendering-polyfills.js</LogicalName>
+    </EmbeddedResource>
+    <!-- ReadableStream, ProgressEvent and FileReader. JavaScript for the same reason the
+         specification is: the stream is a state machine over promises. -->
+    <EmbeddedResource Include="Polyfills\streams-and-file-reader.js">
+      <LogicalName>Broiler.HtmlBridge.Polyfills.streams-and-file-reader.js</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler" />
+    <InternalsVisibleTo Include="Broiler.Browser.Core" />
+    <InternalsVisibleTo Include="Broiler.Browser.Core.Tests" />
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Scripting" />
+    <InternalsVisibleTo Include="Broiler.Cli" />
+    <InternalsVisibleTo Include="Broiler.Cli.Tests" />
+    <InternalsVisibleTo Include="Broiler.Engines.Baseline" />
+    <InternalsVisibleTo Include="Broiler.DevConsole" />
+    <InternalsVisibleTo Include="Broiler.DevConsole.Tests" />
+    <InternalsVisibleTo Include="Broiler.Wpt" />
+    <InternalsVisibleTo Include="Broiler.Wpt.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Broiler.CSS\Broiler.CSS.Dom\Broiler.CSS.Dom.csproj" />
+    <ProjectReference Include="..\..\Broiler.CSS\Broiler.CSS\Broiler.CSS.csproj" />
+    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom.Html\Broiler.Dom.Html.csproj" />
+    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom\Broiler.Dom.csproj" />
+    <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />
+    <ProjectReference Include="..\..\Broiler.HTML\Source\Broiler.HTML.Dom\Broiler.HTML.Dom.csproj" />
+    <!-- The canvas 2D context rasterises into a Broiler.Graphics BBitmap and encodes it through the
+         media image abstraction, which is what makes getImageData/toDataURL report real pixels. Both
+         are dependency leaves here: Broiler.Graphics references only Broiler.Media.Image, and neither
+         references this assembly, so there is no cycle. -->
+    <ProjectReference Include="..\..\Broiler.Graphics\Broiler.Graphics\Broiler.Graphics.csproj" />
+    <ProjectReference Include="..\..\Broiler.Media\Broiler.Media.Image\Broiler.Media.Image.csproj" />
+    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
+    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
+    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Globals\Broiler.JavaScript.Globals.csproj" />
+    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Modules\Broiler.JavaScript.Modules.csproj" />
+  </ItemGroup>
+
+</Project>
