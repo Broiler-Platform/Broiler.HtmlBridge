@@ -150,10 +150,19 @@ public sealed partial class DomBridge
         {
             SyncStyleAttributeFromInlineStyle(element);
 
+            // The IDL `value` and the `value` content attribute are different things — the attribute
+            // is the default, the property is the current value — and serializing is the only way
+            // the current one leaves the bridge, so here they have to meet.
+            //
+            // This used to reflect only onto an input with no `value` attribute, and only a
+            // non-empty string. Both were wrong, and wrong where it shows: an author's `value="…"`
+            // outlived every script that overwrote it, and clearing a prefilled field left the old
+            // text in the markup. A form submission is built by re-parsing this, so what it sent was
+            // the value the page shipped with rather than the one on screen. `TryGet` already means
+            // "a script set this", which is the only condition that was ever needed.
             if (element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase) &&
-                !HasAttr(element, "value") &&
                 FormControlStateFor(element).Value.TryGet(out var idlValue) &&
-                idlValue is string { Length: > 0 } idlString)
+                idlValue is string idlString)
             {
                 SetAttr(element, "value", idlString);
             }
@@ -806,6 +815,15 @@ public sealed partial class DomBridge
         if (!string.IsNullOrEmpty(element.ClassName))
             yield return new("class", element.ClassName);
 
+        // Set by a script, so the attribute below is the stale one and is skipped rather than
+        // emitted alongside it. See the matching reflection in ReflectRenderState.
+        var scriptSetValue =
+            element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase) &&
+            FormControlStateFor(element).Value.TryGet(out var idlValue) &&
+            idlValue is string idlString
+                ? idlString
+                : null;
+
         var serializedSrcDoc = TrySerializeCurrentSrcDoc(element, sourceElement);
         foreach (var attribute in element.Attributes.Values)
         {
@@ -818,6 +836,9 @@ public sealed partial class DomBridge
                 continue;
             }
 
+            if (scriptSetValue is not null && name.Equals("value", StringComparison.OrdinalIgnoreCase))
+                continue;
+
             yield return new(
                 name,
                 name.Equals("srcdoc", StringComparison.OrdinalIgnoreCase) && serializedSrcDoc is not null
@@ -825,13 +846,8 @@ public sealed partial class DomBridge
                     : value);
         }
 
-        if (element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase) &&
-            !HasAttr(element, "value") &&
-            FormControlStateFor(element).Value.TryGet(out var idlValue) &&
-            idlValue is string { Length: > 0 } idlString)
-        {
-            yield return new("value", idlString);
-        }
+        if (scriptSetValue is not null)
+            yield return new("value", scriptSetValue);
     }
 
     private string? TrySerializeCurrentSrcDoc(DomElement element, DomElement? sourceElement)
