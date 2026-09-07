@@ -32,11 +32,15 @@ public sealed partial class DomBridge
         // window.matchMedia(query) — evaluates basic media queries
         window.FastAddValue("matchMedia", new DomFunction((in a) => Dom.Features.MatchMediaBinding.MatchMedia(this, in a), "matchMedia", 1), JSPropertyAttributes.EnumerableConfigurableValue);
 
-        // window.location — the URL components here, and the navigation surface (`href`, assign,
-        // replace, reload, toString) from LocationBinding. The components alone made
+        // window.location — the URL components here, and the navigation surface (`href`, `hash`,
+        // assign, replace, reload, toString) from LocationBinding. The components alone made
         // `location.replace(url)` a TypeError ("undefined is not a function") which aborts the rest
         // of the calling function, so they are built together: see LocationBinding for what the
-        // four do in a capture, and why they do not navigate.
+        // five do in a capture, why only a fragment navigation happens, and why the rest do not.
+        //
+        // `hash` is not among the components below — the binding owns it, because a fragment
+        // navigation moves it and `href` together. `this` goes in as the hashchange target: it is
+        // the top-level window, and the one whose listeners a page's hash routing registers on.
         var location = new JSObject();
         location.FastAddValue("protocol", new JSString(_pageProtocol), JSPropertyAttributes.EnumerableConfigurableValue);
         location.FastAddValue("host", new JSString(_pageHost), JSPropertyAttributes.EnumerableConfigurableValue);
@@ -44,9 +48,8 @@ public sealed partial class DomBridge
         location.FastAddValue("port", new JSString(_pagePort), JSPropertyAttributes.EnumerableConfigurableValue);
         location.FastAddValue("pathname", new JSString(_pagePathName), JSPropertyAttributes.EnumerableConfigurableValue);
         location.FastAddValue("search", new JSString(_pageSearch), JSPropertyAttributes.EnumerableConfigurableValue);
-        location.FastAddValue("hash", new JSString(_pageHash), JSPropertyAttributes.EnumerableConfigurableValue);
         location.FastAddValue("origin", new JSString(_pageOrigin), JSPropertyAttributes.EnumerableConfigurableValue);
-        Dom.Features.LocationBinding.AddNavigationSurface(location, _pageUrl);
+        Dom.Features.LocationBinding.AddNavigationSurface(location, _pageUrl, this);
 
         window.FastAddValue("location", location, JSPropertyAttributes.EnumerableConfigurableValue);
 
