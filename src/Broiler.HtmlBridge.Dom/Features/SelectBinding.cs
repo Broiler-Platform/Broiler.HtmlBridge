@@ -131,7 +131,7 @@ internal sealed class SelectBinding(ISelectHost host)
 
     // -------- Select algorithms (moved out of LayoutMetrics; never used by layout) --------
 
-    private static List<DomElement> CollectSelectOptions(DomElement element)
+    internal static List<DomElement> CollectSelectOptions(DomElement element)
     {
         var options = new List<DomElement>();
         foreach (var child in DomBridge.ChildElements(element).Where(c => !DomBridge.IsText(c)))

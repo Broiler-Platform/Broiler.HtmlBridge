@@ -150,26 +150,73 @@ public sealed partial class DomBridge
         {
             SyncStyleAttributeFromInlineStyle(element);
 
-            // The IDL `value` and the `value` content attribute are different things — the attribute
-            // is the default, the property is the current value — and serializing is the only way
-            // the current one leaves the bridge, so here they have to meet.
-            //
-            // This used to reflect only onto an input with no `value` attribute, and only a
-            // non-empty string. Both were wrong, and wrong where it shows: an author's `value="…"`
-            // outlived every script that overwrote it, and clearing a prefilled field left the old
-            // text in the markup. A form submission is built by re-parsing this, so what it sent was
-            // the value the page shipped with rather than the one on screen. `TryGet` already means
-            // "a script set this", which is the only condition that was ever needed.
-            if (element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase) &&
-                FormControlStateFor(element).Value.TryGet(out var idlValue) &&
-                idlValue is string idlString)
-            {
-                SetAttr(element, "value", idlString);
-            }
+            ReflectFormControlValue(element);
         }
 
         foreach (var child in ChildElements(element))
             ReflectRenderState(child);
+    }
+
+    /// <summary>
+    /// Writes a value a script set into the markup, each control into the place HTML keeps its
+    /// value.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The IDL <c>value</c> and the content attribute are different things — the attribute is the
+    /// default, the property is the current value — and a browser has no reason to reconcile them.
+    /// Here there is one: serializing is the only way the current value leaves the bridge, and a
+    /// form submission is built by re-parsing what comes out. A value that does not reach the markup
+    /// is a value the server never sees.
+    /// </para>
+    /// <para>
+    /// So each control is reflected into its own place, and they are three different places: an
+    /// <c>input</c>'s <c>value</c> attribute, a <c>textarea</c>'s child text (HTML §4.10.11 — it has
+    /// no <c>value</c> attribute for a write to land in), and, for a <c>select</c>, the
+    /// <c>selected</c> attribute moving to the option it chose. <c>TryGet</c> answers "did a script
+    /// set this", so a control the page never touched is left exactly as it was authored.
+    /// </para>
+    /// <para>
+    /// This runs over the render projection rather than the live tree, so rewriting a textarea's
+    /// children here does not disturb the document the page is still scripting.
+    /// </para>
+    /// </remarks>
+    private void ReflectFormControlValue(DomElement element)
+    {
+        var state = FormControlStateFor(element);
+
+        if (element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase))
+        {
+            if (state.Value.TryGet(out var inputValue) && inputValue is string inputString)
+                SetAttr(element, "value", inputString);
+            return;
+        }
+
+        if (element.TagName.Equals("textarea", StringComparison.OrdinalIgnoreCase))
+        {
+            if (state.Value.TryGet(out var areaValue) && areaValue is string areaString &&
+                !string.Equals(GetElementTextContent(element), areaString, StringComparison.Ordinal))
+            {
+                SetElementTextContent(element, areaString);
+            }
+
+            return;
+        }
+
+        if (element.TagName.Equals("select", StringComparison.OrdinalIgnoreCase) &&
+            state.SelectedIndex.TryGet(out var indexValue) && indexValue is int selectedIndex)
+        {
+            // The same walk the select binding selects through, so "which option is the third one"
+            // has one answer rather than two that can disagree about nested optgroups.
+            var options = Dom.Features.SelectBinding.CollectSelectOptions(element);
+            for (var index = 0; index < options.Count; index++)
+            {
+                if (index == selectedIndex)
+                    SetAttr(options[index], "selected", string.Empty);
+                else if (HasAttr(options[index], "selected"))
+                    RemoveAttr(options[index], "selected");
+            }
+        }
     }
 
     private string SerializeElementToHtml(DomElement element) => SerializeNodeToHtml(element);
