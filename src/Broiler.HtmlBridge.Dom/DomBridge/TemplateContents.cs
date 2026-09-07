@@ -85,11 +85,35 @@ public sealed partial class DomBridge
     }
 
     /// <summary>The node list serialization walks for <paramref name="node"/>: a template's contents
-    /// fragment stands in for its (empty) own child list.</summary>
-    private IEnumerable<DomNode> SerializationChildrenOf(DomNode node) =>
-        node is DomElement element && IsTemplateElement(element)
-            ? GetTemplateContent(element).ChildNodes
-            : node.ChildNodes;
+    /// fragment stands in for its (empty) own child list, and a textarea a script has written to
+    /// stands in for its authored text.</summary>
+    /// <remarks>
+    /// A textarea's value <i>is</i> its child text (HTML §4.10.11), so a script's write has nowhere
+    /// else to land at serialization time — there is no <c>value</c> attribute on one for the
+    /// attribute path to carry. Document serialization already reflects it by rewriting the render
+    /// projection; this is the same answer for the paths that do not go through the projection, of
+    /// which <c>element.outerHTML</c> is the one pages read.
+    /// <para>
+    /// Textarea is not a raw-text element (only <c>script</c>, <c>style</c> and <c>noscript</c> are),
+    /// so the node minted here is escaped on the way out exactly as an authored child would be.
+    /// </para>
+    /// </remarks>
+    private IEnumerable<DomNode> SerializationChildrenOf(DomNode node)
+    {
+        if (node is not DomElement element)
+            return node.ChildNodes;
+
+        if (IsTemplateElement(element))
+            return GetTemplateContent(element).ChildNodes;
+
+        if (element.TagName.Equals("textarea", StringComparison.OrdinalIgnoreCase) &&
+            FormControlStateFor(element).Value.TryGet(out var dirty) && dirty is string raw)
+        {
+            return [CreateBridgeTextNode(raw)];
+        }
+
+        return element.ChildNodes;
+    }
 
     /// <summary>Whether <paramref name="element"/> is an HTML <c>&lt;template&gt;</c>.</summary>
     internal static bool IsTemplateElement(DomElement element) =>

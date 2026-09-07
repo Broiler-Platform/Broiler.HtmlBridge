@@ -19,14 +19,20 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// fallback is to navigate.
 /// </para>
 /// <para>
-/// <b>A cross-document navigation does not happen, and does not pretend to.</b> A capture renders
-/// the one document it was given, and <c>IDomBridgeRuntime</c> carries no navigation member, so
-/// there is no path from a binding up to the host that would load another. Each of <c>href =</c>,
-/// <c>assign</c>, <c>replace</c> and <c>reload</c> therefore records what was asked for and
-/// returns — which is what a browser that blocks a navigation does too, and unlike a throw it
-/// leaves the calling script running. Reporting it keeps the request visible: a page that ends by
-/// navigating away renders as whatever it had built by then, and the log line is the difference
-/// between reading that as the page and reading it as a page that left.
+/// <b>A cross-document navigation is asked for here and performed somewhere else.</b> A binding has
+/// no loader and no session history, so <c>href =</c>, <c>assign</c>, <c>replace</c> and
+/// <c>reload</c> each resolve the target, hand it to the host as a
+/// <see cref="NavigationRequest"/>, and return. Returning rather than throwing is the point: a
+/// throw would abort the caller exactly as the missing method used to, and the page has more to do
+/// before it leaves. The host reads the request once execution settles and decides whether to
+/// follow — an interactive browser does, a capture pinned to one document need not.
+/// </para>
+/// <para>
+/// With no host — a frame's Location, built by <see cref="Build"/> — there is nowhere to record the
+/// request, so it is logged and dropped, which is what every one of these did before the host
+/// surface existed. The log line still matters in that case: a page that ends by navigating away
+/// renders as whatever it had built by then, and the line is the difference between reading that as
+/// the page and reading it as a page that left.
 /// </para>
 /// <para>
 /// <b>A fragment navigation is the exception, because it is not a load.</b> When the target
@@ -120,9 +126,11 @@ internal static class LocationBinding
         // `hash` is not added here — AddNavigationSurface owns it, because a fragment navigation has
         // to move it and `href` together and a data property cannot be kept in step.
         //
-        // No window is passed: this overload builds a *frame's* Location, and hashchange belongs to
-        // that frame's own event target, which the window-dispatch contract does not reach. The
-        // frame's `href` and `hash` still move; only the event is missing.
+        // No host is passed: this overload builds a *frame's* Location, and neither half of the host
+        // surface fits a frame. hashchange belongs to the frame's own event target, which the
+        // window-dispatch contract does not reach; and a frame navigating replaces the frame, not
+        // the page, which is a different operation from the one the host would perform. The frame's
+        // `href` and `hash` still move on a fragment navigation — that part needs no host.
         AddNavigationSurface(location, href);
         return location;
     }
@@ -130,10 +138,10 @@ internal static class LocationBinding
     /// <summary>
     /// Adds <c>href</c>, <c>hash</c>, <c>assign</c>, <c>replace</c>, <c>reload</c> and
     /// <c>toString</c> to a Location whose remaining components a caller has already defined itself.
-    /// <paramref name="window"/> receives <c>hashchange</c> on a fragment navigation; a caller with
-    /// no window of its own passes none, and the navigation happens silently.
+    /// <paramref name="host"/> takes the cross-document navigations and receives <c>hashchange</c>
+    /// on a fragment one; a caller with no host passes none, and both are logged and dropped.
     /// </summary>
-    internal static void AddNavigationSurface(JSObject location, string href, IWindowEventTargetHost? window = null)
+    internal static void AddNavigationSurface(JSObject location, string href, ILocationHost? host = null)
     {
         var url = new DocumentUrl(href);
 
@@ -146,7 +154,7 @@ internal static class LocationBinding
         location.FastAddProperty(
             "href",
             new DomFunction((in _) => new JSString(url.Href), "get href"),
-            new DomFunction((in a) => Navigate(url, window, "href", in a), "set href"),
+            new DomFunction((in a) => Navigate(url, host, "href", in a), "set href"),
             JSPropertyAttributes.EnumerableConfigurableProperty);
 
         // `hash` is an accessor for the same reason, and for one more: `location.hash = "#x"` is a
@@ -155,24 +163,20 @@ internal static class LocationBinding
         location.FastAddProperty(
             "hash",
             new DomFunction((in _) => new JSString(url.Fragment), "get hash"),
-            new DomFunction((in a) => SetHash(url, window, in a), "set hash"),
+            new DomFunction((in a) => SetHash(url, host, in a), "set hash"),
             JSPropertyAttributes.EnumerableConfigurableProperty);
 
         location.FastAddValue(
             "assign",
-            new DomFunction((in a) => Navigate(url, window, "assign", in a), "assign", 1),
+            new DomFunction((in a) => Navigate(url, host, "assign", in a), "assign", 1),
             JSPropertyAttributes.EnumerableConfigurableValue);
         location.FastAddValue(
             "replace",
-            new DomFunction((in a) => Navigate(url, window, "replace", in a), "replace", 1),
+            new DomFunction((in a) => Navigate(url, host, "replace", in a), "replace", 1),
             JSPropertyAttributes.EnumerableConfigurableValue);
         location.FastAddValue(
             "reload",
-            new DomFunction((in _) =>
-            {
-                RenderLogger.LogDebug(LogCategory.JavaScript, LogContext, $"location.reload() requested; the capture renders the document it was given and does not reload {url.Href}");
-                return JSUndefined.Value;
-            }, "reload", 0),
+            new DomFunction((in _) => Request(host, NavigationKind.Reload, "location.reload()", url.Href), "reload", 0),
             JSPropertyAttributes.EnumerableConfigurableValue);
 
         // Location stringifies to its href, not to "[object Object]". Pages build URLs with
@@ -183,18 +187,18 @@ internal static class LocationBinding
             JSPropertyAttributes.EnumerableConfigurableValue);
     }
 
-    private static JSValue SetHash(DocumentUrl url, IWindowEventTargetHost? window, in Arguments a)
+    private static JSValue SetHash(DocumentUrl url, ILocationHost? host, in Arguments a)
     {
         var value = a.Length > 0 ? a[0].ToString() : string.Empty;
         // "foo" and "#foo" name the same fragment: the "#" is part of the spelling, not of the
         // value, and HTML §7.10.5 prepends it when the page left it off.
-        return NavigateTo(url, window, "hash", value.StartsWith('#') ? value : "#" + value);
+        return NavigateTo(url, host, "hash", value.StartsWith('#') ? value : "#" + value);
     }
 
-    private static JSValue Navigate(DocumentUrl url, IWindowEventTargetHost? window, string method, in Arguments a)
-        => NavigateTo(url, window, method, a.Length > 0 ? a[0].ToString() : string.Empty);
+    private static JSValue Navigate(DocumentUrl url, ILocationHost? host, string method, in Arguments a)
+        => NavigateTo(url, host, method, a.Length > 0 ? a[0].ToString() : string.Empty);
 
-    private static JSValue NavigateTo(DocumentUrl url, IWindowEventTargetHost? window, string method, string requested)
+    private static JSValue NavigateTo(DocumentUrl url, ILocationHost? host, string method, string requested)
     {
         var target = requested;
 
@@ -215,7 +219,7 @@ internal static class LocationBinding
                 url.MoveToFragment(resolved);
 
                 if (changed)
-                    FireHashChange(window, from, url.Href);
+                    FireHashChange(host, from, url.Href);
 
                 RenderLogger.LogDebug(LogCategory.JavaScript, LogContext,
                     $"{Spell(method, target)} is a fragment navigation; the document is unchanged and location.hash is now \"{url.Fragment}\"");
@@ -223,9 +227,47 @@ internal static class LocationBinding
             }
         }
 
-        RenderLogger.LogDebug(LogCategory.JavaScript, LogContext, $"{Spell(method, target)} requested; the capture renders the document it was given and does not navigate");
+        // Setting `hash` is same-document by definition, so it never becomes a request to load
+        // something. It reaches here only when the document's own URL does not parse as absolute —
+        // an Attach with no URL — and there is no base to resolve a fragment against. Asking the
+        // host to load "#x" would be worse than doing nothing, which is what a browser with no
+        // document URL to move does anyway.
+        if (method == "hash")
+        {
+            RenderLogger.LogDebug(LogCategory.JavaScript, LogContext,
+                $"{Spell(method, target)} ignored; this document has no absolute URL to hang a fragment on");
+            return JSUndefined.Value;
+        }
+
+        return Request(host, KindOf(method), Spell(method, target), target);
+    }
+
+    /// <summary>
+    /// Hands a cross-document navigation to the host, or — with no host to hand it to — logs it and
+    /// drops it, which is what all of these did before the host surface existed.
+    /// </summary>
+    private static JSValue Request(ILocationHost? host, NavigationKind kind, string spelling, string target)
+    {
+        if (host == null)
+        {
+            RenderLogger.LogDebug(LogCategory.JavaScript, LogContext,
+                $"{spelling} requested; nothing here can load another document, so {target} is not navigated to");
+            return JSUndefined.Value;
+        }
+
+        // The document's own URL is unchanged either way: nothing has loaded yet, and `href`
+        // answering a target the host may decline would describe a document nobody has.
+        RenderLogger.LogDebug(LogCategory.JavaScript, LogContext,
+            $"{spelling} requested; {target} handed to the host, which decides whether to follow it");
+        host.RequestNavigation(new NavigationRequest(target, kind));
         return JSUndefined.Value;
     }
+
+    private static NavigationKind KindOf(string method) => method switch
+    {
+        "replace" => NavigationKind.Replace,
+        _ => NavigationKind.Assign,
+    };
 
     /// <summary>
     /// Whether <paramref name="resolved"/> names this same document — everything ahead of the
@@ -253,9 +295,9 @@ internal static class LocationBinding
     /// browser the exception belongs to the listener, not to the <c>location.hash = x</c> that
     /// caused the dispatch, and letting it out here would abort the assigning script instead.
     /// </summary>
-    private static void FireHashChange(IWindowEventTargetHost? window, string oldUrl, string newUrl)
+    private static void FireHashChange(ILocationHost? host, string oldUrl, string newUrl)
     {
-        if (window == null)
+        if (host == null)
             return;
 
         var evt = new JSObject();
@@ -267,7 +309,7 @@ internal static class LocationBinding
 
         try
         {
-            window.DispatchWindowEvent(evt);
+            host.DispatchWindowEvent(evt);
         }
         catch (Exception ex)
         {

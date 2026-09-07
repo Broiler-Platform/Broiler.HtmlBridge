@@ -150,17 +150,73 @@ public sealed partial class DomBridge
         {
             SyncStyleAttributeFromInlineStyle(element);
 
-            if (element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase) &&
-                !HasAttr(element, "value") &&
-                FormControlStateFor(element).Value.TryGet(out var idlValue) &&
-                idlValue is string { Length: > 0 } idlString)
-            {
-                SetAttr(element, "value", idlString);
-            }
+            ReflectFormControlValue(element);
         }
 
         foreach (var child in ChildElements(element))
             ReflectRenderState(child);
+    }
+
+    /// <summary>
+    /// Writes a value a script set into the markup, each control into the place HTML keeps its
+    /// value.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The IDL <c>value</c> and the content attribute are different things — the attribute is the
+    /// default, the property is the current value — and a browser has no reason to reconcile them.
+    /// Here there is one: serializing is the only way the current value leaves the bridge, and a
+    /// form submission is built by re-parsing what comes out. A value that does not reach the markup
+    /// is a value the server never sees.
+    /// </para>
+    /// <para>
+    /// So each control is reflected into its own place, and they are three different places: an
+    /// <c>input</c>'s <c>value</c> attribute, a <c>textarea</c>'s child text (HTML §4.10.11 — it has
+    /// no <c>value</c> attribute for a write to land in), and, for a <c>select</c>, the
+    /// <c>selected</c> attribute moving to the option it chose. <c>TryGet</c> answers "did a script
+    /// set this", so a control the page never touched is left exactly as it was authored.
+    /// </para>
+    /// <para>
+    /// This runs over the render projection rather than the live tree, so rewriting a textarea's
+    /// children here does not disturb the document the page is still scripting.
+    /// </para>
+    /// </remarks>
+    private void ReflectFormControlValue(DomElement element)
+    {
+        var state = FormControlStateFor(element);
+
+        if (element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase))
+        {
+            if (state.Value.TryGet(out var inputValue) && inputValue is string inputString)
+                SetAttr(element, "value", inputString);
+            return;
+        }
+
+        if (element.TagName.Equals("textarea", StringComparison.OrdinalIgnoreCase))
+        {
+            if (state.Value.TryGet(out var areaValue) && areaValue is string areaString &&
+                !string.Equals(GetElementTextContent(element), areaString, StringComparison.Ordinal))
+            {
+                SetElementTextContent(element, areaString);
+            }
+
+            return;
+        }
+
+        if (element.TagName.Equals("select", StringComparison.OrdinalIgnoreCase) &&
+            state.SelectedIndex.TryGet(out var indexValue) && indexValue is int selectedIndex)
+        {
+            // The same walk the select binding selects through, so "which option is the third one"
+            // has one answer rather than two that can disagree about nested optgroups.
+            var options = Dom.Features.SelectBinding.CollectSelectOptions(element);
+            for (var index = 0; index < options.Count; index++)
+            {
+                if (index == selectedIndex)
+                    SetAttr(options[index], "selected", string.Empty);
+                else if (HasAttr(options[index], "selected"))
+                    RemoveAttr(options[index], "selected");
+            }
+        }
     }
 
     private string SerializeElementToHtml(DomElement element) => SerializeNodeToHtml(element);
@@ -806,6 +862,19 @@ public sealed partial class DomBridge
         if (!string.IsNullOrEmpty(element.ClassName))
             yield return new("class", element.ClassName);
 
+        // Set by a script, so the attribute below is the stale one and is skipped rather than
+        // emitted alongside it. See the matching reflection in ReflectRenderState.
+        var scriptSetValue =
+            element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase) &&
+            FormControlStateFor(element).Value.TryGet(out var idlValue) &&
+            idlValue is string idlString
+                ? idlString
+                : null;
+
+        // The same question for an option, whose selectedness is decided by its select rather than
+        // by itself. `null` means no script has chosen, and the authored attribute stands.
+        var scriptSetSelected = ScriptChosenOptionSelected(element);
+
         var serializedSrcDoc = TrySerializeCurrentSrcDoc(element, sourceElement);
         foreach (var attribute in element.Attributes.Values)
         {
@@ -818,6 +887,12 @@ public sealed partial class DomBridge
                 continue;
             }
 
+            if (scriptSetValue is not null && name.Equals("value", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (scriptSetSelected is not null && name.Equals("selected", StringComparison.OrdinalIgnoreCase))
+                continue;
+
             yield return new(
                 name,
                 name.Equals("srcdoc", StringComparison.OrdinalIgnoreCase) && serializedSrcDoc is not null
@@ -825,13 +900,47 @@ public sealed partial class DomBridge
                     : value);
         }
 
-        if (element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase) &&
-            !HasAttr(element, "value") &&
-            FormControlStateFor(element).Value.TryGet(out var idlValue) &&
-            idlValue is string { Length: > 0 } idlString)
+        if (scriptSetValue is not null)
+            yield return new("value", scriptSetValue);
+
+        if (scriptSetSelected is true)
+            yield return new("selected", string.Empty);
+    }
+
+    /// <summary>
+    /// Whether a script has decided this option's selectedness, and how — <c>null</c> when it is not
+    /// an option, or when its select carries no index a script chose, in which case the authored
+    /// <c>selected</c> attribute is still the answer.
+    /// </summary>
+    /// <remarks>
+    /// An option is the one element whose serialized state is not its own: <c>select.value = x</c>
+    /// writes an index on the <i>select</i>, and which option that makes selected is a question only
+    /// the select can answer. So the option is asked about its ancestor, through the same option walk
+    /// the select binding selects with.
+    /// </remarks>
+    private bool? ScriptChosenOptionSelected(DomElement element)
+    {
+        if (!element.TagName.Equals("option", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        DomElement? select = null;
+        for (DomNode? node = element.ParentNode; node is not null; node = node.ParentNode)
         {
-            yield return new("value", idlString);
+            if (node is DomElement candidate && candidate.TagName.Equals("select", StringComparison.OrdinalIgnoreCase))
+            {
+                select = candidate;
+                break;
+            }
         }
+
+        if (select is null ||
+            !FormControlStateFor(select).SelectedIndex.TryGet(out var stored) ||
+            stored is not int chosen)
+        {
+            return null;
+        }
+
+        return Dom.Features.SelectBinding.CollectSelectOptions(select).IndexOf(element) == chosen;
     }
 
     private string? TrySerializeCurrentSrcDoc(DomElement element, DomElement? sourceElement)
