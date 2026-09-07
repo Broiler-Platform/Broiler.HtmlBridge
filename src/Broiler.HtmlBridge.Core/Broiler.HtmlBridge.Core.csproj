@@ -10,11 +10,13 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Broiler" />
+    <InternalsVisibleTo Include="Broiler.Browser.Core.Tests" />
     <InternalsVisibleTo Include="Broiler.Cli" />
     <InternalsVisibleTo Include="Broiler.Cli.Tests" />
     <InternalsVisibleTo Include="Broiler.DevConsole" />
     <InternalsVisibleTo Include="Broiler.DevConsole.Tests" />
     <InternalsVisibleTo Include="Broiler.HtmlBridge.Dom" />
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Scripting" />
     <InternalsVisibleTo Include="Broiler.Wpt" />
     <InternalsVisibleTo Include="Broiler.Wpt.Tests" />
   </ItemGroup>

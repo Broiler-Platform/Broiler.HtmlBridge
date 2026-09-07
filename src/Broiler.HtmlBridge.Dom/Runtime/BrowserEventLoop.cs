@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Logging;
 using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.JavaScript.BuiltIns.Number;
@@ -226,7 +227,11 @@ internal sealed class BrowserEventLoop
         {
             try
             {
-                taskCheckpoint?.Invoke();
+                if (taskCheckpoint is null)
+                    return;
+
+                using var turn = JsEntryTrace.Enter(JsEntryKind.Checkpoint, "task-checkpoint");
+                taskCheckpoint.Invoke();
             }
             catch (Exception ex)
             {
@@ -296,6 +301,12 @@ internal sealed class BrowserEventLoop
             if (_clearedTimerIds.ContainsKey(id)) continue;
             try
             {
+                // A timer callback is one of the turns the host hands to script; see JsEntryTrace.
+                // Inactive by default, and the label carries the id so a repeating interval is
+                // distinguishable from a one-shot in the trace.
+                using var turn = JsEntryTrace.Enter(JsEntryKind.Timer,
+                    entry.Period is null ? $"timeout#{id}" : $"interval#{id}");
+
                 if (entry.Fn is { } fn)
                     fn.InvokeFunction(new Arguments(JSUndefined.Value));
                 else
@@ -314,14 +325,24 @@ internal sealed class BrowserEventLoop
         // Execute rAF callbacks
         foreach (var (id, fn) in rafSnapshot)
         {
-            try { fn.InvokeFunction(new Arguments(JSUndefined.Value, new JSNumber(0))); }
+            try
+            {
+                using var turn = JsEntryTrace.Enter(JsEntryKind.AnimationFrame, $"raf#{id}");
+                fn.InvokeFunction(new Arguments(JSUndefined.Value, new JSNumber(0)));
+            }
             catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"rAF callback error: {ex.Message}", ex); }
             finally { RunTaskCheckpoint(); }
         }
 
         foreach (var action in frameActionSnapshot)
         {
-            try { action(); }
+            try
+            {
+                // A frame action is a host action, but it reaches script through the bridge often
+                // enough that leaving it out would attribute its time to the next turn's gap.
+                using var turn = JsEntryTrace.Enter(JsEntryKind.FrameAction, "frame-action");
+                action();
+            }
             catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"frame action error: {ex.Message}", ex); }
             finally { RunTaskCheckpoint(); }
         }

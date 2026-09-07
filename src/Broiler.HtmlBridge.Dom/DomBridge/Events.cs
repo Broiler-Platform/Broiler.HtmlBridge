@@ -1,6 +1,7 @@
 using Broiler.JavaScript.Storage;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 
@@ -18,6 +19,10 @@ public sealed partial class DomBridge
 
     internal static void InvokeEventListener(JSValue listener, JSObject evt, string logContext)
     {
+        // Every DOM listener the page runs passes through here, which makes this the one place a
+        // listener turn can be bracketed. Inactive unless a run asked for it; see JsEntryTrace.
+        using var turn = JsEntryTrace.Enter(JsEntryKind.Event, EventTurnLabel(evt, logContext));
+
         try
         {
             if (listener is JSFunction fn)
@@ -35,6 +40,33 @@ public sealed partial class DomBridge
         catch (Exception ex)
         {
             RenderLogger.LogWarning(LogCategory.JavaScript, logContext, $"Event listener error: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Names a listener turn as <c>type@context</c> for the trace. The event type is what makes a line
+    /// actionable — "20 s idle before click@document" says which interaction ended the idle, where the
+    /// call site alone says only that some listener ran.
+    /// </summary>
+    /// <remarks>
+    /// Reads the property only while the trace is active, and answers with the call site alone if the
+    /// read throws: <c>type</c> is a data property on every event this bridge constructs, but a page
+    /// may dispatch an object of its own through <c>dispatchEvent</c>, and a diagnostic does not get to
+    /// turn that into a failure.
+    /// </remarks>
+    private static string EventTurnLabel(JSObject evt, string logContext)
+    {
+        if (!JsEntryTrace.IsActive)
+            return logContext;
+
+        try
+        {
+            var type = evt[(KeyString)"type"];
+            return type is null || type.IsNullOrUndefined ? logContext : $"{type}@{logContext}";
+        }
+        catch (Exception)
+        {
+            return logContext;
         }
     }
 
