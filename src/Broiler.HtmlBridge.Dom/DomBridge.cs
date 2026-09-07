@@ -241,7 +241,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     private string _pagePort = string.Empty;
     private string _pagePathName = "/";
     private string _pageSearch = string.Empty;
-    private string _pageHash = string.Empty;
+    // No _pageHash: `location.hash` is derived from _pageUrl by LocationBinding, which owns it
+    // because a fragment navigation has to move it and `location.href` together.
     private string _pageOrigin = string.Empty;
 
     public DomBridge()
@@ -678,7 +679,6 @@ public sealed partial class DomBridge : IDomBridgeRuntime
             _pagePort = uri.IsDefaultPort ? string.Empty : uri.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
             _pagePathName = uri.AbsolutePath;
             _pageSearch = uri.Query;
-            _pageHash = uri.Fragment;
             _pageOrigin = Origin.Of(uri);
         }
         else
