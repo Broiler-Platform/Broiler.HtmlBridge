@@ -871,6 +871,10 @@ public sealed partial class DomBridge
                 ? idlString
                 : null;
 
+        // The same question for an option, whose selectedness is decided by its select rather than
+        // by itself. `null` means no script has chosen, and the authored attribute stands.
+        var scriptSetSelected = ScriptChosenOptionSelected(element);
+
         var serializedSrcDoc = TrySerializeCurrentSrcDoc(element, sourceElement);
         foreach (var attribute in element.Attributes.Values)
         {
@@ -886,6 +890,9 @@ public sealed partial class DomBridge
             if (scriptSetValue is not null && name.Equals("value", StringComparison.OrdinalIgnoreCase))
                 continue;
 
+            if (scriptSetSelected is not null && name.Equals("selected", StringComparison.OrdinalIgnoreCase))
+                continue;
+
             yield return new(
                 name,
                 name.Equals("srcdoc", StringComparison.OrdinalIgnoreCase) && serializedSrcDoc is not null
@@ -895,6 +902,45 @@ public sealed partial class DomBridge
 
         if (scriptSetValue is not null)
             yield return new("value", scriptSetValue);
+
+        if (scriptSetSelected is true)
+            yield return new("selected", string.Empty);
+    }
+
+    /// <summary>
+    /// Whether a script has decided this option's selectedness, and how — <c>null</c> when it is not
+    /// an option, or when its select carries no index a script chose, in which case the authored
+    /// <c>selected</c> attribute is still the answer.
+    /// </summary>
+    /// <remarks>
+    /// An option is the one element whose serialized state is not its own: <c>select.value = x</c>
+    /// writes an index on the <i>select</i>, and which option that makes selected is a question only
+    /// the select can answer. So the option is asked about its ancestor, through the same option walk
+    /// the select binding selects with.
+    /// </remarks>
+    private bool? ScriptChosenOptionSelected(DomElement element)
+    {
+        if (!element.TagName.Equals("option", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        DomElement? select = null;
+        for (DomNode? node = element.ParentNode; node is not null; node = node.ParentNode)
+        {
+            if (node is DomElement candidate && candidate.TagName.Equals("select", StringComparison.OrdinalIgnoreCase))
+            {
+                select = candidate;
+                break;
+            }
+        }
+
+        if (select is null ||
+            !FormControlStateFor(select).SelectedIndex.TryGet(out var stored) ||
+            stored is not int chosen)
+        {
+            return null;
+        }
+
+        return Dom.Features.SelectBinding.CollectSelectOptions(select).IndexOf(element) == chosen;
     }
 
     private string? TrySerializeCurrentSrcDoc(DomElement element, DomElement? sourceElement)
