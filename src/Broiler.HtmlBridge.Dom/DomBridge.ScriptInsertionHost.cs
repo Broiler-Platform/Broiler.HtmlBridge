@@ -1,4 +1,5 @@
 using Broiler.Dom;
+using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.JavaScript.BuiltIns.Boolean;
@@ -27,8 +28,13 @@ public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
 
     void Dom.Runtime.IScriptInsertionHost.QueueTask(Action task) => _eventLoop.QueueTask(task);
 
-    void Dom.Runtime.IScriptInsertionHost.EvaluateScript(string source, string label) =>
+    void Dom.Runtime.IScriptInsertionHost.EvaluateScript(string source, string label)
+    {
+        // A script body is a turn too, and the one most likely to be the long pole at load; see
+        // JsEntryTrace. Inactive by default.
+        using var turn = JsEntryTrace.Enter(JsEntryKind.Script, label);
         _jsContext?.Eval(source, label);
+    }
 
     string Dom.Runtime.IScriptInsertionHost.TextContentOf(DomElement element) => GetTextContentRecursive(element);
 

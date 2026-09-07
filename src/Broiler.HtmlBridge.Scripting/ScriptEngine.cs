@@ -2,6 +2,7 @@ using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
@@ -306,6 +307,12 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// </summary>
     private void RunMeasured(string label, Action work)
     {
+        // The same funnel serves JsEntryTrace, for the same reason it serves the profiling hook: it
+        // is where every script evaluation the engine performs can be bracketed once. The two are
+        // independent — the profiler is attached by a host, the trace is switched on by an
+        // environment variable — and a run may have either, both or neither.
+        using var turn = JsEntryTrace.Enter(JsEntryKind.Script, label);
+
         if (Profiler != null)
             Profiler.Measure(label, work);
         else
