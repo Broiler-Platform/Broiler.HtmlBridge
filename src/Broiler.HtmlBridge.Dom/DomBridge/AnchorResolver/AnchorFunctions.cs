@@ -17,7 +17,7 @@ public sealed partial class DomBridge
     // keep only the used-value geometry; AnchorFunction.Rewrite/RewriteSize supply
     // the parsed AnchorFunctionRef/AnchorSizeFunctionRef.
     private void ResolveAnchorFunctions(DomElement element, Dictionary<string, AnchorInfo> anchorRegistry,
-        Dictionary<string, Dictionary<string, string>>? positionTryRules = null)
+        Dictionary<string, IReadOnlyDictionary<string, string>>? positionTryRules = null)
     {
         var cssProps = CollectMatchedRuleProperties(element);
 

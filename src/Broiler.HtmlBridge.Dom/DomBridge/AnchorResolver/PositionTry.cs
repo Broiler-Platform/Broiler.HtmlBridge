@@ -16,14 +16,14 @@ public sealed partial class DomBridge
     /// elements, returning a dictionary mapping rule name to its property
     /// declarations.
     /// </summary>
-    private Dictionary<string, Dictionary<string, string>> ParsePositionTryRules()
+    private Dictionary<string, IReadOnlyDictionary<string, string>> ParsePositionTryRules()
     {
-        var result = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        var result = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
         CollectPositionTryRulesFromTree(DocumentElement, result);
         return result;
     }
 
-    private void CollectPositionTryRulesFromTree(DomElement el, Dictionary<string, Dictionary<string, string>> result)
+    private void CollectPositionTryRulesFromTree(DomElement el, Dictionary<string, IReadOnlyDictionary<string, string>> result)
     {
         if (string.Equals(el.TagName, "style", StringComparison.OrdinalIgnoreCase))
         {
@@ -52,10 +52,10 @@ public sealed partial class DomBridge
     /// the base style overflows the containing block and applies the first
     /// non-overflowing fallback from the <c>@position-try</c> rules.
     /// </summary>
-    private void ResolvePositionTryFallbacks(DomElement root, Dictionary<string, AnchorInfo> anchorRegistry, Dictionary<string, Dictionary<string, string>> positionTryRules) =>
+    private void ResolvePositionTryFallbacks(DomElement root, Dictionary<string, AnchorInfo> anchorRegistry, Dictionary<string, IReadOnlyDictionary<string, string>> positionTryRules) =>
         ResolvePositionTryFallbacksTree(root, anchorRegistry, positionTryRules);
 
-    private void ResolvePositionTryFallbacksTree(DomElement element, Dictionary<string, AnchorInfo> anchorRegistry, Dictionary<string, Dictionary<string, string>> positionTryRules)
+    private void ResolvePositionTryFallbacksTree(DomElement element, Dictionary<string, AnchorInfo> anchorRegistry, Dictionary<string, IReadOnlyDictionary<string, string>> positionTryRules)
     {
         if (!IsText(element) && !IsComment(element))
         {
@@ -99,7 +99,7 @@ public sealed partial class DomBridge
     }
 
     private void TryApplyFallback(DomElement element, Dictionary<string, string> baseProps, Dictionary<string, AnchorInfo> anchorRegistry,
-        Dictionary<string, Dictionary<string, string>> positionTryRules, string fallbackList)
+        Dictionary<string, IReadOnlyDictionary<string, string>> positionTryRules, string fallbackList)
     {
         // Get the containing block dimensions.
         double cbWidth = FindContainingBlockWidth(element);
@@ -152,7 +152,7 @@ public sealed partial class DomBridge
     /// </summary>
     private (double left, double top, double width, double height)? ComputeFallbackPlacement(
         Dictionary<string, string> baseProps, Dictionary<string, AnchorInfo> anchorRegistry,
-        Dictionary<string, Dictionary<string, string>> positionTryRules, string fallbackList,
+        Dictionary<string, IReadOnlyDictionary<string, string>> positionTryRules, string fallbackList,
         double baseLeft, double baseTop, double baseRight, double baseBottom,
         double baseWidth, double baseHeight, double cbWidth, double cbHeight)
     {
