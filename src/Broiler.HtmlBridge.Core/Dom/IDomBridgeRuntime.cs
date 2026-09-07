@@ -27,6 +27,17 @@ public interface IDomBridgeRuntime
     /// </summary>
     bool HasPendingTimersDueBy(double virtualHorizonMs);
 
+    /// <summary>
+    /// The cross-document navigation the page asked for, or <c>null</c> if it asked for none.
+    /// <para>
+    /// Read it after script execution has settled: a navigation is a request to leave a document
+    /// that is still running, and acting on it mid-script would tear down the context underneath
+    /// the code that made the request. The last request wins, as it does in a browser, where a
+    /// second assignment supersedes the navigation the first one started.
+    /// </para>
+    /// </summary>
+    NavigationRequest? PendingNavigation { get; }
+
     void Attach(JSContext context, string html);
 
     void Attach(JSContext context, string html, string url);

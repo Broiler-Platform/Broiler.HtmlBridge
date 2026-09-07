@@ -50,6 +50,17 @@ public sealed class InteractiveSession : IDisposable
         !_disposed && _bridge.HasPendingTimersDueBy(DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
 
     /// <summary>
+    /// The cross-document navigation the page asked for, or <c>null</c> if it asked for none.
+    /// </summary>
+    /// <remarks>
+    /// Read this after the load window has settled, not before: a page's decision to leave is often
+    /// made by a script that runs on a timer, so asking straight after the synchronous scripts would
+    /// miss it. Read it before disposing the session, too — the request lives on the bridge, and
+    /// disposal takes the bridge with it.
+    /// </remarks>
+    public NavigationRequest? PendingNavigation => _disposed ? null : _bridge.PendingNavigation;
+
+    /// <summary>
     /// Executes one batch of pending timer and animation-frame callbacks,
     /// drains micro-tasks, and returns the serialised DOM HTML reflecting
     /// the current state.  Returns <c>null</c> if no callbacks were
