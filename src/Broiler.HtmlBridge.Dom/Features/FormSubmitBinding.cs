@@ -13,8 +13,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The <c>form.submit()</c> action, registered on every element wrapper, co-located as an HtmlBridge
 /// feature module (Phase 3). On a <c>&lt;form&gt;</c> it builds a synthetic cancelable <c>submit</c>
 /// event and fires the form's registered <c>submit</c> listeners; if a listener calls
-/// <c>preventDefault()</c> the default action is suppressed (this engine does not navigate on submit, so
-/// the prevention is logged). The listener store is read through the one-member
+/// <c>preventDefault()</c> the default action is suppressed, and otherwise the submission is handed
+/// to the host. The default action used to be nothing at all, which made <c>preventDefault()</c> a
+/// no-op cancelling a no-op; it is now the difference between the form going and staying.
+/// <para>
+/// The bridge names the form and resolves its <c>action</c>, and the host builds the data set —
+/// serializing a form is something it already does for keyboard and mouse submissions, and doing it
+/// a second time here is how the two would drift.
+/// </para>
+/// The listener store and the submission handover are the
 /// <see cref="IFormSubmitHost"/> contract; the no-op function factory, the listener invoker and the
 /// render logger are the bridge's static helpers, called directly. Was the bridge's
 /// <c>JsJsObjectsSubmit125Core</c>.
@@ -50,10 +57,16 @@ internal static class FormSubmitBinding
                 }
             }
 
-            // If preventDefault was called, do not proceed with default action
+            // preventDefault() on the synthetic event suppresses the default action, which is now a
+            // real one: the submission is handed to the host rather than dropped, so a listener that
+            // cancels has to be able to stop it going.
             if (prevented)
             {
                 RenderLogger.LogDebug(LogCategory.JavaScript, "DomBridge.submit", "Default action prevented");
+            }
+            else
+            {
+                host.RequestFormSubmission(element);
             }
         }
 

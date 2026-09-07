@@ -22,6 +22,13 @@ public enum NavigationKind
     /// and — unlike the three above — asked for it after a stated wait.
     /// </summary>
     MetaRefresh,
+
+    /// <summary>
+    /// <c>form.submit()</c>: the one navigation whose target the bridge cannot finish computing, so
+    /// the request names the form and the host builds the rest. See
+    /// <see cref="NavigationRequest.FormIndex"/>.
+    /// </summary>
+    FormSubmit,
 }
 
 /// <summary>
@@ -52,4 +59,25 @@ public enum NavigationKind
 /// a redirect, a long one is a notice meant to be read, and only the host knows whether it can
 /// honour either.
 /// </param>
-public sealed record NavigationRequest(string Url, NavigationKind Kind, TimeSpan Delay = default);
+public sealed record NavigationRequest(string Url, NavigationKind Kind, TimeSpan Delay = default)
+{
+    /// <summary>
+    /// For <see cref="NavigationKind.FormSubmit"/>, which of the document's forms to submit,
+    /// counted in document order. <c>-1</c> for every other kind.
+    /// </summary>
+    /// <remarks>
+    /// A form submission is the one navigation the bridge cannot finish describing. Its target
+    /// depends on the form's data set — a GET puts it in the query — and serializing that is the
+    /// host's job, done once for keyboard, mouse and script rather than a second time here. What the
+    /// bridge can say is <i>which</i> form, and it says it by position because that is what survives
+    /// the trip: the host re-parses the serialized document rather than sharing this one's nodes, and
+    /// a form with no <c>id</c> or <c>name</c> has nothing else to be identified by. Both walk the
+    /// same document in the same order.
+    /// <para>
+    /// <see cref="Url"/> still carries the form's resolved <c>action</c>, which is the whole target
+    /// for a POST and the stem of it for a GET — enough for a log line to name where the page was
+    /// going.
+    /// </para>
+    /// </remarks>
+    public int FormIndex { get; init; } = -1;
+}
