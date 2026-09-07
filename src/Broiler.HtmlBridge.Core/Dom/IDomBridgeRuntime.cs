@@ -28,15 +28,24 @@ public interface IDomBridgeRuntime
     bool HasPendingTimersDueBy(double virtualHorizonMs);
 
     /// <summary>
-    /// The cross-document navigation the page asked for, or <c>null</c> if it asked for none.
+    /// Takes the cross-document navigation the page asked for, clearing it, or returns <c>null</c>
+    /// if it asked for none.
     /// <para>
-    /// Read it after script execution has settled: a navigation is a request to leave a document
+    /// Call it after script execution has settled: a navigation is a request to leave a document
     /// that is still running, and acting on it mid-script would tear down the context underneath
     /// the code that made the request. The last request wins, as it does in a browser, where a
     /// second assignment supersedes the navigation the first one started.
     /// </para>
+    /// <para>
+    /// <b>Taking, not reading.</b> A host asks this at more than one moment — once while loading and
+    /// again while the loaded page runs on — and a request that stayed put after the first ask was
+    /// served twice: the load decided not to follow it, and the second ask performed it anyway,
+    /// several seconds later and with none of the first decision's budgets. Consuming it means the
+    /// later ask sees only what the page asked for after the earlier one, which is the only thing
+    /// it should act on. A page that still wants to leave asks again, and that is a new decision.
+    /// </para>
     /// </summary>
-    NavigationRequest? PendingNavigation { get; }
+    NavigationRequest? TakePendingNavigation();
 
     void Attach(JSContext context, string html);
 

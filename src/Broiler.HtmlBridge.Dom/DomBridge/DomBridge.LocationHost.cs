@@ -12,7 +12,12 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
     private NavigationRequest? _pendingNavigation;
 
     /// <inheritdoc />
-    public NavigationRequest? PendingNavigation => _pendingNavigation;
+    public NavigationRequest? TakePendingNavigation()
+    {
+        var pending = _pendingNavigation;
+        _pendingNavigation = null;
+        return pending;
+    }
 
     JSValue Dom.Features.ILocationHost.DispatchWindowEvent(JSObject evt)
         => DispatchWindowEvent(evt);

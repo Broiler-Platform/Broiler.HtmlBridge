@@ -26,7 +26,7 @@ public class ScriptNavigationTests
     {
         using var session = new ScriptEngine().ExecuteInteractive([script], [], PageHtml, url);
         Assert.NotNull(session);
-        return session!.PendingNavigation;
+        return session!.TakePendingNavigation();
     }
 
     [Fact]
@@ -112,10 +112,42 @@ public class ScriptNavigationTests
             PageUrl);
 
         Assert.NotNull(session);
-        Assert.Null(session!.PendingNavigation);
+        Assert.Null(session!.TakePendingNavigation());
 
         session.SettleLoadWindow(CancellationToken.None);
 
-        Assert.Equal(OtherUrl, session.PendingNavigation?.Url);
+        Assert.Equal(OtherUrl, session.TakePendingNavigation()?.Url);
+    }
+
+    [Fact]
+    public void ARequestIsAnsweredOnceAndNotAgain()
+    {
+        // Measured against google.de: the load window read the pending navigation, the per-path
+        // budget declined it, and the post-load path then found it still sitting there and
+        // performed it seven seconds later with a fresh set of budgets — the refusal undone by the
+        // code meant to catch what came after it. Taking rather than reading is what stops that, so
+        // a second ask sees only what the page asked for since.
+        using var session = new ScriptEngine().ExecuteInteractive(
+            [$"location.replace('{OtherUrl}');"], [], PageHtml, PageUrl);
+        Assert.NotNull(session);
+
+        Assert.Equal(OtherUrl, session!.TakePendingNavigation()?.Url);
+        Assert.Null(session.TakePendingNavigation());
+    }
+
+    [Fact]
+    public void APageThatAsksAgainIsHeardAgain()
+    {
+        // The other half: consuming must not deafen the host to a page that genuinely re-asks. That
+        // is a new decision, not the old one resurfacing.
+        using var session = new ScriptEngine().ExecuteInteractive(
+            [$"setTimeout(function () {{ location.replace('{OtherUrl}'); }}, 0);"], [], PageHtml, PageUrl);
+        Assert.NotNull(session);
+
+        Assert.Null(session!.TakePendingNavigation());
+
+        session.SettleLoadWindow(CancellationToken.None);
+
+        Assert.Equal(OtherUrl, session.TakePendingNavigation()?.Url);
     }
 }
