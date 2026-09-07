@@ -25,7 +25,7 @@ public sealed partial class DomBridge
     private bool IsMvpNativeAnchorInsetBox(
         DomElement element, Dictionary<string, string> cssProps,
         Dictionary<string, AnchorInfo> anchorRegistry,
-        Dictionary<string, Dictionary<string, string>>? positionTryRules = null)
+        Dictionary<string, IReadOnlyDictionary<string, string>>? positionTryRules = null)
     {
         // Merge inline styles over matched-rule props (inline wins), matching what the
         // engine cascade projects onto the box.
@@ -175,7 +175,7 @@ public sealed partial class DomBridge
     /// </summary>
     private bool NativePositionTryHandoffSupported(
         Dictionary<string, string> merged,
-        Dictionary<string, Dictionary<string, string>>? positionTryRules,
+        Dictionary<string, IReadOnlyDictionary<string, string>>? positionTryRules,
         bool childless)
     {
         if (positionTryRules == null || positionTryRules.Count == 0)

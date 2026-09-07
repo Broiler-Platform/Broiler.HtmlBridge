@@ -275,7 +275,7 @@ public sealed partial class DomBridge
     private void InsertDialogBackdrops(
         DomElement root, int vpW, int vpH,
         Dictionary<string, AnchorInfo> anchorRegistry,
-        Dictionary<string, Dictionary<string, string>> positionTryRules)
+        Dictionary<string, IReadOnlyDictionary<string, string>> positionTryRules)
     {
         var modals = new List<(DomElement dialog, DomElement parent, bool isPopover)>();
         FindModalDialogs(root, modals);

@@ -40,7 +40,7 @@ public sealed partial class DomBridge
     /// </remarks>
     private void ApplySubDocumentTopLayer(
         Dictionary<string, AnchorInfo> anchorRegistry,
-        Dictionary<string, Dictionary<string, string>> positionTryRules)
+        Dictionary<string, IReadOnlyDictionary<string, string>> positionTryRules)
     {
         // Snapshot: a pass below can materialise a frame (reading a computed style loads a
         // sub-document), which would otherwise mutate the map mid-iteration.
