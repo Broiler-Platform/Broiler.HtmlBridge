@@ -1,3 +1,5 @@
+using System;
+
 namespace Broiler.HtmlBridge.Dom;
 
 /// <summary>
@@ -14,6 +16,12 @@ public enum NavigationKind
 
     /// <summary><c>location.reload()</c>: load the document's own URL again.</summary>
     Reload,
+
+    /// <summary>
+    /// <c>&lt;meta http-equiv="refresh"&gt;</c>: the document asked in markup rather than in script,
+    /// and — unlike the three above — asked for it after a stated wait.
+    /// </summary>
+    MetaRefresh,
 }
 
 /// <summary>
@@ -37,4 +45,11 @@ public enum NavigationKind
 /// knowing what the page actually wrote.
 /// </param>
 /// <param name="Kind">Which of the navigation methods the page called.</param>
-public sealed record NavigationRequest(string Url, NavigationKind Kind);
+/// <param name="Delay">
+/// How long the document asked to wait first. Zero for everything a script asks for — a script
+/// wanting a delayed navigation uses a timer and asks when it fires. Only
+/// <see cref="NavigationKind.MetaRefresh"/> states one, and the difference matters: a short wait is
+/// a redirect, a long one is a notice meant to be read, and only the host knows whether it can
+/// honour either.
+/// </param>
+public sealed record NavigationRequest(string Url, NavigationKind Kind, TimeSpan Delay = default);
