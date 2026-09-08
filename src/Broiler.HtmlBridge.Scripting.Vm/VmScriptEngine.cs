@@ -73,6 +73,36 @@ public sealed class VmScriptEngine : IScriptEngine
     internal VmCompilationCache Cache { get; set; } = VmCompilationCache.Shared;
 
     /// <summary>
+    /// The artifacts compiled for this page's own <c>eval</c>, <c>new Function</c> and
+    /// <c>import()</c>. One per engine, and deliberately NOT the shared cache.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>GUEST-SUPPLIED SOURCE DOES NOT GO IN A PROCESS-WIDE CACHE, FOR TWO REASONS THAT BOTH
+    /// SURVIVE INSPECTION.</b>
+    /// </para>
+    /// <para>
+    /// The first is a timing signal, and on this profile it is not theoretical: the realm installs
+    /// <c>Date</c> with a working <c>now</c>, so a page can time its own <c>eval</c>. Were the
+    /// cache shared, one page could evaluate a string and learn from the latency whether some other
+    /// page had already evaluated it — which is a question about another document's content, asked
+    /// through a cache. Real browsers key code caches by origin for the same reason; this engine
+    /// has no origin, so it takes the conservative scope instead.
+    /// </para>
+    /// <para>
+    /// The second is eviction. A page chooses how many distinct strings it evaluates, and a shared
+    /// cache is bounded — so a page that evaluated enough of them would push out the compiled
+    /// documents of every other page in the process. Per-engine, a page can only evict itself.
+    /// </para>
+    /// <para>
+    /// The cost is that a hit is a repeat within one page, which is the pattern that actually
+    /// repeats: <c>new Function</c> with one body called from a loop, or a template evaluated once
+    /// per row. A repeat across page loads is given up on purpose.
+    /// </para>
+    /// </remarks>
+    internal VmCompilationCache GuestLoadCache { get; set; } = new(maximumEntries: 32, maximumBytes: 1024 * 1024);
+
+    /// <summary>
     /// Creates a VM-backed engine that forwards the document-bearing paths to
     /// <paramref name="documentEngine"/>.
     /// </summary>
@@ -513,7 +543,7 @@ public sealed class VmScriptEngine : IScriptEngine
         {
             capabilities.Add(VmCapabilityRegistration.ArtifactProvider(
                 JavaScriptProfile.SourceProviderCapability,
-                new VmSourceProvider(modules, WideBytecode)));
+                new VmSourceProvider(modules, WideBytecode, GuestLoadCache)));
 
             capabilities.Add(VmCapabilityRegistration.Value(
                 JavaScriptProfile.ResolveCapability,

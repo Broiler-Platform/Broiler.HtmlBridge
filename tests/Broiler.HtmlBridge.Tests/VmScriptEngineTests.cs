@@ -513,6 +513,90 @@ public class VmScriptEngineTests
         }
 
         /// <summary>
+        /// One body evaluated repeatedly is compiled once — the pattern that actually repeats.
+        /// </summary>
+        /// <remarks>
+        /// <c>new Function</c> with one body called from a loop, or a template evaluated per row.
+        /// The guest asks the host to compile every time; the host answers from what it compiled
+        /// the first time.
+        /// </remarks>
+        [Fact]
+        public void ARepeatedEvalIsCompiledOnce()
+        {
+            var engine = Engine(Fresh());
+            var guest = Fresh();
+            engine.GuestLoadCache = guest;
+
+            Assert.True(engine.Execute(["for (var i = 0; i < 5; i++) { (0, eval)('1 + 1'); }"]));
+
+            Assert.Equal(1, guest.Compilations);
+            Assert.Equal(4, guest.Hits);
+        }
+
+        [Fact]
+        public void DistinctEvalsAreCompiledSeparately()
+        {
+            var engine = Engine(Fresh());
+            var guest = Fresh();
+            engine.GuestLoadCache = guest;
+
+            Assert.True(engine.Execute(["(0, eval)('1 + 1'); (0, eval)('2 + 2');"]));
+
+            Assert.Equal(2, guest.Compilations);
+            Assert.Equal(0, guest.Hits);
+        }
+
+        /// <summary>A cached eval still answers, and still answers the right value.</summary>
+        [Fact]
+        public void ARepeatedEvalStillProducesItsValue()
+        {
+            var engine = Engine(Fresh());
+            var guest = Fresh();
+            engine.GuestLoadCache = guest;
+
+            var written = new List<string>();
+            void Capture(RenderLogEntry entry) => written.Add(entry.Message);
+
+            RenderLogger.EntryLogged += Capture;
+            try
+            {
+                engine.Execute(["print('a=' + (0, eval)('20 + 22')); print('b=' + (0, eval)('20 + 22'));"]);
+            }
+            finally
+            {
+                RenderLogger.EntryLogged -= Capture;
+            }
+
+            var all = string.Join("\n", written);
+            Assert.Contains("a=42", all);
+            Assert.Contains("b=42", all);
+            Assert.Equal(1, guest.Compilations);
+        }
+
+        /// <summary>
+        /// The two caches are separate, and a page's evaluation cannot reach the shared one.
+        /// </summary>
+        /// <remarks>
+        /// This is the eviction half of why guest source is scoped per engine: were it one cache, a
+        /// page that evaluated enough distinct strings would push out every other page's compiled
+        /// document. The timing half cannot be asserted here — it is an argument about what a page
+        /// could learn, not about a counter — and is recorded in <c>GuestLoadCache</c>'s remarks.
+        /// </remarks>
+        [Fact]
+        public void GuestSourceDoesNotEnterTheDocumentCache()
+        {
+            var document = Fresh();
+            var guest = Fresh();
+            var engine = Engine(document);
+            engine.GuestLoadCache = guest;
+
+            engine.Execute(["(0, eval)('1 + 1');"]);
+
+            Assert.Equal(1, document.Compilations);   // the document itself, and nothing more
+            Assert.Equal(1, guest.Compilations);      // the eval, in its own cache
+        }
+
+        /// <summary>
         /// The shapes the cache key mirrors, pinned so that one growing a field fails HERE.
         /// </summary>
         /// <remarks>
