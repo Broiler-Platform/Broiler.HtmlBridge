@@ -3,6 +3,7 @@
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
+using Broiler.VM.Profile.JavaScript.Compiler;
 
 namespace Broiler.Browser.Core.Tests;
 
@@ -125,13 +126,6 @@ public class VmScriptEngineTests
         var error = Assert.Single(result.Errors);
         Assert.Equal(1, error.ScriptIndex);
     }
-
-    /// <summary>
-    /// <c>eval</c> works, because the engine registers a source provider that compiles what the
-    /// guest hands it. The profile cannot compile a string on its own, so this passing is evidence
-    /// the guest-initiated-load path is wired end to end: the guest asked, the core mediated, this
-    /// composition compiled, the core verified the result and ran it.
-    /// </summary>
 
     /// <summary>
     /// A DIRECT <c>eval</c> inside a function is refused, and the refusal comes from the profile
@@ -335,6 +329,240 @@ public class VmScriptEngineTests
         var engine = Engine(out var document);
 
         Assert.Same(document.MicroTasks, engine.MicroTasks);
+    }
+
+
+    /// <summary>
+    /// The compilation cache: what it must save, and what it must never get wrong.
+    /// </summary>
+    /// <remarks>
+    /// <b>Every case here counts compilations rather than timing them.</b> "The second run compiled
+    /// nothing" is a fact a machine either reproduces or does not; "the second run was faster" is a
+    /// measurement, and a measurement inside a test is a flake waiting for a loaded build agent.
+    /// Each test uses its own cache instance so the shared one cannot make one test's result depend
+    /// on another's having run first.
+    /// </remarks>
+    public class Caching
+    {
+        private static VmScriptEngine Engine(VmCompilationCache cache) =>
+            new(new RecordingEngine()) { Cache = cache };
+
+        private static VmCompilationCache Fresh() => new(maximumEntries: 8, maximumBytes: 1 << 20);
+
+        [Fact]
+        public void TheSameDocumentIsCompiledOnce()
+        {
+            var cache = Fresh();
+            string[] scripts = ["var a = 1;", "var b = a + 1;"];
+
+            Assert.True(Engine(cache).Execute(scripts));
+            Assert.Equal(1, cache.Compilations);
+
+            Assert.True(Engine(cache).Execute(scripts));
+            Assert.Equal(1, cache.Compilations);
+            Assert.Equal(1, cache.Hits);
+        }
+
+        [Fact]
+        public void ADifferentDocumentIsCompiledAgain()
+        {
+            var cache = Fresh();
+
+            Engine(cache).Execute(["var a = 1;"]);
+            Engine(cache).Execute(["var a = 2;"]);
+
+            Assert.Equal(2, cache.Compilations);
+            Assert.Equal(0, cache.Hits);
+        }
+
+        /// <summary>
+        /// Strict mode changes what the compiler emits, so it has to change the key. Serving the
+        /// sloppy artifact to a strict document would run a different program than the one asked
+        /// for — the failure a cache key exists to prevent.
+        /// </summary>
+        [Fact]
+        public void StrictModeIsPartOfTheIdentity()
+        {
+            var cache = Fresh();
+            string[] scripts = ["var a = 1;"];
+
+            Engine(cache).Execute(scripts);
+
+            var strict = Engine(cache);
+            strict.StrictModeEnabled = true;
+            strict.Execute(scripts);
+
+            Assert.Equal(2, cache.Compilations);
+            Assert.Equal(0, cache.Hits);
+        }
+
+        /// <summary>
+        /// Two documents whose script lists are byte-identical SHARE an entry when no document URL
+        /// is supplied — which is correct, and is what most callers get.
+        /// </summary>
+        /// <remarks>
+        /// <c>Execute(scripts)</c> and <c>ExecuteDetailed(scripts)</c> pass no URL, so the referrer
+        /// is empty and the identity is the script list and the compilation flags. Two pages with
+        /// the same scripts then compile to the same program, byte for byte, and sharing is not a
+        /// collision but the point. It is pinned because the opposite was asserted in this branch's
+        /// first description of the cache, and prose about a key is worth exactly what a test says
+        /// it is.
+        /// </remarks>
+        [Fact]
+        public void WithoutADocumentUrlIdenticalScriptsShare()
+        {
+            var cache = Fresh();
+            string[] scripts = ["var shared = 1;"];
+
+            Engine(cache).Execute(scripts);
+            Engine(cache).Execute(scripts);
+
+            Assert.Equal(1, cache.Compilations);
+            Assert.Equal(1, cache.Hits);
+        }
+
+        /// <summary>
+        /// And with one supplied it separates them, because the URL is what a relative specifier
+        /// resolves against — so the same text under two documents is two programs.
+        /// </summary>
+        [Fact]
+        public void TheDocumentUrlIsPartOfTheIdentity()
+        {
+            var cache = Fresh();
+            string[] scripts = ["var a = 1;"];
+
+            Engine(cache).ExecuteDetailed(scripts, null, "https://example.test/one");
+            Engine(cache).ExecuteDetailed(scripts, null, "https://example.test/two");
+
+            Assert.Equal(2, cache.Compilations);
+            Assert.Equal(0, cache.Hits);
+        }
+
+        /// <summary>A cached document still runs, and still produces its value.</summary>
+        /// <remarks>
+        /// The counter says compilation was skipped; this says the bytes that were served are the
+        /// program. A cache that returned stale or truncated bytes would satisfy the counter and
+        /// fail here.
+        /// </remarks>
+        [Fact]
+        public void ACachedDocumentStillRuns()
+        {
+            var cache = Fresh();
+            string[] scripts = ["print('cached=' + (20 + 22));"];
+
+            Assert.Contains("cached=42", Printed(cache, scripts));
+            Assert.Contains("cached=42", Printed(cache, scripts));
+            Assert.Equal(1, cache.Compilations);
+        }
+
+        /// <summary>
+        /// Two scripts differing only in a lone surrogate are two entries.
+        /// </summary>
+        /// <remarks>
+        /// <b>This is the case that made the key hash UTF-16 code units instead of UTF-8.</b>
+        /// <c>Encoding.UTF8.GetBytes</c> uses replacement fallback, so <c>\uD800</c> and
+        /// <c>\uD801</c> both encode to the replacement bytes and hashed identically — and this is
+        /// reachable rather than theoretical, because the profile's tokenizer accepts a lone
+        /// surrogate as a legal JavaScript string element and says so. The cache would have served
+        /// one page's program to another.
+        /// </remarks>
+        [Fact]
+        public void ALoneSurrogateIsPartOfTheIdentity()
+        {
+            var cache = Fresh();
+
+            Engine(cache).Execute(["var s = '\uD800';"]);
+            Engine(cache).Execute(["var s = '\uD801';"]);
+
+            Assert.Equal(2, cache.Compilations);
+            Assert.Equal(0, cache.Hits);
+        }
+
+        /// <summary>A refusal is not stored, so a broken script is not cached as broken.</summary>
+        [Fact]
+        public void ARefusalIsNotCached()
+        {
+            var cache = Fresh();
+            string[] scripts = ["var broken = ;"];
+
+            Assert.False(Engine(cache).Execute(scripts));
+            Assert.False(Engine(cache).Execute(scripts));
+
+            Assert.Equal(0, cache.Hits);
+        }
+
+        /// <summary>The bound is enforced, and the least recently used entry is the one that goes.</summary>
+        [Fact]
+        public void TheCacheIsBounded()
+        {
+            var cache = new VmCompilationCache(maximumEntries: 2, maximumBytes: 1 << 20);
+
+            Engine(cache).Execute(["var a = 1;"]);
+            Engine(cache).Execute(["var b = 2;"]);
+            Engine(cache).Execute(["var a = 1;"]);   // keeps the first entry the most recent
+            Engine(cache).Execute(["var c = 3;"]);   // evicts `b`, the least recently used
+
+            Assert.Equal(3, cache.Compilations);
+            Assert.Equal(1, cache.Hits);
+
+            Engine(cache).Execute(["var a = 1;"]);   // still resident
+            Assert.Equal(2, cache.Hits);
+
+            Engine(cache).Execute(["var b = 2;"]);   // was evicted, so compiles again
+            Assert.Equal(4, cache.Compilations);
+        }
+
+        /// <summary>
+        /// The shapes the cache key mirrors, pinned so that one growing a field fails HERE.
+        /// </summary>
+        /// <remarks>
+        /// <b>This is the way this cache is most likely to go wrong, and it cannot be caught by
+        /// any test of behaviour.</b> The five records are positional, live in the Broiler.VM
+        /// submodule, and take their optional parameters with defaults — so a new field added
+        /// upstream compiles here unchanged, is read by the compiler, changes the artifact, and is
+        /// silently absent from the key. The cache would then serve one program for another with
+        /// nothing failing anywhere.
+        /// <para>
+        /// A gitlink bump that adds a field trips this instead. When it does, the fix is to add the
+        /// field to <c>VmCompilationCache.Key</c> and then to this list — in that order.
+        /// </para>
+        /// </remarks>
+        [Theory]
+        [InlineData(typeof(JsScriptUnit), "Name,Options,Referrer,Text,ForceStrict")]
+        [InlineData(typeof(JsModuleUnit), "Key,Options,Requests,Text")]
+        [InlineData(typeof(JsResolvedRequest), "Key,Specifier")]
+        [InlineData(typeof(JsCompileRequest), "Backend,Form,Manifest")]
+        [InlineData(typeof(SliceParseOptions), "AllowTopLevelAwait,Goal,GoalIsStrict,MaximumNestingDepth")]
+        public void TheKeyMirrorsEveryFieldOfTheCompilerInputs(Type shape, string expected)
+        {
+            var actual = shape
+                .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                .Select(p => p.Name)
+                .Where(n => n != "EqualityContract")
+                .OrderBy(n => n, StringComparer.Ordinal);
+
+            Assert.Equal(
+                expected.Split(',').OrderBy(n => n, StringComparer.Ordinal),
+                actual);
+        }
+
+        private static string Printed(VmCompilationCache cache, IReadOnlyList<string> scripts)
+        {
+            var written = new List<string>();
+            void Capture(RenderLogEntry entry) => written.Add(entry.Message);
+
+            RenderLogger.EntryLogged += Capture;
+            try
+            {
+                Engine(cache).Execute(scripts);
+            }
+            finally
+            {
+                RenderLogger.EntryLogged -= Capture;
+            }
+
+            return string.Join("\n", written);
+        }
     }
 
     /// <summary>

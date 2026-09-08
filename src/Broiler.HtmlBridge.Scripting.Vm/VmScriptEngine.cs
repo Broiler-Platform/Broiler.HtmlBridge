@@ -63,6 +63,16 @@ public sealed class VmScriptEngine : IScriptEngine
     private readonly IScriptEngine _documentEngine;
 
     /// <summary>
+    /// The compiled artifacts this engine reuses. Process-wide by default, so two pages running one
+    /// library compile it once.
+    /// </summary>
+    /// <remarks>
+    /// Settable only from inside the assembly, and only so a test can hold an isolated cache
+    /// instead of racing every other test through the shared one. A page cannot reach it.
+    /// </remarks>
+    internal VmCompilationCache Cache { get; set; } = VmCompilationCache.Shared;
+
+    /// <summary>
     /// Creates a VM-backed engine that forwards the document-bearing paths to
     /// <paramref name="documentEngine"/>.
     /// </summary>
@@ -266,7 +276,11 @@ public sealed class VmScriptEngine : IScriptEngine
         // until Broiler.VM had a reason to change what an unstated request means -- and would then
         // compile a document's scripts under a different manifest with nothing said about it.
         // Naming them makes that a compile error in the profile's own vocabulary instead.
-        return JsCompiler.Compile(units, [], WideBytecode);
+        //
+        // THROUGH THE CACHE, so a document seen twice is compiled once. The bytes it returns are
+        // still verified on every use: what is saved is the lowering and not the verification, and
+        // Broiler.VM's own contract is what makes that distinction non-negotiable.
+        return Cache.GetOrCompile(units, [], WideBytecode);
     }
 
     /// <summary>What this engine asks the front end for: the wide surface, lowered to bytecode.</summary>
