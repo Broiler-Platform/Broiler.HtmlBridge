@@ -87,6 +87,27 @@ internal sealed class VmCompilationCache
         _maximumBytes = maximumBytes;
     }
 
+    /// <summary>
+    /// Where this cache also keeps its artifacts, so a document compiled in one run is not compiled
+    /// again in the next. Null — no disk at all — unless a host sets one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It is a second tier and not a replacement.</b> Memory is asked first, disk second, the
+    /// compiler last; anything found on disk is promoted into memory so the next hit in this run
+    /// costs nothing. What disk buys over memory is exactly one thing: surviving a restart. Within
+    /// a run the in-memory tier already has it.
+    /// </para>
+    /// <para>
+    /// <b>Never set on the guest-load cache.</b> Persisting what a page passed to <c>eval</c> would
+    /// write guest-chosen strings to disk under a name derived from their content, and would undo
+    /// the scoping that keeps one navigation chain's evaluations out of another's. Only documents
+    /// are persisted, and only when a host asks. See <c>VmArtifactStore</c> for why the default is
+    /// no disk at all.
+    /// </para>
+    /// </remarks>
+    internal VmArtifactStore? Store { get; set; }
+
     /// <summary>How many compilations this cache has had to perform.</summary>
     /// <remarks>
     /// The counters exist so a test can assert the cache WORKS without asserting how LONG anything
@@ -145,6 +166,20 @@ internal sealed class VmCompilationCache
             }
         }
 
+        // DISK IS THE SECOND TIER, ASKED BEFORE THE COMPILER AND AFTER MEMORY. A hit here is
+        // promoted into memory, so the next one in this run costs a dictionary lookup rather than
+        // a file read. It counts as a hit and not a compilation, because that is what it is.
+        if (Store is { } store && store.TryRead(key) is { } stored)
+        {
+            lock (_lock)
+            {
+                Hits++;
+                Remember(key, stored);
+            }
+
+            return new JsCompilation(true, stored, []);
+        }
+
         // OUTSIDE THE LOCK. Compiling a megabyte of script while holding it would serialise every
         // other page in the process behind this one, and the worst a concurrent duplicate costs is
         // one wasted compilation that the second writer discards.
@@ -163,16 +198,26 @@ internal sealed class VmCompilationCache
         lock (_lock)
         {
             Compilations++;
-
-            if (compiled.Artifact.LongLength <= _maximumBytes && !_entries.ContainsKey(key))
-            {
-                _entries[key] = new Entry(compiled.Artifact, ++_clock);
-                _bytes += compiled.Artifact.LongLength;
-                Evict();
-            }
+            Remember(key, compiled.Artifact);
         }
 
+        // Outside the lock for the same reason the compile is: a file write must not hold every
+        // other page in the process behind it. Best effort throughout — see VmArtifactStore.
+        Store?.Write(key, compiled.Artifact);
+
         return compiled;
+    }
+
+    /// <summary>Adds one artifact to the in-memory tier, if it fits and is not already there.</summary>
+    /// <remarks>The caller holds the lock.</remarks>
+    private void Remember(string key, byte[] artifact)
+    {
+        if (artifact.LongLength > _maximumBytes || _entries.ContainsKey(key))
+            return;
+
+        _entries[key] = new Entry(artifact, ++_clock);
+        _bytes += artifact.LongLength;
+        Evict();
     }
 
     /// <summary>Drops least-recently-used entries until the cache is inside both bounds.</summary>
