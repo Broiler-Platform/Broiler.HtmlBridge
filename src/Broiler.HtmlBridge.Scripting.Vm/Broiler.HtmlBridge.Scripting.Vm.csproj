@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Broiler.HtmlBridge</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>An IScriptEngine backed by the Broiler.VM JavaScript profile, selected by the Debug-VM and Release-VM configurations.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Browser.Core" />
+    <InternalsVisibleTo Include="Broiler.Browser.Core.Tests" />
+  </ItemGroup>
+
+  <!--
+    THE FIVE BROILER.VM PROJECTS A HOST OF THE JAVASCRIPT PROFILE NEEDS, and no sixth.
+
+    Abstractions and Binary are the profile-neutral contracts and the bounded binary primitives;
+    Runtime is the lifecycle (VmRuntime.Create/Verify/Instantiate/Invoke); Profile.JavaScript is
+    the profile itself, arriving through its own static accessor rather than being discovered;
+    Profile.JavaScript.Compiler is the front end that turns source into an artifact.
+
+    That last one is what makes this composition a `narrow-runtime-compiler` in Broiler.VM's own
+    vocabulary rather than an execution-only host, and it is the reference a reader should expect
+    to have to justify: a browser is handed SOURCE, so a host without the lowering could verify
+    and run artifacts it was given and never run a <script> tag.
+
+    Deliberately absent: Profile.WebAssembly and every Broiler.VM.Composition.* root. The
+    composition roots are Broiler.VM's own end-user hosts and none of them is this one; the
+    solution manifest's forbiddenProjectPatterns would reject the WebAssembly profile on all three
+    platform heads anyway, and it has no business in a JavaScript engine's closure.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Abstractions\Broiler.VM.Abstractions.csproj" />
+    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Binary\Broiler.VM.Binary.csproj" />
+    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Runtime\Broiler.VM.Runtime.csproj" />
+    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Profile.JavaScript\Broiler.VM.Profile.JavaScript.csproj" />
+    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Profile.JavaScript.Compiler\Broiler.VM.Profile.JavaScript.Compiler.csproj" />
+  </ItemGroup>
+
+  <!--
+    Core carries ScriptExecutionResult, ContentSecurityPolicy, ModuleRoot, MicroTaskQueue and the
+    logger; Scripting carries IScriptEngine and InteractiveSession. Neither drags Broiler.JS into
+    this project's own source — but both are in its transitive closure, because
+    Broiler.HtmlBridge.Scripting is the assembly that declares the interface this implements and it
+    is itself a Broiler.JS consumer. That is a fact about the seam, not about this project, and
+    docs/vm-javascript-profile.md says why it cannot be otherwise yet.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />
+    <ProjectReference Include="..\Broiler.HtmlBridge.Scripting\Broiler.HtmlBridge.Scripting.csproj" />
+  </ItemGroup>
+
+</Project>
