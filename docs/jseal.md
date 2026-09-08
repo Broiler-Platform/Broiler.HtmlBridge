@@ -293,22 +293,35 @@ and it is scaffolding meant to be deleted. It is a cast, not a conversion — a 
 already carries the engine's `JSObject` — and every use of it is one place the migration has not
 reached.
 
-**Where it stands as this landed.** Nine feature bindings are migrated and each reaches *zero* engine
-tokens — `ConsoleBinding`, `Base64Binding`, `WindowBarPropBinding`, `ScreenOrientationBinding`,
-`PerformanceMemoryBinding`, `StorageQuotaBinding`, `ClassListBinding`, `CryptoBinding` and
-`NodeConstantsBinding`. `Broiler.HtmlBridge.Dom`'s engine references fell from **891 to 861**. The
-conformance suite is 51 tests over `JsEngineRegistry.All`.
+**Where it stands.** `Broiler.HtmlBridge.Dom`'s engine references have gone from **891 to 116**, and
+its eval sites from 55 to 6, across six commits. Every DOM feature binding, every registration hub,
+the node wrapper factories, the event system, the four exotic objects and the worker/messaging surface
+are migrated. `eng/jseal-budget.json` carries the live number; this paragraph will go stale and the
+budget file will not.
 
-**That is about 3% of the coupling, and the remaining 97% is the honest headline.** What has been
-proved is not that the bridge is portable — it is that the seam holds under the real build for real
-bindings: a migrated binding names no engine type, its objects are indistinguishable to a page from
-the ones the unmigrated half builds, and both halves share one realm. The budget file is the number
-to trust; this paragraph will go stale and it says so.
+**The remaining 116 are structural, not unfinished.** They fall into six kinds, and every occurrence
+names its own pin in its own doc comment:
 
-The conformance suite earned its place immediately by finding two defects in the provider it was
-written to check — `JsCall.NewTarget` always reporting `Missing` inside a host constructor, and an
-exotic object's supported names being filtered out of `Object.keys` and object spread. Both are
-fixed; both would have reached a page.
+| What | Why it stays |
+|---|---|
+| `DomBridge.Realm.cs`, `RegisterDocument(JSContext)` | The floor. One *adopts* a context; the other swaps the code cache, a Broiler.JS optimisation with no JSEAL vocabulary |
+| `IDomBridgeRuntime.Attach(JSContext, …)` | Declared in `Broiler.HtmlBridge.Core`, and consumed by `Broiler.Cli`/`Broiler.Wpt`/`Broiler.DevConsole`, which are not in this checkout |
+| The three wrapper-root fields | `DomBridge` declares them; ten files read them. One commit, whenever someone owns all ten |
+| The ArrayBuffer mint, test and read | `IJsValues` has no binary-data member. The three operations a contract would need are specified against their five call sites, in the files that want them |
+| The weak tables | A `ConditionalWeakTable` needs a reference-typed key, and `JsValue` is a struct. **This is the one real cost of the value design**, and it is written down where it bites rather than in a footnote |
+| `BridgeModuleContext` | It derives from the engine's module context to inject specifier resolution and CSP-gated fetch. JSEAL has no module-graph contract, and one implementer is not enough to design one from |
+
+Two of those are genuine contract gaps with a written specification waiting (binary data, the module
+graph); one is a design cost stated honestly; three are ordinary work.
+
+**The conformance suite has earned its place three times.** It found `JsCall.NewTarget` always
+reporting `Missing` inside a host constructor; an exotic object's supported names being filtered out
+of `Object.keys` and object spread, so `Object.keys(form.elements)` saw no named controls; and
+`DefineIndex` not growing an Array's length, which made an index written through the contract
+invisible to every array generic. A fourth defect — an adopted realm installing its own job pump as
+the thread's synchronization context, stranding the host's promise reactions — was caught by the
+contract's own remarks during the worker migration. All four are fixed, and all four would have
+reached a page.
 
 ## Broiler.VM: why there is no provider yet
 
