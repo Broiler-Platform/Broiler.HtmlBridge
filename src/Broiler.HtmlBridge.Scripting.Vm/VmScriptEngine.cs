@@ -1,0 +1,493 @@
+using System.Collections.Immutable;
+using System.Globalization;
+using System.Text;
+using Broiler.HtmlBridge.Logging;
+using Broiler.HtmlBridge.Scripting;
+using Broiler.VM;
+using Broiler.VM.Profile.JavaScript;
+using Broiler.VM.Profile.JavaScript.Compiler;
+using Broiler.VM.Profile.JavaScript.Format;
+
+namespace Broiler.HtmlBridge;
+
+/// <summary>
+/// An <see cref="IScriptEngine"/> that runs script on the Broiler.VM JavaScript profile.
+/// Selected by the <c>Debug-VM</c> and <c>Release-VM</c> configurations.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>IT RUNS THE SCRIPT-ONLY PATHS AND DELEGATES THE DOM-BEARING ONES, AND THAT SPLIT IS THE
+/// FIRST THING A READER SHOULD KNOW.</b> <see cref="Execute(IReadOnlyList{string})"/> and
+/// <see cref="ExecuteDetailed"/> compile, verify, instantiate and invoke on the VM and touch
+/// Broiler.JS nowhere. Every overload that takes <c>html</c>, and
+/// <see cref="ExecuteInteractive(IReadOnlyList{string}, IReadOnlyList{string}, string, string?)"/>,
+/// is forwarded verbatim to the Broiler.JS engine passed to the constructor.
+/// </para>
+/// <para>
+/// <b>The delegation is a property of the VM's host boundary, not a shortcut taken here.</b> A
+/// host capability of the JavaScript profile is a call over opaque bytes —
+/// <c>VmHostBytesCapabilityHandler</c> takes a <c>VmBytes</c> and answers a <c>VmOpaqueRef</c> —
+/// and a DOM is not a byte string. Broiler.HtmlBridge.Dom projects the document by defining
+/// JavaScript objects whose accessors are CLR delegates over live nodes, across 250 files of
+/// <c>Broiler.JavaScript</c> types, and there is no surface on the profile through which that
+/// could be re-expressed today. <see cref="InteractiveSession"/> settles it independently: its
+/// constructor is internal and takes a <c>JSContext</c>, so an engine outside Broiler.JS cannot
+/// produce one at all.
+/// </para>
+/// <para>
+/// <b>So Broiler.JS is in the graph under the VM configurations too, and this class does not
+/// pretend otherwise.</b> What <c>Debug-VM</c> changes is which engine the browser instantiates
+/// and therefore which engine runs a page's script when no document is required. See
+/// <c>docs/vm-javascript-profile.md</c>.
+/// </para>
+/// <para>
+/// <b>One artifact, one instance, one realm per call.</b> A document's scripts are compiled into a
+/// single artifact with one entry point each and invoked in order against one instance, which is
+/// what makes script 1 see script 0's declarations. That is the shape Broiler.VM's own wide host
+/// uses and the reason its compiler takes a LIST of scripts rather than a concatenation:
+/// concatenating would change <c>this</c> inside a constructor and change what a directive
+/// prologue means.
+/// </para>
+/// </remarks>
+public sealed class VmScriptEngine : IScriptEngine
+{
+    /// <summary>The identity this engine presents to the verifier.</summary>
+    /// <remarks>
+    /// It names what is calling, not who is running it. A user or machine name here would put an
+    /// environment detail into a diagnostic the log retains.
+    /// </remarks>
+    private const string Caller = "broiler-browser://htmlbridge";
+
+    private const string LogContext = "VmScriptEngine";
+
+    private readonly IScriptEngine _documentEngine;
+
+    /// <summary>
+    /// Creates a VM-backed engine that forwards the document-bearing paths to
+    /// <paramref name="documentEngine"/>.
+    /// </summary>
+    /// <param name="documentEngine">
+    /// The engine that owns the DOM — in practice <c>ScriptEngine</c>. It is a constructor
+    /// argument rather than a <c>new ScriptEngine()</c> inside this class so that the delegation is
+    /// visible at the composition site instead of hidden here, and so a test can substitute one.
+    /// </param>
+    public VmScriptEngine(IScriptEngine documentEngine)
+    {
+        _documentEngine = documentEngine ?? throw new ArgumentNullException(nameof(documentEngine));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Set on both engines. On the VM path it becomes the compiler's <c>forceStrict</c>, which
+    /// applies the strictness as a property of the compilation rather than by prepending a
+    /// directive to the source — so a script whose own first statement is not a prologue is still
+    /// made strict, and the reported column numbers still point at what the author wrote.
+    /// </remarks>
+    public bool StrictModeEnabled
+    {
+        get;
+        set
+        {
+            field = value;
+            _documentEngine.StrictModeEnabled = value;
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Forwarded, and unread on the VM path. A CSP gates <c>eval()</c>; on this engine
+    /// <c>eval</c> is refused unconditionally, because answering it needs the profile's
+    /// source-provider capability and <see cref="RuntimeOptions"/> registers none. That is
+    /// stricter than any policy a document could state, so there is nothing for the policy to
+    /// decide — and the property is still forwarded, because the delegated document paths run on
+    /// an engine where it does decide.
+    /// </remarks>
+    public ContentSecurityPolicy? Csp
+    {
+        get;
+        set
+        {
+            field = value;
+            _documentEngine.Csp = value;
+        }
+    }
+
+    /// <inheritdoc />
+    public ScriptProfilingHook? Profiler
+    {
+        get;
+        set
+        {
+            field = value;
+            _documentEngine.Profiler = value;
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The document engine's queue, deliberately, and not a second one. Two queues would mean a
+    /// <c>queueMicrotask</c> callback landing in whichever queue the host happened to drain, and
+    /// the VM profile settles its own jobs through its drain entry point rather than through this.
+    /// </remarks>
+    public MicroTaskQueue MicroTasks => _documentEngine.MicroTasks;
+
+    /// <inheritdoc />
+    public bool Execute(IReadOnlyList<string> scripts) => ExecuteDetailed(scripts).Success;
+
+    /// <inheritdoc />
+    public ScriptExecutionResult ExecuteDetailed(IReadOnlyList<string> scripts)
+    {
+        ArgumentNullException.ThrowIfNull(scripts);
+
+        if (scripts.Count == 0)
+            return new ScriptExecutionResult { Success = true };
+
+        var compiled = Compile(scripts);
+
+        if (!compiled.Succeeded || compiled.Artifact is null)
+            return new ScriptExecutionResult { Success = false, Errors = AttributeRefusal(scripts, compiled) };
+
+        var created = VmRuntime.Create(ProfileCatalog(), RuntimeOptions());
+
+        if (!created.TryGetRuntime(out var runtime))
+        {
+            // A runtime this engine asked for and this engine's own composition refused is a defect
+            // here rather than anything the page did, and it is reported against every script
+            // because not one of them ran.
+            return Failed(
+                scripts,
+                $"the Broiler.VM runtime refused creation: {created.Outcome}/{created.Reason}");
+        }
+
+        using (runtime)
+        {
+            return Run(runtime, compiled.Artifact, scripts.Count);
+        }
+    }
+
+    /// <inheritdoc />
+    public string? Execute(IReadOnlyList<string> scripts, string html) =>
+        Delegated(nameof(Execute)).Execute(scripts, html);
+
+    /// <inheritdoc />
+    public string? Execute(IReadOnlyList<string> scripts, string html, string? url) =>
+        Delegated(nameof(Execute)).Execute(scripts, html, url);
+
+    /// <inheritdoc />
+    public string? Execute(
+        IReadOnlyList<string> scripts, IReadOnlyList<string> deferredScripts, string html, string? url) =>
+        Delegated(nameof(Execute)).Execute(scripts, deferredScripts, html, url);
+
+    /// <inheritdoc />
+    public string? Execute(
+        IReadOnlyList<string> scripts,
+        IReadOnlyList<string> deferredScripts,
+        string html,
+        string? url,
+        IReadOnlyList<ModuleRoot>? moduleRoots) =>
+        Delegated(nameof(Execute)).Execute(scripts, deferredScripts, html, url, moduleRoots);
+
+    /// <inheritdoc />
+    public InteractiveSession? ExecuteInteractive(
+        IReadOnlyList<string> scripts, IReadOnlyList<string> deferredScripts, string html, string? url) =>
+        Delegated(nameof(ExecuteInteractive)).ExecuteInteractive(scripts, deferredScripts, html, url);
+
+    /// <inheritdoc />
+    public InteractiveSession? ExecuteInteractive(
+        IReadOnlyList<string> scripts,
+        IReadOnlyList<string> deferredScripts,
+        string html,
+        string? url,
+        IReadOnlyList<ModuleRoot>? moduleRoots) =>
+        Delegated(nameof(ExecuteInteractive)).ExecuteInteractive(scripts, deferredScripts, html, url, moduleRoots);
+
+    /// <summary>
+    /// Names the delegation in the log once per call and hands back the engine that will serve it.
+    /// </summary>
+    /// <remarks>
+    /// It logs at debug rather than warning: this is the designed behaviour of the configuration
+    /// and not a fault, but a reader looking at a <c>Debug-VM</c> session and wondering which
+    /// engine rendered the page is entitled to find the answer in the log rather than in this file.
+    /// </remarks>
+    private IScriptEngine Delegated(string member)
+    {
+        RenderLogger.LogDebug(
+            LogCategory.JavaScript,
+            LogContext,
+            $"{member} needs a document, which the Broiler.VM JavaScript profile cannot host; " +
+            "serving it from the Broiler.JS engine.");
+
+        return _documentEngine;
+    }
+
+    /// <summary>Compiles a document's scripts into one artifact, one entry point each.</summary>
+    private JsCompilation Compile(IReadOnlyList<string> scripts)
+    {
+        var units = new List<JsScriptUnit>(scripts.Count);
+
+        for (var index = 0; index < scripts.Count; index++)
+            units.Add(Unit(scripts[index], index));
+
+        // THE ONE-ARGUMENT OVERLOAD, DELIBERATELY, AND IT IS A COMPATIBILITY CHOICE RATHER THAN A
+        // TERSENESS ONE. Broiler.VM also offers an overload taking a JsCompileRequest, which would
+        // let this name the wide surface and the bytecode form explicitly instead of taking them
+        // as defaults -- and that type does not exist at the commit this repository's gitlink
+        // pins. Writing against it would compile here, where the submodule checkout is ahead of
+        // the pin, and fail in CI, which checks out the pin. The default this takes IS the wide
+        // surface in bytecode, at both commits.
+        return JsCompiler.Compile(units);
+    }
+
+    private JsScriptUnit Unit(string source, int index) =>
+        new(EntryPoint(index), source, SliceParseOptions.Script, StrictModeEnabled);
+
+    /// <summary>The entry point the compiler emits for the <paramref name="index"/>-th script.</summary>
+    private static string EntryPoint(int index) =>
+        string.Create(CultureInfo.InvariantCulture, $"script{index}");
+
+    /// <summary>
+    /// Says which scripts a refused compilation refuses, by compiling each one alone.
+    /// </summary>
+    /// <remarks>
+    /// <b>A diagnostic carries a line and a column and no unit, so the batch cannot say which
+    /// script it was reading.</b> Reporting every diagnostic against script 0 would name the wrong
+    /// script whenever the fault is in a later one, which on a page with a dozen scripts is most
+    /// of the time. Compiling each unit alone answers it exactly, and costs a second pass only on
+    /// the path that already failed.
+    /// <para>
+    /// A batch that refuses while every script compiles alone is possible — a later script can
+    /// redeclare an earlier one's lexical binding — and is reported against all of them, because
+    /// that refusal genuinely belongs to no single script.
+    /// </para>
+    /// </remarks>
+    private IReadOnlyList<ScriptError> AttributeRefusal(IReadOnlyList<string> scripts, JsCompilation batch)
+    {
+        var errors = new List<ScriptError>();
+
+        for (var index = 0; index < scripts.Count; index++)
+        {
+            var alone = JsCompiler.Compile([Unit(scripts[index], index)]);
+
+            if (alone.Succeeded)
+                continue;
+
+            errors.Add(Error(index, "the Broiler.VM front end refused the source: " + First(alone)));
+        }
+
+        if (errors.Count != 0)
+            return errors;
+
+        var whole = "the Broiler.VM front end refused the document's scripts together, " +
+            "though each compiles alone: " + First(batch);
+
+        for (var index = 0; index < scripts.Count; index++)
+            errors.Add(Error(index, whole));
+
+        return errors;
+    }
+
+    /// <summary>Verifies, instantiates and invokes; one entry point per script, then the drain.</summary>
+    private ScriptExecutionResult Run(VmRuntime runtime, byte[] artifact, int scripts)
+    {
+        var descriptor = new VmArtifactDescriptor(
+            JavaScriptProfile.Id,
+            JsFormat.FormatVersion,
+            JavaScriptProfile.WideManifest,
+            default,
+            VmCallerIdentity.FromCanonicalIdentity(Caller));
+
+        var verified = runtime.Verify(in descriptor, artifact, CancellationToken.None);
+
+        if (!verified.TryGetArtifact(out var verifiedArtifact))
+        {
+            // AN ARTIFACT THIS ENGINE'S OWN FRONT END PRODUCED AND ITS OWN VERIFIER REFUSED IS A
+            // DEFECT HERE, not a property of the page, and the message says so rather than
+            // blaming the script. Exhaustion is the exception: verification is work, it is
+            // charged, and running out of allowance while doing it is an answer about size.
+            var reason = verified.Outcome == VmOutcome.ResourceExhaustion
+                ? $"verifying the document's scripts spent the allowance: {verified.Reason}"
+                : "the Broiler.VM verifier refused an artifact this engine produced: " +
+                  $"{verified.Diagnostics.ProfileDiagnosticCode} ({verified.Outcome}/{verified.Reason})";
+
+            return Failed(scripts, reason);
+        }
+
+        var instantiated = runtime.Instantiate(verifiedArtifact, CancellationToken.None);
+
+        if (!instantiated.TryGetInstance(out var instance))
+        {
+            return Failed(
+                scripts,
+                instantiated.Outcome == VmOutcome.ResourceExhaustion
+                    ? $"instantiating the document's scripts spent the allowance: {instantiated.Reason}"
+                    : "the artifact verified and would not instantiate: " +
+                      $"({instantiated.Outcome}/{instantiated.Reason})");
+        }
+
+        var errors = new List<ScriptError>();
+
+        // THE LAST TIME ROUND IS THE JOB QUEUE. A queue drained at a point nobody stated is a
+        // behaviour no embedder can reason about, so the profile never chooses and this engine
+        // does: after the last script, which is what makes `Promise.resolve(1).then(f)` run f
+        // before Execute returns. The document paths drain through MicroTasks instead — see the
+        // remark on that property for why there is only one queue and it is not this one.
+        for (var index = 0; index <= scripts; index++)
+        {
+            var drain = index == scripts;
+            var name = drain ? JavaScriptProfile.DrainEntryPoint : EntryPoint(index);
+            var label = drain ? "the job queue" : ScriptLabel.Inline(index);
+
+            // Attributing a fault to a script means attributing the DRAIN's fault to the last one:
+            // a rejected promise settles there, and reporting it against a script index nobody can
+            // point at would be worse than naming the last script that could have queued it.
+            var attributed = drain ? Math.Max(scripts - 1, 0) : index;
+
+            VmInvocationResult result = default;
+
+            Measured(label, () =>
+            {
+                var request = new VmInvocationRequest(new VmUtf8Text(Encoding.UTF8.GetBytes(name)));
+                result = instance.Invoke(in request, CancellationToken.None);
+            });
+
+            if (result.Outcome == VmOutcome.ResourceExhaustion)
+            {
+                errors.Add(Error(
+                    attributed,
+                    $"{label} did not settle within its allowance: {result.Reason} " +
+                    $"on {result.Diagnostics.ExhaustedDimension}"));
+
+                // The allowance is spent for the whole runtime, not for this entry point, so every
+                // later invocation would answer the same way. Stopping says it once.
+                break;
+            }
+
+            if (JavaScriptProfile.TryGetUncaught(in result, out var uncaught))
+            {
+                errors.Add(Error(attributed, "uncaught " + uncaught.Message));
+
+                // A script that throws does not stop the ones after it: that is what a document
+                // does, and it is why ScriptExecutionResult carries a list rather than a first
+                // error. The drain still runs, because a rejected job is still a job.
+                continue;
+            }
+
+            if (JavaScriptProfile.TryGetWideCompletion(in result, out _))
+                continue;
+
+            errors.Add(Error(
+                attributed,
+                $"the invocation of {label} answered {result.Outcome}/{result.Reason} and carried no payload, " +
+                "which is a defect in this engine rather than in the script"));
+        }
+
+        return new ScriptExecutionResult { Success = errors.Count == 0, Errors = errors };
+    }
+
+    /// <summary>Runs <paramref name="work"/> under the profiling hook when one is attached.</summary>
+    private void Measured(string label, Action work)
+    {
+        if (Profiler is { } profiler)
+            profiler.Measure(label, work);
+        else
+            work();
+    }
+
+    /// <summary>The catalog: one profile, arriving through its own static accessor.</summary>
+    /// <remarks>
+    /// No name is looked up, no directory scanned and no assembly loaded — which is the Native AOT
+    /// contract Broiler.VM states, and the reason a profile is a typed reference here rather than a
+    /// plug-in.
+    /// </remarks>
+    private static VmCatalog ProfileCatalog() => VmCatalog.CreateBuilder()
+        .Add(JavaScriptProfile.Descriptor)
+        .Build();
+
+    /// <summary>The runtime this engine creates for one document.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The allowance is the profile's own declared default.</b> An engine with an opinion about
+    /// how long a page's script may run would be imposing a policy the profile did not declare.
+    /// What the default buys is that a script which never terminates ends in a bounded number of
+    /// instructions rather than never — and ends at the same instruction on a fast machine and a
+    /// slow one, because the VM charges fuel per instruction and not per second.
+    /// </para>
+    /// <para>
+    /// <b>One capability is registered and two are not, and the two are the interesting ones.</b>
+    /// <c>print</c> reaches the render log, which is this composition's decision. No source
+    /// provider is registered, so <c>eval</c> and <c>new Function</c> are refused
+    /// deterministically; no resolver is registered, so <c>import()</c> is too. Registering either
+    /// would mean this engine deciding what a page may evaluate and what a specifier names, and
+    /// neither question has an answer here yet — the document paths that would need them run on
+    /// the other engine.
+    /// </para>
+    /// </remarks>
+    private static VmRuntimeCreationOptions RuntimeOptions()
+    {
+        var ceilings = ImmutableArray.CreateBuilder<VmCeilingSpec>();
+
+        foreach (var dimension in VmBudgetDimensions.All)
+        {
+            ceilings.Add(dimension == VmBudgetDimension.LiveRuntimes
+                ? VmCeilingSpec.AdoptParentRemaining(dimension)
+                : VmCeilingSpec.AdoptProfileDefault(dimension));
+        }
+
+        var capabilities = ImmutableArray.CreateBuilder<VmCapabilityRegistration>();
+        capabilities.Add(VmCapabilityRegistration.Value(JavaScriptProfile.WriteCapability, Write));
+
+        return new VmRuntimeCreationOptions(
+            aggregateBudget: null,
+            ceilings: ceilings.ToImmutable(),
+            maxSuspendedResidency: TimeSpan.FromMinutes(1),
+            maxLiveSuspendedOperations: 1,
+            guestLoadBounds: VmGuestLoadBoundsSpec.AdoptProfileMaxima,
+            externalSuspension: VmExternalSuspensionMode.Disabled,
+            capabilities: capabilities.ToImmutable());
+    }
+
+    /// <summary>The one host capability this engine registers: write a line to the render log.</summary>
+    private static VmHostCallOutcome Write(VmBytes argument, out VmOpaqueRef result)
+    {
+        result = default;
+        RenderLogger.LogDebug(LogCategory.JavaScript, LogContext, Encoding.UTF8.GetString(argument.Span));
+        return VmHostCallOutcome.Completed;
+    }
+
+    /// <summary>The first diagnostic of a refused compilation, or a line saying there was none.</summary>
+    private static string First(JsCompilation compilation) =>
+        compilation.Diagnostics.Count == 0
+            ? "and named no diagnostic, which is a defect in the front end rather than in the source"
+            : compilation.Diagnostics[0].ToString();
+
+    /// <summary>A result in which nothing ran, reported against every script, because nothing did.</summary>
+    private static ScriptExecutionResult Failed(IReadOnlyList<string> scripts, string message) =>
+        Failed(scripts.Count, message);
+
+    private static ScriptExecutionResult Failed(int scripts, string message)
+    {
+        var errors = new List<ScriptError>(scripts);
+
+        for (var index = 0; index < scripts; index++)
+            errors.Add(Error(index, message));
+
+        return new ScriptExecutionResult { Success = false, Errors = errors };
+    }
+
+    /// <summary>
+    /// One error, logged as it is recorded.
+    /// </summary>
+    /// <remarks>
+    /// The stack trace is empty and stays empty: what a caller wants for a VM fault is the guest's
+    /// frames, and a CLR trace of this engine's own call stack would be a plausible-looking answer
+    /// to a different question. <c>ScriptError.StackTrace</c> documents itself as a .NET trace, so
+    /// leaving it empty says "none captured" rather than misreporting one.
+    /// </remarks>
+    private static ScriptError Error(int index, string message)
+    {
+        RenderLogger.LogWarning(
+            LogCategory.JavaScript, LogContext, $"Script {ScriptLabel.Inline(index)} failed: {message}");
+
+        return new ScriptError { ScriptIndex = index, Message = message, StackTrace = string.Empty };
+    }
+}
