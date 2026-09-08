@@ -17,6 +17,10 @@
     <InternalsVisibleTo Include="Broiler.DevConsole.Tests" />
     <InternalsVisibleTo Include="Broiler.HtmlBridge.Dom" />
     <InternalsVisibleTo Include="Broiler.HtmlBridge.Scripting" />
+    <!-- For UrlResolver alone. The VM engine resolves a dynamic import()'s specifier, and it has
+         to resolve it the same way ScriptExtractionService resolved the keys it is matching
+         against — two resolvers would make `./a.mjs` a module the map does not contain. -->
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Scripting.Vm" />
     <InternalsVisibleTo Include="Broiler.Wpt" />
     <InternalsVisibleTo Include="Broiler.Wpt.Tests" />
   </ItemGroup>

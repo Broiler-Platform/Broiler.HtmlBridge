@@ -1,6 +1,7 @@
 #if BROILER_VM_JS
 
 using Broiler.HtmlBridge;
+using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 
 namespace Broiler.Browser.Core.Tests;
@@ -32,6 +33,43 @@ public class VmScriptEngineTests
     }
 
     private static VmScriptEngine Engine() => new(new RecordingEngine());
+
+    private const string DocumentUrl = "https://example.test/page";
+
+    private static readonly ModuleRoot[] Roots =
+    [
+        new("https://example.test/main.mjs", "export const answer = 42;", "https://example.test/main.mjs"),
+        new("https://example.test/entry.mjs", "export const ready = true;", "https://example.test/entry.mjs"),
+    ];
+
+    /// <summary>
+    /// Runs <paramref name="work"/> and returns what the guest wrote through <c>print</c>.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>print</c> is the only channel a guest has to say something this test can read.</b> The
+    /// engine registers the profile's write capability against the render log, so a script that
+    /// prints is observable here and a script that merely assigns to a global is not — there is no
+    /// host API to inspect a realm, which is the same boundary that keeps a DOM off this profile.
+    /// That makes it the right instrument for asserting a module actually EVALUATED rather than
+    /// that a promise was created.
+    /// </remarks>
+    private static string Printed(Func<VmScriptEngine, ScriptExecutionResult> work)
+    {
+        var written = new List<string>();
+        void Capture(RenderLogEntry entry) => written.Add(entry.Message);
+
+        RenderLogger.EntryLogged += Capture;
+        try
+        {
+            work(Engine());
+        }
+        finally
+        {
+            RenderLogger.EntryLogged -= Capture;
+        }
+
+        return string.Join("\n", written);
+    }
 
     [Fact]
     public void RunsAScriptOnTheVm()
@@ -89,14 +127,138 @@ public class VmScriptEngineTests
     }
 
     /// <summary>
-    /// <c>eval</c> is refused whatever the page says, because answering it needs the profile's
-    /// source-provider capability and this engine registers none. The assertion is that the refusal
-    /// is reported as a script failure rather than crashing the host or passing silently.
+    /// <c>eval</c> works, because the engine registers a source provider that compiles what the
+    /// guest hands it. The profile cannot compile a string on its own, so this passing is evidence
+    /// the guest-initiated-load path is wired end to end: the guest asked, the core mediated, this
+    /// composition compiled, the core verified the result and ran it.
     /// </summary>
     [Fact]
-    public void EvalIsRefused()
+    public void EvalIsAnswered()
     {
-        Assert.False(Engine().Execute(["eval('1 + 1');"]));
+        // The VALUE and not just the absence of a throw: a refused eval and an eval that answered
+        // the wrong thing are both failures, and only one of them shows up as an exception.
+        Assert.Contains("eval=42", Printed(engine => engine.ExecuteDetailed(["print('eval=' + eval('21 * 2'));"], null)));
+    }
+
+    [Fact]
+    public void TheFunctionConstructorIsAnswered()
+    {
+        Assert.Contains(
+            "function=7",
+            Printed(engine => engine.ExecuteDetailed(
+                ["var f = new Function('return 7;'); print('function=' + f());"], null)));
+    }
+
+    /// <summary>
+    /// And the same call is refused when the page's policy forbids evaluation — not by a check
+    /// inside the engine, but because a runtime built for that page registers no provider at all.
+    /// </summary>
+    [Fact]
+    public void EvalIsRefusedWhenThePolicyForbidsIt()
+    {
+        var engine = Engine();
+        var csp = new ContentSecurityPolicy();
+        csp.Parse("script-src 'self'");
+
+        Assert.False(csp.AllowsEval);
+
+        engine.Csp = csp;
+
+        Assert.False(engine.Execute(["eval('1 + 1');"]));
+    }
+
+    /// <summary>
+    /// A page that states no policy is not a page that forbids evaluation. Defaulting to refusal
+    /// would make this engine quietly stricter than the Broiler.JS one on the very same document.
+    /// </summary>
+    [Fact]
+    public void NoPolicyMeansEvaluationIsAnswered()
+    {
+        var engine = Engine();
+
+        Assert.Null(engine.Csp);
+        Assert.True(engine.Execute(["eval('1 + 1');"]));
+    }
+
+    /// <summary>
+    /// A policy that permits evaluation registers the provider again, so the decision tracks the
+    /// document rather than being taken once for the engine.
+    /// </summary>
+    [Fact]
+    public void APermissivePolicyAnswersEvaluation()
+    {
+        var engine = Engine();
+        var csp = new ContentSecurityPolicy();
+        csp.Parse("script-src 'self' 'unsafe-eval'");
+
+        Assert.True(csp.AllowsEval);
+
+        engine.Csp = csp;
+
+        Assert.True(engine.Execute(["eval('1 + 1');"]));
+    }
+
+    /// <summary>
+    /// A dynamic <c>import()</c> of a module the document declared resolves and evaluates. The
+    /// specifier is resolved by the host against the referrer's base — the same resolution
+    /// <c>ScriptExtractionService</c> used to form the keys — and the module graph is compiled by
+    /// the same provider that answers <c>eval</c>.
+    /// </summary>
+    [Fact]
+    public void ADynamicImportOfADeclaredModuleEvaluates()
+    {
+        var written = Printed(engine => engine.ExecuteDetailed(
+            ["import('./main.mjs').then(m => print('answer=' + m.answer), e => print('rejected'));"],
+            Roots,
+            DocumentUrl));
+
+        Assert.Contains("answer=42", written);
+    }
+
+    /// <summary>
+    /// A specifier the document never declared is not found, and the promise rejects. A browser
+    /// fetches nothing on the guest's behalf here, so this is a resolution answer rather than a
+    /// network one.
+    /// </summary>
+    /// <remarks>
+    /// The rejection handler is what makes this test say anything. A rejected promise is a value,
+    /// so a script that only creates one succeeds either way — asserting on the result would pass
+    /// whether the import resolved, rejected, or was never attempted.
+    /// </remarks>
+    [Fact]
+    public void ADynamicImportOfAnUndeclaredModuleRejects()
+    {
+        var written = Printed(engine => engine.ExecuteDetailed(
+            ["import('./absent.mjs').then(m => print('resolved'), e => print('rejected'));"],
+            Roots,
+            DocumentUrl));
+
+        Assert.Contains("rejected", written);
+        Assert.DoesNotContain("resolved", written);
+    }
+
+    /// <summary>
+    /// And with the policy forbidding evaluation there is no provider to ask, so even a module the
+    /// document declared is refused. The prohibition covers <c>import()</c> and not just
+    /// <c>eval</c>, because both are the same guest-initiated load.
+    /// </summary>
+    [Fact]
+    public void ADynamicImportIsRefusedWhenThePolicyForbidsEvaluation()
+    {
+        var csp = new ContentSecurityPolicy();
+        csp.Parse("script-src 'self'");
+
+        var written = Printed(engine =>
+        {
+            engine.Csp = csp;
+            return engine.ExecuteDetailed(
+                ["import('./main.mjs').then(m => print('answer=' + m.answer), e => print('rejected'));"],
+                Roots,
+                DocumentUrl);
+        });
+
+        Assert.Contains("rejected", written);
+        Assert.DoesNotContain("answer=42", written);
     }
 
     [Fact]
