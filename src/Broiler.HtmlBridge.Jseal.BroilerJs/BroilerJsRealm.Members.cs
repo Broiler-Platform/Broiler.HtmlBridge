@@ -1,4 +1,5 @@
 using Broiler.JavaScript.Ast.Misc;
+using Broiler.JavaScript.BuiltIns.Array;
 using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
@@ -109,18 +110,35 @@ internal sealed partial class BroilerJsRealm
     /// Installs an integer-indexed data property.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The <c>uint</c> overload of <c>FastAddValue</c>, not the string one with the index rendered:
     /// the engine keeps indexed properties in a separate element array, and a property installed under
     /// the <em>string</em> "0" is not the one an array generic finds when it asks whether index 0 is
     /// present. That difference is what made a live collection produce a hole per element under
     /// <c>Array.prototype.map.call</c>.
+    /// </para>
+    /// <para>
+    /// <b>On an Array, <c>length</c> follows the index, because the language says it does.</b> An
+    /// Array exotic object grows its <c>length</c> when <c>[[DefineOwnProperty]]</c> installs a higher
+    /// index; <c>FastAddValue</c>&apos;s indexed overload writes the element array without going
+    /// through that, so an array built by this method reported the length it had before and was
+    /// invisible to every generic that reads one — <c>for</c>, <c>join</c>, <c>forEach</c>, spread.
+    /// Nothing in the bridge hit it because its indexed targets are ordinary objects carrying a
+    /// <c>length</c> they manage themselves; the worker global&apos;s listener array is the first
+    /// Array to reach here, and it found the gap immediately.
+    /// </para>
     /// </remarks>
     public void DefineIndex(JsValue target, uint index, JsValue value, JsPropertyFlags flags = JsPropertyFlags.Default)
     {
         using var scope = Enter();
 
-        BroilerJsMarshal.AsObject(target, nameof(DefineIndex))
-            .FastAddValue(index, BroilerJsMarshal.Unwrap(value), ToEngineAttributes(flags, accessor: false));
+        var engineTarget = BroilerJsMarshal.AsObject(target, nameof(DefineIndex));
+        engineTarget.FastAddValue(index, BroilerJsMarshal.Unwrap(value), ToEngineAttributes(flags, accessor: false));
+
+        // index + 1 cannot overflow for a valid array index: 2^32-1 is not one, and the engine's own
+        // element writer refuses it for the same reason.
+        if (engineTarget is JSArray array && index != uint.MaxValue && array.ArrayLength <= index)
+            array.ArrayLength = index + 1d;
     }
 
     /// <inheritdoc />

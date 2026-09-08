@@ -1,14 +1,9 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
-// The engine-typed half of this file, and every line of it is an adapter. The three registration
-// sites are unmigrated: DomBridge/Registration/DocumentSurface.cs installs the eight document
-// collections through a `Func<IDocumentCollectionHost, JSContext?, JSValue>`, so the shape of the
-// eight builders is fixed by a delegate type rather than by a call; DomBridge.SubDocumentHost.cs
-// calls the same eight for a frame's document; and DomBridge/Registration/Document.cs installs
-// currentScript as an engine callback, so its call frame is still the engine's own. See the adapters
-// at the foot of the file.
-using Broiler.JavaScript.BuiltIns.Null;
+// The engine-typed half of this file, and every line of it is an adapter for one unmigrated caller:
+// DomBridge.SubDocumentHost.cs asks for the same seven collections for a frame's document and holds
+// the answer as an engine value. See the adapters at the foot of the file.
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
 
@@ -211,12 +206,11 @@ internal static class DocumentCollectionBinding
 
     /// <inheritdoc cref="Forms(IDocumentCollectionHost)" />
     /// <remarks>
-    /// <b>The context parameter is unread and cannot be dropped.</b> <c>DocumentSurface.cs</c> installs
-    /// all seven of these through one <c>Func&lt;IDocumentCollectionHost, JSContext?, JSValue&gt;</c>
-    /// local, so the parameter is part of a delegate type in a file this group does not own rather
-    /// than something a call site could stop passing. The realm that used to be found from it is now
-    /// <see cref="IDocumentCollectionHost.Realm"/>, which the same host already answers. All seven
-    /// adapters, and this remark, go when that registration site migrates.
+    /// <b>The context parameter is unread and cannot be dropped.</b> <c>DomBridge.SubDocumentHost.cs</c>
+    /// selects among all seven of these by kind and passes the bridge's script context to each, so the
+    /// parameter is part of a call shape in a file this group does not own. The realm that used to be
+    /// found from it is <see cref="IDocumentCollectionHost.Realm"/>, which the same host already
+    /// answers. All seven adapters, and this remark, go when that caller migrates.
     /// </remarks>
     public static JSValue Forms(IDocumentCollectionHost host, JSContext? context) => ToEngine(Forms(host));
 
@@ -237,16 +231,6 @@ internal static class DocumentCollectionBinding
 
     /// <summary>The engine-typed <c>document.styleSheets</c> adapter; see the remark on <c>Forms</c>.</summary>
     public static JSValue StyleSheets(IDocumentCollectionHost host, JSContext? context) => ToEngine(StyleSheets(host));
-
-    /// <inheritdoc cref="GetCurrentScript(IDocumentCollectionHost)" />
-    /// <remarks>
-    /// Pinned by <c>DomBridge/Registration/Document.cs</c>, which installs <c>currentScript</c> as an
-    /// engine callback. Unlike the seven above this one can answer a non-object, so it unwraps
-    /// through the value seam rather than the object one: <c>null</c> carries no engine reference,
-    /// and is the answer whenever no classic script is running.
-    /// </remarks>
-    public static JSValue GetCurrentScript(IDocumentCollectionHost host, in Arguments a) =>
-        Runtime.JsInterop.ToEngineValue(GetCurrentScript(host)) ?? JSNull.Value;
 
     /// <summary>The engine object a migrated collection builder minted, for an unmigrated caller.</summary>
     private static JSValue ToEngine(JsValue collection) => Runtime.JsInterop.ToEngineObject(collection);

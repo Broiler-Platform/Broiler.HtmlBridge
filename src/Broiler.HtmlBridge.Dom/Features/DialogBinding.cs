@@ -23,13 +23,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// <b>Two members stay engine-typed, and both are pinned from outside.</b>
 /// <see cref="Install(JSObject, DomElement, string, bool)"/> is called by
-/// <c>DomBridge/ElementInterfaces.cs</c> with an engine wrapper, and
-/// <see cref="InstallElementMembers"/> by <c>DomBridge/ElementInterface.cs</c> with an
+/// <c>DomBridge/ElementInterfaces.cs</c> with an engine wrapper, and forwards through
+/// <see cref="Runtime.JsInterop"/>, which carries an object across without converting it.
+/// <see cref="InstallElementMembers"/> is called by <c>DomBridge/ElementInterface.cs</c> with an
 /// <see cref="ElementSource"/> — a delegate whose parameter <em>is</em> the engine's argument frame,
-/// so a JSEAL callback has nothing to hand it. <see cref="ExitFullscreen"/> is the third: its caller
-/// is <c>DomBridge/Registration/Document.cs</c>, which takes an engine value back. Each forwards
-/// through <see cref="Runtime.JsInterop"/>, which carries an object across without converting it, and
-/// each disappears when its caller migrates.
+/// so a JSEAL callback has nothing to hand it, and the installer has to mint its two members with
+/// that frame. Both disappear when their caller migrates. <see cref="ExitFullscreenCore"/> was a
+/// third and is not: <c>DomBridge/Registration/Document.cs</c> now mints that method through the
+/// realm and takes a <see cref="JsValue"/> back.
 /// </para>
 /// </remarks>
 internal sealed class DialogBinding(IDialogHost host)

@@ -21,10 +21,13 @@ namespace Broiler.HtmlBridge.Jseal;
 /// <para>
 /// <b>Realms are not thread-affine by contract, but a provider may be.</b> A Worker gets a realm of
 /// its own on its own thread. Nothing here promises that two threads may touch one realm at once, and
-/// the Broiler.JS provider does not permit it; a host that wants to must serialise.
+/// the Broiler.JS provider does not permit it; a host that wants to must serialise. What the two
+/// realms may exchange is structured clones, and <see cref="IJsClone"/> is the whole of how — it is
+/// the second half of <see cref="JsCapabilities.WorkerRealms"/>, the first half being that a provider
+/// can build the second realm at all.
 /// </para>
 /// </remarks>
-public interface IJsRealm : IJsValues, IJsMembers, IJsCalls, IJsJobs, IJsSource, IDisposable
+public interface IJsRealm : IJsValues, IJsMembers, IJsCalls, IJsJobs, IJsSource, IJsClone, IDisposable
 {
     /// <summary>The global object — <c>globalThis</c>.</summary>
     JsValue Global { get; }

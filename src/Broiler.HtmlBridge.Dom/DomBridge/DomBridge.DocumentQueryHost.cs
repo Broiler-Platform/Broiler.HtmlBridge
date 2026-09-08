@@ -27,11 +27,11 @@ public sealed partial class DomBridge : Dom.Features.IDocumentQueryHost
     bool Dom.Features.IDocumentQueryHost.MatchesSelector(DomElement element, string selector, DomElement? scope)
         => MatchesSelector(element, selector, scope);
 
-    // The context is the diagnostic sink the DOMException is constructed against, and a null one (no
-    // bridge attached yet) means the validation is skipped — exactly as when the module passed
-    // host.JsContext straight back to this helper.
+    // The realm is what the DOMException is constructed against, and having none (no bridge attached
+    // yet) means the validation is skipped — exactly as when the module passed host.JsContext straight
+    // back to this helper and a null context meant the same thing.
     void Dom.Features.IDocumentQueryHost.ValidateSelector(string selector) =>
-        ValidateSelector(selector, _jsContext);
+        ValidateSelector(selector);
 
     JsValue Dom.Features.IDocumentQueryHost.NodeList(Func<List<JsValue>> contents) =>
         AdoptQueryCollection(Dom.Features.DomCollectionBinding.NodeList(_jsContext, () => ToQueryCollectionItems(contents())));

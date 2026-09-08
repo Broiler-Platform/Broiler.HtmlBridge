@@ -3,6 +3,7 @@ using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.BuiltIns.Boolean;
 using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.HtmlBridge.Core.Diagnostics;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
@@ -25,12 +26,24 @@ public sealed partial class DomBridge
     /// dispatch of the ones after it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>Still engine-typed, and shared.</b> Four firing paths reach it: element/document dispatch
     /// (<c>EventDispatchBinding</c>), window dispatch (<c>DomBridge.WindowLoad.cs</c>), form submit
     /// (<c>Features/FormSubmitBinding.cs</c>) and messaging (<c>Features/MessagingBinding.cs</c>) —
     /// three of which are outside this migration round. The listener it is handed is an
-    /// <c>EventListenerRegistration</c>'s, engine-typed for the same reason. It migrates when the
-    /// registration record does, and not before, so that all four move together.
+    /// <c>EventListenerRegistration</c>'s, engine-typed because that record is declared in the
+    /// equally unowned <c>DomBridge/RuntimeStates.cs</c>. It migrates when the registration record
+    /// does, and not before, so that all four move together.
+    /// </para>
+    /// <para>
+    /// <b>There is a second reason to move it deliberately rather than in passing.</b> The call below
+    /// enters the engine directly, taking the thread exactly as it finds it. A listener can be
+    /// invoked from a thread-pool thread — the messaging path routes one into its owner window
+    /// explicitly for that reason — and <c>IJsCalls.Invoke</c> would additionally install the realm's
+    /// context and job pump as ambient state for the duration of the call. That is almost certainly
+    /// the right thing and it is not the same thing, so it belongs in the commit that moves the
+    /// registration record and can be reasoned about across all four paths at once.
+    /// </para>
     /// </remarks>
     internal static void InvokeEventListener(JSValue listener, JSObject evt, string logContext)
     {
@@ -110,7 +123,7 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Compiles all <c>on*</c> HTML attributes (e.g. <c>onclick="code"</c>) on the given
-    /// element into <see cref="JSFunction"/> instances stored in <see cref="bridge-owned inline event handler state"/>.
+    /// element into functions stored in the bridge-owned inline event handler state.
     /// Only compiles attributes that have not already been compiled.
     /// </summary>
     private void CompileInlineEventAttributes(DomElement element)
@@ -145,12 +158,25 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Compiles a single <c>on*</c> attribute value into a <see cref="JSFunction"/>
-    /// and stores it in <see cref="bridge-owned inline event handler state"/>.
+    /// Compiles a single <c>on*</c> attribute value into a function and stores it in the
+    /// bridge-owned inline event handler state.
     /// </summary>
+    /// <remarks>
+    /// <b>The compile goes through the realm; the store it writes into does not.</b>
+    /// <see cref="IJsSource.EvaluateHostScript"/> is the right call and not merely the available one:
+    /// an event-handler content attribute is source the <em>page</em> wrote, but the wrapper around it
+    /// is this repository's, and HTML §8.1.5.1 makes the attribute subject to the
+    /// <c>script-src</c>/<c>unsafe-inline</c> decision taken above rather than to <c>eval</c>'s — so
+    /// the Content-Security-Policy check stays where it is and the evaluation is unconditional, which
+    /// is exactly what the bare <c>Eval</c> it replaces did. The compiled handler is unwrapped to the
+    /// engine's own value because the map it lands in is keyed by name over the engine's value type,
+    /// declared in the unowned <c>DomBridge/RuntimeStates.cs</c> and read by the equally unowned
+    /// dispatch path; unwrapping is a cast over the object the handle already carries, so the function
+    /// a listener runs is the one compiled here.
+    /// </remarks>
     internal void CompileInlineEventAttribute(DomElement element, string attrName, string code)
     {
-        if (_jsContext == null || string.IsNullOrEmpty(code) || attrName.Length <= 2) return;
+        if (_realm is not { } realm || string.IsNullOrEmpty(code) || attrName.Length <= 2) return;
         var eventName = attrName[2..].ToLowerInvariant();
         if (Csp != null && !Csp.AllowsInlineEventHandler(code))
         {
@@ -171,9 +197,14 @@ public sealed partial class DomBridge
             // The alias is added for SVG content only. Binding `evt` on an HTML element would
             // shadow a page's own global of that name inside its handlers, which no browser does.
             var svgEventAlias = IsInSvgContent(element) ? "var evt = event; " : string.Empty;
-            var fn = _jsContext.Eval($"(function(event) {{ {svgEventAlias}{code} }})") as JSFunction;
-            if (fn != null)
-                GetInlineEventHandlers(element)[eventName] = fn;
+
+            // One constant label rather than one per handler: it is the location a stack frame
+            // reports, and a label that varied with the event name would give the engine's code
+            // cache a different key for every attribute compiling the same wrapper shape.
+            var fn = realm.EvaluateHostScript(
+                $"(function(event) {{ {svgEventAlias}{code} }})", "broiler:inline-event-handler");
+            if (fn.IsFunction)
+                GetInlineEventHandlers(element)[eventName] = JsInterop.ToEngineObject(fn);
         }
         catch (Exception ex)
         {

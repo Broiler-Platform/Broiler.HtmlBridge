@@ -1,4 +1,6 @@
 using Broiler.HtmlBridge.Jseal;
+// The two engine namespaces left: the property-attribute enum the unmigrated installations below
+// pass, and the wrapper type this file is handed.
 using Broiler.JavaScript.Storage;
 using Broiler.JavaScript.Runtime;
 

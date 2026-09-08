@@ -79,9 +79,9 @@ internal sealed class SelectBinding(ISelectHost host)
         if (optEl == null)
             return JsValue.Undefined;
 
-        // IsObject is the whole of the old `a.Length > 1 && !a[1].IsNull && !a[1].IsUndefined &&
-        // a[1] is JSObject`: a missing, null or undefined argument is not an object, so the three
-        // guards collapse into the one question they were all asking.
+        // IsObject is the whole of the old four-part guard — "supplied, not null, not undefined, and
+        // an object": a missing, null or undefined argument is not an object, so all four collapse
+        // into the one question they were asking.
         DomElement? refEl = null;
         if (call[1].IsObject)
             refEl = _host.FindElement(call[1]);

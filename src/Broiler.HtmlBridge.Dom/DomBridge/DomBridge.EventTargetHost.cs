@@ -7,21 +7,38 @@ using Broiler.JavaScript.Runtime;
 namespace Broiler.HtmlBridge;
 
 // Explicit IEventTargetHost implementation for the EventTargetBinding feature module (Phase 3): the
-// bridge exposes the realm, the per-node listener store, the propagation engine (the thin
-// DispatchEventOnElement delegator over EventDispatchBinding) and the window JS object via explicit
-// interface members, so the module reaches no arbitrary bridge private field and the public surface
-// is unchanged.
+// bridge exposes the realm, the per-node listener store, the registration operations over it, the
+// propagation engine and the window JS object via explicit interface members, so the module reaches no
+// arbitrary bridge private field and the public surface is unchanged.
 //
-// Two members stay engine-typed and both are pinned from outside this slice: the listener
-// registrations (their record lives in the unowned DomBridge/RuntimeStates.cs and is shared with the
-// window, form-submit and messaging paths) and the dispatch entry point (dispatchEvent receives the
-// page's own event object from an unmigrated call frame). See IEventTargetHost.
+// The registration pair is the seam, and it is shared with the document and window contracts: a
+// registration's listener field is a Broiler.JS value in the unowned DomBridge/RuntimeStates.cs, and
+// Features/EventListenerBinding.cs is written against that, so a handle becomes an engine value here
+// rather than in the module — through ToEngineListenerValue in DomBridge.WindowEventTargetHost.cs,
+// which all three share. The listener store's own element type is that same record's, and the
+// engine-typed DispatchEventOnElement is what the pre-realm wrapper path in DomBridge/JsObjects.cs
+// still needs; both go when the record moves.
 public sealed partial class DomBridge : Dom.Features.IEventTargetHost
 {
     IJsRealm Dom.Features.IEventTargetHost.Realm => Realm;
 
     Dictionary<string, List<EventListenerRegistration>> Dom.Features.IEventTargetHost.GetEventListeners(DomNode element)
         => GetEventListeners(element);
+
+    void Dom.Features.IEventTargetHost.AddListener(
+        List<EventListenerRegistration> listeners, JsValue listener, JsValue options)
+        => Dom.Features.EventListenerBinding.AddListener(
+            listeners, ToEngineListenerValue(listener), ToEngineListenerValue(options));
+
+    void Dom.Features.IEventTargetHost.RemoveListener(
+        List<EventListenerRegistration>? listeners, JsValue listener, JsValue options)
+        => Dom.Features.EventListenerBinding.RemoveListener(
+            listeners, ToEngineListenerValue(listener), ToEngineListenerValue(options));
+
+    // The migrated dispatch answers the "not cancelled" boolean the DOM says dispatchEvent returns,
+    // which is what the engine-typed adapter beside it re-materialises as a JSBoolean.
+    JsValue Dom.Features.IEventTargetHost.DispatchEvent(DomNode element, JsValue evt)
+        => JsValue.Boolean(_eventDispatch.DispatchEventOnElement(element, evt).AsBoolean);
 
     JSValue Dom.Features.IEventTargetHost.DispatchEventOnElement(DomNode element, JSObject evt)
         => DispatchEventOnElement(element, evt);

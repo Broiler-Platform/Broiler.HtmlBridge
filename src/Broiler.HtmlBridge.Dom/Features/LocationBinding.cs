@@ -2,8 +2,8 @@ using System;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
-// Engine-typed only for the Location object itself — see the last paragraph of the class remarks for
-// which two callers pin it.
+// Engine-typed only for Build and the installer beneath it — see the last paragraph of the class
+// remarks for the one caller that pins them.
 using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
@@ -69,14 +69,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// than one that answers for the document actually in hand.
 /// </para>
 /// <para>
-/// <b>The Location object is still built as an engine object, and that is a caller's constraint rather
-/// than this module's.</b> Both entry points hand one over or hand one back: <c>Registration/Window.cs</c>
-/// builds the top-level Location itself and passes it to <see cref="AddNavigationSurface"/>, and
-/// <c>SubWindowBinding</c> asks <see cref="Build"/> for a frame's. Neither can supply an
-/// <see cref="IJsRealm"/> — the second is a static call with no host at all — and an engine argument
-/// frame cannot be lifted into a <see cref="JsCall"/>, so the property installers and their argument
-/// reads stay engine-typed until those two callers migrate. Everything that does not need to mint an
-/// object is JSEAL's: the host contract, and the <c>hashchange</c> event a fragment navigation fires.
+/// <b>One navigation surface, installed two ways, because the two callers are two vocabularies.</b>
+/// <c>Registration/Window.cs</c> builds the top-level Location through the realm and passes both to
+/// <see cref="AddNavigationSurface(IJsRealm, JsValue, string, ILocationHost?)"/>, which is the whole
+/// of that path. <see cref="Build"/> — a frame's Location, asked for by <c>SubWindowBinding</c>, a
+/// file this round does not own — is a static call with no realm to be had, so it mints its object
+/// and installs the same six members in engine terms. The <em>logic</em> is not duplicated: both
+/// installers hand the same <see cref="DocumentUrl"/> to the same
+/// <see cref="NavigateTo"/>/<see cref="Request"/> pair, and only the six installations and the two
+/// argument reads differ. That half goes when <c>SubWindowBinding</c> passes a realm.
 /// </para>
 /// </summary>
 internal static class LocationBinding
@@ -136,15 +137,15 @@ internal static class LocationBinding
             Add(location, "search", string.Empty);
         }
 
-        // `hash` is not added here — AddNavigationSurface owns it, because a fragment navigation has
-        // to move it and `href` together and a data property cannot be kept in step.
+        // `hash` is not added here — the navigation surface owns it, because a fragment navigation
+        // has to move it and `href` together and a data property cannot be kept in step.
         //
         // No host is passed: this overload builds a *frame's* Location, and neither half of the host
         // surface fits a frame. hashchange belongs to the frame's own event target, which the
         // window-dispatch contract does not reach; and a frame navigating replaces the frame, not
         // the page, which is a different operation from the one the host would perform. The frame's
         // `href` and `hash` still move on a fragment navigation — that part needs no host.
-        AddNavigationSurface(location, href);
+        AddNavigationSurface(location, new DocumentUrl(href), null);
         return location;
     }
 
@@ -154,7 +155,14 @@ internal static class LocationBinding
     /// <paramref name="host"/> takes the cross-document navigations and receives <c>hashchange</c>
     /// on a fragment one; a caller with no host passes none, and both are logged and dropped.
     /// </summary>
-    internal static void AddNavigationSurface(JSObject location, string href, ILocationHost? host = null)
+    /// <remarks>
+    /// The two argument reads coerce with the realm's <c>ToJsString</c> — the observable ECMAScript
+    /// <c>ToString</c>, because <c>location.href = new URL(…)</c> is a page assigning an object with
+    /// a <c>toString</c>, and that is what the engine's own <c>ToString()</c> ran on the same
+    /// argument before.
+    /// </remarks>
+    internal static void AddNavigationSurface(
+        IJsRealm realm, JsValue location, string href, ILocationHost? host = null)
     {
         var url = new DocumentUrl(href);
 
@@ -164,54 +172,110 @@ internal static class LocationBinding
         // and nothing else happened: the page believed it had left, the capture did not know it
         // had been asked, and the URL then disagreed with the document still in hand. As an
         // accessor it answers the document's own URL and routes the write where assign() goes.
-        location.FastAddProperty(
-            "href",
-            new DomFunction((in _) => new JSString(url.Href), "get href"),
-            new DomFunction((in a) => Navigate(url, host, "href", in a), "set href"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(
+            location, "href",
+            (in _) => JsValue.String(url.Href),
+            (in call) => Navigate(url, host, "href", in call));
 
         // `hash` is an accessor for the same reason, and for one more: `location.hash = "#x"` is a
         // navigation this engine can actually perform, so its setter is the one place here that has
         // to do more than record.
+        realm.DefineAccessor(
+            location, "hash",
+            (in _) => JsValue.String(url.Fragment),
+            (in call) => SetHash(url, host, in call));
+
+        realm.DefineValue(location, "assign",
+            realm.NewMethod("assign", (in call) => Navigate(url, host, "assign", in call), 1));
+        realm.DefineValue(location, "replace",
+            realm.NewMethod("replace", (in call) => Navigate(url, host, "replace", in call), 1));
+        realm.DefineValue(location, "reload",
+            realm.NewMethod("reload", (in _) =>
+            {
+                Request(host, NavigationKind.Reload, "location.reload()", url.Href);
+                return JsValue.Undefined;
+            }, 0));
+
+        // Location stringifies to its href, not to "[object Object]". Pages build URLs with
+        // `"" + location` and log it, and the default Object.prototype.toString made both useless.
+        realm.DefineValue(location, "toString",
+            realm.NewMethod("toString", (in _) => JsValue.String(url.Href), 0));
+    }
+
+    private static JsValue SetHash(DocumentUrl url, ILocationHost? host, in JsCall call)
+    {
+        var value = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+        // "foo" and "#foo" name the same fragment: the "#" is part of the spelling, not of the
+        // value, and HTML §7.10.5 prepends it when the page left it off.
+        NavigateTo(url, host, "hash", value.StartsWith('#') ? value : "#" + value);
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Navigate(DocumentUrl url, ILocationHost? host, string method, in JsCall call)
+    {
+        NavigateTo(url, host, method, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+        return JsValue.Undefined;
+    }
+
+    // ── the engine-typed installer, for the one caller that has no realm to give ────────────────
+    //
+    // Features/SubWindowBinding.cs asks Build() for a frame's Location as an engine object, and a
+    // static has no realm to reach. So the same six members are installed in engine terms here, over
+    // the same DocumentUrl and through the same NavigateTo/Request pair the realm-framed installer
+    // above uses — the installation is what differs, not the behaviour. Deleted when that caller
+    // hands a realm over.
+
+    private static void AddNavigationSurface(JSObject location, DocumentUrl url, ILocationHost? host)
+    {
+        location.FastAddProperty(
+            "href",
+            new DomFunction((in _) => new JSString(url.Href), "get href"),
+            new DomFunction((in a) => EngineNavigate(url, host, "href", in a), "set href"),
+            JSPropertyAttributes.EnumerableConfigurableProperty);
+
         location.FastAddProperty(
             "hash",
             new DomFunction((in _) => new JSString(url.Fragment), "get hash"),
-            new DomFunction((in a) => SetHash(url, host, in a), "set hash"),
+            new DomFunction((in a) => EngineSetHash(url, host, in a), "set hash"),
             JSPropertyAttributes.EnumerableConfigurableProperty);
 
         location.FastAddValue(
             "assign",
-            new DomFunction((in a) => Navigate(url, host, "assign", in a), "assign", 1),
+            new DomFunction((in a) => EngineNavigate(url, host, "assign", in a), "assign", 1),
             JSPropertyAttributes.EnumerableConfigurableValue);
         location.FastAddValue(
             "replace",
-            new DomFunction((in a) => Navigate(url, host, "replace", in a), "replace", 1),
+            new DomFunction((in a) => EngineNavigate(url, host, "replace", in a), "replace", 1),
             JSPropertyAttributes.EnumerableConfigurableValue);
         location.FastAddValue(
             "reload",
-            new DomFunction((in _) => Request(host, NavigationKind.Reload, "location.reload()", url.Href), "reload", 0),
+            new DomFunction((in _) =>
+            {
+                Request(host, NavigationKind.Reload, "location.reload()", url.Href);
+                return JSUndefined.Value;
+            }, "reload", 0),
             JSPropertyAttributes.EnumerableConfigurableValue);
 
-        // Location stringifies to its href, not to "[object Object]". Pages build URLs with
-        // `"" + location` and log it, and the default Object.prototype.toString made both useless.
         location.FastAddValue(
             "toString",
             new DomFunction((in _) => new JSString(url.Href), "toString", 0),
             JSPropertyAttributes.EnumerableConfigurableValue);
     }
 
-    private static JSValue SetHash(DocumentUrl url, ILocationHost? host, in Arguments a)
+    private static JSValue EngineSetHash(DocumentUrl url, ILocationHost? host, in Arguments a)
     {
         var value = a.Length > 0 ? a[0].ToString() : string.Empty;
-        // "foo" and "#foo" name the same fragment: the "#" is part of the spelling, not of the
-        // value, and HTML §7.10.5 prepends it when the page left it off.
-        return NavigateTo(url, host, "hash", value.StartsWith('#') ? value : "#" + value);
+        NavigateTo(url, host, "hash", value.StartsWith('#') ? value : "#" + value);
+        return JSUndefined.Value;
     }
 
-    private static JSValue Navigate(DocumentUrl url, ILocationHost? host, string method, in Arguments a)
-        => NavigateTo(url, host, method, a.Length > 0 ? a[0].ToString() : string.Empty);
+    private static JSValue EngineNavigate(DocumentUrl url, ILocationHost? host, string method, in Arguments a)
+    {
+        NavigateTo(url, host, method, a.Length > 0 ? a[0].ToString() : string.Empty);
+        return JSUndefined.Value;
+    }
 
-    private static JSValue NavigateTo(DocumentUrl url, ILocationHost? host, string method, string requested)
+    private static void NavigateTo(DocumentUrl url, ILocationHost? host, string method, string requested)
     {
         var target = requested;
 
@@ -236,7 +300,7 @@ internal static class LocationBinding
 
                 RenderLogger.LogDebug(LogCategory.JavaScript, LogContext,
                     $"{Spell(method, target)} is a fragment navigation; the document is unchanged and location.hash is now \"{url.Fragment}\"");
-                return JSUndefined.Value;
+                return;
             }
         }
 
@@ -249,23 +313,23 @@ internal static class LocationBinding
         {
             RenderLogger.LogDebug(LogCategory.JavaScript, LogContext,
                 $"{Spell(method, target)} ignored; this document has no absolute URL to hang a fragment on");
-            return JSUndefined.Value;
+            return;
         }
 
-        return Request(host, KindOf(method), Spell(method, target), target);
+        Request(host, KindOf(method), Spell(method, target), target);
     }
 
     /// <summary>
     /// Hands a cross-document navigation to the host, or — with no host to hand it to — logs it and
     /// drops it, which is what all of these did before the host surface existed.
     /// </summary>
-    private static JSValue Request(ILocationHost? host, NavigationKind kind, string spelling, string target)
+    private static void Request(ILocationHost? host, NavigationKind kind, string spelling, string target)
     {
         if (host == null)
         {
             RenderLogger.LogDebug(LogCategory.JavaScript, LogContext,
                 $"{spelling} requested; nothing here can load another document, so {target} is not navigated to");
-            return JSUndefined.Value;
+            return;
         }
 
         // The document's own URL is unchanged either way: nothing has loaded yet, and `href`
@@ -273,7 +337,6 @@ internal static class LocationBinding
         RenderLogger.LogDebug(LogCategory.JavaScript, LogContext,
             $"{spelling} requested; {target} handed to the host, which decides whether to follow it");
         host.RequestNavigation(new NavigationRequest(target, kind));
-        return JSUndefined.Value;
     }
 
     private static NavigationKind KindOf(string method) => method switch

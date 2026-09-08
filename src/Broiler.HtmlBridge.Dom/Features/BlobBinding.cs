@@ -49,9 +49,21 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <b>Two engine types survive the JSEAL migration here, and both are named where they occur.</b>
 /// The blob store is keyed on the engine object a handle carries, because <see cref="JsValue"/> is a
 /// struct and a weak table needs a reference to key on — object identity is the whole of what makes
-/// a blob a blob, and JSEAL exposes no identity handle a table can hold. And an <c>ArrayBuffer</c>
-/// has no <see cref="IJsValues"/> member to mint it with, which is the same line
-/// <c>StreamsBinding</c> records.
+/// a blob a blob, and JSEAL exposes no identity handle a table can hold. And binary data has no
+/// <see cref="IJsValues"/> vocabulary at all, which is the same line <c>StreamsBinding</c> and
+/// <c>FetchBinding</c> record.
+/// </para>
+/// <para>
+/// <b>What a binary-data contract would have to say, measured against this file.</b> Three
+/// operations, not one: <em>mint</em> an <c>ArrayBuffer</c> over a byte array (what
+/// <see cref="ToArrayBuffer"/> needs, and the only thing the other two modules need); <em>test</em>
+/// whether a handle is an <c>ArrayBuffer</c>, because <c>new Blob([buf])</c> has to distinguish a
+/// buffer from an object it must stringify and there is no JS-visible property that answers it; and
+/// <em>read</em> a buffer's bytes back out. A view — a typed array or a <c>DataView</c> — needs no
+/// contract of its own: <see cref="PartBytes"/> reaches its <c>buffer</c>, <c>byteOffset</c> and
+/// <c>byteLength</c> through the ordinary property reads a script would use, and only the buffer at
+/// the end of that chain is untypeable. Minting alone would leave the test and the read here, so a
+/// contract that offers only a factory does not retire this file's engine reference.
 /// </para>
 /// </remarks>
 internal sealed class BlobBinding

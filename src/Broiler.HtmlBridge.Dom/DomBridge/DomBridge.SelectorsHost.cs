@@ -21,7 +21,7 @@ namespace Broiler.HtmlBridge;
 public sealed partial class DomBridge : Dom.Features.ISelectorsHost
 {
     void Dom.Features.ISelectorsHost.ValidateSelector(string selector)
-        => ValidateSelector(selector, _jsContext);
+        => ValidateSelector(selector);
 
     JsValue Dom.Features.ISelectorsHost.FindInDescendants(DomElement element, string selector, bool all)
         => FromEngineResult(FindInDescendants(element, selector, all, this));

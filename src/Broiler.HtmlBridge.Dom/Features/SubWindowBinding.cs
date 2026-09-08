@@ -171,6 +171,12 @@ internal sealed class SubWindowBinding(
         // The frame's Location is built the same way the top-level one is — components and the
         // navigation methods together, because a framed page calls location.replace() as readily
         // as a top-level one and a missing method is a TypeError that takes its caller with it.
+        //
+        // LocationBinding still mints that object with the engine's own types and its Build takes no
+        // realm, so the result crosses back through the seam here. `realm` is already in hand three
+        // lines above, so the day Build takes one this becomes
+        // `realm.DefineValue(window, "location", LocationBinding.Build(realm, locationHref))` and the
+        // unwrapping goes — nothing else on this side has to move.
         var locationHref = GetSubWindowLocationHref(containerElement);
         var iframeLocation = JsInterop.FromEngineObject(LocationBinding.Build(locationHref));
         realm.DefineValue(window, "location", iframeLocation);

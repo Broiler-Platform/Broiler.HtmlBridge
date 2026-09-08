@@ -26,14 +26,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// conversion, so the whole registration surface stays as it is until the record moves.
 /// </para>
 /// <para>
-/// <b>Identity survives that move when it comes.</b> The comparisons below are C#
-/// <c>==</c> on the engine's value type, which declares no <c>operator ==</c> — so today they are CLR
-/// reference equality. JSEAL's <c>JsValue ==</c> is ECMAScript strict equality, and for two object
-/// handles (a listener function, or a <c>handleEvent</c> object) strict equality <em>is</em>
-/// reference identity over the same engine instance the handle carries, so <c>removeEventListener</c>
-/// keeps finding exactly the registration <c>addEventListener</c> made. The duplicate check and the
-/// <c>List</c> search reach <c>Equals</c>/<c>GetHashCode</c> rather than the operator, and
-/// <c>JsValue</c> implements both reflexively for that reason.
+/// <b>Identity survives that move when it comes — read, not assumed.</b> The comparisons below are
+/// C# <c>==</c> on the engine's value type, which declares no <c>operator ==</c>, so today they are
+/// CLR reference equality. <c>JsValue.operator ==</c> implements ECMAScript strict equality by kind,
+/// and its default arm — every object, function and array kind — is
+/// <c>ReferenceEquals(left.Reference, right.Reference)</c> over the engine object the handle carries,
+/// which is the same question. So <c>removeEventListener</c> would keep finding exactly the
+/// registration <c>addEventListener</c> made, including for a <c>handleEvent</c> object.
+/// <c>List.Any</c> and <c>List.Remove</c> reach <c>Equals</c>/<c>GetHashCode</c> rather than the
+/// operator: <c>JsValue.Equals</c> takes the same reference arm, and <c>GetHashCode</c> answers
+/// <c>RuntimeHelpers.GetHashCode(Reference)</c> for it, so both are reflexive for an object and a
+/// registration can be found in the list it was put into. The one documented divergence between the
+/// two is NaN, which no listener can be.
 /// </para>
 /// </remarks>
 internal static class EventListenerBinding

@@ -1,13 +1,11 @@
-using Broiler.JavaScript.BuiltIns.Null;
 using System.Text;
 using System.Text.RegularExpressions;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.String;
+// Two engine namespaces, and only two: JSNull for the "matched nothing" answer querySelector gives,
+// and JSObject/JSValue for the wrapper lookups and the collection lists below. The six others this
+// file carried (Number, Storage, Array, String, Engine, Function) named nothing left in it — the
+// style, classList, storage and canvas builders they served all moved to feature modules.
+using Broiler.JavaScript.BuiltIns.Null;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.Dom;
 using Broiler.CSS;
 
@@ -48,7 +46,7 @@ public sealed partial class DomBridge
         // shared descendant search, so it covers the DocumentFragment forms as well as the Element
         // ones — a browser throws from `fragment.querySelector('[')` exactly as it does from the
         // document's.
-        ValidateSelector(selector, bridge._jsContext);
+        bridge.ValidateSelector(selector);
 
         var results = new List<JSValue>();
 

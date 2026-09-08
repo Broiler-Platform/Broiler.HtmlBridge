@@ -179,8 +179,9 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         realm.DefineValue(doc, "open",
             realm.NewMethod("open", (in _) => Open(doc, docRoot), 0));
 
-        // document.close() — a no-op, and constructable, as the shared `UndefinedFunction` helper it
-        // was built by mints them (`new JSFunction`, not a DomFunction).
+        // document.close() — a no-op, and constructable: the shared `UndefinedFunction` helper it was
+        // built by minted plain function objects rather than bridge methods, so `new document.close()`
+        // does not throw. A pre-existing deviation from the interface, spelled faithfully.
         realm.DefineValue(doc, "close",
             realm.NewConstructor("close", (in _) => JsValue.Undefined, 0));
 

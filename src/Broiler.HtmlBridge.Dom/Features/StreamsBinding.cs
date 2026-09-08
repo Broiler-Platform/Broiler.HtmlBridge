@@ -67,11 +67,19 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
 
     /// <param name="context">
     /// The engine context the unmigrated caller (<c>DomBridge/Registration/Polyfills.cs</c>) still
-    /// holds. Nothing here reads it — the module installs into the realm it was constructed with —
-    /// and it goes when that registration file is migrated.
+    /// holds. Nothing here reads it — the module installs into the realm it was constructed with, so
+    /// the overload below is the whole of this one — and the parameter goes when that registration
+    /// file is migrated and calls the overload instead.
     /// </param>
     /// <param name="blobs">The blob store the byte hook reads from.</param>
-    internal void Register(Broiler.JavaScript.Engine.JSContext context, BlobBinding blobs)
+    internal void Register(Broiler.JavaScript.Engine.JSContext context, BlobBinding blobs) => Register(blobs);
+
+    /// <summary>
+    /// Registers the streams asset and <c>Blob.prototype.stream()</c> into the realm this module was
+    /// constructed with.
+    /// </summary>
+    /// <param name="blobs">The blob store the byte hook reads from.</param>
+    internal void Register(BlobBinding blobs)
     {
         var realm = _realm();
 

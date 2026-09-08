@@ -15,7 +15,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The contract names no engine type: a JS object is a <see cref="JsValue"/> and the scroll arguments
-/// arrive as the migrated call frame's own values.
+/// arrive as the migrated call frame's own values. One member <em>name</em> still carries the
+/// engine's word for a frame; see the remarks on it.
 /// </remarks>
 internal interface ISubWindowHost
 {
@@ -50,7 +51,13 @@ internal interface ISubWindowHost
     void SetElementScroll(DomElement element, double? left, double? top, bool relative, string? behavior);
 
     /// <summary>Parses <c>scroll(x,y)</c> / <c>scroll({left,top,behavior})</c> arguments.</summary>
-    (double? Left, double? Top, string? Behavior) GetScrollArguments(ReadOnlySpan<JsValue> arguments);
+    /// <remarks>
+    /// The name still carries the engine's word for a call frame, and it is the last thing in this
+    /// contract that does. It cannot be renamed from here alone: <c>IWindowScrollHost</c> — another
+    /// group's contract — declares the same member and the bridge answers both with this one
+    /// reading, so the two have to be renamed together or the shared reading splits in half.
+    /// </remarks>
+    (double? Left, double? Top, string? Behavior) GetScrollArguments(ReadOnlySpan<JsValue> supplied);
 
     /// <summary>The DOM element a JS object wraps, or <c>null</c> (for <c>getComputedStyle</c>).</summary>
     DomElement? FindElement(JsValue wrapper);

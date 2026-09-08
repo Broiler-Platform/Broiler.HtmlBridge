@@ -34,14 +34,15 @@ public sealed partial class DomBridge : ISubDocumentHost
 
     // Missing rather than undefined for "there is no window yet": the module tests it with IsObject,
     // and the value is never handed to script — the null check it replaces guarded the same thing.
-    JsValue ISubDocumentHost.MainWindow =>
-        _windowJSObject is { } window ? Dom.Runtime.JsInterop.FromEngineObject(window) : JsValue.Missing;
+    // That is exactly what the bridge's own WindowHandle answers, so this is the sibling handle
+    // (DomBridge.cs) rather than a second reading of the engine-typed field.
+    JsValue ISubDocumentHost.MainWindow => WindowHandle;
 
     JsValue ISubDocumentHost.ToJsObject(DomNode node) =>
         Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
 
     void ISubDocumentHost.LinkToInterface(JsValue wrapper, string interfaceName) =>
-        LinkToInterface(Dom.Runtime.JsInterop.ToEngineObject(wrapper), interfaceName);
+        LinkToInterface(wrapper, interfaceName);
 
     bool ISubDocumentHost.NodeInterfacePrototypesReady => _nodeInterfacePrototypesReady;
 
@@ -57,8 +58,8 @@ public sealed partial class DomBridge : ISubDocumentHost
     {
         var wrapper = Dom.Runtime.JsInterop.ToEngineObject(doc);
         _jsObjects.SetDocument(docRoot, wrapper);
-        // Map docRoot → doc JSObject so ToJSObject(docRoot) returns the doc object; this makes strict
-        // equality checks like `range.startContainer === doc` work.
+        // Map docRoot → the same document wrapper, so the node-wrapper factory hands that object back
+        // for the root; this makes strict equality checks like `range.startContainer === doc` work.
         _jsObjects.Set(docRoot, wrapper);
     }
 
@@ -101,7 +102,7 @@ public sealed partial class DomBridge : ISubDocumentHost
     void ISubDocumentHost.ValidateQualifiedName(string qualifiedName, string? ns) =>
         ValidateQualifiedName(qualifiedName, ns, _jsContext!);
 
-    void ISubDocumentHost.ValidateSelector(string selector) => ValidateSelector(selector, _jsContext);
+    void ISubDocumentHost.ValidateSelector(string selector) => ValidateSelector(selector);
 
     JsValue ISubDocumentHost.NodeList(Func<List<JsValue>> contents) =>
         AdoptSubDocumentCollection(Dom.Features.DomCollectionBinding.NodeList(

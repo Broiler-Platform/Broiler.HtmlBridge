@@ -1,7 +1,7 @@
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
-// Engine-typed for three reasons, and only three:
+// Engine-typed for two reasons, and only two:
 //
 //   * RegisterDocument takes the script context the host hands Attach and swaps its code cache for
 //     the process-shared one. That is a Broiler.JS optimisation with no JSEAL vocabulary — there is
@@ -9,14 +9,11 @@ using Broiler.HtmlBridge.Logging;
 //     is not owned this round either way.
 //   * AdoptRealm (DomBridge.Realm.cs) takes that same context to produce the realm, so the context
 //     has to reach it.
-//   * The four adapters at the foot of this file mint the functions whose feature modules still take
-//     the engine's own argument frame. See the note above them for what pins each.
 //
-// Everything the hubs actually install is built through the realm.
-using Broiler.JavaScript.BuiltIns.Function;
+// The adapters that used to be a third reason are gone; see the note at the foot of this file.
+// Everything the hubs install is built through the realm.
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge;
 
@@ -180,12 +177,12 @@ public sealed partial class DomBridge
         realm.DefineValue(window, "CSSStyleSheet", cssStyleSheetCtor);
         realm.SetProperty(realm.Global, "CSSStyleSheet", cssStyleSheetCtor);
         // getComputedStyle (CSSOM), co-located in the ComputedStyleBinding feature module (Phase 3).
-        // Pinned: that module still reads the engine's argument frame to separate the element from
-        // the pseudo-element string.
+        // Keeps the name, arity and constructable shape it had; the module separates the element from
+        // the pseudo-element string off the call's own frame.
         realm.DefineValue(
             window,
             "getComputedStyle",
-            PinnedConstructor("getComputedStyle", (in a) => Dom.Features.ComputedStyleBinding.GetComputedStyle(this, in a), 2));
+            realm.NewConstructor("getComputedStyle", (in c) => Dom.Features.ComputedStyleBinding.GetComputedStyle(this, in c), 2));
         windowBasicsScope.Dispose();
 
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowGlobals))
@@ -369,7 +366,7 @@ public sealed partial class DomBridge
     /// <c>NewConstructor</c> rather than <c>NewMethod</c> because the engine-built pair carries a
     /// prototype object and is therefore constructable, and preserving that is what makes this a
     /// refactor. (WebIDL says an operation should not be constructable; that is a pre-existing
-    /// deviation shared by every <c>JSFunction</c>-built member of the registration hubs, and
+    /// deviation shared by every constructable-function member of the registration hubs, and
     /// correcting it belongs in its own change.)
     /// </remarks>
     private JsValue UndefinedMember(string name, int length = 0) =>
@@ -379,56 +376,11 @@ public sealed partial class DomBridge
     private JsValue TrueMember(string name, int length = 0) =>
         Realm.NewConstructor(name, static (in _) => JsValue.True, length);
 
-    // ── the engine-typed adapters the registration hubs are pinned by ──────────────────────────
-    //
-    // Every member below installs a callback that cannot yet speak JSEAL: the feature module behind
-    // it still takes Broiler.JS's own `in Arguments` frame and hands back its `JSValue`, and those
-    // modules live in files this round does not own. A JsCall cannot be turned into an Arguments —
-    // the argument handles belong to the engine's call frame, not to the host — so the function has
-    // to be minted by the engine and given to the realm as a handle over it. That is all these do,
-    // and each disappears when the module behind it moves.
-    //
-    // What pins which:
-    //   PinnedMethod       Features/WindowDocumentMiscBinding.cs (alert),
-    //                      Features/WindowScrollBinding.cs,
-    //                      Features/WindowEventTargetBinding.cs,
-    //                      Features/DocumentEventTargetBinding.cs
-    //   PinnedConstructor  Features/ComputedStyleBinding.cs, Features/HitTestBinding.cs,
-    //                      Features/DocumentFactoryBinding.cs, Features/NodeMutationBinding.cs,
-    //                      Features/WindowDocumentMiscBinding.cs (hasFocus),
-    //                      DomBridge.ViewTransition.cs (startViewTransition)
-    //   PinnedAccessor     Features/NodeMutationBinding.cs (document.childNodes),
-    //                      Features/DocumentCollectionBinding.cs (currentScript and the eight live
-    //                      collections), Features/WindowDocumentMiscBinding.cs (contentType, domain,
-    //                      lastModified, document.cookie, visualViewport.scale)
-    //
-    // The two function adapters split the way the realm's own two do, and for the same reason:
-    // DomFunction is non-constructable and mirrors NewMethod, JSFunction carries a prototype and
-    // mirrors NewConstructor. Which one a member had before this round is which one it keeps.
-
-    /// <summary>A non-constructable host function over an engine callback — the realm's <c>NewMethod</c>, pinned.</summary>
-    private static JsValue PinnedMethod(string name, JSFunctionDelegate body, int length = 0) =>
-        Dom.Runtime.JsInterop.FromEngineObject(new DomFunction(body, name, length));
-
-    /// <summary>A constructable host function over an engine callback — the realm's <c>NewConstructor</c>, pinned.</summary>
-    private static JsValue PinnedConstructor(string name, JSFunctionDelegate body, int length = 0) =>
-        Dom.Runtime.JsInterop.FromEngineObject(new JSFunction(body, name, length));
-
-    /// <summary>
-    /// An accessor property whose getter, setter, or both are engine callbacks — the realm's
-    /// <c>DefineAccessor</c>, pinned.
-    /// </summary>
-    /// <remarks>
-    /// The accessor functions are named and shaped exactly as <see cref="IJsMembers.DefineAccessor"/>
-    /// names and shapes them — <c>get x</c> / <c>set x</c>, non-constructable, the setter declaring
-    /// its one argument — so a member that moves off this adapter later does not change shape on the
-    /// way. A <see langword="null"/> setter is a read-only attribute, which is how both this and the
-    /// realm spell one.
-    /// </remarks>
-    private static void PinnedAccessor(JsValue target, string name, JSFunctionDelegate getter, JSFunctionDelegate? setter = null) =>
-        Dom.Runtime.JsInterop.ToEngineObject(target).FastAddProperty(
-            (KeyString)name,
-            new DomFunction(getter, $"get {name}"),
-            setter is null ? null : new DomFunction(setter, $"set {name}", 1),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+    // The three engine-typed adapters that used to live here — PinnedMethod, PinnedConstructor and
+    // PinnedAccessor — are gone. Each existed because the feature module behind a member still took
+    // Broiler.JS's own `in Arguments` frame, and an Arguments cannot be built from a JsCall, so the
+    // function had to be minted by the engine and handed to the realm as a handle over it. Every one
+    // of those modules reads a JsCall now, and every member the hubs install is minted by
+    // realm.NewMethod / realm.NewConstructor / realm.DefineAccessor — which is where the shape each
+    // adapter was careful to reproduce came from in the first place.
 }

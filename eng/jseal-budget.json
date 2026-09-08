@@ -100,9 +100,9 @@
       "note": "Two files: IDomBridgeRuntime.Attach takes a JSContext, and ScriptCompileAhead names the engine's compiler. The first is the seam JSEAL exists to move -- an Attach that takes an IJsRealm is what makes a second engine able to serve a page at all -- so this 3 is the highest-value one in the file despite being the smallest."
     },
     "Broiler.HtmlBridge.Dom": {
-      "engineReferences": 288,
-      "engineProjectRefs": 4,
-      "guestEvalSites": 15,
+      "engineReferences": 178,
+      "engineProjectRefs": 3,
+      "guestEvalSites": 11,
       "note": "The 250-file migration. 322 source files, four of the engine's assemblies linked, and 55 evaluation sites across 28 files. This number is expected to fall in dozens, not in ones."
     },
     "Broiler.HtmlBridge.Jseal": {
@@ -112,11 +112,11 @@
       "note": "Proved by the compiler, not by this file. The project has no ProjectReference and no PackageReference, so it cannot name an engine type whatever a grep says; the check fails if that project file ever gains one. See the comment in Broiler.HtmlBridge.Jseal.csproj."
     },
     "Broiler.HtmlBridge.Jseal.BroilerJs": {
-      "engineReferences": 34,
-      "engineProjectRefs": 2,
+      "engineReferences": 42,
+      "engineProjectRefs": 3,
       "guestEvalSites": 1,
       "role": "provider",
-      "note": "The Broiler.JS provider, and the one project under src/ whose budget is not expected to reach zero. Naming Broiler.JavaScript is what this assembly is for: every reference here is a reference the bridge no longer has to make. The single eval site is JSContext.Eval inside the realm's own IJsSource implementation -- the provider being asked to evaluate, not a binding evaluating. Its two engine project references are Broiler.JavaScript.Engine and .BuiltIns."
+      "note": "The Broiler.JS provider, and the one project under src/ whose budget is not expected to reach zero. Naming Broiler.JavaScript is what this assembly is for: every reference here is a reference the bridge no longer has to make. The single eval site is JSContext.Eval inside the realm's own IJsSource implementation -- the provider being asked to evaluate, not a binding evaluating. Its two engine project references are Broiler.JavaScript.Engine and .BuiltIns. Its engineProjectRefs rose from 2 to 3 when IJsClone landed: JSGlobalStatic.StructuredClone lives in Broiler.JavaScript.Globals, so the provider that implements structured clone needs it. That is the gate doing its job rather than a regression -- the same reference LEFT Broiler.HtmlBridge.Dom in the same commit, because the bridge's only use of it was the call that is now behind the contract. An engine assembly reached by the provider and not by the bridge is the shape all of these should end in."
     },
     "Broiler.HtmlBridge.Scripting": {
       "engineReferences": 10,

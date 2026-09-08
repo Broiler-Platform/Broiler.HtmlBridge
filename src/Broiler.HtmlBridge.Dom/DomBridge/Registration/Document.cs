@@ -7,7 +7,6 @@ public sealed partial class DomBridge
     private void RegisterDocumentBasics(JsValue document)
     {
         var realm = Realm;
-        var context = _jsContext!;
 
         // document.documentElement (the <html> element) — a getter, like the scrollingElement below
         // that answers with the same element, and like the accessor a browser has on
@@ -83,32 +82,35 @@ public sealed partial class DomBridge
         realm.DefineValue(document, "querySelector", realm.NewConstructor("querySelector", (in c) => Dom.Features.DocumentQueryBinding.QuerySelector(this, in c), 1));
         realm.DefineValue(document, "querySelectorAll", realm.NewConstructor("querySelectorAll", (in c) => Dom.Features.DocumentQueryBinding.QuerySelectorAll(this, in c), 1));
         // document.elementFromPoint / elementsFromPoint (hit-testing), co-located in the HitTestBinding
-        // feature module (Phase 3). Pinned — that module reads the engine's argument frame.
-        realm.DefineValue(document, "elementFromPoint", PinnedConstructor("elementFromPoint", (in a) => Dom.Features.HitTestBinding.ElementFromPoint(this, in a), 2));
-        realm.DefineValue(document, "elementsFromPoint", PinnedConstructor("elementsFromPoint", (in a) => Dom.Features.HitTestBinding.ElementsFromPoint(this, in a), 2));
+        // feature module (Phase 3). The two keep the name, arity and constructable shape they had, and
+        // the module coerces its two coordinates through the realm.
+        realm.DefineValue(document, "elementFromPoint", realm.NewConstructor("elementFromPoint", (in c) => Dom.Features.HitTestBinding.ElementFromPoint(this, in c), 2));
+        realm.DefineValue(document, "elementsFromPoint", realm.NewConstructor("elementsFromPoint", (in c) => Dom.Features.HitTestBinding.ElementsFromPoint(this, in c), 2));
 
         // document.getAnimations() — minimal Web Animations API support used by WPT.
         realm.DefineValue(document, "getAnimations", realm.NewConstructor("getAnimations", (in _) => BuildAnimationList(null), 0));
 
         // document node factories — createElement/createTextNode/createAttribute/createDocumentFragment,
-        // co-located in the DocumentFactoryBinding feature module (Phase 3). Pinned: that module still
-        // takes both the engine's argument frame and the script context it validates names against.
-        realm.DefineValue(document, "createElement", PinnedConstructor("createElement", (in a) => Dom.Features.DocumentFactoryBinding.CreateElement(this, context, in a), 1));
-        realm.DefineValue(document, "createTextNode", PinnedConstructor("createTextNode", (in a) => Dom.Features.DocumentFactoryBinding.CreateTextNode(this, in a), 1));
-        realm.DefineValue(document, "createAttribute", PinnedConstructor("createAttribute", (in a) => Dom.Features.DocumentFactoryBinding.CreateAttribute(this, context, in a), 1));
-        realm.DefineValue(document, "createDocumentFragment", PinnedConstructor("createDocumentFragment", (in a) => Dom.Features.DocumentFactoryBinding.CreateDocumentFragment(this, in a), 0));
-        realm.DefineValue(document, "importNode", PinnedConstructor("importNode", (in a) => Dom.Features.DocumentFactoryBinding.ImportNode(this, context, in a), 2));
+        // co-located in the DocumentFactoryBinding feature module (Phase 3). The script context that
+        // used to travel with each call is gone: the name validations are on the module's host
+        // contract, and its DOM exceptions are minted through the call's own realm.
+        realm.DefineValue(document, "createElement", realm.NewConstructor("createElement", (in c) => Dom.Features.DocumentFactoryBinding.CreateElement(this, in c), 1));
+        realm.DefineValue(document, "createTextNode", realm.NewConstructor("createTextNode", (in c) => Dom.Features.DocumentFactoryBinding.CreateTextNode(this, in c), 1));
+        realm.DefineValue(document, "createAttribute", realm.NewConstructor("createAttribute", (in c) => Dom.Features.DocumentFactoryBinding.CreateAttribute(this, in c), 1));
+        realm.DefineValue(document, "createDocumentFragment", realm.NewConstructor("createDocumentFragment", (in c) => Dom.Features.DocumentFactoryBinding.CreateDocumentFragment(this, in c), 0));
+        realm.DefineValue(document, "importNode", realm.NewConstructor("importNode", (in c) => Dom.Features.DocumentFactoryBinding.ImportNode(this, in c), 2));
         // adoptNode moves the node itself rather than copying it, which is the half importNode
         // cannot do and the one a custom element hears as adoptedCallback.
-        realm.DefineValue(document, "adoptNode", PinnedConstructor("adoptNode", (in a) => Dom.Features.DocumentFactoryBinding.AdoptNode(this, context, in a), 1));
+        realm.DefineValue(document, "adoptNode", realm.NewConstructor("adoptNode", (in c) => Dom.Features.DocumentFactoryBinding.AdoptNode(this, in c), 1));
 
         // document.createEvent(type) — DOM Events Level 3 (Phase 3: co-located LegacyEventBinding module)
         realm.DefineValue(document, "createEvent", realm.NewConstructor("createEvent", Dom.Features.LegacyEventBinding.Create, 1));
 
         // document.startViewTransition(updateCallback | { update, types }) — CSS View Transitions
         // (see DomBridge.ViewTransition.cs). Runs the callback and returns a resolved ViewTransition;
-        // the pseudo tree is baked at serialize time. Pinned by that file, which is engine-typed.
-        realm.DefineValue(document, "startViewTransition", PinnedConstructor("startViewTransition", (in a) => StartViewTransition(in a), 1));
+        // the pseudo tree is baked at serialize time. The operation reads one argument — the update
+        // callback, or the dictionary carrying it — and a handle over it is the whole of that.
+        realm.DefineValue(document, "startViewTransition", realm.NewConstructor("startViewTransition", (in c) => StartViewTransition(c[0]), 1));
     }
 
     private void RegisterDocumentWriting(JsValue document)
@@ -129,7 +131,6 @@ public sealed partial class DomBridge
     private void RegisterDocumentNodeAndCollectionApis(JsValue document)
     {
         var realm = Realm;
-        var context = _jsContext!;
 
         // Node interface constants on document (a Document IS a Node) — types and the
         // DOCUMENT_POSITION_* bits.
@@ -150,18 +151,19 @@ public sealed partial class DomBridge
             (in _) => _document.ChildNodes.Count > 0 ? WrapNode(ChildAt(_document, ^1)) : JsValue.Null, null);
 
         // document-node mutation — childNodes/removeChild/appendChild/insertBefore, co-located in the
-        // NodeMutationBinding feature module (Phase 3). Pinned: that module reads the engine's frame.
-        PinnedAccessor(document, "childNodes", (in a) => Dom.Features.NodeMutationBinding.GetChildNodes(this, in a));
-        realm.DefineValue(document, "removeChild", PinnedConstructor("removeChild", (in a) => Dom.Features.NodeMutationBinding.RemoveChild(this, in a), 1));
-        realm.DefineValue(document, "appendChild", PinnedConstructor("appendChild", (in a) => Dom.Features.NodeMutationBinding.AppendChild(this, in a), 1));
-        realm.DefineValue(document, "insertBefore", PinnedConstructor("insertBefore", (in a) => Dom.Features.NodeMutationBinding.InsertBefore(this, in a), 2));
+        // NodeMutationBinding feature module (Phase 3). The module raises its DOM exceptions through
+        // the call's own realm now, so it takes no script context.
+        realm.DefineAccessor(document, "childNodes", (in c) => Dom.Features.NodeMutationBinding.GetChildNodes(this, in c), null);
+        realm.DefineValue(document, "removeChild", realm.NewConstructor("removeChild", (in c) => Dom.Features.NodeMutationBinding.RemoveChild(this, in c), 1));
+        realm.DefineValue(document, "appendChild", realm.NewConstructor("appendChild", (in c) => Dom.Features.NodeMutationBinding.AppendChild(this, in c), 1));
+        realm.DefineValue(document, "insertBefore", realm.NewConstructor("insertBefore", (in c) => Dom.Features.NodeMutationBinding.InsertBefore(this, in c), 2));
 
         // Document includes the ParentNode mixin (DOM §4.2.6), so append/prepend/replaceChildren
         // exist on the document node just as they do on an element. Only the Node-level methods
         // above were bound, which made `document.append(x)` a TypeError mid-script.
-        realm.DefineValue(document, "append", PinnedConstructor("append", (in a) => Dom.Features.NodeMutationBinding.Append(this, in a), 0));
-        realm.DefineValue(document, "prepend", PinnedConstructor("prepend", (in a) => Dom.Features.NodeMutationBinding.Prepend(this, in a), 0));
-        realm.DefineValue(document, "replaceChildren", PinnedConstructor("replaceChildren", (in a) => Dom.Features.NodeMutationBinding.ReplaceChildren(this, in a), 0));
+        realm.DefineValue(document, "append", realm.NewConstructor("append", (in c) => Dom.Features.NodeMutationBinding.Append(this, in c), 0));
+        realm.DefineValue(document, "prepend", realm.NewConstructor("prepend", (in c) => Dom.Features.NodeMutationBinding.Prepend(this, in c), 0));
+        realm.DefineValue(document, "replaceChildren", realm.NewConstructor("replaceChildren", (in c) => Dom.Features.NodeMutationBinding.ReplaceChildren(this, in c), 0));
 
         // document.forms/images/links/anchors/scripts/embeds/plugins/styleSheets — the live
         // collections, each built once and closed over so the identity a browser guarantees holds.
@@ -171,30 +173,28 @@ public sealed partial class DomBridge
         RegisterDocumentMetadata(document);
 
         // document.createElementNS(namespace, tagName)  — DocumentFactoryBinding (Phase 3)
-        realm.DefineValue(document, "createElementNS", PinnedConstructor("createElementNS", (in a) => Dom.Features.DocumentFactoryBinding.CreateElementNS(this, context, in a), 2));
+        realm.DefineValue(document, "createElementNS", realm.NewConstructor("createElementNS", (in c) => Dom.Features.DocumentFactoryBinding.CreateElementNS(this, in c), 2));
 
         // document.createAttributeNS(namespace, qualifiedName)  — DocumentFactoryBinding (Phase 3)
-        realm.DefineValue(document, "createAttributeNS", PinnedConstructor("createAttributeNS", (in a) => Dom.Features.DocumentFactoryBinding.CreateAttributeNS(this, context, in a), 2));
+        realm.DefineValue(document, "createAttributeNS", realm.NewConstructor("createAttributeNS", (in c) => Dom.Features.DocumentFactoryBinding.CreateAttributeNS(this, in c), 2));
 
         // document.currentScript — the <script> element being executed, null when none is. The
         // element the bridge already tracks for document.write's insertion point, read from the
-        // property a loader script uses to find its own <src>. Pinned by DocumentCollectionBinding.
-        PinnedAccessor(document, "currentScript", (in a) => Dom.Features.DocumentCollectionBinding.GetCurrentScript(this, in a));
+        // property a loader script uses to find its own <src>.
+        realm.DefineAccessor(document, "currentScript", (in _) => Dom.Features.DocumentCollectionBinding.GetCurrentScript(this), null);
 
         // document.adoptedStyleSheets — the live array of constructed stylesheets applied to the
-        // document (CSSOM). Readable (supports .push) and assignable (= [sheet, …]).
-        //
-        // Pinned by DomBridge/ConstructedStyleSheets.cs: the assignment is copied in engine terms so
-        // that every element of the assigned array — sheet objects and whatever else a page put
-        // there — survives the round trip byte for byte, and that file is not owned this round.
-        PinnedAccessor(
+        // document (CSSOM). Readable (supports .push) and assignable (= [sheet, …]). The assignment
+        // still copies the assigned array in engine terms — see SetAdoptedStyleSheets for the one
+        // thing JSEAL cannot yet express about an array's elements.
+        realm.DefineAccessor(
             document,
             "adoptedStyleSheets",
-            (in _) => AdoptedStyleSheetsArray(),
-            (in a) =>
+            (in _) => AdoptedStyleSheets(),
+            (in c) =>
             {
-                SetAdoptedStyleSheets(a.Length > 0 ? a[0] : JavaScript.Runtime.JSUndefined.Value);
-                return JavaScript.Runtime.JSUndefined.Value;
+                SetAdoptedStyleSheets(c[0]);
+                return JsValue.Undefined;
             });
 
         // document.open() — for main document
@@ -233,13 +233,13 @@ public sealed partial class DomBridge
         // reaches exactly what these did (DomBridge.EventTargetInterface.cs).
         if (!_eventTargetRoutingReady)
         {
-            realm.DefineValue(document, "addEventListener", PinnedConstructor("addEventListener", (in a) => Dom.Features.DocumentEventTargetBinding.AddEventListener(this, in a), 3));
-            realm.DefineValue(document, "removeEventListener", PinnedConstructor("removeEventListener", (in a) => Dom.Features.DocumentEventTargetBinding.RemoveEventListener(this, in a), 3));
-            realm.DefineValue(document, "dispatchEvent", PinnedConstructor("dispatchEvent", (in a) => Dom.Features.DocumentEventTargetBinding.DispatchEvent(this, in a), 1));
+            realm.DefineValue(document, "addEventListener", realm.NewConstructor("addEventListener", (in c) => Dom.Features.DocumentEventTargetBinding.AddEventListener(this, in c), 3));
+            realm.DefineValue(document, "removeEventListener", realm.NewConstructor("removeEventListener", (in c) => Dom.Features.DocumentEventTargetBinding.RemoveEventListener(this, in c), 3));
+            realm.DefineValue(document, "dispatchEvent", realm.NewConstructor("dispatchEvent", (in c) => Dom.Features.DocumentEventTargetBinding.DispatchEvent(this, in c), 1));
         }
 
         // document.contentType — returns the MIME type of the document
-        PinnedAccessor(document, "contentType", (in a) => Dom.Features.WindowDocumentMiscBinding.GetContentType(this, in a));
+        realm.DefineAccessor(document, "contentType", (in c) => Dom.Features.WindowDocumentMiscBinding.GetContentType(this, in c), null);
 
         // document.URL — returns the document URL
         realm.DefineAccessor(document, "URL", (in _) => JsValue.String(_pageUrl), null);
@@ -270,11 +270,11 @@ public sealed partial class DomBridge
         realm.DefineAccessor(document, "referrer", (in _) => JsValue.String(string.Empty), null);
 
         // document.domain — the origin's effective domain, i.e. this document's host.
-        PinnedAccessor(document, "domain", (in a) => Dom.Features.WindowDocumentMiscBinding.GetDocumentDomain(this, in a));
+        realm.DefineAccessor(document, "domain", (in c) => Dom.Features.WindowDocumentMiscBinding.GetDocumentDomain(this, in c), null);
 
         // document.lastModified — MM/DD/YYYY hh:mm:ss in local time; the current time when the source's
         // own modification date is unknown, which is the specification's stated fallback.
-        PinnedAccessor(document, "lastModified", (in a) => Dom.Features.WindowDocumentMiscBinding.GetLastModified(in a));
+        realm.DefineAccessor(document, "lastModified", (in c) => Dom.Features.WindowDocumentMiscBinding.GetLastModified(in c), null);
 
         // document.activeElement — the focused element, or, when nothing is focused, the body element:
         // HTML's algorithm ends "if candidate is null, set candidate to the body element", so `body` is
@@ -287,7 +287,7 @@ public sealed partial class DomBridge
 
         // document.hasFocus() — true; see the binding for why a capture's one document is always the
         // focused one, matching visibilityState below.
-        realm.DefineValue(document, "hasFocus", PinnedConstructor("hasFocus", (in a) => Dom.Features.WindowDocumentMiscBinding.HasFocus(in a), 0));
+        realm.DefineValue(document, "hasFocus", realm.NewConstructor("hasFocus", (in c) => Dom.Features.WindowDocumentMiscBinding.HasFocus(in c), 0));
 
         // document.hidden / document.visibilityState (Page Visibility, HTML §6.6). A capture
         // renders one document in one viewport and never backgrounds it, so the answer is always

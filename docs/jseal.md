@@ -116,7 +116,7 @@ re-enter the realm. The bridge has 343 such calls. JSEAL's renders `[object]` an
 
 ## The realm
 
-`IJsRealm` aggregates six narrow contracts, the way `IScriptEngine` was split in this repository's
+`IJsRealm` aggregates seven narrow contracts, the way `IScriptEngine` was split in this repository's
 Phase 8. Every binding depends on the aggregate, so nothing at a call site gets longer; the split is
 for the provider implementing them one at a time, and for the reviewer asking what an engine must be
 able to do.
@@ -128,9 +128,10 @@ able to do.
 | `IJsCalls` | `Invoke`, `Construct`, and raising an `Error` or a `DOMException` from host code |
 | `IJsJobs` | the microtask queue, and promises the host can settle |
 | `IJsSource` | evaluating **host** script and **guest** source — separately |
+| `IJsClone` | structured clone: `Clone` in one realm, and `Detach`/`Adopt` across two |
 | `IJsExotic` | host-completed property lookup, for the six DOM objects whose members are not a fixed list |
 
-Three shapes in there are load-bearing.
+Four shapes in there are load-bearing.
 
 **The realm is on the call, not ambient.** `JsCall` carries its `IJsRealm`. A
 `[ThreadStatic] Js.Current` would read better at every one of the ~900 callback sites and would be
@@ -162,6 +163,36 @@ six existing subclasses do — each calls the base lookup first. Getting it back
 rather than loudly wrong: a collection that happens to contain an element named `item` would start
 shadowing its own `item()` method.
 
+**A message crossing to a Worker is cloned twice, and the contract says which realm does which.**
+`IJsClone` is three operations because a browser does three different things. Same-document messaging
+(`window.postMessage`, a `MessagePort`) clones once, in one realm, and delivers the copy: `Clone`. A
+message crossing to a Worker is cloned on the *sending* thread into a graph no script can reach
+(`Detach`, which answers a `JsDetachedValue`), and again on the *receiving* thread into the receiving
+realm (`Adopt`). Cloning once and handing the result over would put one realm's object graph in
+another thread's hands; cloning once on the receiver, from the sender's live value, is worse, because
+the sending script keeps running and can mutate that graph while the receiver walks it.
+
+`JsDetachedValue` is a third kind of thing on purpose, and it is what the earlier attempts at this
+were missing. A `JsValue` handle is only meaningful to the realm that minted it, and a clone's result
+may be a *primitive*, for which a handle carries no engine instance at all — so a worker's inbox
+cannot be a queue of handles. The carrier belongs to no realm, carries the engine that made it so
+`Adopt` can refuse a graph from another engine, and exposes nothing: `Providers.JsProviderClone` is
+the only way in or out, the way `Providers.JsProviderValue` is for a handle.
+
+Putting the clone *on the realm* rather than in a free function taking two realms is the load-bearing
+part. Broiler.JS's `structuredClone` mints its objects against the current context, which is
+thread-static; a clone taken between two JSEAL calls would mint into whichever realm the thread last
+touched — silently, and on exactly the path where the two realms are supposed to stop touching. A
+provider enters its realm for the duration of a contract call, so making the clone a contract call is
+what brings it inside that bracket.
+
+The transfer list is split the same way it is owned. `ClassifyTransferable` answers in the
+specification's vocabulary — is this a transferable object, and is it already detached — so the host
+can walk the list itself and classify only what it does not recognise. That matters because a
+`MessagePort` is transferable and is a thing the *bridge* owns; no engine knows what one is. Building
+the `{ transfer: [...] }` options the clone actually reads stays in the provider, because that is the
+clone's own signature.
+
 **Host script and guest source are separate capabilities.** The bridge authors JavaScript — two
 embedded `.js` assets totalling 1,891 lines, plus 55 `Eval` sites across 28 files that install
 polyfills, probe for a global, or re-link a prototype. That source ships with this repository and is
@@ -179,6 +210,28 @@ a contract could have said so.
 
 A realm's capabilities may be **narrower** than its provider's but never wider: a page whose CSP forbids
 evaluation gets a realm without `GuestEval` from an engine that has it.
+
+Two of the flags are still declared without a contract behind them, and this is the honest state of
+each:
+
+* **`WorkerRealms`** is complete. Its two halves — "a second realm can be created on another thread"
+  and "values moved between the two by structured clone" — are `IJsEngineProvider.CreateRealm` and
+  `IJsClone`, and `JsealConformanceTests.ASecondRealmRunsOnASecondThread` exercises both by sending a
+  message to a realm on a second thread and receiving a reply.
+* **`Modules` and `DynamicImport`** are not. `IJsSource` runs a *script*, which is a different thing
+  from instantiating and evaluating a module in a module map, so a provider can declare either and a
+  host written against JSEAL alone has no way to use it. The suite records them in
+  `NotExpressibleThroughTheContracts` rather than pretending otherwise. The contract that would close
+  it is written out in the remarks on
+  [`BridgeModuleContext`](../src/Broiler.HtmlBridge.Dom/BridgeModuleContext.cs): a host-implemented
+  `IJsModuleLoader` (resolve a specifier against a referrer; load a source for a key) and a
+  provider-implemented `IJsModules` (evaluate a module). It has two real implementers already —
+  Broiler.JS's `JSModuleContext` overrides and Broiler.VM's `VmModuleMap`, which is *already* that
+  shape because the VM embedding contract gives resolution and transport to the host outright. What
+  blocks it is mechanical and named there: `ScriptEngine` constructs `BridgeModuleContext` and then
+  uses it as a `JSContext`, and the Broiler.JS provider cannot reference
+  `Broiler.JavaScript.Modules` without raising an `engineProjectRefs` budget the ratchet enforces even
+  for a provider.
 
 One flag decides whether an engine can host a DOM at all:
 
@@ -217,6 +270,15 @@ renders differently on the other engine — a question about a *run*, not a *bui
 The trap to know about before starting: **the provider is where ambient engine state is paid for.**
 Broiler.JS's is the thread-static current context described above. A provider that skipped it would
 work in every test that happened to run right after an evaluation.
+
+The second half of that trap is the reverse mistake, and this repository made it: a provider must not
+install its *own* scheduling over a host's. `BroilerJsRealm` makes its job pump the thread's
+synchronization context while a contract call runs, which is right for a realm it built — the
+`JSContext` was constructed with that pump and `DrainJobs` empties it — and wrong for one it merely
+adopted, because the host built that context with its own scheduling and drains that queue. Installing
+the pump over an adopted context diverted every promise reaction created inside a JSEAL call into a
+queue nothing in the process emptied: no error, no reaction, no way to see it from the outside. An
+adopted realm now leaves the thread's context alone.
 
 ## Where the migration actually stands
 

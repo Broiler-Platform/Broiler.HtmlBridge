@@ -9,10 +9,14 @@ namespace Broiler.HtmlBridge;
 // via explicit interface members, so the reflector module never reaches an arbitrary bridge private
 // field and the public surface is unchanged.
 //
-// The map itself stays Dictionary<string, JSValue>. It is shared with the unmigrated dispatch path
-// (EventDispatchBinding) and with CompileInlineEventAttributes, so its element type cannot move until
-// they do; this file is the seam where a JSEAL handle becomes the engine value the map holds and back
-// again, which is the same job Runtime/JsInterop.cs does everywhere else in the half-migrated bridge.
+// The map itself still holds the engine's own value type, and three unowned files decide that: it is
+// declared on InlineStyleRuntimeState in DomBridge/RuntimeStates.cs, handed out by
+// GetInlineEventHandlers in DomBridge.cs, and read back in DomBridge.EventDispatchHost.cs, which
+// tests each entry for the engine's function type before firing it. DomBridge/Events.cs (this group)
+// is now the only writer that goes through the realm; it compiles the on* attribute with
+// EvaluateHostScript and unwraps once at the store. So this file stays the seam where a JSEAL handle
+// becomes the engine value the map holds and back again — the same job Runtime/JsInterop.cs does
+// everywhere else in the half-migrated bridge — and the two casts here go when the record moves.
 public sealed partial class DomBridge : Dom.Features.IEventHandlerReflectorHost
 {
     JsValue Dom.Features.IEventHandlerReflectorHost.GetInlineEventHandler(DomNode node, string eventName) =>

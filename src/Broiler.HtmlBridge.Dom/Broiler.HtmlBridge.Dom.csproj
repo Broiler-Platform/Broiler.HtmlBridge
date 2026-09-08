@@ -59,7 +59,12 @@
     <ProjectReference Include="..\..\Broiler.Media\src\Broiler.Media.Image\Broiler.Media.Image.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
-    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Globals\Broiler.JavaScript.Globals.csproj" />
+    <!--
+      Broiler.JavaScript.Globals is GONE from this project: the only thing the bridge used it for was
+      JSGlobalStatic.StructuredClone, and structured clone is now IJsClone on the realm contract, so the
+      reference moved to the provider that implements it. That is the shape every one of these should
+      eventually take: an engine assembly reached by the provider and not by the bridge.
+    -->
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Modules\Broiler.JavaScript.Modules.csproj" />
   </ItemGroup>
 

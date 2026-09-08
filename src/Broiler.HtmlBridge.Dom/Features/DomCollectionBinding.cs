@@ -8,9 +8,10 @@ using Broiler.HtmlBridge.Jseal;
 // this group. Eight unmigrated sites build collections by handing over a script context and a list
 // of engine values (DomBridge.DocumentQueryHost/SelectorsHost/FormAssociationHost/FormControlHost/
 // SubDocumentHost, DomBridge/Utilities.cs, Features/NodeAccessorsBinding.cs,
-// Features/NodeMutationBinding.cs), DomBridge/Utilities.DomInterfaces.cs registers the interfaces
-// with a context, and Features/AttributesBinding.cs supplies the six NamedNodeMap operations as
-// engine callbacks. See RegisterNamedNodeMapOperations and the adapters below for what each pins.
+// Features/NodeMutationBinding.cs), and DomBridge/Utilities.DomInterfaces.cs registers the interfaces
+// and the NamedNodeMap operations with a context. See the adapters below for what each pins. The
+// NamedNodeMap surface itself is JSEAL now — its supplier, Features/AttributesBinding.cs, migrated —
+// and the one engine type left under it is the weak table's key, which must be a reference type.
 using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
@@ -403,41 +404,31 @@ internal static class DomCollectionBinding
     /// <em>prototype</em>, shared, as Web IDL requires: each reads its element back from
     /// <paramref name="operations"/> keyed on the receiver, so no per-instance slot appears on the
     /// object and <c>Object.getOwnPropertyNames(el.attributes)</c> stays the indices alone.
-    /// <para>
-    /// There is no JSEAL-typed form of this one because there is no migrated caller for it to serve:
-    /// <see cref="NamedNodeMapOperations"/> is engine-typed, pinned by
-    /// <c>Features/AttributesBinding.cs</c>, so the whole map surface stays engine-typed until the
-    /// attribute binding's write path moves.
-    /// </para>
     /// </remarks>
-    public static JSValue NamedNodeMap(
-        JSContext? context,
-        Func<List<JSValue>> contents,
-        Func<string, JSValue?> namedLookup,
+    public static JsValue NamedNodeMap(
+        IJsRealm realm,
+        Func<List<JsValue>> contents,
+        Func<string, JsValue?> namedLookup,
         NamedNodeMapOperations operations)
     {
-        var map = ToEngineCollection(
-            Create(RealmFor(context), "NamedNodeMap", Adapt(contents), Adapt(namedLookup)));
-        OperationsByMap.Add(map, operations);
+        var map = Create(realm, "NamedNodeMap", contents, namedLookup);
+        // Keyed on the engine's object because a ConditionalWeakTable needs a reference key and a
+        // JsValue is a struct. The handle carries that very object, so the lookup a prototype method
+        // performs from its receiver asks the same question it always did.
+        OperationsByMap.Add(Runtime.JsInterop.ToEngineObject(map), operations);
         return map;
     }
 
     /// <summary>The element-dependent members of <c>NamedNodeMap</c>, supplied by the attribute
     /// binding, which owns the attribute write path.</summary>
-    /// <remarks>
-    /// Engine-typed, and pinned: <c>Features/AttributesBinding.cs</c> builds this record out of
-    /// methods whose call frame is still the engine's own argument frame, and a JSEAL
-    /// <c>JsNativeFunction</c> cannot be adapted to one — a <c>JsCall</c> cannot be turned back into
-    /// an engine frame. The six move when the attribute binding does, together.
-    /// </remarks>
     internal sealed class NamedNodeMapOperations
     {
-        public required Func<Arguments, JSValue> GetNamedItem { get; init; }
-        public required Func<Arguments, JSValue> GetNamedItemNS { get; init; }
-        public required Func<Arguments, JSValue> SetNamedItem { get; init; }
-        public required Func<Arguments, JSValue> SetNamedItemNS { get; init; }
-        public required Func<Arguments, JSValue> RemoveNamedItem { get; init; }
-        public required Func<Arguments, JSValue> RemoveNamedItemNS { get; init; }
+        public required JsNativeFunction GetNamedItem { get; init; }
+        public required JsNativeFunction GetNamedItemNS { get; init; }
+        public required JsNativeFunction SetNamedItem { get; init; }
+        public required JsNativeFunction SetNamedItemNS { get; init; }
+        public required JsNativeFunction RemoveNamedItem { get; init; }
+        public required JsNativeFunction RemoveNamedItemNS { get; init; }
     }
 
     /// <summary>
@@ -448,22 +439,30 @@ internal static class DomCollectionBinding
 
     /// <summary>
     /// Installs the six host-backed <c>NamedNodeMap</c> methods on the interface prototype. Called
-    /// once per context, after the interface registration above has defined the interface.
+    /// once per realm, after the interface registration above has defined the interface.
     /// </summary>
     /// <remarks>
     /// Each looks its operations up from the receiver, so calling one on something that is not a
     /// <c>NamedNodeMap</c> is a <c>TypeError</c> rather than a silent wrong answer — which is what a
     /// browser gives for an illegal invocation.
     /// <para>
-    /// Engine-typed throughout for the reason <see cref="NamedNodeMapOperations"/> gives: the bodies
-    /// it installs are the attribute binding's own engine callbacks, so there is nothing here to
-    /// express in JSEAL until those move.
+    /// <b>That <c>TypeError</c> is now a real one, and it is this migration's single behaviour
+    /// change.</b> The engine-framed version threw a bare <em>string</em> whose text began with
+    /// <c>TypeError:</c>, so a page's <c>catch (e)</c> saw <c>typeof e === 'string'</c> with no
+    /// <c>name</c> and no <c>message</c>. JSEAL has no "throw this value" — <see cref="IJsCalls.Error"/>
+    /// mints against the realm's intrinsic constructor — so the string cannot be reproduced, and the
+    /// nearest expressible thing is also what a browser throws. The message text is carried over with
+    /// the redundant prefix dropped, which is where the constructor now puts it.
     /// </para>
     /// </remarks>
-    public static void RegisterNamedNodeMapOperations(JSContext context)
+    public static void RegisterNamedNodeMapOperations(IJsRealm realm)
     {
-        if (context["NamedNodeMap"] is not JSObject constructor ||
-            constructor[(KeyString)"prototype"] is not JSObject prototype)
+        var constructor = realm.GetProperty(realm.Global, "NamedNodeMap");
+        if (!constructor.IsObject)
+            return;
+
+        var prototype = realm.GetProperty(constructor, "prototype");
+        if (!prototype.IsObject)
             return;
 
         Install("getNamedItem", 1, static operations => operations.GetNamedItem);
@@ -473,21 +472,34 @@ internal static class DomCollectionBinding
         Install("removeNamedItem", 1, static operations => operations.RemoveNamedItem);
         Install("removeNamedItemNS", 2, static operations => operations.RemoveNamedItemNS);
 
-        void Install(string name, int length, Func<NamedNodeMapOperations, Func<Arguments, JSValue>> pick) =>
-            prototype.FastAddValue(
+        void Install(string name, int length, Func<NamedNodeMapOperations, JsNativeFunction> pick) =>
+            realm.DefineValue(
+                prototype,
                 name,
-                new DomFunction(
-                    (in Arguments a) =>
-                    {
-                        if (a.This is not JSObject receiver || !OperationsByMap.TryGetValue(receiver, out var operations))
-                            throw new JSException(new JSString(
-                                $"TypeError: Failed to execute '{name}' on 'NamedNodeMap': Illegal invocation."));
-                        return pick(operations)(a);
-                    },
+                realm.NewMethod(
                     name,
-                    length),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+                    (in call) =>
+                    {
+                        if (!call.This.IsObject ||
+                            !OperationsByMap.TryGetValue(Runtime.JsInterop.ToEngineObject(call.This), out var operations))
+                        {
+                            throw call.Realm.Error(
+                                JsErrorKind.TypeError,
+                                $"Failed to execute '{name}' on 'NamedNodeMap': Illegal invocation.");
+                        }
+
+                        return pick(operations)(in call);
+                    },
+                    length));
     }
+
+    /// <inheritdoc cref="RegisterNamedNodeMapOperations(IJsRealm)" />
+    /// <remarks>
+    /// Pinned by <c>DomBridge/Utilities.DomInterfaces.cs</c>, the unmigrated interface-registration
+    /// hub, which holds a script context and hands it over. Goes when that hub passes a realm.
+    /// </remarks>
+    public static void RegisterNamedNodeMapOperations(JSContext context) =>
+        RegisterNamedNodeMapOperations(RealmFor(context));
 
     /// <summary>The engine object a migrated collection builder minted, for an unmigrated caller.</summary>
     /// <remarks>

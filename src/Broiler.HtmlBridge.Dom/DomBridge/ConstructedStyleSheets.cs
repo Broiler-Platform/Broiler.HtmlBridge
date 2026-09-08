@@ -3,10 +3,9 @@ using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 
-// Engine-typed only for the three adapters at the foot of this file. Their callers are the two
-// registration hubs — DomBridge/Registration/Registration.cs installs the CSSStyleSheet constructor and
-// DomBridge/Registration/Document.cs installs document.adoptedStyleSheets — and neither is owned this
-// round, so their call frames and value types stay as they are.
+// Engine-typed for one thing: the adoptedStyleSheets assignment copies the array the page assigned in
+// engine terms, because JSEAL has no way to enumerate an Array exotic's elements as the engine's own
+// GetArrayElements does — holes included, byte for byte. See the adapter at the foot of this file.
 using Broiler.JavaScript.BuiltIns.Array;
 using Broiler.JavaScript.Runtime;
 
@@ -211,23 +210,27 @@ public sealed partial class DomBridge
         }
     }
 
-    // -------- engine-typed adapters (see the note at the head of this file) --------
-
-    /// <summary>The live <c>document.adoptedStyleSheets</c> array, as its unmigrated getter reads it.</summary>
-    private JSObject AdoptedStyleSheetsArray() => JsInterop.ToEngineObject(AdoptedStyleSheets());
+    // -------- the one engine-typed adapter (see the note at the head of this file) --------
 
     /// <summary>Replaces <c>document.adoptedStyleSheets</c> with the assigned array's members
     /// (<c>document.adoptedStyleSheets = [sheet, …]</c>); <c>.push()</c> on the getter's array
     /// is handled directly by the returned array.</summary>
     /// <remarks>
-    /// The copy is made in engine terms because the assigned value arrives that way and every element of
-    /// it — sheet objects and whatever else a page assigned — has to survive the round trip byte for
-    /// byte. The handle stored is over the array this builds, so the migrated readers above see it.
+    /// The signature is JSEAL's — its installer mints the accessor through the realm — but the copy
+    /// itself is still made in engine terms, and that is a gap in the contract rather than an
+    /// unmigrated caller. Every element of the assigned array, sheet objects and whatever else a page
+    /// put there, has to survive the round trip byte for byte, and <see cref="IJsRealm"/> can mint an
+    /// array from a span but cannot read one back the way the engine's own <c>GetArrayElements</c>
+    /// does — with the hole treatment that decides whether <c>[a, , b]</c> copies as two members or
+    /// three. Reconstructing that from <c>length</c> plus per-index reads would be a re-derivation of
+    /// the answer the engine already has, so the unwrap stays until the contract can express it. A
+    /// handle that carries no engine array — a primitive, or nothing assigned at all — empties the
+    /// list, exactly as the narrowing cast this replaces did.
     /// </remarks>
-    private void SetAdoptedStyleSheets(JSValue value)
+    private void SetAdoptedStyleSheets(JsValue value)
     {
         var replacement = new JSArray();
-        if (value is JSArray array)
+        if (JsInterop.ToEngineValue(value) is JSArray array)
             foreach (var (_, item) in array.GetArrayElements(withHoles: false))
                 replacement.Add(item);
 

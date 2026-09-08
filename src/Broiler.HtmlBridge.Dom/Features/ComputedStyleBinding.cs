@@ -1,9 +1,9 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
-// Engine-typed only for the two adapters at the foot of this file, whose callers are unmigrated
-// registration sites with engine call frames: DomBridge/Registration/Registration.cs installs
-// window.getComputedStyle, and DomBridge/ElementInterfaces.cs installs <img>.width/.height.
+// Engine-typed only for the one adapter at the foot of this file, whose caller is an unmigrated
+// registration site with an engine call frame: DomBridge/ElementInterfaces.cs installs
+// <img>.width/.height.
 using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -20,11 +20,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>GetUsedDimension</c> was <c>JsElementInterfacesCallback062Core</c>.
 /// </summary>
 /// <remarks>
-/// The JavaScript vocabulary is JSEAL's, so the bodies name no engine type. What has not moved is the
-/// argument read: both entry points are registered from files that have not migrated, so their call
-/// frames are still engine ones and the adapters at the foot of this file do the read before handing the
-/// values on. The coercions are unchanged — the same ECMAScript <c>ToString</c> on the same argument —
-/// and they move into the bodies when those registration sites migrate.
+/// The JavaScript vocabulary is JSEAL's, so the bodies name no engine type. <c>getComputedStyle</c> now
+/// reads its own call frame — its installer mints it through the realm — and the coercion of the
+/// pseudo-element argument is the realm's <c>ToJsString</c>, which is the same observable ECMAScript
+/// <c>ToString</c> the engine's <c>ToString()</c> ran there. What has not moved is
+/// <c>&lt;img&gt;.width</c>/<c>.height</c>: <c>DomBridge/ElementInterfaces.cs</c> installs those and
+/// still hands over an engine argument frame, so the one adapter at the foot of this file does the
+/// unwrapping until it migrates.
 /// </remarks>
 internal static class ComputedStyleBinding
 {
@@ -66,26 +68,26 @@ internal static class ComputedStyleBinding
         return JsValue.Number(0);
     }
 
-    // -------- engine-typed adapters (see the remarks on this class) --------
-
     /// <summary>
-    /// <c>window.getComputedStyle</c> as its unmigrated registration site calls it.
+    /// <c>window.getComputedStyle(element, pseudoElement)</c> as its installer calls it.
     /// </summary>
     /// <remarks>
-    /// The empty-object answer for a call with no arguments is minted through the realm rather than as an
-    /// engine object, so that the one object this operation can produce without an element comes from the
-    /// same place every other one does.
+    /// The empty-object answer for a call with no arguments is minted through the realm, so that the one
+    /// object this operation can produce without an element comes from the same place every other one
+    /// does. A first argument that is not an object stands in as <c>undefined</c>, which the body reads
+    /// as "no element" exactly as the narrowing cast this replaces did.
     /// </remarks>
-    public static JSValue GetComputedStyle(IComputedStyleHost host, in Arguments a)
+    public static JsValue GetComputedStyle(IComputedStyleHost host, in JsCall call)
     {
-        if (a.Length == 0)
-            return Runtime.JsInterop.ToEngineObject(host.Realm.NewObject());
+        if (call.Length == 0)
+            return host.Realm.NewObject();
 
-        var target = a[0] is JSObject targetObj ? Runtime.JsInterop.FromEngineObject(targetObj) : JsValue.Undefined;
-        var pseudoElement = a.Length > 1 ? a[1]?.ToString() : null;
-        var computed = GetComputedStyle(host, target, pseudoElement);
-        return Runtime.JsInterop.ToEngineObject(computed);
+        var target = call[0].IsObject ? call[0] : JsValue.Undefined;
+        var pseudoElement = call.Length > 1 ? call.Realm.ToJsString(call[1]) : null;
+        return GetComputedStyle(host, target, pseudoElement);
     }
+
+    // -------- engine-typed adapter (see the remarks on this class) --------
 
     /// <summary><c>&lt;img&gt;.width</c>/<c>.height</c> as its unmigrated registration site calls it.</summary>
     public static JSValue GetUsedDimension(IComputedStyleHost host, string? dimName, DomElement element, in Arguments _)

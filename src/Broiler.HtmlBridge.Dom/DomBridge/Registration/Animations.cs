@@ -5,11 +5,6 @@ using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 using Broiler.CSS;
 
-// Engine-typed for the one adapter at the foot of this file. DomBridge.WebAnimations.cs's
-// ElementAnimate returns the engine's own value type and hands back what this builds, and that file
-// is not owned this round.
-using Broiler.JavaScript.Runtime;
-
 namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
@@ -133,17 +128,4 @@ public sealed partial class DomBridge
         realm.DefineValue(animation, "ready", ready);
         return animation;
     }
-
-    /// <summary>
-    /// <see cref="BuildAnimation"/> as the engine object <c>element.animate()</c> hands back.
-    /// </summary>
-    /// <remarks>
-    /// The engine-typed adapter, pinned by <c>DomBridge.WebAnimations.cs</c>: <c>ElementAnimate</c>
-    /// is an engine callback that returns the engine's own value type, and that file belongs to
-    /// another group. A JSEAL object handle carries the engine's object rather than wrapping it, so
-    /// this is a cast and not a conversion — the Animation a page gets from <c>animate()</c> and the
-    /// one it finds in <c>getAnimations()</c> are built by the same code.
-    /// </remarks>
-    private JSObject BuildAnimationObject(DomElement element) =>
-        JsInterop.ToEngineObject(BuildAnimation(element));
 }

@@ -147,10 +147,25 @@ internal sealed partial class BroilerJsRealm : IJsRealm
     /// Makes this realm — and its job pump — current on the calling thread until the returned scope
     /// is disposed. See the remarks on the class for why every entry point needs it.
     /// </summary>
+    /// <remarks>
+    /// <b>The pump is installed only for a realm this provider created, and that asymmetry is a
+    /// correctness fix rather than an economy.</b> The engine routes a promise reaction to
+    /// <c>SynchronizationContext.Current</c> when it is an <c>IJSJobPump</c>
+    /// (<c>JSContext.PostJob</c>, case 1), ahead of the context's own microtask queue. For a realm
+    /// this provider built that is exactly right: the pump is the one the <c>JSContext</c> was
+    /// constructed with, and <see cref="DrainJobs"/> is what empties it. For an <em>adopted</em>
+    /// context it is exactly wrong — the host built that context with its own scheduling
+    /// (<c>MicroTaskSynchronizationContext</c> here) and drains that queue, so installing this pump
+    /// over it for the duration of every contract call diverted any reaction created inside a JSEAL
+    /// call into a queue nothing in the process empties. A page whose event listener resolved a
+    /// promise would simply never see the reaction run, with no error anywhere. So an adopted realm
+    /// leaves the thread's synchronization context alone and keeps its own queue for the jobs a host
+    /// hands it through <see cref="EnqueueJob"/>, which is what its constructor already promises.
+    /// </remarks>
     private RealmScope Enter()
     {
         ThrowIfDisposed();
-        return new RealmScope(_context, _pump);
+        return new RealmScope(_context, _ownsContext ? _pump : null);
     }
 
     /// <remarks>
@@ -167,7 +182,11 @@ internal sealed partial class BroilerJsRealm : IJsRealm
         private readonly bool _contextChanged;
         private readonly bool _pumpChanged;
 
-        internal RealmScope(JSContext context, SynchronizationContext pump)
+        /// <param name="pump">
+        /// The job pump to make current, or <see langword="null"/> to leave the thread's own
+        /// synchronization context in place — see the remarks on <see cref="Enter"/>.
+        /// </param>
+        internal RealmScope(JSContext context, SynchronizationContext? pump)
         {
             _previousContext = JSEngine.Current;
             _contextChanged = !ReferenceEquals(context, _previousContext);
@@ -175,7 +194,7 @@ internal sealed partial class BroilerJsRealm : IJsRealm
                 JSEngine.CurrentContext = context;
 
             _previousPump = SynchronizationContext.Current;
-            _pumpChanged = !ReferenceEquals(pump, _previousPump);
+            _pumpChanged = pump is not null && !ReferenceEquals(pump, _previousPump);
             if (_pumpChanged)
                 SynchronizationContext.SetSynchronizationContext(pump);
         }

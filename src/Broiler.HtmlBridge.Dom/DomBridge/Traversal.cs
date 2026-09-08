@@ -10,35 +10,13 @@ namespace Broiler.HtmlBridge;
 public sealed partial class DomBridge
 {
     // -------- TreeWalker, NodeIterator, Range builders (Phase 3: extracted) --------
-    // The TreeWalker/NodeIterator/Range construction and every Range callback now live in the
-    // co-located Broiler.HtmlBridge.Dom.Features.TraversalBinding feature module; these thin
-    // wrappers keep the historical call sites (createTreeWalker/createNodeIterator/createRange in
-    // Registration and sub-document registration) source-compatible.
+    // The TreeWalker/NodeIterator/Range construction and every Range callback live in the co-located
+    // Broiler.HtmlBridge.Dom.Features.TraversalBinding feature module, which is migrated to JSEAL.
     //
-    // The module is migrated to JSEAL and these three are its remaining engine-typed edge: their
-    // caller, DomBridge.SubDocumentHost.cs, implements ISubDocumentHost — another group's file this
-    // round — and still hands JS objects around as engine values. Dom.Runtime.JsInterop is the cast
-    // between the two, not a conversion: the handle carries the engine's own object, so wrapper
-    // identity is unchanged. They lose their engine types when that host contract migrates.
-
-    private Broiler.JavaScript.Runtime.JSObject BuildTreeWalker(DomElement root, int whatToShow, Broiler.JavaScript.BuiltIns.Function.JSFunction? filterFn) =>
-        Dom.Runtime.JsInterop.ToEngineObject(
-            _traversal.BuildTreeWalker(root, whatToShow, ToFilterHandle(filterFn)));
-
-    private Broiler.JavaScript.Runtime.JSObject BuildNodeIterator(DomElement root, int whatToShow, Broiler.JavaScript.BuiltIns.Function.JSFunction? filterFn) =>
-        Dom.Runtime.JsInterop.ToEngineObject(
-            _traversal.BuildNodeIterator(root, whatToShow, ToFilterHandle(filterFn)));
-
-    private Broiler.JavaScript.Runtime.JSObject BuildRange(DomNode? documentRoot = null) =>
-        Dom.Runtime.JsInterop.ToEngineObject(_traversal.BuildRange(documentRoot));
-
-    /// <summary>
-    /// A <c>NodeFilter</c> callback as a JSEAL handle. No filter is
-    /// <see cref="JsValue.Missing"/>, which is the value the module tests for callability against —
-    /// the same question the null check asked here.
-    /// </summary>
-    private static JsValue ToFilterHandle(Broiler.JavaScript.BuiltIns.Function.JSFunction? filterFn) =>
-        filterFn is null ? JsValue.Missing : Dom.Runtime.JsInterop.FromEngineObject(filterFn);
+    // The three engine-typed wrappers that used to stand here are gone: their last caller,
+    // DomBridge.SubDocumentHost.cs, now asks _traversal for a handle directly, so there was nothing
+    // left for them to convert for. Every builder call site — createRange/createTreeWalker/
+    // createNodeIterator on the main document and on a sub-document — goes to the module.
 
     // Phase 4 items 4/5 (P4.10 follow-up): the bridge's FindCommonAncestor copy was deleted after its
     // promotion to canonical Broiler.Dom.DomNode.CommonAncestorWith landed in the pinned submodule

@@ -260,9 +260,9 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
                     {
                         var name = originalNames.TryGetValue(header.Key, out var originalName) ? originalName : header.Key;
 
-                        // The receiver stays the callback itself, as it was: `new Arguments(cb, …)`
-                        // passed the function as `this`, which is not what the specification says and
-                        // is not this migration's to change.
+                        // The receiver stays the callback itself, as it was: the frame this used to be
+                        // built with passed the function as `this`, which is not what the
+                        // specification says and is not this migration's to change.
                         realm.Invoke(callback, callback,
                             [JsValue.String(header.Value), JsValue.String(name), headersObject]);
                     }

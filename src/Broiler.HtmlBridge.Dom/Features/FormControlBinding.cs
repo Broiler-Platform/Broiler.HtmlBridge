@@ -1,8 +1,8 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
+// Engine-typed only for the two adapters this file still has: the wrapper DomBridge/JsObjects.cs
+// hands over, and the HTMLElement prototype installer whose members read the engine's argument frame.
 using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Null;
 using Broiler.JavaScript.BuiltIns.Number;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;

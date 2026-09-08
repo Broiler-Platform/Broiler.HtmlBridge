@@ -1,4 +1,4 @@
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -12,14 +12,21 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>JsRegistrationScroll133Core</c>/<c>ScrollTo134Core</c>/<c>ScrollBy135Core</c> in the shared
 /// JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
+/// <remarks>
+/// The argument frame is JSEAL's: the three are minted by <c>DomBridge/Registration/Window.cs</c>
+/// through the realm, so the reading that tells <c>scrollTo(x, y)</c> from
+/// <c>scrollTo({ left, top })</c> is handed the call's own argument span. It is the bridge's one
+/// reading of a <c>ScrollToOptions</c>, shared with the sub-window contract rather than copied — see
+/// <see cref="IWindowScrollHost.GetScrollArguments"/>.
+/// </remarks>
 internal static class WindowScrollBinding
 {
     // window.scroll(x, y) is a historical alias of window.scrollTo(x, y).
-    public static JSValue Scroll(IWindowScrollHost host, in Arguments a) => ScrollTo(host, in a);
+    public static JsValue Scroll(IWindowScrollHost host, in JsCall call) => ScrollTo(host, in call);
 
-    public static JSValue ScrollTo(IWindowScrollHost host, in Arguments a)
+    public static JsValue ScrollTo(IWindowScrollHost host, in JsCall call)
     {
-        var (left, top, behavior) = host.GetScrollArguments(in a);
+        var (left, top, behavior) = host.GetScrollArguments(call.Arguments);
         // CSSOM View §"scroll an element": the requested position is normalized to the scrolling
         // box's scrolling area, so a scroll past either end comes to rest at the end rather than
         // off the document. `clamp: false` here let `scrollBy({top: scrollHeight})` — the standard
@@ -29,13 +36,13 @@ internal static class WindowScrollBinding
         // problem 28) is that and nothing else: its own reference performs the same scroll, so
         // both rendered identically here and both disagreed with Chromium.
         host.SetElementScrollOffsetsWithBehavior(host.DocumentElement, left, top, relative: false, clamp: true, behavior: behavior);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    public static JSValue ScrollBy(IWindowScrollHost host, in Arguments a)
+    public static JsValue ScrollBy(IWindowScrollHost host, in JsCall call)
     {
-        var (left, top, behavior) = host.GetScrollArguments(in a);
+        var (left, top, behavior) = host.GetScrollArguments(call.Arguments);
         host.SetElementScrollOffsetsWithBehavior(host.DocumentElement, left, top, relative: true, clamp: true, behavior: behavior);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 }

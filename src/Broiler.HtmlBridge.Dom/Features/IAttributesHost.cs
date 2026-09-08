@@ -23,10 +23,16 @@ internal interface IAttributesHost
     IJsRealm Realm { get; }
 
     /// <summary>
-    /// The bridge's JS context. Two consumers keep it: the <c>InvalidCharacterError</c> an invalid
-    /// <c>setAttribute</c> name must throw (DOM §4.9.1), and <see cref="DomCollectionBinding"/>,
-    /// which builds the live <c>NamedNodeMap</c> and is not migrated to JSEAL yet.
+    /// The bridge's JS context, and the contract's one remaining engine reference.
     /// </summary>
+    /// <remarks>
+    /// One consumer keeps it: the <c>InvalidCharacterError</c> an invalid <c>setAttribute</c>,
+    /// <c>setAttributeNS</c> or <c>toggleAttribute</c> name must throw (DOM §4.9.1). The bridge's name
+    /// validators — <c>DomBridge/Utilities.NameValidation.cs</c>, which this group does not own — mint
+    /// that <c>DOMException</c> from a context rather than from a realm, so a caller has to hold one.
+    /// It goes when they take an <see cref="IJsRealm"/> and reach <see cref="IJsCalls.DomError"/>
+    /// instead. The <see cref="DomCollectionBinding"/> half that also needed it has migrated.
+    /// </remarks>
     Broiler.JavaScript.Engine.JSContext? JsContext { get; }
 
     /// <summary>Applies a <c>style</c> attribute value to the element's inline style declaration

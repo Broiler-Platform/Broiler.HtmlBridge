@@ -27,12 +27,18 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// value and whose declaration is in <c>DomBridge/RuntimeStates.cs</c>. The generic-target and
 /// owner-window maps are keyed on the engine's own object because <c>MessagingBinding</c>,
 /// <c>SubWindowBinding</c> and <c>WindowContextManager</c> put message ports and sub-windows in them,
-/// and the visual-viewport list holds engine functions for <c>LayoutMetrics.Scrolling</c> and the
-/// visual-viewport host. None of those five files belongs to this round, so this registry keeps the
-/// shape they compile against. When it does move, the keys become <c>JsValue</c> without changing
-/// what they answer: a handle carries the engine's own object, and <c>JsValue</c> implements
-/// <c>Equals</c>/<c>GetHashCode</c> reflexively precisely so a dictionary and a <c>List.Contains</c>
-/// keep finding what was put in them.
+/// and the visual-viewport list holds engine functions that <c>LayoutMetrics.Scrolling</c> invokes
+/// directly. None of those five files belongs to this round, so this registry keeps the shape they
+/// compile against.
+/// </para>
+/// <para>
+/// <b>When it does move, the keys become <c>JsValue</c> without changing what they answer, and that
+/// has been checked rather than hoped for.</b> Both dictionaries are built with
+/// <see cref="ReferenceEqualityComparer"/> today, and <c>JsValue.Equals</c>'s arm for every object
+/// kind is <c>ReferenceEquals</c> over the engine object the handle carries, with
+/// <c>GetHashCode</c> answering <c>RuntimeHelpers.GetHashCode</c> of the same reference — the same
+/// two questions this comparer asks, about the same instances. <c>List.Contains</c> on the viewport
+/// listeners reaches the same pair.
 /// </para>
 /// </remarks>
 internal sealed class EventTargetRegistry

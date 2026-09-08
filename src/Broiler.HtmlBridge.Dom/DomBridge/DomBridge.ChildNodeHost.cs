@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
@@ -9,11 +10,17 @@ namespace Broiler.HtmlBridge;
 // invalidation and the node-iterator / mutation notifications via explicit interface members, so the
 // module never reaches an arbitrary bridge private field and the public surface is unchanged.
 //
-// The engine-framed argument builder is what the mixin's three installers pin: two of them
-// (DomBridge/CharacterDataInterface.cs and DomBridge/JsObjects.NonElementNodes.cs) still hand those
-// members the engine's own frame, so the binding reads it and this seam hands it over unchanged.
+// The builder appears twice because the mixin's three installers do not share a call frame — two mint
+// through the realm, DomBridge/ElementInterface.cs still hands over the engine's own. Both forward into
+// ONE reading: the JSEAL-framed member is the bridge's ISubDocumentHost implementation, documented
+// there as the migrated twin of BuildChildNodeArgumentNodes(in Arguments), which coerces each non-node
+// argument with the realm's ToString exactly as the engine frame did. The engine overload goes when
+// ElementInterface.cs moves.
 public sealed partial class DomBridge : Dom.Features.IChildNodeHost
 {
+    List<DomNode> Dom.Features.IChildNodeHost.BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments)
+        => ((Dom.Features.ISubDocumentHost)this).BuildChildNodeArgumentNodes(arguments);
+
     List<DomNode> Dom.Features.IChildNodeHost.BuildChildNodeArgumentNodes(in Arguments arguments)
         => BuildChildNodeArgumentNodes(arguments);
 

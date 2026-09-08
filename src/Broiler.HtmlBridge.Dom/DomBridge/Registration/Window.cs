@@ -22,10 +22,10 @@ public sealed partial class DomBridge
         // see the two answer each other's reads.
         //
         // The storage areas are the bridge's four exotic objects' neighbours: WebStorageBinding
-        // builds one through the realm and hands back the engine object its own unmigrated callers
-        // still hold, so the handle here is a cast over that same object.
-        realm.DefineValue(window, "localStorage", Dom.Runtime.JsInterop.FromEngineObject(Dom.Features.WebStorageBinding.BuildStorage()));
-        realm.DefineValue(window, "sessionStorage", Dom.Runtime.JsInterop.FromEngineObject(Dom.Features.WebStorageBinding.BuildStorage()));
+        // mints all six members of each through the realm, over a backing object that completes its
+        // own lookup and its own deletion — which is the one thing IJsExotic cannot yet express.
+        realm.DefineValue(window, "localStorage", Dom.Features.WebStorageBinding.BuildStorage(realm));
+        realm.DefineValue(window, "sessionStorage", Dom.Features.WebStorageBinding.BuildStorage(realm));
 
         // window.matchMedia(query) — evaluates basic media queries. The realm mints the function
         // with the same name, arity and non-constructable shape it had, and the binding builds its
@@ -49,7 +49,7 @@ public sealed partial class DomBridge
         realm.DefineValue(location, "pathname", JsValue.String(_pagePathName));
         realm.DefineValue(location, "search", JsValue.String(_pageSearch));
         realm.DefineValue(location, "origin", JsValue.String(_pageOrigin));
-        Dom.Features.LocationBinding.AddNavigationSurface(Dom.Runtime.JsInterop.ToEngineObject(location), _pageUrl, this);
+        Dom.Features.LocationBinding.AddNavigationSurface(realm, location, _pageUrl, this);
 
         realm.DefineValue(window, "location", location);
 
@@ -75,9 +75,9 @@ public sealed partial class DomBridge
         realm.DefineValue(window, "requestAnimationFrame", realm.NewMethod("requestAnimationFrame", (in a) => Dom.Features.TimerBinding.RequestAnimationFrame(_eventLoop, _windowContext, in a), 1));
         realm.DefineValue(window, "cancelAnimationFrame", realm.NewMethod("cancelAnimationFrame", (in a) => Dom.Features.TimerBinding.CancelAnimationFrame(_eventLoop, in a), 1));
 
-        // window.alert(msg) — logs to debug output. Pinned by WindowDocumentMiscBinding, which still
-        // reads the engine's argument frame.
-        realm.DefineValue(window, "alert", PinnedMethod("alert", Dom.Features.WindowDocumentMiscBinding.Alert, 1));
+        // window.alert(msg) — logs to debug output. The realm mints it with the name, arity and
+        // non-constructable shape it had, and the binding coerces its message through the realm.
+        realm.DefineValue(window, "alert", realm.NewMethod("alert", Dom.Features.WindowDocumentMiscBinding.Alert, 1));
 
         // btoa / atob — the WindowOrWorkerGlobalScope base64 pair (HTML §8.3), co-located in the
         // Base64Binding feature module. The window IS the global object, so registering here is
@@ -196,7 +196,7 @@ public sealed partial class DomBridge
         var performanceMonotonicOrigin = fetchTiming?.MonotonicOrigin ?? System.Diagnostics.Stopwatch.GetTimestamp();
         var performanceObj = realm.NewObject();
         realm.DefineValue(performanceObj, "timeOrigin", JsValue.Number(performanceTimeOrigin));
-        realm.DefineValue(performanceObj, "now", PinnedMethod("now", (in a) => Dom.Features.WindowDocumentMiscBinding.PerformanceNow(performanceMonotonicOrigin, in a), 0));
+        realm.DefineValue(performanceObj, "now", realm.NewMethod("now", (in c) => Dom.Features.WindowDocumentMiscBinding.PerformanceNow(performanceMonotonicOrigin, in c), 0));
 
         // The Performance Timeline getters (Performance Timeline §3), all three of which answer from
         // the one entry a document that has navigated once and loaded no instrumented resources has:
@@ -390,9 +390,9 @@ public sealed partial class DomBridge
         // What the host machine can do — javaEnabled, plugins/mimeTypes, getGamepads, getBattery,
         // requestMediaKeySystemAccess — and the legacy storage-quota pair, each answering "no" in
         // its interface's own vocabulary rather than throwing. See NavigatorCapabilityBinding and
-        // StorageQuotaBinding. The first is still engine-typed and takes the script context it
-        // raises its NotSupportedError against.
-        Dom.Features.NavigatorCapabilityBinding.Install(Dom.Runtime.JsInterop.ToEngineObject(navigatorObj), _jsContext!);
+        // StorageQuotaBinding. Both take the realm: the DOMException the first rejects with is minted
+        // through it, against the same global the script context reached.
+        Dom.Features.NavigatorCapabilityBinding.Install(realm, navigatorObj);
         Dom.Features.StorageQuotaBinding.Install(realm, navigatorObj);
 
         // The object-valued surfaces that have a truthful answer: storage (zero usage, zero quota,
@@ -454,20 +454,20 @@ public sealed partial class DomBridge
         realm.DefineAccessor(window, "offscreenBuffering", (in _) => JsValue.True, null);
 
         // window scroll / scrollTo / scrollBy, co-located in the WindowScrollBinding feature module
-        // (Phase 3). Pinned — that module reads the engine's argument frame to tell scrollTo(x, y)
-        // from scrollTo({ left, top }).
-        realm.DefineValue(window, "scroll", PinnedMethod("scroll", (in a) => Dom.Features.WindowScrollBinding.Scroll(this, in a), 2));
-        realm.DefineValue(window, "scrollTo", PinnedMethod("scrollTo", (in a) => Dom.Features.WindowScrollBinding.ScrollTo(this, in a), 2));
-        realm.DefineValue(window, "scrollBy", PinnedMethod("scrollBy", (in a) => Dom.Features.WindowScrollBinding.ScrollBy(this, in a), 2));
+        // (Phase 3). The reading that tells scrollTo(x, y) from scrollTo({ left, top }) is the one
+        // the sub-window contract already performs, shared rather than copied.
+        realm.DefineValue(window, "scroll", realm.NewMethod("scroll", (in c) => Dom.Features.WindowScrollBinding.Scroll(this, in c), 2));
+        realm.DefineValue(window, "scrollTo", realm.NewMethod("scrollTo", (in c) => Dom.Features.WindowScrollBinding.ScrollTo(this, in c), 2));
+        realm.DefineValue(window, "scrollBy", realm.NewMethod("scrollBy", (in c) => Dom.Features.WindowScrollBinding.ScrollBy(this, in c), 2));
         // window addEventListener / removeEventListener / dispatchEvent, co-located in the
         // WindowEventTargetBinding feature module (Phase 3). These reach the global object — so
         // the idiomatic unqualified `addEventListener("load", …)` registers a window listener,
         // as it does in a browser — through MirrorWindowMembersOntoGlobal, which shares the
-        // identical function objects so the two spellings address one listener store. Pinned by
-        // that module, which still holds engine listener values.
-        realm.DefineValue(window, "addEventListener", PinnedMethod("addEventListener", (in a) => Dom.Features.WindowEventTargetBinding.AddEventListener(this, in a), 3));
-        realm.DefineValue(window, "removeEventListener", PinnedMethod("removeEventListener", (in a) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in a), 3));
-        realm.DefineValue(window, "dispatchEvent", PinnedMethod("dispatchEvent", (in a) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in a), 1));
+        // identical function objects so the two spellings address one listener store. The listener
+        // store still holds engine values; the host contract is where a handle becomes one.
+        realm.DefineValue(window, "addEventListener", realm.NewMethod("addEventListener", (in c) => Dom.Features.WindowEventTargetBinding.AddEventListener(this, in c), 3));
+        realm.DefineValue(window, "removeEventListener", realm.NewMethod("removeEventListener", (in c) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c), 3));
+        realm.DefineValue(window, "dispatchEvent", realm.NewMethod("dispatchEvent", (in c) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c), 1));
 
         _messaging.RegisterWindowMessaging(Dom.Runtime.JsInterop.ToEngineObject(window));
 
@@ -508,14 +508,12 @@ public sealed partial class DomBridge
         _visualViewportJSObject = Dom.Runtime.JsInterop.ToEngineObject(visualViewport);
         realm.DefineAccessor(visualViewport, "width", (in _) => JsValue.Number(GetVisualViewportWidth()), null);
         realm.DefineAccessor(visualViewport, "height", (in _) => JsValue.Number(GetVisualViewportHeight()), null);
-        // `scale` is the one accessor of the five whose setter is still engine-typed
-        // (WindowDocumentMiscBinding reads the assigned value off the engine's frame), so the pair is
-        // installed through the pinned adapter rather than through the realm; the getter goes with it
-        // so that one property is not built two ways.
-        PinnedAccessor(
+        // `scale` is the one accessor of the five that has a setter; it coerces the assigned value
+        // through the realm, because `visualViewport.scale = "2"` is a page passing a string.
+        realm.DefineAccessor(
             visualViewport, "scale",
-            (in _) => new JavaScript.BuiltIns.Number.JSNumber(GetVisualViewportScale()),
-            (in a) => Dom.Features.WindowDocumentMiscBinding.SetVisualViewportScale(this, in a));
+            (in _) => JsValue.Number(GetVisualViewportScale()),
+            (in c) => Dom.Features.WindowDocumentMiscBinding.SetVisualViewportScale(this, in c));
         realm.DefineAccessor(visualViewport, "pageLeft", (in _) => JsValue.Number(GetVisualViewportPageOffset(vertical: false)), null);
         realm.DefineAccessor(visualViewport, "pageTop", (in _) => JsValue.Number(GetVisualViewportPageOffset(vertical: true)), null);
 

@@ -1,11 +1,4 @@
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -40,12 +33,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// page sees does not change.
 /// </para>
 /// <para>
-/// <b>The element half is migrated to JSEAL and the global is not, and the split is a caller's.</b>
-/// <see cref="Install"/> is reached from the element-interface hub, which hands it a realm.
-/// <see cref="BuildMediaSource"/> is reached from <c>DomBridge/Registration/Polyfills.cs</c>, which
-/// registers the window's globals against the engine's context and has no realm to give — so it stays
-/// engine-typed until that registration moves, and it is the only reason this file still names an
-/// engine type.
+/// Both halves take the realm their members are minted in — <see cref="Install"/> from the
+/// element-interface hub, <see cref="BuildMediaSource"/> from
+/// <c>DomBridge/Registration/Polyfills.cs</c> — so this file names no engine type. The
+/// <c>NotSupportedError</c> that <c>addSourceBuffer</c> raises goes through the call's own realm,
+/// which builds it against the same <c>DOMException</c> global the script context did.
 /// </para>
 /// </remarks>
 internal static class MediaCapabilityBinding
@@ -75,55 +67,47 @@ internal static class MediaCapabilityBinding
     }
 
     /// <summary>
-    /// Builds the <c>MediaSource</c> interface object. A <see cref="JSFunction"/> rather than a
-    /// <c>DomFunction</c> because <c>new MediaSource()</c> is how the interface is normally
-    /// reached — and constructing one succeeds, because a source that supports no type is still a
-    /// source; a page learns what it can do from <c>isTypeSupported</c> and from
-    /// <c>addSourceBuffer</c> refusing the type it was given.
+    /// Builds the <c>MediaSource</c> interface object. A constructor rather than a plain method
+    /// because <c>new MediaSource()</c> is how the interface is normally reached — and constructing
+    /// one succeeds, because a source that supports no type is still a source; a page learns what it
+    /// can do from <c>isTypeSupported</c> and from <c>addSourceBuffer</c> refusing the type it was
+    /// given.
     /// </summary>
-    /// <param name="context">
-    /// The realm whose <c>DOMException</c> constructor <c>addSourceBuffer</c> raises its
-    /// <c>NotSupportedError</c> through, so a page's <c>catch</c> sees the same exception type a
-    /// browser would give it.
-    /// </param>
-    public static JSFunction BuildMediaSource(JSContext context)
+    /// <param name="realm">The realm the interface object and each source it builds are minted in.</param>
+    public static JsValue BuildMediaSource(IJsRealm realm)
     {
-        var constructor = new JSFunction((in _) => NewMediaSource(context), "MediaSource", 0);
+        var constructor = realm.NewConstructor("MediaSource", (in _) => NewMediaSource(realm), 0);
 
-        constructor.FastAddValue("isTypeSupported",
-            new DomFunction((in _) => JSBoolean.False, "isTypeSupported", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(constructor, "isTypeSupported",
+            realm.NewMethod("isTypeSupported", static (in _) => JsValue.False, 1));
 
         return constructor;
     }
 
-    private static JSValue NewMediaSource(JSContext context)
+    private static JsValue NewMediaSource(IJsRealm realm)
     {
-        var source = new JSObject();
+        var source = realm.NewObject();
 
         // "closed" is the state a MediaSource is in until it is attached to a media element. It is
         // the one this never leaves, because there is no element for it to be attached to.
-        source.FastAddValue("readyState", new JSString("closed"), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(source, "readyState", JsValue.String("closed"));
 
         // The buffer lists are empty and stay empty: addSourceBuffer refuses every type, which is
         // what the specification requires of a type isTypeSupported rejects.
-        source.FastAddValue("sourceBuffers", new JSArray(), JSPropertyAttributes.EnumerableConfigurableValue);
-        source.FastAddValue("activeSourceBuffers", new JSArray(), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(source, "sourceBuffers", realm.NewArray());
+        realm.DefineValue(source, "activeSourceBuffers", realm.NewArray());
 
-        source.FastAddValue("addSourceBuffer",
-            new DomFunction((in a) => AddSourceBuffer(context, in a), "addSourceBuffer", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(source, "addSourceBuffer",
+            realm.NewMethod("addSourceBuffer", (in call) => AddSourceBuffer(in call), 1));
 
         return source;
     }
 
-    private static JSValue AddSourceBuffer(JSContext context, in Arguments a)
+    private static JsValue AddSourceBuffer(in JsCall call)
     {
-        string type = a.Length > 0 ? a[0].ToString() : string.Empty;
-        DomBridge.ThrowDOMException(
-            context,
-            $"The type '{type}' is not supported: no media playback pipeline is available.",
-            "NotSupportedError");
-        return JSUndefined.Value;
+        string type = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+        throw call.Realm.DomError(
+            "NotSupportedError",
+            $"The type '{type}' is not supported: no media playback pipeline is available.");
     }
 }

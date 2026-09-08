@@ -107,15 +107,24 @@ public sealed partial class DomBridge
     /// forms, the sub-document forms, and the <c>DocumentFragment</c> forms — because a browser throws
     /// from all of them identically, which was measured rather than assumed. The CSS cascade does not
     /// come through here and stays lenient, as CSS error handling requires.
+    /// <para>
+    /// <b>This one takes no script context, where its three neighbours above still do.</b> Every
+    /// caller is a file in this migration's own group, so the nullable script-context parameter —
+    /// only ever forwarded to <see cref="ThrowDOMException"/> — could go, and the realm raises the
+    /// exception instead: <c>IJsCalls.DomError</c> constructs it through the same <c>DOMException</c>
+    /// global against the same realm, so what a page catches is unchanged. The parameter's
+    /// null-tolerance survives as the realm's: before <c>Attach</c> there is no realm and the check is
+    /// skipped, which is what a <see langword="null"/> context meant and is the state the bridge's own
+    /// pre-attach selector work runs in.
+    /// </para>
     /// </remarks>
-    internal static void ValidateSelector(string selector, JSContext? context)
+    internal void ValidateSelector(string selector)
     {
-        if (context is not null && !Dom.Features.DomApiSyntax.IsValidSelectorList(selector))
+        if (_realm is { } realm && !Dom.Features.DomApiSyntax.IsValidSelectorList(selector))
         {
-            ThrowDOMException(
-                context,
-                $"Failed to execute 'querySelector' on 'Document': '{selector}' is not a valid selector.",
-                "SyntaxError");
+            throw realm.DomError(
+                "SyntaxError",
+                $"Failed to execute 'querySelector' on 'Document': '{selector}' is not a valid selector.");
         }
     }
 

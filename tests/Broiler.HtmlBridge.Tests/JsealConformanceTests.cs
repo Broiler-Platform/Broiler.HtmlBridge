@@ -1075,8 +1075,19 @@ public class JsealConformanceTests
         // Nothing promises that two threads may touch ONE realm — the contract says so and this
         // provider does not permit it — so the second realm is built and used entirely on the
         // second thread, which is what a Worker does.
+        //
+        // The capability names two things ("a second realm can be created on another thread AND
+        // values moved between the two by structured clone"), so this exercises both: a message goes
+        // out as a JsDetachedValue, is adopted on the worker thread, and a reply comes back the same
+        // way. A test that only built the realm would leave half the claim unchecked.
+        var outbound = first.NewObject();
+        first.DefineValue(outbound, "greeting", JsValue.String("from the page"));
+        var sent = first.Detach(outbound);
+
         JsValue secondGlobal = default;
         var answer = string.Empty;
+        var received = string.Empty;
+        JsDetachedValue? reply = null;
         Exception? failure = null;
 
         var worker = new Thread(() =>
@@ -1087,6 +1098,15 @@ public class JsealConformanceTests
                 second.EvaluateHostScript("var inWorker = 'worker';", "test:worker");
                 answer = second.ToJsString(second.GetProperty(second.Global, "inWorker"));
                 secondGlobal = second.Global;
+
+                // Adopted HERE, on this thread, by THIS realm — which is what makes the resulting
+                // objects the worker's own rather than the page's.
+                var inbound = second.Adopt(sent);
+                received = second.ToJsString(second.GetProperty(inbound, "greeting"));
+
+                var outgoing = second.NewObject();
+                second.DefineValue(outgoing, "greeting", JsValue.String("from the worker"));
+                reply = second.Detach(outgoing);
             }
             catch (Exception ex)
             {
@@ -1098,10 +1118,181 @@ public class JsealConformanceTests
         Assert.True(worker.Join(TimeSpan.FromSeconds(30)), "the worker realm did not finish");
         Assert.Null(failure);
         Assert.Equal("worker", answer);
+        Assert.Equal("from the page", received);
 
         // Two realms, not one shared one: a declaration in the worker is not visible here.
         Assert.False(first.Global == secondGlobal);
         Assert.True(first.GetProperty(first.Global, "inWorker").IsUndefined);
+
+        // And the reply crosses back the same way, into the realm that asks for it.
+        Assert.NotNull(reply);
+        var materialized = first.Adopt(reply!);
+        Assert.Equal("from the worker", first.ToJsString(first.GetProperty(materialized, "greeting")));
+    }
+
+    // ── structured clone ───────────────────────────────────────────────────────────────────────
+
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ACloneIsACopyRatherThanTheSameObject(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.WorkerRealms))
+            return;
+
+        var original = realm.NewObject();
+        realm.DefineValue(original, "n", JsValue.Number(1d));
+
+        var copy = realm.Clone(original);
+
+        // Not the same object, and not sharing state with it: mutating the source afterwards is
+        // invisible to the copy, which is the property the messaging model depends on.
+        Assert.False(copy == original);
+        Assert.Equal(1d, realm.GetProperty(copy, "n").AsNumber);
+        realm.SetProperty(original, "n", JsValue.Number(2d));
+        Assert.Equal(1d, realm.GetProperty(copy, "n").AsNumber);
+
+        // A primitive clones to itself, which is why a carrier cannot be a JsValue handle: there is
+        // no engine instance in this answer to key one on.
+        Assert.Equal("text", realm.Clone(JsValue.String("text")).AsString);
+        Assert.True(realm.Clone(JsValue.Undefined).IsUndefined);
+    }
+
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void CloningRefusesAValueTheAlgorithmDoesNotCover(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.WorkerRealms))
+            return;
+
+        // A function is the canonical uncloneable value, and a page reaches this by writing
+        // postMessage(function () {}). The failure has to be an exception the host can catch and
+        // turn into a DataCloneError, not a silently empty object.
+        var uncloneable = realm.NewMethod("f", static (in _) => JsValue.Undefined);
+        Assert.Throws<JsEngineException>(() => realm.Clone(uncloneable));
+        Assert.Throws<JsEngineException>(() => realm.Detach(uncloneable));
+    }
+
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ATransferListDetachesItsSourceAndCarriesTheContents(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.WorkerRealms) || Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        var buffer = realm.EvaluateHostScript(
+            "(function () { var b = new ArrayBuffer(4); new Uint8Array(b)[0] = 7; return b; })()",
+            "test:transfer");
+
+        Assert.Equal(JsTransferKind.Transferable, realm.ClassifyTransferable(buffer));
+
+        var payload = realm.NewObject();
+        realm.DefineValue(payload, "buffer", buffer);
+        var moved = realm.Clone(payload, [buffer]);
+
+        // The observable half of "transfer": the source is detached afterwards and the receiver has
+        // the bytes. (What is NOT promised is zero copies; this engine copies and then detaches.)
+        Assert.Equal(JsTransferKind.Detached, realm.ClassifyTransferable(buffer));
+        realm.DefineValue(realm.Global, "moved", moved);
+        Assert.Equal("7", Eval(realm, "String(new Uint8Array(moved.buffer)[0])", "test:transfer-read"));
+    }
+
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void OnlyATransferableObjectClassifiesAsOne(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.WorkerRealms))
+            return;
+
+        // The question a postMessage transfer list asks of every entry it does not recognise itself.
+        // Everything that is not transferable answers the same way, including the hole a sparse
+        // array hands over and the primitive a page puts in the list by mistake.
+        Assert.Equal(JsTransferKind.NotTransferable, realm.ClassifyTransferable(realm.NewObject()));
+        Assert.Equal(JsTransferKind.NotTransferable, realm.ClassifyTransferable(realm.NewArray()));
+        Assert.Equal(JsTransferKind.NotTransferable, realm.ClassifyTransferable(JsValue.Number(1d)));
+        Assert.Equal(JsTransferKind.NotTransferable, realm.ClassifyTransferable(JsValue.Missing));
+    }
+
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ADetachedCarrierBelongsToItsEngineAndToNoRealm(string engine)
+    {
+        var provider = Provider(engine);
+        using var realm = provider.CreateRealm(JsRealmOptions.Default);
+
+        if (Lacks(realm, JsCapabilities.WorkerRealms))
+            return;
+
+        var source = realm.NewObject();
+        realm.DefineValue(source, "n", JsValue.Number(3d));
+        var carrier = realm.Detach(source);
+
+        Assert.Equal(realm.EngineName, carrier.EngineName);
+
+        // Adopting twice yields two independent copies. One message delivered to two realms needs
+        // that, and it is also what says the carrier is not itself a realm's object.
+        var first = realm.Adopt(carrier);
+        var second = realm.Adopt(carrier);
+        Assert.False(first == second);
+        Assert.Equal(3d, realm.GetProperty(first, "n").AsNumber);
+        Assert.Equal(3d, realm.GetProperty(second, "n").AsNumber);
+
+        // A carrier another engine minted is refused rather than walked. In a process with one
+        // provider registered this is the only way to build one, and the refusal is what keeps two
+        // linked engines from silently handing each other graphs neither can read.
+        var foreign = Broiler.HtmlBridge.Jseal.Providers.JsProviderClone.Detached("not-this-engine", null);
+        Assert.Throws<JsEngineException>(() => realm.Adopt(foreign));
+    }
+
+    // ── the two array questions the messaging transfer-list walk is built on ────────────────────
+
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void OwnPropertyNamesOfAnArrayAreItsPresentIndicesAndNotItsLength(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        // This is how the bridge walks a postMessage transfer list, and both halves matter. A HOLE
+        // must be skipped: handing it on as a value would turn postMessage(m, [ , buf]) into a
+        // DataCloneError a browser does not raise. And `length` must not appear, or the walk would
+        // classify a number as a transfer-list entry.
+        var sparse = realm.EvaluateHostScript("(function () { var a = ['x']; a[2] = 'z'; return a; })()", "test:sparse");
+
+        Assert.Equal(new[] { "0", "2" }, realm.OwnPropertyNames(sparse));
+        Assert.Equal("x", realm.GetIndex(sparse, 0).AsString);
+        Assert.Equal("z", realm.GetIndex(sparse, 2).AsString);
+    }
+
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void DefiningTheNextIndexOnAnArrayExtendsIt(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        // Appending, as the worker global's listener array does it. An engine on which DefineIndex
+        // left `length` behind would grow an array that JavaScript could not iterate, and the
+        // listeners a worker registered would silently never be called.
+        var array = realm.NewArray([JsValue.String("a")]);
+        realm.DefineIndex(array, (uint)realm.GetProperty(array, "length").AsNumber, JsValue.String("b"));
+
+        Assert.Equal(2d, realm.GetProperty(array, "length").AsNumber);
+        Assert.Equal("b", realm.GetIndex(array, 1).AsString);
+
+        realm.DefineValue(realm.Global, "appended", array);
+        Assert.Equal("a,b", Eval(realm, "Array.prototype.join.call(appended, ',')", "test:append"));
     }
 
     // ── the realm's own answers about itself ───────────────────────────────────────────────────
@@ -1165,6 +1356,8 @@ public class JsealConformanceTests
             [JsCapabilities.Promises] = nameof(APromiseSettlesFromTheHostAndItsReactionRunsAtTheNextDrain),
             [JsCapabilities.ExoticObjects] = nameof(AnOrdinaryPropertyWinsOverTheExoticHandler),
             [JsCapabilities.GlobalIsVariableScope] = nameof(ATopLevelDeclarationBecomesAPropertyOfTheGlobal),
+            // Covers both halves of what the capability claims: the second realm on the second
+            // thread, and values moved between the two by structured clone (IJsClone).
             [JsCapabilities.WorkerRealms] = nameof(ASecondRealmRunsOnASecondThread),
             [JsCapabilities.ReentrantHostCalls] = nameof(AHostFunctionMayCallBackIntoScriptWhileTheEngineIsInsideIt),
         };

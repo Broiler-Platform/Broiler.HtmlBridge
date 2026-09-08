@@ -1,7 +1,5 @@
 using System.Diagnostics;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -24,13 +22,22 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// Previously the bridge's <c>JsRegistrationAlert076Core</c>/<c>Now122Core</c>/<c>SetScale143Core</c>/
 /// <c>GetContentType063Core</c>/<c>SetCookie149Core</c>.
 /// </summary>
+/// <remarks>
+/// Every one of these reads its arguments off a <see cref="JsCall"/>, and its installer in
+/// <c>DomBridge/Registration/</c> mints it through the realm. The three reads that coerce — the alert
+/// message, the assigned visual-viewport scale and the cookie assignment — go through the realm's
+/// <c>ToJsString</c>/<c>ToNumber</c> rather than the handle's own rendering, because each is the
+/// observable ECMAScript coercion of a value the page supplied and may run its <c>toString</c> or
+/// <c>valueOf</c>. That is exactly what the engine's <c>ToString()</c>/<c>DoubleValue</c> they replace
+/// did here.
+/// </remarks>
 internal static class WindowDocumentMiscBinding
 {
-    public static JSValue Alert(in Arguments a)
+    public static JsValue Alert(in JsCall call)
     {
-        var msg = a.Length > 0 ? a[0].ToString() : string.Empty;
+        var msg = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         RenderLogger.LogDebug(LogCategory.JavaScript, "DomBridge.alert", msg);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -49,8 +56,8 @@ internal static class WindowDocumentMiscBinding
     /// <paramref name="monotonicOriginTimestamp"/> is a <see cref="Stopwatch.GetTimestamp"/> value
     /// taken at the same instant as the wall-clock <c>timeOrigin</c>.
     /// </remarks>
-    public static JSValue PerformanceNow(long monotonicOriginTimestamp, in Arguments a)
-        => new JSNumber(Stopwatch.GetElapsedTime(monotonicOriginTimestamp).TotalMilliseconds);
+    public static JsValue PerformanceNow(long monotonicOriginTimestamp, in JsCall call)
+        => JsValue.Number(Stopwatch.GetElapsedTime(monotonicOriginTimestamp).TotalMilliseconds);
 
     /// <summary>
     /// <c>document.domain</c> — the document's origin's effective domain (HTML §3.2.6), which for a
@@ -65,8 +72,8 @@ internal static class WindowDocumentMiscBinding
     /// The setter is deliberately absent — relaxing the effective domain is a same-origin-policy
     /// change with nothing in a single-document capture to relax against.
     /// </remarks>
-    public static JSValue GetDocumentDomain(IWindowDocumentMiscHost host, in Arguments a)
-        => new JSString(Uri.TryCreate(host.PageUrl, UriKind.Absolute, out var uri) ? uri.Host : string.Empty);
+    public static JsValue GetDocumentDomain(IWindowDocumentMiscHost host, in JsCall call)
+        => JsValue.String(Uri.TryCreate(host.PageUrl, UriKind.Absolute, out var uri) ? uri.Host : string.Empty);
 
     /// <summary>
     /// <c>document.lastModified</c> — the source file's last-modification date and time in the user's
@@ -79,9 +86,9 @@ internal static class WindowDocumentMiscBinding
     /// documented shape, which matters because the value's only common use is being handed to
     /// <c>new Date(document.lastModified)</c>, and that parse is what an <c>undefined</c> broke.
     /// </remarks>
-    public static JSValue GetLastModified(in Arguments a)
+    public static JsValue GetLastModified(in JsCall call)
         // Fully qualified: the Broiler.DateTime namespace shadows the BCL type on a bare `DateTime`.
-        => new JSString(System.DateTime.Now.ToString("MM/dd/yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+        => JsValue.String(System.DateTime.Now.ToString("MM/dd/yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
 
     /// <summary>
     /// <c>document.hasFocus()</c> — whether the document is the focused document (HTML §6.6).
@@ -94,30 +101,30 @@ internal static class WindowDocumentMiscBinding
     /// <c>document.hasFocus &amp;&amp; document.hasFocus()</c> then silently took the unfocused branch,
     /// which is the state this capture is furthest from.
     /// </remarks>
-    public static JSValue HasFocus(in Arguments a) => JavaScript.BuiltIns.Boolean.JSBoolean.True;
+    public static JsValue HasFocus(in JsCall call) => JsValue.True;
 
-    public static JSValue SetVisualViewportScale(IWindowDocumentMiscHost host, in Arguments a)
+    public static JsValue SetVisualViewportScale(IWindowDocumentMiscHost host, in JsCall call)
     {
-        if (a.Length > 0)
-            host.SetVisualViewportScale(a[0].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length > 0)
+            host.SetVisualViewportScale(call.Realm.ToNumber(call[0]));
+        return JsValue.Undefined;
     }
 
-    public static JSValue GetContentType(IWindowDocumentMiscHost host, in Arguments a)
+    public static JsValue GetContentType(IWindowDocumentMiscHost host, in JsCall call)
     {
         var url = host.PageUrl;
         if (url.EndsWith(".xhtml", StringComparison.OrdinalIgnoreCase)
             || url.EndsWith(".xht", StringComparison.OrdinalIgnoreCase)
             || url.Contains("application/xhtml+xml", StringComparison.OrdinalIgnoreCase))
-            return new JSString("application/xhtml+xml");
-        return new JSString("text/html");
+            return JsValue.String("application/xhtml+xml");
+        return JsValue.String("text/html");
     }
 
-    public static JSValue SetCookie(ref string? cookieStore, in Arguments a)
+    public static JsValue SetCookie(ref string? cookieStore, in JsCall call)
     {
-        if (a.Length > 0)
+        if (call.Length > 0)
         {
-            var val = a[0].ToString();
+            var val = call.Realm.ToJsString(call[0]);
             // Simplified: just append the cookie value (real browsers parse/update).
             if (!string.IsNullOrEmpty(cookieStore))
                 cookieStore += "; " + val;
@@ -125,6 +132,6 @@ internal static class WindowDocumentMiscBinding
                 cookieStore = val;
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 }

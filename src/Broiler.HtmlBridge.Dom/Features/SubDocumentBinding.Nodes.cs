@@ -133,8 +133,8 @@ internal sealed partial class SubDocumentBinding
         var childObj = call[0];
         foreach (var child in DomBridge.ChildElements(docRoot).ToList())
         {
-            // Wrapper identity, not node identity: the handles compare as the engine objects they
-            // carry, which is the same `==` the JSObject reference test performed.
+            // Wrapper identity, not node identity: two handles compare equal when they carry the same
+            // underlying object, which is the same reference test this used to perform directly.
             if (_host.TryGetNodeWrapper(child, out var cached) && cached == childObj)
             {
                 var idx = DomBridge.ChildIndexOf(docRoot, child);

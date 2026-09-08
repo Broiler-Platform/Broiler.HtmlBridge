@@ -19,15 +19,22 @@ namespace Broiler.HtmlBridge;
 /// </para>
 /// <para>
 /// <b>What is still engine-typed here is pinned from outside, not left behind.</b> A wrapper's
-/// members are installed by a dozen modules — the attribute surface, the tree mutations,
-/// <c>EventTargetBinding</c>, the form controls, <c>ElementContentBinding</c>, the element and
-/// HTMLElement interface installers, the iframe accessors — and each still takes an engine argument
-/// frame. A member cannot be minted by the realm while the body it would call takes an
-/// <c>Arguments</c>: there is no adapter between the two call frames, only between the two object
-/// types. So each install site here migrates when its callee does, and the ones whose callees already
-/// have — <c>CharacterDataBinding</c>, <c>NodeAccessorsBinding</c>,
-/// <c>NodeRelationshipsBinding</c>, <c>FormSubmitBinding</c>, <c>CanvasBinding</c>, and the handful
-/// whose bodies read nothing but the DOM — are through the realm already.
+/// members are installed by a dozen modules, and a member cannot be minted by the realm while the body
+/// it would call takes an <c>Arguments</c>: there is no adapter between the two call frames, only
+/// between the two object types. So each install site migrates when its callee does. Through the realm
+/// already: <c>CharacterDataBinding</c>, <c>NodeAccessorsBinding</c>, <c>NodeRelationshipsBinding</c>,
+/// <c>TreeMutationBinding</c>, <c>AttributesBinding</c>, <c>FormSubmitBinding</c>,
+/// <c>CanvasBinding</c>, and the handful whose bodies read nothing but the DOM. Still on the engine's
+/// frame, and each named at its site below: <c>EventTargetBinding</c>, <c>FormControlBinding</c>,
+/// <c>IframeElementBinding</c>, <c>ElementContentBinding</c>, the element and HTMLElement interface
+/// installers, and the per-tag member pass.
+/// </para>
+/// <para>
+/// <b>The wrapper object itself is the last thing to flip, and <see cref="ToJSObject"/> is why.</b>
+/// Thirty files across this assembly ask for a node's wrapper as the engine's object, so the object
+/// this method mints, the prototype it is linked through, and every unmigrated installer handed
+/// <c>obj</c> are all typed by that one return type. It stays until those callers ask
+/// <see cref="WrapNode"/> instead.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -76,10 +83,11 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// <b>This is the engine-typed adapter and it stays one deliberately.</b> It is the most-called
-    /// method in the bridge — 75 files reach for it — so migrating its <em>return type</em> would
-    /// ripple into every one of them at once, which is the change this file-by-file port exists to
-    /// avoid. <see cref="WrapNode"/> is the JSEAL-vocabulary sibling; a migrated caller asks for that
-    /// and everything else keeps asking for this.
+    /// method in the bridge — thirty files across this assembly reach for it, twenty-nine of them
+    /// outside this file — so migrating its <em>return type</em> would ripple into every one of them at
+    /// once, which is the change this file-by-file port exists to avoid. <see cref="WrapNode"/> is the
+    /// JSEAL-vocabulary sibling; a migrated caller asks for that and everything else keeps asking for
+    /// this.
     /// </remarks>
     internal JSObject ToJSObject(DomNode node)
     {
@@ -224,19 +232,23 @@ public sealed partial class DomBridge
         // §4.9 pairs setAttributeNode with setAttributeNodeNS but gives removeAttributeNode no
         // namespace-qualified sibling (an Attr already knows its namespace), so no browser has one and
         // putting it on Element.prototype would give that prototype a member a browser's has not got.
-        obj.FastAddValue("removeAttributeNodeNS",
-            new DomFunction((in a) => _attributes.RemoveAttributeNodeNS(element, obj, in a), "removeAttributeNodeNS", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "removeAttributeNodeNS",
+            Realm.NewMethod("removeAttributeNodeNS",
+                (in call) => _attributes.RemoveAttributeNodeNS(element, handle, in call), 1));
+
+        // The five Node child-mutation members below are minted by the realm: TreeMutationBinding is
+        // migrated, so each body has a JsCall frame of its own to read its child and reference
+        // arguments from, and the DOMException a failed step must throw comes from that frame's realm.
 
         // insertBefore(newChild, refChild)
-        obj.FastAddValue("insertBefore",
-            new DomFunction((in a) => Dom.Features.TreeMutationBinding.InsertBefore(this, element, in a), "insertBefore", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "insertBefore",
+            Realm.NewMethod("insertBefore",
+                (in call) => Dom.Features.TreeMutationBinding.InsertBefore(this, element, in call), 2));
 
         // moveBefore(node, refChild) — the atomic, state-preserving sibling of insertBefore.
-        obj.FastAddValue("moveBefore",
-            new DomFunction((in a) => Dom.Features.TreeMutationBinding.MoveBefore(this, element, in a), "moveBefore", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "moveBefore",
+            Realm.NewMethod("moveBefore",
+                (in call) => Dom.Features.TreeMutationBinding.MoveBefore(this, element, in call), 2));
 
         // -- DOM manipulation methods --
 
@@ -252,25 +264,26 @@ public sealed partial class DomBridge
         }
 
         // appendChild(child)
-        obj.FastAddValue("appendChild",
-            new DomFunction((in a) => Dom.Features.TreeMutationBinding.AppendChild(this, element, in a), "appendChild", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "appendChild",
+            Realm.NewMethod("appendChild",
+                (in call) => Dom.Features.TreeMutationBinding.AppendChild(this, element, in call), 1));
 
         // removeChild(child)
-        obj.FastAddValue("removeChild",
-            new DomFunction((in a) => Dom.Features.TreeMutationBinding.RemoveChild(this, element, in a), "removeChild", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "removeChild",
+            Realm.NewMethod("removeChild",
+                (in call) => Dom.Features.TreeMutationBinding.RemoveChild(this, element, in call), 1));
 
         // replaceChild(newChild, oldChild)
-        obj.FastAddValue("replaceChild",
-            new DomFunction((in a) => Dom.Features.TreeMutationBinding.ReplaceChild(this, element, in a), "replaceChild", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "replaceChild",
+            Realm.NewMethod("replaceChild",
+                (in call) => Dom.Features.TreeMutationBinding.ReplaceChild(this, element, in call), 2));
 
         // -- DOM events --
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
         // routed by receiver (DomBridge.EventTargetInterface.cs) — one function for every target, as
-        // in a browser. A wrapper minted before the realm carried it installs its own.
+        // in a browser. A wrapper minted before the realm carried it installs its own, and those three
+        // are the engine's: EventTargetBinding takes an Arguments, so they move when it does.
         if (!_eventTargetRoutingReady)
         {
             obj.FastAddValue("addEventListener",

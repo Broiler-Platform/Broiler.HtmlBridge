@@ -2,11 +2,6 @@ using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
-// Engine-typed only for SetInlineStyleCssText's adapter, whose caller — the `el.style = "…"` setter in
-// DomBridge/HtmlElementInterface.cs — is still an engine call frame.
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
@@ -54,25 +49,9 @@ internal static partial class StyleDeclarationBinding
     /// The <c>element.style = "prop: val; ..."</c> assignment setter: in browsers <c>element.style</c> is
     /// effectively read-only, so assigning a string parses it as <c>cssText</c>. Unlike
     /// <see cref="InlineSetCssText"/> (the <c>style.cssText =</c> path, which stringifies any value), this
-    /// only acts on a string right-hand side and is otherwise a no-op — a quirk preserved verbatim from the
-    /// bridge's original <c>element.style</c> setter, so the clear happens inside the string guard.
-    /// </summary>
-    /// <remarks>
-    /// The engine-typed adapter that keeps <c>DomBridge/HtmlElementInterface.cs</c> compiling untouched.
-    /// The <c>is JSString</c> test <em>is</em> the quirk, so it stays where the engine frame is; everything
-    /// downstream of it is the migrated body below.
-    /// </remarks>
-    internal static JSValue SetInlineStyleCssText(IInlineStyleHost host, DomElement element, Action? onMutation, in Arguments a)
-    {
-        if (a.Length > 0 && a[0] is JSString s)
-            SetInlineStyleCssText(host, element, onMutation, s.ToString());
-
-        return JSUndefined.Value;
-    }
-
-    /// <summary>
-    /// Replaces the element's inline style with the declarations parsed out of
-    /// <paramref name="cssText"/>. The string-only guard is the caller's; see the adapter above.
+    /// only acts on a string right-hand side — a quirk preserved verbatim from the bridge's original
+    /// <c>element.style</c> setter, which is why the caller tests for a string before calling and why the
+    /// clear below happens only once it has.
     /// </summary>
     internal static void SetInlineStyleCssText(IInlineStyleHost host, DomElement element, Action? onMutation, string cssText)
     {

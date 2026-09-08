@@ -51,23 +51,24 @@ public sealed partial class DomBridge : ISubWindowHost
     /// <c>scroll(x, y)</c> / <c>scroll({ left, top, behavior })</c>, read off a migrated call frame.
     /// </summary>
     /// <remarks>
-    /// The same reading the bridge's own <c>GetScrollArguments</c> performs — an options object wins
-    /// over positional coordinates, an absent or nullish member is "leave this axis alone", and a
-    /// blank behaviour is none — over JSEAL values rather than engine ones, because this module's
-    /// callbacks no longer have an engine argument frame to hand over. The coercions are the realm's
-    /// for the same reason they were the engine's there: <c>scrollTo("100", "200")</c> is a page
-    /// passing strings. The two readings become one again when the element-geometry and window-scroll
-    /// contracts migrate their frames.
+    /// The one reading both scroll contracts share — an options object wins over positional
+    /// coordinates, an absent or nullish member is "leave this axis alone", and a blank behaviour is
+    /// none — over JSEAL values rather than engine ones, because these callbacks no longer have an
+    /// engine argument frame to hand over. The coercions are the realm's for the same reason they
+    /// were the engine's before: <c>scrollTo("100", "200")</c> is a page passing strings.
+    /// <c>DomBridge.WindowScrollHost.cs</c> forwards its own contract's member here rather than
+    /// keeping a second copy, which is why the member's name has to be changed in both contracts at
+    /// once or not at all.
     /// </remarks>
-    (double? Left, double? Top, string? Behavior) ISubWindowHost.GetScrollArguments(ReadOnlySpan<JsValue> arguments)
+    (double? Left, double? Top, string? Behavior) ISubWindowHost.GetScrollArguments(ReadOnlySpan<JsValue> supplied)
     {
-        if (arguments.Length == 0)
+        if (supplied.Length == 0)
             return (null, null, null);
 
         var realm = Realm;
-        if (arguments[0].IsObject)
+        if (supplied[0].IsObject)
         {
-            var options = arguments[0];
+            var options = supplied[0];
             return (
                 ScrollCoordinateOption(realm, options, "left"),
                 ScrollCoordinateOption(realm, options, "top"),
@@ -75,8 +76,8 @@ public sealed partial class DomBridge : ISubWindowHost
         }
 
         return (
-            realm.ToNumber(arguments[0]),
-            arguments.Length > 1 ? realm.ToNumber(arguments[1]) : null,
+            realm.ToNumber(supplied[0]),
+            supplied.Length > 1 ? realm.ToNumber(supplied[1]) : null,
             null);
     }
 

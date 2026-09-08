@@ -1,4 +1,3 @@
-using Broiler.JavaScript.BuiltIns.Null;
 using Broiler.JavaScript.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
@@ -20,32 +19,22 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The module is JSEAL now — the <c>Attr</c> object model, the write path and the element
-/// operations alike — and what is left of the engine's vocabulary is the module's <em>edge</em>, held
-/// there by code on the other side of it that has not moved:</b>
+/// <b>The module is JSEAL throughout — the <c>Attr</c> object model, the live <c>NamedNodeMap</c> and
+/// its six element-dependent operations, the write path and the element operations alike.</b> The two
+/// installers that used to hand it an engine argument frame both mint through the realm now:
+/// <c>DomBridge/JsObjects.cs</c> for <c>removeAttributeNodeNS</c>, the one attribute member that stays
+/// each wrapper's own property, and <see cref="DomCollectionBinding"/> for the map operations, whose
+/// contract is <see cref="JsNativeFunction"/> since its own migration.
 /// </para>
-/// <list type="bullet">
-/// <item><description>
-/// the live <c>NamedNodeMap</c> comes from <see cref="DomCollectionBinding"/>, whose collection
-/// contents and six element-dependent operations are declared in the engine's vocabulary — so
-/// <see cref="BuildNamedNodeMap"/> hands it engine values and takes an engine object back, even though
-/// its own callers and the <c>Attr</c> nodes it serves are JSEAL;
-/// </description></item>
-/// <item><description>
-/// <c>removeAttributeNodeNS</c> stays each wrapper's own member and is installed by
-/// <c>DomBridge/JsObjects.cs</c>, which hands it an engine argument frame and takes an engine value
-/// back — so that one entry point is an adapter over the JSEAL body the others reach directly;
-/// </description></item>
-/// <item><description>
-/// <c>document.createAttribute</c> reaches <see cref="BuildStandaloneAttrNode"/> from
-/// <c>DomBridge/DomBridge.DocumentFactoryHost.cs</c>, which still holds an engine object.
-/// </description></item>
-/// </list>
 /// <para>
-/// Those edges convert with <see cref="Runtime.JsInterop"/>, which carries an object across without
-/// converting it — the handle holds the engine's own object — and cannot carry a primitive, which is
-/// why the seam helper at the bottom of this file exists and why the edge stays where it is rather
-/// than being pushed one call deeper.
+/// <b>Two engine references remain and neither is this module's to remove.</b>
+/// <see cref="BuildStandaloneAttrNode"/> answers an engine object because
+/// <c>DomBridge/DomBridge.DocumentFactoryHost.cs</c>, which reaches it for
+/// <c>document.createAttribute</c>, still holds one; and the <c>InvalidCharacterError</c> that
+/// <c>setAttribute</c> and <c>toggleAttribute</c> must throw is minted by the bridge's name validator,
+/// which takes a script context (<see cref="IAttributesHost.JsContext"/>). Both convert with
+/// <see cref="Runtime.JsInterop"/> or not at all: it carries an object across without converting it —
+/// the handle holds the engine's own object — and cannot carry a primitive.
 /// </para>
 /// </remarks>
 internal sealed class AttributesBinding(IAttributesHost host)
@@ -89,30 +78,27 @@ internal sealed class AttributesBinding(IAttributesHost host)
 
         var owner = ownerObj;
         var map = DomCollectionBinding.NamedNodeMap(
-            _host.JsContext,
+            _host.Realm,
             () =>
             {
-                var attributes = new List<JSValue>();
+                var attributes = new List<JsValue>();
                 foreach (var name in DomBridge.AttributeNames(element))
-                    attributes.Add(ToEngineAttr(AttrNodeFor(element, name, owner)));
+                    attributes.Add(AttrNodeFor(element, name, owner));
                 return attributes;
             },
-            name => DomBridge.HasAttr(element, name) ? ToEngineAttr(AttrNodeFor(element, name, owner)) : null,
+            name => DomBridge.HasAttr(element, name) ? AttrNodeFor(element, name, owner) : null,
             new DomCollectionBinding.NamedNodeMapOperations
             {
-                GetNamedItem = a => GetNamedItem(element, owner, in a),
-                GetNamedItemNS = a => GetNamedItemNS(element, owner, in a),
-                SetNamedItem = a => SetNamedItem(element, owner, in a),
-                SetNamedItemNS = a => SetNamedItemNS(element, owner, in a),
-                RemoveNamedItem = a => RemoveNamedItem(element, owner, in a),
-                RemoveNamedItemNS = a => RemoveNamedItemNS(element, owner, in a),
+                GetNamedItem = (in call) => GetNamedItem(element, owner, in call),
+                GetNamedItemNS = (in call) => GetNamedItemNS(element, owner, in call),
+                SetNamedItem = (in call) => SetNamedItem(element, owner, in call),
+                SetNamedItemNS = (in call) => SetNamedItemNS(element, owner, in call),
+                RemoveNamedItem = (in call) => RemoveNamedItem(element, owner, in call),
+                RemoveNamedItemNS = (in call) => RemoveNamedItemNS(element, owner, in call),
             });
 
-        if (map is not JSObject instance)
-            return Runtime.JsInterop.FromEngineObject(new JSObject());
-
-        _namedNodeMaps.Add(element, instance);
-        return Runtime.JsInterop.FromEngineObject(instance);
+        _namedNodeMaps.Add(element, Runtime.JsInterop.ToEngineObject(map));
+        return map;
     }
 
     /// <summary>One live <c>NamedNodeMap</c> per element, and one <c>Attr</c> per attribute on it.</summary>
@@ -205,43 +191,47 @@ internal sealed class AttributesBinding(IAttributesHost host)
         return existing;
     }
 
-    // -------- NamedNodeMap operations (engine-typed: DomCollectionBinding declares them so) --------
+    // -------- NamedNodeMap operations --------
+    //
+    // Every argument read is the realm's ECMAScript conversion rather than the handle's rendering,
+    // because that is what the engine frame these bodies used to take was performing: passing an object
+    // with its own toString to getNamedItem has always run it.
 
-    private JSValue GetNamedItem(DomElement element, JsValue ownerObj, in Arguments a)
+    private JsValue GetNamedItem(DomElement element, JsValue ownerObj, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
-        var name = a[0].ToString();
+        if (call.Length == 0)
+            return JsValue.Null;
+        var name = call.Realm.ToJsString(call[0]);
         if (!DomBridge.TryGetAttribute(element, name, out var val))
-            return JSNull.Value;
-        return ToEngineAttr(BuildAttrNode(name, val, element, ownerObj));
+            return JsValue.Null;
+        return BuildAttrNode(name, val, element, ownerObj);
     }
 
-    private JSValue GetNamedItemNS(DomElement element, JsValue ownerObj, in Arguments a)
+    private JsValue GetNamedItemNS(DomElement element, JsValue ownerObj, in JsCall call)
     {
-        if (a.Length < 2)
-            return JSNull.Value;
-        var ns = a[0].IsNull || a[0].IsUndefined ? null : a[0].ToString();
-        var localName = a[1].ToString();
+        if (call.Length < 2)
+            return JsValue.Null;
+        var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
+        var localName = call.Realm.ToJsString(call[1]);
         if (!DomBridge.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
-            return JSNull.Value;
-        return ToEngineAttr(BuildAttrNode(qName, val, element, ownerObj));
+            return JsValue.Null;
+        return BuildAttrNode(qName, val, element, ownerObj);
     }
 
-    private JSValue SetNamedItem(DomElement element, JsValue ownerObj, in Arguments a)
+    private JsValue SetNamedItem(DomElement element, JsValue ownerObj, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
-        if (a[0] is not JSObject attrObj)
-            return JSNull.Value;
-        var incoming = Runtime.JsInterop.FromEngineObject(attrObj);
+        if (call.Length == 0)
+            return JsValue.Null;
+        if (!call[0].IsObject)
+            return JsValue.Null;
+        var incoming = call[0];
         var name = GetAttrNodeName(incoming);
         if (string.IsNullOrEmpty(name))
-            return JSNull.Value;
+            return JsValue.Null;
         var value = AttrNodeValue(incoming);
         var old = ReplacedAttrNode(element, name, incoming, ownerObj);
         SetAttributeLikeSetAttribute(element, name, value);
-        return ToEngineAttr(old);
+        return old;
     }
 
     /// <remarks>
@@ -251,47 +241,47 @@ internal sealed class AttributesBinding(IAttributesHost host)
     /// run a getter the page wrote, so the order is observable and the difference is preserved rather
     /// than collapsed. See the note on <see cref="SetAttributeNodeNS"/>.
     /// </remarks>
-    private JSValue SetNamedItemNS(DomElement element, JsValue ownerObj, in Arguments a)
+    private JsValue SetNamedItemNS(DomElement element, JsValue ownerObj, in JsCall call)
     {
-        if (a.Length == 0 || a[0] is not JSObject attrObj)
-            return JSNull.Value;
-        var incoming = Runtime.JsInterop.FromEngineObject(attrObj);
+        if (call.Length == 0 || !call[0].IsObject)
+            return JsValue.Null;
+        var incoming = call[0];
         var name = GetAttrNodeName(incoming);
         var localName = GetAttrNodeLocalName(incoming);
         if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(localName))
-            return JSNull.Value;
+            return JsValue.Null;
         var ns = GetAttrNodeNamespace(incoming);
         var value = AttrNodeValue(incoming);
         var old = DomBridge.TryGetNsAttribute(element, ns, localName, out var oldQName, out _)
             ? ReplacedAttrNode(element, oldQName, incoming, ownerObj)
             : JsValue.Null;
         SetAttributeLikeSetAttributeNS(element, ns, name, localName, value);
-        return ToEngineAttr(old);
+        return old;
     }
 
-    private JSValue RemoveNamedItem(DomElement element, JsValue ownerObj, in Arguments a)
+    private JsValue RemoveNamedItem(DomElement element, JsValue ownerObj, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
-        var name = a[0].ToString();
+        if (call.Length == 0)
+            return JsValue.Null;
+        var name = call.Realm.ToJsString(call[0]);
         if (!DomBridge.TryGetAttribute(element, name, out var val))
-            return JSNull.Value;
+            return JsValue.Null;
         var removed = BuildAttrNode(name, val, element, ownerObj);
         RemoveAttributeLikeRemoveAttribute(element, name);
-        return ToEngineAttr(removed);
+        return removed;
     }
 
-    private JSValue RemoveNamedItemNS(DomElement element, JsValue ownerObj, in Arguments a)
+    private JsValue RemoveNamedItemNS(DomElement element, JsValue ownerObj, in JsCall call)
     {
-        if (a.Length < 2)
-            return JSNull.Value;
-        var ns = a[0].IsNull || a[0].IsUndefined ? null : a[0].ToString();
-        var localName = a[1].ToString();
+        if (call.Length < 2)
+            return JsValue.Null;
+        var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
+        var localName = call.Realm.ToJsString(call[1]);
         if (!DomBridge.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
-            return JSNull.Value;
+            return JsValue.Null;
         var removed = BuildAttrNode(qName, val, element, ownerObj);
         RemoveAttributeLikeRemoveAttributeNS(element, ns, localName);
-        return ToEngineAttr(removed);
+        return removed;
     }
 
     // -------- Attr node construction --------
@@ -710,16 +700,15 @@ internal sealed class AttributesBinding(IAttributesHost host)
 
     /// <summary>
     /// <c>element.removeAttributeNodeNS(attr)</c>, the one attribute member that stays each wrapper's
-    /// own property — so it is installed by <c>DomBridge/JsObjects.cs</c>, which hands it an engine
-    /// argument frame and takes an engine value back. The adapter is what that pins; the body below it
-    /// is JSEAL like the rest of the family.
+    /// own property rather than moving to <c>Element.prototype</c> — DOM §4.9 gives
+    /// <c>removeAttributeNode</c> no namespace-qualified sibling, so no browser's prototype carries
+    /// one. Installed by <c>DomBridge/JsObjects.cs</c>, which mints it through the realm like the rest.
     /// </summary>
-    internal JSValue RemoveAttributeNodeNS(DomElement element, JSObject? obj, in Arguments a)
+    internal JsValue RemoveAttributeNodeNS(DomElement element, JsValue ownerObj, in JsCall call)
     {
-        if (a.Length == 0 || a[0] is not JSObject attrObj)
-            return JSNull.Value;
-        return ToEngineAttr(RemoveAttributeNodeNsCore(
-            element, OwnerHandle(obj), Runtime.JsInterop.FromEngineObject(attrObj)));
+        if (call.Length == 0 || !call[0].IsObject)
+            return JsValue.Null;
+        return RemoveAttributeNodeNsCore(element, ownerObj, call[0]);
     }
 
     private JsValue RemoveAttributeNodeNsCore(DomElement element, JsValue ownerObj, JsValue incoming)
@@ -789,26 +778,4 @@ internal sealed class AttributesBinding(IAttributesHost host)
         return JsValue.Boolean(element.GetAttributeNS(ns, localName) is not null);
     }
 
-    // -------- The two seam helpers --------
-
-    /// <summary>
-    /// An <c>Attr</c> — or the <c>null</c> a lookup that missed answers — as the engine value an
-    /// unmigrated caller holds. The object arm is a cast; the other arm names the engine's own
-    /// <c>null</c> because a JSEAL primitive carries no engine instance to hand back.
-    /// </summary>
-    private static JSValue ToEngineAttr(JsValue value) =>
-        value.IsObject ? Runtime.JsInterop.ToEngineObject(value) : JSNull.Value;
-
-    /// <summary>
-    /// The element wrapper an <c>Attr</c> reports as its <c>ownerElement</c>, as a handle — for
-    /// <see cref="RemoveAttributeNodeNS"/>, the one entry point still handed an engine wrapper.
-    /// </summary>
-    /// <remarks>
-    /// A missing wrapper becomes JavaScript <c>null</c>, which is what <c>setAttributeNode</c> always
-    /// passed explicitly; the sibling entry points passed the CLR <see langword="null"/> straight
-    /// through, which would have installed <c>ownerElement</c> with no value at all. None of them can
-    /// reach it — a wrapper source answers a wrapper or throws — so this only makes them agree.
-    /// </remarks>
-    private static JsValue OwnerHandle(JSObject? wrapper) =>
-        wrapper is null ? JsValue.Null : Runtime.JsInterop.FromEngineObject(wrapper);
 }

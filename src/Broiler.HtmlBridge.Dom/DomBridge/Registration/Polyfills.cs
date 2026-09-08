@@ -19,16 +19,15 @@ public sealed partial class DomBridge
         // document.cookie — get/set stub (in-memory, non-persistent). Host-driven (not pure JS), so it stays
         // here rather than in the JS asset. Order-independent of the pure-JS polyfills above.
         //
-        // Pinned by Features/WindowDocumentMiscBinding.cs: SetCookie parses the assignment out of the
-        // engine's own argument frame, and takes the backing store by reference, so the setter is an
-        // engine callback. The getter is written the same way only so that the pair stays one
-        // property; PinnedAccessor names and attributes both exactly as the realm would.
+        // The store is a local the pair closes over — SetCookie takes it by reference — and the
+        // assignment coerces through the realm, because `document.cookie = obj` is entitled to run
+        // that object's toString exactly as the engine's own ToString() did here.
         var cookieStore = "";
-        PinnedAccessor(
+        Realm.DefineAccessor(
             document,
             "cookie",
-            (in _) => new JavaScript.BuiltIns.String.JSString(cookieStore),
-            (in a) => Dom.Features.WindowDocumentMiscBinding.SetCookie(ref cookieStore, in a));
+            (in _) => JsValue.String(cookieStore),
+            (in c) => Dom.Features.WindowDocumentMiscBinding.SetCookie(ref cookieStore, in c));
     }
 
     private void RegisterSecurityAndConstructorPolyfills(JsValue window)
@@ -103,13 +102,13 @@ public sealed partial class DomBridge
 
         // Notification — the interface, with its permission already settled at "denied" because
         // there is no surface to show one on (NotificationBinding).
-        var notification = Dom.Runtime.JsInterop.FromEngineObject(Dom.Features.NotificationBinding.Build());
+        var notification = Dom.Features.NotificationBinding.Build(realm);
         realm.DefineValue(window, "Notification", notification);
 
         // MediaSource — the Media Source Extensions entry point, whose isTypeSupported answers for
         // the playback pipeline the HTML layer does not yet have (MediaCapabilityBinding, which also
         // installs canPlayType on the media elements themselves).
-        var mediaSource = Dom.Runtime.JsInterop.FromEngineObject(Dom.Features.MediaCapabilityBinding.BuildMediaSource(context));
+        var mediaSource = Dom.Features.MediaCapabilityBinding.BuildMediaSource(realm);
         realm.DefineValue(window, "MediaSource", mediaSource);
     }
 

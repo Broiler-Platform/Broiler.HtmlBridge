@@ -74,22 +74,6 @@ public sealed partial class DomBridge
         }
     }
 
-    private (double? Left, double? Top, string? Behavior) GetScrollArguments(in Arguments args)
-    {
-        if (args.Length == 0)
-            return (null, null, null);
-
-        if (args[0] is JSObject options)
-        {
-            return (
-                GetOptionalScrollCoordinate(options, "left"),
-                GetOptionalScrollCoordinate(options, "top"),
-                GetOptionalScrollBehavior(options));
-        }
-
-        return (args.Length > 0 ? args[0].DoubleValue : null, args.Length > 1 ? args[1].DoubleValue : null, null);
-    }
-
     // -------- the scroll-option readers, and why three of them still have an engine-shaped face --------
     //
     // These answer one member of a ScrollToOptions/ScrollIntoViewOptions dictionary, and they are shared
@@ -104,9 +88,12 @@ public sealed partial class DomBridge
     // and then unwraps the options object to ask these; keeping the overloads is what lets that file go
     // on compiling untouched, and they disappear when it names the JSEAL readers directly. All six are
     // instance members rather than statics for one reason: the JSEAL readers need the bridge's realm, and
-    // a static has no way to obtain one. DomBridge.SubWindowHost.cs still carries a private pair of its
-    // own, written when its module's frames migrated ahead of this file; they answer the same two
-    // questions and can now collapse onto the three below.
+    // a static has no way to obtain one.
+    //
+    // The whole-argument-list reading that used to sit above these — GetScrollArguments(in Arguments),
+    // for the window scroll contract — is gone: window.scroll/scrollTo/scrollBy are minted through the
+    // realm now, so DomBridge.WindowScrollHost.cs forwards to the one JSEAL reading in
+    // DomBridge.SubWindowHost.cs rather than this file keeping a second copy of it.
 
     private double? ReadScrollCoordinateOption(JsValue options, string propertyName)
     {

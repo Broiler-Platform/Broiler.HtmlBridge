@@ -396,17 +396,13 @@ public sealed partial class DomBridge
         return thenable;
     }
 
-    // ── Engine-typed adapters ───────────────────────────────────────────────
+    // ── Engine-typed adapter ────────────────────────────────────────────────
     //
-    // The two entry points as their unmigrated callers still spell them: `document.startViewTransition`
-    // is registered in DomBridge/Registration/Document.cs, and `subDocument.startViewTransition` is
-    // reached through DomBridge.SubDocumentHost.cs — both other groups' files this round, and both hand
-    // over an engine argument frame. Each reads exactly one slot of it, so a handle over that slot is
-    // the whole of what the migrated bodies above can observe.
-
-    /// <inheritdoc cref="StartViewTransition(JsValue)"/>
-    internal JavaScript.Runtime.JSValue StartViewTransition(in JavaScript.Runtime.Arguments a) =>
-        Dom.Runtime.JsInterop.ToEngineObject(StartViewTransition(OptionsHandle(in a)));
+    // The one entry point as its unmigrated caller still spells it: `subDocument.startViewTransition`
+    // is reached through DomBridge.SubDocumentHost.cs — another group's file this round — which hands
+    // over an engine argument frame. It reads exactly one slot of it, so a handle over that slot is
+    // the whole of what the migrated body above can observe. (`document.startViewTransition` is minted
+    // through the realm now, so it calls StartViewTransition(JsValue) directly.)
 
     /// <inheritdoc cref="StartSubDocumentViewTransition(DomNode, JsValue)"/>
     internal JavaScript.Runtime.JSValue StartSubDocumentViewTransition(
@@ -415,7 +411,7 @@ public sealed partial class DomBridge
             StartSubDocumentViewTransition(docRoot, OptionsHandle(in arguments)));
 
     /// <summary>
-    /// A handle over argument zero of an engine call frame, for the two adapters above.
+    /// A handle over argument zero of an engine call frame, for the adapter above.
     /// </summary>
     /// <remarks>
     /// Only the callable/object distinction survives, which is all either body reads: a primitive

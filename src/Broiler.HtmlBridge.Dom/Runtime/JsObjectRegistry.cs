@@ -22,18 +22,27 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// </para>
 /// <para>
 /// <b>Still engine-typed, and it is the last table that can migrate rather than the first.</b> This
-/// is the wrapper-identity choke point: thirteen files outside this group put wrappers in and take
-/// them out — <c>DomBridge/JsObjects.cs</c> and <c>JsObjects.NonElementNodes.cs</c>, the four
-/// interface files that find a node from a prototype method's receiver
-/// (<c>CharacterDataInterface</c>, <c>ElementInterface</c>, <c>EventTargetInterface</c>), the
-/// sub-document and custom-element hosts, and the registration and teardown paths — and every one of
-/// them holds the engine's object because it is mid-frame in an engine call. Migrating the keys means
-/// migrating all thirteen in one commit, which is the opposite of what the incremental seam is for.
-/// When it does move, the maps become <c>JsValue</c> without changing what they answer: a handle
-/// carries the engine's own object, and <c>JsValue</c> implements <c>Equals</c>/<c>GetHashCode</c>
-/// reflexively precisely so a dictionary keeps finding what was put in it. The
-/// <c>ConditionalWeakTable</c> below is the one member that needs more than a re-type — a weak table
-/// needs a reference key, so it would key on the handle's engine object rather than on the handle.
+/// is the wrapper-identity choke point, and every one of its six engine-typed members has a caller
+/// outside this group. <c>TryGet</c>: <c>DomBridge.CustomElementsHost.cs</c> and
+/// <c>DomBridge.SubDocumentHost.cs</c>. <c>Set</c>: <c>DomBridge/Registration/Registration.cs</c> and
+/// the sub-document host. <c>SetDocument</c>: the sub-document host. <c>TryGetDocument</c>:
+/// <c>DomBridge/DomBridge.NodeAccessorsHost.cs</c> and <c>DomBridge/Registration/CustomElements.cs</c>.
+/// <c>Entries</c>: the registration pass. <c>TryGetNode</c>: <c>DomBridge/ElementInterface.cs</c>,
+/// <c>DomBridge/EventTargetInterface.cs</c> and <c>DomBridge/Utilities.cs</c>. Nine files, none of
+/// them this group's, and each holds the engine's object because it is mid-frame in an engine call —
+/// so re-typing the surface is one commit across all nine rather than a file-by-file step, which is
+/// the opposite of what the incremental seam is for.
+/// </para>
+/// <para>
+/// <b>What that migration would and would not change.</b> The two dictionaries become
+/// <c>JsValue</c>-valued without changing a single answer: a handle carries the engine's own object,
+/// <c>JsValue.Equals</c> is reference identity for the object kinds, and its <c>GetHashCode</c> is
+/// <c>RuntimeHelpers.GetHashCode</c> of that payload — exactly what
+/// <c>ReferenceEqualityComparer</c> gives today. The <c>ConditionalWeakTable</c> below is the one
+/// member that cannot follow, and it is the clearest single measure of what the handle design costs:
+/// a weak table needs a <em>reference</em> key and a <c>JsValue</c> is a struct, so this table stays
+/// keyed on the engine object however far the rest of the bridge moves, and its two call sites —
+/// <see cref="Set"/> and <see cref="TryGetNode"/> — unwrap the handle on the way in.
 /// </para>
 /// </remarks>
 internal sealed class JsObjectRegistry

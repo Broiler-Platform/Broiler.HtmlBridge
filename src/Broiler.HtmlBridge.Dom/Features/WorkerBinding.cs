@@ -1,14 +1,11 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Threading;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Globals;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -58,15 +55,20 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>importScripts</c>, <c>close()</c> and <c>console</c>.
 /// </para>
 /// <para>
-/// <b>The page-side half is migrated to JSEAL; the message payload is not.</b> The <c>Worker</c>
-/// handle, its events and the handler invocation all speak <see cref="IJsRealm"/>. What does not is
-/// the structured clone, for the reason <see cref="MessagingBinding"/> records at greater length:
-/// JSEAL declares no clone operation, and a clone's result may be a primitive, which a JSEAL handle
-/// cannot carry (see <see cref="JsInterop"/>). So the payload is read from an engine argument frame
-/// and travels to <see cref="JSWorker"/> as an engine value, and <see cref="JSWorker"/> — which
-/// creates a second realm on a thread of its own, something JSEAL declares as
-/// <see cref="JsCapabilities.WorkerRealms"/> but offers no way to <em>do</em> — stays engine-typed
-/// whole.
+/// <b>Both halves speak JSEAL now, including the message itself.</b> The <c>Worker</c> handle, its
+/// events, the handler invocation, the transfer list and both clones are <see cref="IJsRealm"/>
+/// operations. The payload crosses the two threads as a <see cref="JsDetachedValue"/> — the carrier
+/// <see cref="IJsClone"/> declares for exactly this, because a <see cref="JsValue"/> handle is only
+/// meaningful to the realm that minted it and a clone's result may be a primitive, which a handle
+/// cannot carry. <see cref="JSWorker"/> builds its second realm through
+/// <see cref="IJsEngineProvider.CreateRealm"/>, which is what
+/// <see cref="JsCapabilities.WorkerRealms"/> claims and now also describes.
+/// </para>
+/// <para>
+/// One engine-typed adapter is left, and <c>DomBridge/Registration/Registration.cs</c> pins it:
+/// <see cref="Register"/> is handed the script context and the window object by a file this change
+/// does not own. Both cross as handles without being converted, because that is what a handle over
+/// an object already holds.
 /// </para>
 /// </remarks>
 internal sealed class WorkerBinding : IDisposable
@@ -116,10 +118,23 @@ internal sealed class WorkerBinding : IDisposable
             return failed;
         }
 
+        // The worker runs on the same engine the page does, and it has to: the two realms exchange
+        // structured clones, and a JsDetachedValue carries the engine that minted it precisely so
+        // that a graph cannot be adopted into a realm that cannot walk it. Asking the registry by the
+        // page realm's own engine name is what keeps the pair honest in a process with two providers
+        // registered.
+        var provider = JsEngineRegistry.Find(realm.EngineName);
+
         JSWorker worker;
         try
         {
-            worker = new JSWorker(specifier, script.Value, _host);
+            worker = new JSWorker(
+                specifier,
+                script.Value,
+                _host,
+                provider ?? throw new InvalidOperationException(
+                    $"No JavaScript engine provider is registered under '{realm.EngineName}', so a " +
+                    "worker realm cannot be created for the realm the page is running in."));
         }
         catch (Exception ex)
         {
@@ -157,18 +172,14 @@ internal sealed class WorkerBinding : IDisposable
     /// reproduces it exactly and the fix is reported instead.
     /// </para>
     /// <para>
-    /// <c>postMessage</c> keeps its engine argument frame: it reads the payload the structured clone
-    /// consumes, and the clone has no JSEAL expression. It is installed on the engine's object rather
-    /// than through the realm so that the member order a page enumerates is the one it always was.
+    /// <c>postMessage</c> is a constructor for the same reason and installed first for another: the
+    /// member order a page enumerates is observable, and it was first before.
     /// </para>
     /// </remarks>
     private void InstallWorkerHandle(IJsRealm realm, JsValue handle, JSWorker? worker)
     {
-        JsInterop.ToEngineObject(handle).FastAddValue(
-            "postMessage",
-            new JavaScript.BuiltIns.Function.JSFunction(
-                (in a) => PostToWorker(realm, worker, in a), "postMessage", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(handle, "postMessage",
+            realm.NewConstructor("postMessage", (in call) => PostToWorker(worker, in call), 1));
 
         realm.DefineValue(handle, "terminate",
             realm.NewConstructor("terminate", (in _) => { worker?.Terminate(); return JsValue.Undefined; }));
@@ -197,61 +208,59 @@ internal sealed class WorkerBinding : IDisposable
     /// unreachable intermediate to the worker.
     /// </summary>
     /// <remarks>
-    /// Engine-typed for its payload, and only for that: the value is cloned here, on the page's
-    /// thread with the page's context current, because the sending side is where
-    /// <c>DataCloneError</c> belongs, where post-send mutation stops being visible to the receiver,
-    /// and — for a transfer list — where the source buffers are detached.
+    /// <para>
+    /// The clone happens here, on the page's thread and in the page's realm, because the sending side
+    /// is where <c>DataCloneError</c> belongs, where post-send mutation stops being visible to the
+    /// receiver, and — for a transfer list — where the source buffers are detached. What travels is a
+    /// <see cref="JsDetachedValue"/>: a graph belonging to no realm, which is the only shape that may
+    /// cross to the worker's thread.
+    /// </para>
+    /// <para>
+    /// The realm is <see cref="JsCall.Realm"/> rather than the one captured when the handle was
+    /// built, which is the same realm and is now said by the call instead of by a closure.
+    /// </para>
     /// </remarks>
-    private JSValue PostToWorker(IJsRealm realm, JSWorker? worker, in Arguments a)
+    private static JsValue PostToWorker(JSWorker? worker, in JsCall call)
     {
         if (worker is null)
-            return JSUndefined.Value;
+            return JsValue.Undefined;
 
-        var payload = a.Length > 0 ? a[0] : JSUndefined.Value;
-        var transfer = WorkerTransfer.BuildCloneOptions(realm, a.Length > 1 ? a[1] : null);
-        var detached = CloneDetached(payload, transfer);
-        if (detached is null)
-            throw realm.DomError("DataCloneError", "The object could not be cloned.");
+        var realm = call.Realm;
+        var transfer = WorkerTransfer.BuildTransferList(realm, call.Length > 1 ? call[1] : JsValue.Undefined);
 
-        worker.Post(detached);
-        return JSUndefined.Value;
-    }
-
-    /// <summary>
-    /// Clones <paramref name="value"/> in the current realm into a graph no script holds a reference
-    /// to. Returns <see langword="null"/> when the value is not cloneable.
-    /// </summary>
-    private static JSValue? CloneDetached(JSValue value, JSValue transferOptions)
-    {
+        JsDetachedValue detached;
         try
         {
-            return transferOptions.IsNullOrUndefined
-                ? JSGlobalStatic.StructuredClone(new Arguments(JSUndefined.Value, value))
-                : JSGlobalStatic.StructuredClone(new Arguments(JSUndefined.Value, value, transferOptions));
+            detached = realm.Detach(call.Length > 0 ? call[0] : JsValue.Undefined, transfer);
         }
-        catch (JSException ex)
+        catch (JsEngineException ex)
         {
-            RenderLogger.LogWarning(LogCategory.JavaScript, "WorkerBinding.CloneDetached",
+            RenderLogger.LogWarning(LogCategory.JavaScript, "WorkerBinding.PostToWorker",
                 $"Value could not be cloned for a worker message: {ex.Message}", ex);
-            return null;
+            throw realm.DomError("DataCloneError", "The object could not be cloned.");
         }
+
+        worker.Post(detached);
+        return JsValue.Undefined;
     }
 
     /// <summary>
     /// Delivers a worker's message to the page. Runs on the page thread, from the page's own drain.
     /// </summary>
-    internal void DeliverToPage(JsValue handle, JSValue detached)
+    internal void DeliverToPage(JsValue handle, JsDetachedValue detached)
     {
         if (_host.Realm is not { } realm)
             return;
 
-        // Second clone, with the page's context current, so the page gets page-realm objects.
-        JSValue materialized;
+        // Second clone, into the page's realm, so the page gets page-realm objects. Adopt is what
+        // brings the graph inside that realm's own bracket; the carrier belonged to neither realm
+        // between the two calls, which is what made it safe to hand across the threads.
+        JsValue materialized;
         try
         {
-            materialized = JSGlobalStatic.StructuredClone(new Arguments(JSUndefined.Value, detached));
+            materialized = realm.Adopt(detached);
         }
-        catch (JSException ex)
+        catch (JsEngineException ex)
         {
             RenderLogger.LogError(LogCategory.JavaScript, "WorkerBinding.DeliverToPage",
                 $"A worker message could not be materialized in the page realm: {ex.Message}", ex);
@@ -260,10 +269,7 @@ internal sealed class WorkerBinding : IDisposable
 
         var evt = realm.NewObject();
         realm.DefineValue(evt, "type", JsValue.String("message"));
-
-        // `data` is the clone, which may be a primitive and so cannot cross as a handle; it is
-        // installed on the engine's own object, in its original position.
-        JsInterop.ToEngineObject(evt).FastAddValue("data", materialized, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "data", materialized);
 
         Invoke(realm, handle, "onmessage", "message", evt);
     }

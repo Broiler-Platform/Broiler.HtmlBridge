@@ -2,12 +2,6 @@ using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
-// The one engine-typed seam this file still has: BuildInlineDeclaration and SetInlineStyleCssText are
-// reached from DomBridge/HtmlElementInterface.cs, which has not migrated — its call frame is still an
-// engine one and the declaration it caches is an engine object in a weak table. Both are thin
-// adapters over the migrated bodies below; see their remarks.
-using Broiler.JavaScript.Runtime;
-
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
@@ -92,47 +86,7 @@ internal static partial class StyleDeclarationBinding
         return CssPropertyNames.ToCssPropertyName(domName);
     }
 
-    /// <summary>
-    /// The realm the bridge behind an <see cref="IInlineStyleHost"/> is attached to.
-    /// </summary>
-    /// <remarks>
-    /// <b>This exists only for the adapter below and goes away with it.</b> The registration site that
-    /// builds <c>element.style</c> (<c>DomBridge/HtmlElementInterface.cs</c>) has not migrated, so it
-    /// hands over <see cref="IInlineStyleHost"/> — a contract that names no realm because, until the
-    /// declaration became an exotic, none of its members needed one. Minting an exotic does need one.
-    /// <c>DomBridge</c> is the sole implementer of that contract, and this module already names it for
-    /// its neutral static helpers (<c>ParseStyle</c>, <c>IsAcceptableInlineValue</c>), so asking it for
-    /// its realm adds no coupling that was not already here. When the registration site migrates it
-    /// passes a realm and both this helper and the adapter disappear.
-    /// </remarks>
-    private static IJsRealm RealmOf(IInlineStyleHost host) =>
-        host is DomBridge bridge
-            ? bridge.Realm
-            : throw new InvalidOperationException(
-                "The inline-style host is not the DOM bridge, so it cannot supply a JavaScript realm. " +
-                "Call the IJsRealm overload of BuildInlineDeclaration instead.");
-
     // -------- element.style (writable, inline-style store) --------
-
-    /// <summary>
-    /// Builds the writable <c>element.style</c> CSSStyleDeclaration for a caller that still holds engine
-    /// objects. Was <c>DomBridge.BuildStyleObject(element, onMutation, parentRule)</c>.
-    /// </summary>
-    /// <remarks>
-    /// The adapter that keeps <c>DomBridge/HtmlElementInterface.cs</c> compiling untouched: it caches the
-    /// declaration in a weak table of engine objects keyed by element, so the return type is
-    /// fixed until that file migrates. It is a cast and not a conversion — see
-    /// <see cref="Runtime.JsInterop"/> — so the object cached is the object the realm minted.
-    /// <para>
-    /// The <c>parentRule</c> parameter is gone from this overload rather than converted: no caller ever
-    /// passed one (an inline declaration belongs to no rule), and the migrated overload still takes it
-    /// for the rule flavour.
-    /// </para>
-    /// </remarks>
-    internal static JSObject BuildInlineDeclaration(IInlineStyleHost host, DomElement element,
-        Action? onMutation = null, Action<DomElement>? onPositionAreaInvalidate = null) =>
-        Runtime.JsInterop.ToEngineObject(
-            BuildInlineDeclaration(RealmOf(host), host, element, onMutation, default, onPositionAreaInvalidate));
 
     /// <summary>Builds the writable <c>element.style</c> CSSStyleDeclaration.</summary>
     internal static JsValue BuildInlineDeclaration(IJsRealm realm, IInlineStyleHost host, DomElement element,

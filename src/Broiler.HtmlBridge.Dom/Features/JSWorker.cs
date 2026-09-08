@@ -1,84 +1,68 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Globals;
-using Broiler.JavaScript.Runtime;
-
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// One worker: a thread that owns a <see cref="JSContext"/>, runs the worker script in it, and then
-/// pumps messages until it is closed or terminated.
+/// One worker: a thread that owns a realm, runs the worker script in it, and then pumps messages
+/// until it is closed or terminated.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>This is the one file in the messaging/worker group that JSEAL cannot express, and the gap is
-/// exact.</b> It builds a realm of its own on a thread it owns, and it moves values into that realm
-/// with the engine's <c>structuredClone</c>. <see cref="JsCapabilities.WorkerRealms"/> declares that
-/// an engine <em>can</em> do both; no contract offers a way to ask it to.
-/// <see cref="IJsEngineProvider.CreateRealm"/> answers the first half of that, and reading what it
-/// hands back is how the five points below are known rather than guessed.
-/// </para>
-/// <para>
-/// <b>What a JSEAL worker-realm-and-clone seam would have to say.</b> Each of these is a decision
-/// about the contract rather than a rename inside this file:
+/// <b>This file used to be the one the messaging/worker group could not express, and the five things
+/// it said a contract would have to decide have each been decided.</b> They are recorded here because
+/// the answers are the interesting part, not the rename:
 /// </para>
 /// <list type="number">
 /// <item><description>
-/// <b>Who creates the second realm, and on which thread.</b> A provider can build one; nothing in the
-/// contract says a host may ask for one bound to the thread doing the asking, nor what happens if it
-/// is later touched from another.
+/// <b>Who creates the second realm, and on which thread.</b> This thread does, through
+/// <see cref="IJsEngineProvider.CreateRealm"/>, on the first line of <see cref="Pump"/> — so the
+/// realm is built, used and disposed by one thread and never touched from another. The provider is
+/// the one the <em>page's</em> realm names, because the two exchange structured clones and a clone
+/// carries the engine that made it.
 /// </description></item>
 /// <item><description>
-/// <b>How a value is cloned out of one realm and into another.</b> JSEAL declares no clone operation
-/// at all, and this file needs two per message — on two threads, with an intermediate that must be
-/// reachable from neither realm's script, which is what makes post-send mutation invisible.
+/// <b>How a value is cloned out of one realm into another.</b> <see cref="IJsClone"/>, in the two
+/// halves the crossing actually has: <see cref="IJsClone.Detach"/> on the sending thread and
+/// <see cref="IJsClone.Adopt"/> on this one.
 /// </description></item>
 /// <item><description>
-/// <b>What the host holds between the two clones.</b> A <see cref="JsValue"/> handle is only
-/// meaningful to the realm that minted it, and a clone's result may be a primitive, for which a handle
-/// carries no engine instance at all (see <c>Runtime/JsInterop.cs</c>). So the inbox cannot be a queue of
-/// handles: the contract would have to name a third thing — a detached, realm-free carrier — and say
-/// who may hold one, and for how long.
+/// <b>What the host holds between the two clones.</b> A <see cref="JsDetachedValue"/> — a carrier
+/// belonging to no realm, which is what the inbox is a queue of. That is the "third thing" the
+/// contract had to name, and naming it is what let the inbox stop being a queue of engine values.
 /// </description></item>
 /// <item><description>
-/// <b>How long a realm stays current on a thread.</b> This is the point that decides the file. A
-/// provider makes its realm current for the duration of <em>one contract call</em> and restores the
-/// previous ambient realm on the way out. The engine's <c>structuredClone</c> is not a contract call:
-/// it reads the ambient realm to decide which realm the objects it mints belong to, and that is the
-/// whole mechanism the cross-context clone tests verified. A clone taken between two JSEAL calls would
-/// mint into whatever realm happened to be current rather than the worker's — silently, and on the
-/// path where the two realms are supposed to stop touching. Nothing in JSEAL brackets a host-authored
-/// block with a realm, and adding such a bracket would re-export exactly the ambient state
-/// <see cref="JsCall"/> exists to keep off the contract.
+/// <b>How long a realm stays current on a thread.</b> Unchanged, and that is the point: a provider
+/// makes its realm current for one contract call. The clone is now a contract call, so it happens
+/// inside that bracket and mints into <em>this</em> realm rather than into whichever realm the thread
+/// last touched. Nothing here brackets a host-authored block with a realm, so the ambient state
+/// <see cref="JsCall"/> keeps off the contract stays off it.
 /// </description></item>
 /// <item><description>
-/// <b>What drives the worker realm's job queue.</b> A realm the provider creates hands its own pump to
-/// the engine, so a promise made in a worker callback reports to a queue that only the host's
-/// <see cref="IJsJobs.DrainJobs"/> empties — and this pump loop does not call it, so adopting the shape
-/// without also deciding that would change when, and whether, a worker's promise reactions run. A
-/// realm merely <em>adopted</em> over this file's own context is worse: the context captured whatever
-/// synchronization context existed when it was built, and that cannot be changed afterwards.
+/// <b>What drives the worker realm's job queue.</b> This loop does, explicitly, by draining after
+/// every message and every timer batch — because <see cref="IJsJobs"/> is pull-shaped on purpose: in
+/// a browser the decision of when a microtask checkpoint happens belongs to the event loop, and this
+/// loop <em>is</em> the worker's event loop. A promise a worker callback creates reports to the realm
+/// the provider built for it, and this is where that queue is emptied. Without the drain the queue
+/// would fill and never run, which is a live-lock nothing would report.
 /// </description></item>
 /// </list>
 /// <para>
-/// Until that seam exists, this file names the engine, and the rest of the group does not.
+/// <b>One engine-typed adapter is left and it is named honestly.</b>
+/// <c>DomBridge.RegisterDOMException</c> (DomBridge/Utilities.NameValidation.cs, not this round's to
+/// change) takes the engine's context, so <see cref="WorkerContext"/> reaches it through
+/// <see cref="JsInterop"/>. It is one line, and it is the whole of the engine left in this file.
 /// </para>
 /// <para>
-/// <b>One thread, one context, for the thread's whole life.</b> That is item #15's rule kept rather
-/// than bent: the context is created on the worker thread, every script and every handler runs on
-/// that thread, and it is disposed there. Nothing outside ever evaluates in it. The page and the
-/// worker meet only at two concurrent queues.
+/// <b>One thread, one realm, for the thread's whole life.</b> That is item #15's rule kept rather
+/// than bent: the realm is created on the worker thread, every script and every handler runs on that
+/// thread, and it is disposed there. Nothing outside ever evaluates in it. The page and the worker
+/// meet only at two concurrent queues.
 /// </para>
 /// <para>
 /// <b>Blocking take, not a spin.</b> The pump waits on a <see cref="BlockingCollection{T}"/>, so an
@@ -90,7 +74,8 @@ internal sealed class JSWorker
     private readonly string _name;
     private readonly WorkerScript _script;
     private readonly IWorkerHost _host;
-    private readonly BlockingCollection<JSValue> _inbox = new(new ConcurrentQueue<JSValue>());
+    private readonly IJsEngineProvider _provider;
+    private readonly BlockingCollection<JsDetachedValue> _inbox = new(new ConcurrentQueue<JsDetachedValue>());
     private readonly CancellationTokenSource _cancel = new();
     private readonly Thread _thread;
     private readonly ManualResetEventSlim _started = new();
@@ -101,11 +86,12 @@ internal sealed class JSWorker
     private WorkerBinding? _owner;
     private volatile bool _closed;
 
-    public JSWorker(string name, WorkerScript script, IWorkerHost host)
+    public JSWorker(string name, WorkerScript script, IWorkerHost host, IJsEngineProvider provider)
     {
         _name = name;
         _script = script;
         _host = host;
+        _provider = provider;
         _thread = new Thread(Pump) { IsBackground = true, Name = $"broiler-worker:{name}" };
     }
 
@@ -122,7 +108,7 @@ internal sealed class JSWorker
     }
 
     /// <summary>Queues an already-detached clone for the worker. Called on the page thread.</summary>
-    public void Post(JSValue detached)
+    public void Post(JsDetachedValue detached)
     {
         if (_closed || _cancel.IsCancellationRequested)
             return;
@@ -158,15 +144,17 @@ internal sealed class JSWorker
 
     private void Pump()
     {
-        JSContext? context = null;
+        IJsRealm? realm = null;
         try
         {
-            context = new JSContext();
-            InstallWorkerGlobals(context);
+            realm = _provider.CreateRealm(JsRealmOptions.Default);
+            InstallWorkerGlobals(realm);
 
             try
             {
-                context.Eval(_script.Source);
+                // The worker script is the page's, not this repository's, so it is guest source — the
+                // distinction IJsSource draws, and the one a Content-Security-Policy is about.
+                realm.EvaluateGuestSource(_script.Source, $"worker:{_name}");
             }
             catch (Exception ex)
             {
@@ -175,6 +163,11 @@ internal sealed class JSWorker
                 QueueError($"Worker script error: {ex.Message}");
                 return;
             }
+
+            // The worker's first microtask checkpoint: a top-level promise the script created has to
+            // run its reactions before the loop parks on the inbox, or it would wait for a message
+            // that may never come.
+            DrainJobs(realm);
 
             _started.Set();
 
@@ -190,7 +183,7 @@ internal sealed class JSWorker
                     : (int)Math.Min(int.MaxValue, Math.Ceiling(untilNext.Value));
 
                 bool took;
-                JSValue? detached;
+                JsDetachedValue? detached;
                 try
                 {
                     took = _inbox.TryTake(out detached, waitMs, _cancel.Token);
@@ -206,11 +199,16 @@ internal sealed class JSWorker
                 }
 
                 if (took && detached is not null)
-                    DispatchToWorker(context, detached);
+                    DispatchToWorker(realm, detached);
 
                 // Always after the take, whether it produced a message or timed out: a message that
                 // arrives just before a deadline must not postpone the timer past it.
                 _timers.RunDue();
+
+                // One checkpoint per turn of the loop, covering both the handler and the timers: this
+                // is the worker's event loop, and draining the realm's jobs is what an event loop
+                // does between one piece of script and the next.
+                DrainJobs(realm);
             }
         }
         catch (OperationCanceledException)
@@ -226,34 +224,59 @@ internal sealed class JSWorker
         {
             _started.Set();
             _timers.ClearAll();
-            context?.Dispose();
+            realm?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Runs the realm's queued microtasks, reporting a job that threw rather than letting it end the
+    /// worker.
+    /// </summary>
+    /// <remarks>
+    /// A job that throws stops the drain and leaves its successors queued, which the contract says
+    /// and which is right — the next checkpoint runs them. What is wrong is losing the failure, and
+    /// JSEAL has no logger to report one to by construction, so the host that drives the drain is
+    /// where the report belongs. That host is this file.
+    /// </remarks>
+    private void DrainJobs(IJsRealm realm)
+    {
+        try
+        {
+            realm.DrainJobs();
+        }
+        catch (Exception ex)
+        {
+            RenderLogger.LogError(LogCategory.JavaScript, "JSWorker.DrainJobs",
+                $"A microtask in worker '{_name}' threw: {ex.Message}", ex);
         }
     }
 
     /// <summary>
     /// Materializes the page's detached clone into the worker's realm and calls its handler. Runs on
-    /// the worker thread, with the worker's context current, which is what makes the resulting
-    /// objects the worker's own.
+    /// the worker thread, and the realm it is adopted into is this realm because that is the one
+    /// asked — which is what makes the resulting objects the worker's own.
     /// </summary>
-    private void DispatchToWorker(JSContext context, JSValue detached)
+    private void DispatchToWorker(IJsRealm realm, JsDetachedValue detached)
     {
         try
         {
-            var data = JSGlobalStatic.StructuredClone(new Arguments(JSUndefined.Value, detached));
+            var data = realm.Adopt(detached);
 
-            var evt = new JSObject();
-            evt.FastAddValue("type", new JSString("message"), JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("data", data, JSPropertyAttributes.EnumerableConfigurableValue);
+            var evt = realm.NewObject();
+            realm.DefineValue(evt, "type", JsValue.String("message"));
+            realm.DefineValue(evt, "data", data);
 
-            if (context["onmessage"] is JSFunction handler)
-                handler.InvokeFunction(new Arguments(JSUndefined.Value, evt));
+            var handler = realm.GetProperty(realm.Global, "onmessage");
+            if (handler.IsFunction)
+                realm.Invoke(handler, JsValue.Undefined, [evt]);
 
-            if (context["__broilerWorkerListeners"] is JSArray listeners)
+            var listeners = realm.GetProperty(realm.Global, ListenersProperty);
+            if (listeners.IsArray)
             {
-                foreach (var (_, listener) in listeners.GetArrayElements(withHoles: false))
+                foreach (var listener in WorkerTransfer.ArrayElements(realm, listeners))
                 {
-                    if (listener is JSFunction fn)
-                        fn.InvokeFunction(new Arguments(JSUndefined.Value, evt));
+                    if (listener.IsFunction)
+                        realm.Invoke(listener, JsValue.Undefined, [evt]);
                 }
             }
         }
@@ -266,138 +289,200 @@ internal sealed class JSWorker
     }
 
     /// <summary>
+    /// Where <c>addEventListener('message', …)</c> keeps its listeners: an ordinary array on the
+    /// worker global, which is a property a worker script can see and always could.
+    /// </summary>
+    private const string ListenersProperty = "__broilerWorkerListeners";
+
+    /// <summary>
     /// The worker global. Small on purpose — see <see cref="WorkerBinding"/>'s remarks for what is
     /// deliberately absent rather than half-built.
     /// </summary>
-    private void InstallWorkerGlobals(JSContext context)
+    /// <remarks>
+    /// Every member is installed with a plain write, in the order it always was, because the order a
+    /// worker script sees from <c>Object.getOwnPropertyNames(self)</c> is observable. Each function is
+    /// a <see cref="IJsValues.NewConstructor"/> rather than a <see cref="IJsValues.NewMethod"/> for
+    /// the same reason as elsewhere in this migration: they were built with the engine's constructable
+    /// function type, so each carries a <c>prototype</c>, and preserving that is what makes this a
+    /// refactor rather than a fix. (WebIDL says an operation should not be constructable. That is a
+    /// pre-existing deviation and correcting it belongs in its own change.)
+    /// </remarks>
+    private void InstallWorkerGlobals(IJsRealm realm)
     {
         // A real DOMException, so a worker catching a NetworkError or DataCloneError finds a .name
-        // and .code to branch on rather than the bare string ThrowDOMException falls back to.
-        DomBridge.RegisterDOMException(context);
+        // and .code to branch on rather than the bare string the fallback produces.
+        DomBridge.RegisterDOMException(WorkerContext(realm));
 
-        context["self"] = context.Eval("this");
-        context["onmessage"] = JSNull.Value;
-        context["__broilerWorkerListeners"] = new JSArray();
+        var global = realm.Global;
 
-        context["postMessage"] = new JSFunction((in a) =>
-        {
-            var payload = a.Length > 0 ? a[0] : JSUndefined.Value;
+        // `self` is the global, which under this realm is the same object `this` evaluated to at the
+        // top level — the fact JsCapabilities.GlobalIsVariableScope asserts, said directly instead of
+        // through an evaluation.
+        realm.SetProperty(global, "self", global);
+        realm.SetProperty(global, "onmessage", JsValue.Null);
+        realm.SetProperty(global, ListenersProperty, realm.NewArray());
 
-            // Cloned here, on the worker thread in the worker's realm, into a graph no script holds.
-            // The page clones it again on its own thread; see WorkerBinding's remarks. A transfer
-            // list detaches the worker's own buffers, which is why it is applied on this side.
-            JSValue detached;
-            try
-            {
-                var transfer = WorkerTransfer.BuildCloneOptions(context, a.Length > 1 ? a[1] : null);
-                detached = transfer.IsNullOrUndefined
-                    ? JSGlobalStatic.StructuredClone(new Arguments(JSUndefined.Value, payload))
-                    : JSGlobalStatic.StructuredClone(new Arguments(JSUndefined.Value, payload, transfer));
-            }
-            catch (JSException ex)
-            {
-                RenderLogger.LogWarning(LogCategory.JavaScript, "JSWorker.postMessage",
-                    $"Worker '{_name}' posted a value that could not be cloned: {ex.Message}", ex);
-                return JSUndefined.Value;
-            }
+        realm.SetProperty(global, "postMessage",
+            realm.NewConstructor("postMessage", PostMessageFromWorker, 1));
 
-            var handle = _handle;
-            var owner = _owner;
-            if (!handle.IsObject || owner is null || _cancel.IsCancellationRequested)
-                return JSUndefined.Value;
+        realm.SetProperty(global, "addEventListener",
+            realm.NewConstructor("addEventListener", AddWorkerEventListener, 2));
 
-            // Onto the page's event loop, not into it: the queue is concurrent, and the page's own
-            // drain is what will run this.
-            _host.QueueFrameAction(() => owner.DeliverToPage(handle, detached));
-            return JSUndefined.Value;
-        }, "postMessage", 1);
+        realm.SetProperty(global, "setTimeout", realm.NewConstructor("setTimeout",
+            (in call) => JsValue.Number(_timers.Add(CallbackOf(in call), DelayOf(in call), repeating: false)), 2));
 
-        context["addEventListener"] = new JSFunction((in a) =>
-        {
-            if (a.Length >= 2 && a[1] is JSFunction fn &&
-                string.Equals(a[0]?.ToString(), "message", StringComparison.Ordinal) &&
-                context["__broilerWorkerListeners"] is JSArray listeners)
-            {
-                listeners.AddArrayItem(fn);
-            }
-
-            return JSUndefined.Value;
-        }, "addEventListener", 2);
-
-        context["setTimeout"] = new JSFunction((in a) => new JSNumber(
-            _timers.Add(CallbackOf(in a), DelayOf(a), repeating: false)), "setTimeout", 2);
-
-        context["setInterval"] = new JSFunction((in a) => new JSNumber(
-            _timers.Add(CallbackOf(in a), DelayOf(a), repeating: true)), "setInterval", 2);
+        realm.SetProperty(global, "setInterval", realm.NewConstructor("setInterval",
+            (in call) => JsValue.Number(_timers.Add(CallbackOf(in call), DelayOf(in call), repeating: true)), 2));
 
         // One id space, and clearTimeout/clearInterval interchangeable, per the HTML spec — the same
-        // contract the page's loop keeps.
-        var clear = new JSFunction((in a) =>
+        // contract the page's loop keeps. One function object under two names, as it always was.
+        var clear = realm.NewConstructor("clearTimeout", (in call) =>
         {
-            if (a.Length > 0 && a[0] is { } id && !id.IsNullOrUndefined)
-                _timers.Clear((int)id.DoubleValue);
+            if (call.Length > 0 && !call[0].IsNullish)
+                _timers.Clear((int)call.Realm.ToNumber(call[0]));
 
-            return JSUndefined.Value;
-        }, "clearTimeout", 1);
-        context["clearTimeout"] = clear;
-        context["clearInterval"] = clear;
+            return JsValue.Undefined;
+        }, 1);
+        realm.SetProperty(global, "clearTimeout", clear);
+        realm.SetProperty(global, "clearInterval", clear);
 
-        // importScripts(...urls): fetch and run each in order, synchronously, in this global.
-        // Specifiers resolve against the worker's own script directory, which is what the HTML spec
-        // means by "relative to the worker's script URL" — not the document's base path.
-        context["importScripts"] = new JSFunction((in a) =>
-        {
-            for (var i = 0; i < a.Length; i++)
-            {
-                var specifier = a[i]?.ToString() ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(specifier))
-                    continue;
+        realm.SetProperty(global, "importScripts", realm.NewConstructor("importScripts", ImportScripts, 1));
 
-                var imported = _host.ResolveWorkerScript(specifier, _script.BaseDirectory);
-                if (imported is null)
-                {
-                    // Spec: a script that cannot be fetched is a NetworkError, and it aborts the
-                    // whole call — later specifiers in the same call do not run.
-                    DomBridge.ThrowDOMException(context, $"importScripts: could not load '{specifier}'.", "NetworkError");
-                    return JSUndefined.Value;
-                }
-
-                // Deliberately not wrapped: a throwing imported script propagates to the caller,
-                // exactly as an inline one would. Swallowing it here would leave the worker running
-                // with a half-initialised global and no way to find out.
-                context.Eval(imported.Value.Source);
-            }
-
-            return JSUndefined.Value;
-        }, "importScripts", 1);
-
-        context["close"] = new JSFunction((in _) =>
+        realm.SetProperty(global, "close", realm.NewConstructor("close", (in _) =>
         {
             _closed = true;
             // A closing worker stops its timers; leaving them would keep the pump awake past close().
             _timers.ClearAll();
             try { _inbox.CompleteAdding(); } catch (ObjectDisposedException) { }
-            return JSUndefined.Value;
-        }, "close", 0);
+            return JsValue.Undefined;
+        }, 0));
 
         // A worker without console is a worker nobody can debug; routed to the same logger the rest
         // of the bridge uses rather than to the page's console object, which belongs to another realm.
-        var console = new JSObject();
+        var console = realm.NewObject();
         foreach (var level in new[] { "log", "info", "warn", "error", "debug" })
         {
             var captured = level;
-            console.FastAddValue(
-                captured,
-                new JSFunction((in a) =>
-                {
-                    var text = a.Length > 0 ? a[0]?.ToString() ?? string.Empty : string.Empty;
-                    RenderLogger.LogDebug(LogCategory.JavaScript, $"worker:{_name}", $"[{captured}] {text}");
-                    return JSUndefined.Value;
-                }, captured, 1),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(console, captured, realm.NewConstructor(captured, (in call) =>
+            {
+                var text = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+                RenderLogger.LogDebug(LogCategory.JavaScript, $"worker:{_name}", $"[{captured}] {text}");
+                return JsValue.Undefined;
+            }, 1));
         }
 
-        context["console"] = console;
+        realm.SetProperty(global, "console", console);
+    }
+
+    /// <summary>
+    /// The worker realm's engine context, for the one bridge operation that still takes one.
+    /// </summary>
+    /// <remarks>
+    /// <b>The adapter this file is left with, and what pins it.</b>
+    /// <c>DomBridge.RegisterDOMException</c> installs the <c>DOMException</c> constructor by
+    /// evaluating a script in a <c>JSContext</c>, and it lives in a file this round does not own; a
+    /// realm has no way to say "the engine object you are built on". Under this engine the realm's
+    /// global <em>is</em> the context, so the cast is the same assertion <see cref="JsInterop"/>
+    /// makes everywhere else — that the realm is a Broiler.JS realm — and it fails loudly rather than
+    /// quietly if it ever stops being true.
+    /// </remarks>
+    private static JSContext WorkerContext(IJsRealm realm) =>
+        JsInterop.ToEngineObject(realm.Global) as JSContext
+        ?? throw new InvalidOperationException(
+            "A worker realm's global is not a Broiler.JS script context, so the DOMException " +
+            "constructor cannot be installed in it.");
+
+    /// <summary>
+    /// <c>postMessage</c> inside the worker: clone here, on this thread and in this realm, then hand
+    /// the carrier to the page.
+    /// </summary>
+    /// <remarks>
+    /// The clone happens on this side for three reasons that all point the same way: it is where a
+    /// <c>DataCloneError</c> belongs, it is what makes post-send mutation invisible to the page, and a
+    /// transfer list detaches the <em>worker's</em> own buffers, which only this realm can do.
+    /// </remarks>
+    private JsValue PostMessageFromWorker(in JsCall call)
+    {
+        var realm = call.Realm;
+
+        JsDetachedValue detached;
+        try
+        {
+            var transfer = WorkerTransfer.BuildTransferList(realm, call.Length > 1 ? call[1] : JsValue.Undefined);
+            detached = realm.Detach(call.Length > 0 ? call[0] : JsValue.Undefined, transfer);
+        }
+        catch (JsEngineException ex)
+        {
+            RenderLogger.LogWarning(LogCategory.JavaScript, "JSWorker.postMessage",
+                $"Worker '{_name}' posted a value that could not be cloned: {ex.Message}", ex);
+            return JsValue.Undefined;
+        }
+
+        var handle = _handle;
+        var owner = _owner;
+        if (!handle.IsObject || owner is null || _cancel.IsCancellationRequested)
+            return JsValue.Undefined;
+
+        // Onto the page's event loop, not into it: the queue is concurrent, and the page's own
+        // drain is what will run this.
+        _host.QueueFrameAction(() => owner.DeliverToPage(handle, detached));
+        return JsValue.Undefined;
+    }
+
+    /// <remarks>
+    /// Only <c>message</c> is honoured, as before. The type is read with the realm's coercion because
+    /// the former <c>a[0].ToString()</c> was the observable ECMAScript one and a page may pass an
+    /// object with a <c>toString</c>; the listener array is appended to by index, which is what
+    /// growing an array is.
+    /// </remarks>
+    private static JsValue AddWorkerEventListener(in JsCall call)
+    {
+        var realm = call.Realm;
+        if (call.Length < 2 || !call[1].IsFunction ||
+            !string.Equals(realm.ToJsString(call[0]), "message", StringComparison.Ordinal))
+        {
+            return JsValue.Undefined;
+        }
+
+        var listeners = realm.GetProperty(realm.Global, ListenersProperty);
+        if (listeners.IsArray)
+            realm.DefineIndex(listeners, (uint)realm.GetProperty(listeners, "length").AsNumber, call[1]);
+
+        return JsValue.Undefined;
+    }
+
+    /// <summary>
+    /// <c>importScripts(...urls)</c>: fetch and run each in order, synchronously, in this global.
+    /// </summary>
+    /// <remarks>
+    /// Specifiers resolve against the worker's own script directory, which is what the HTML spec means
+    /// by "relative to the worker's script URL" — not the document's base path.
+    /// </remarks>
+    private JsValue ImportScripts(in JsCall call)
+    {
+        var realm = call.Realm;
+
+        for (var i = 0; i < call.Length; i++)
+        {
+            var specifier = call[i].IsMissing ? string.Empty : realm.ToJsString(call[i]);
+            if (string.IsNullOrWhiteSpace(specifier))
+                continue;
+
+            var imported = _host.ResolveWorkerScript(specifier, _script.BaseDirectory);
+            if (imported is null)
+            {
+                // Spec: a script that cannot be fetched is a NetworkError, and it aborts the
+                // whole call — later specifiers in the same call do not run.
+                throw realm.DomError("NetworkError", $"importScripts: could not load '{specifier}'.");
+            }
+
+            // Deliberately not wrapped: a throwing imported script propagates to the caller,
+            // exactly as an inline one would. Swallowing it here would leave the worker running
+            // with a half-initialised global and no way to find out.
+            realm.EvaluateGuestSource(imported.Value.Source, $"worker:{_name}:{specifier}");
+        }
+
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -405,17 +490,28 @@ internal sealed class JSWorker
     /// <see langword="null"/> when argument zero is not a function.
     /// </summary>
     /// <remarks>
-    /// <see cref="WorkerTimers"/> schedules deadlines and no longer names an engine type, so the call
-    /// into JavaScript is made here, on the side that still owns the worker's context — the same
-    /// receiver (<c>undefined</c>) and empty argument list the scheduler used to pass itself. A null
-    /// answer is what keeps <c>setTimeout("string")</c> handing back a clearable id that never fires.
+    /// <see cref="WorkerTimers"/> schedules deadlines and names no JavaScript type, so the call into
+    /// JavaScript is made here — the same receiver (<c>undefined</c>) and empty argument list the
+    /// scheduler used to pass itself. A null answer is what keeps <c>setTimeout("string")</c> handing
+    /// back a clearable id that never fires.
     /// </remarks>
-    private static Action? CallbackOf(in Arguments a) =>
-        a.Length > 0 && a[0] is JSFunction fn ? () => fn.InvokeFunction(new Arguments(JSUndefined.Value)) : null;
+    private static Action? CallbackOf(in JsCall call)
+    {
+        if (!call[0].IsFunction)
+            return null;
+
+        var realm = call.Realm;
+        var callback = call[0];
+        return () => realm.Invoke(callback, JsValue.Undefined);
+    }
 
     /// <summary>The delay argument of a timer call, defaulting to 0 when absent or not a number.</summary>
-    private static double DelayOf(in Arguments a) =>
-        a.Length > 1 && a[1] is { } delay && !delay.IsNullOrUndefined ? delay.DoubleValue : 0;
+    /// <remarks>
+    /// The realm's coercion rather than the handle's, because the former <c>DoubleValue</c> was the
+    /// engine's <c>ToNumber</c> and <c>setTimeout(f, "10")</c> is a call a page makes.
+    /// </remarks>
+    private static double DelayOf(in JsCall call) =>
+        call.Length > 1 && !call[1].IsNullish ? call.Realm.ToNumber(call[1]) : 0;
 
     private void QueueError(string message)
     {

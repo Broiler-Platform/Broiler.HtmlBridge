@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -13,14 +14,26 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>internal static</c> helpers, called directly.
 /// </summary>
 /// <remarks>
-/// The argument builder is the contract's one engine-shaped member, and it is shaped by its consumer:
-/// <see cref="ChildNodeBinding"/>'s four bodies read the engine's argument frame because two of the
-/// three files that install them have not migrated (see the remarks there). It becomes the
-/// <c>ReadOnlySpan&lt;JsValue&gt;</c> reading its sibling contracts already take when they do.
+/// The argument builder is declared twice because the mixin's installers do not share a call frame:
+/// two of the three mint through the realm and read a <see cref="JsCall"/>, while
+/// <c>DomBridge/ElementInterface.cs</c> still hands over the engine's own <c>Arguments</c>. Both
+/// overloads are one reading — the bridge forwards them to a single implementation — and the engine
+/// one goes when that last installer moves.
 /// </remarks>
 internal interface IChildNodeHost
 {
+    /// <summary>
+    /// The nodes a <c>before</c>/<c>after</c>/<c>replaceWith</c> argument list denotes: a node argument
+    /// is its own wrapper's node (a <c>DocumentFragment</c> contributing its children), and anything
+    /// else is coerced to a string and minted as a text node.
+    /// </summary>
+    List<DomNode> BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments);
+
+    /// <inheritdoc cref="BuildChildNodeArgumentNodes(System.ReadOnlySpan{JsValue})" />
+    /// <remarks>The same reading over an engine argument frame, for the installer that has not
+    /// migrated.</remarks>
     List<DomNode> BuildChildNodeArgumentNodes(in Arguments arguments);
+
     void InsertNodeAt(DomNode parent, DomNode node, int index);
     void InvalidateStyleScope(DomElement anchor);
     void NotifyNodeIteratorPreRemoval(DomNode node);

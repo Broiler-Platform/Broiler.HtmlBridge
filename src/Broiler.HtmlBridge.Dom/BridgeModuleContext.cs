@@ -20,15 +20,48 @@ namespace Broiler.HtmlBridge.Scripting;
 /// top-level-await codegen + module-orchestration completion) was pinned and every surface took this path.
 /// </summary>
 /// <remarks>
-/// <b>This type stays engine-typed on purpose, and it is not a seam JSEAL can close.</b> The other
-/// bridge units name engine types to build values; this one <em>is</em> an engine type — the module
-/// graph's resolve/fetch hooks are <see langword="protected"/> overrides, so the coupling is the base
-/// class, not a call. JSEAL has no module-graph contract to override instead: it declares only that an
-/// engine binds modules (<c>JsCapabilities.Modules</c>, <c>DynamicImport</c>) and how host versus guest
-/// source is run (<c>IJsSource</c>), neither of which offers a specifier resolver or a source fetcher.
-/// Nothing needs to change for the migration to proceed around it: this derives from the engine's
-/// context type, so the provider's <c>IJsRealmAdoption.TryAdopt</c> already accepts an instance of it,
-/// and a page whose modules run in one gets the same JSEAL realm as a page whose scripts do not.
+/// <para>
+/// <b>This type stays engine-typed, and the reason is no longer that a contract could not be
+/// designed.</b> The other bridge units name engine types to build values; this one <em>is</em> an
+/// engine type — the module graph's resolve/fetch hooks are <see langword="protected"/> overrides, so
+/// the coupling is the base class rather than a call. JSEAL still declares only <em>that</em> an
+/// engine binds modules (<c>JsCapabilities.Modules</c>, <c>DynamicImport</c>) and how host versus
+/// guest source is run (<c>IJsSource</c>), neither of which offers a specifier resolver or a source
+/// fetcher.
+/// </para>
+/// <para>
+/// <b>The contract that would close it, written down so the next attempt does not have to rediscover
+/// it.</b> Resolution and fetching are the <em>host's</em> — that is not a preference, it is what
+/// Broiler.VM's embedding contract states outright and what <c>VmModuleMap</c> already implements:
+/// the host owns identity resolution, transport, content policy and the module map, and the core
+/// never fetches anything. So the contract is a pair. A host-implemented
+/// <c>IJsModuleLoader</c> — <c>string? Resolve(string specifier, string? referrer)</c> and
+/// <c>string Load(string key)</c> — is what this class's two overrides would become, unchanged in
+/// behaviour, and it names no engine type. A provider-implemented <c>IJsModules</c> —
+/// <c>JsValue EvaluateModule(string source, string key, string? baseUrl)</c> — is what
+/// <c>RunScriptAsync</c> would become, and it is the member <c>JsealConformanceTests</c> records as
+/// missing when it lists <c>Modules</c> and <c>DynamicImport</c> as inexpressible. Both implementers
+/// exist: Broiler.JS answers by handing the loader to a <c>JSModuleContext</c>'s two overrides, and
+/// the VM profile answers by handing it to <c>VmModuleMap</c>, which is already that shape.
+/// </para>
+/// <para>
+/// <b>Two things block landing it, and neither is in this file.</b> First,
+/// <c>Broiler.HtmlBridge.Scripting/ScriptEngine.cs</c> constructs this type directly and then uses it
+/// as a <c>JSContext</c> (<c>using JSContext context = moduleContext ?? new JSContext();</c>) and as
+/// the thing it calls <c>RunScriptAsync</c> on — so the type cannot stop being a <c>JSModuleContext</c>
+/// until that file changes with it. Second, the implementation belongs in
+/// <c>Broiler.HtmlBridge.Jseal.BroilerJs</c>, and <c>JSModuleContext</c> lives in
+/// <c>Broiler.JavaScript.Modules</c>, which that project deliberately does not reference: its
+/// <c>engineProjectRefs</c> budget is 2 and <c>scripts/check-engine-neutrality.sh</c> enforces that
+/// number for a provider as well as for a binding. Adding the reference is a real budget increase and
+/// wants an argument in its own diff, not a side effect of a refactor.
+/// </para>
+/// <para>
+/// Nothing needs to change for the rest of the migration to proceed around it: this derives from the
+/// engine's context type, so the provider's <c>IJsRealmAdoption.TryAdopt</c> already accepts an
+/// instance of it, and a page whose modules run in one gets the same JSEAL realm as a page whose
+/// scripts do not.
+/// </para>
 /// </remarks>
 internal sealed class BridgeModuleContext : JSModuleContext
 {

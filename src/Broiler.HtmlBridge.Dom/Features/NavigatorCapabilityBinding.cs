@@ -1,12 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Promise;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -35,50 +27,50 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// still see nothing for those probes, because an empty list serializes as one; that is a property
 /// of the measurement, not of the answer.
 /// </para>
+/// <para>
+/// The module takes the realm its members are minted in rather than the script context it used to
+/// raise its <c>NotSupportedError</c> against: a <c>DOMException</c> is built through the realm's own
+/// <c>DOMException</c> global, which is the same object <c>DomBridge.ThrowDOMException</c> reached,
+/// and everything else here is an ordinary member installation.
+/// </para>
 /// </remarks>
 internal static class NavigatorCapabilityBinding
 {
     /// <summary>
     /// Installs the capability members on <paramref name="navigator"/>.
     /// </summary>
+    /// <param name="realm">The realm the members — and the rejected promise's DOMException — are minted in.</param>
     /// <param name="navigator">The <c>navigator</c> object being built.</param>
-    /// <param name="context">
-    /// The realm whose <c>DOMException</c> constructor <c>requestMediaKeySystemAccess</c> rejects
-    /// with.
-    /// </param>
-    public static void Install(JSObject navigator, JSContext context)
+    public static void Install(IJsRealm realm, JsValue navigator)
     {
         // navigator.javaEnabled() (HTML §8.9) — specified to return false. Not "false because
         // Broiler has no Java": the method is a vestige whose only conforming answer is false.
-        navigator.FastAddValue("javaEnabled",
-            new DomFunction((in _) => JSBoolean.False, "javaEnabled", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(navigator, "javaEnabled",
+            realm.NewMethod("javaEnabled", static (in _) => JsValue.False, 0));
 
         // navigator.plugins / navigator.mimeTypes (HTML §8.9.1). HTML defines these as empty
         // whenever the user agent has no PDF viewer, which is the branch Broiler is on — the five
         // entries a Chromium reports are its bundled viewer, not a plugin system. `pdfViewerEnabled`
         // is the flag that decides between the two branches, so it is registered beside them rather
         // than left for a page to infer from the empty lists.
-        navigator.FastAddValue("plugins", BuildEmptyPluginArray("PluginArray"), JSPropertyAttributes.EnumerableConfigurableValue);
-        navigator.FastAddValue("mimeTypes", BuildEmptyPluginArray("MimeTypeArray"), JSPropertyAttributes.EnumerableConfigurableValue);
-        navigator.FastAddValue("pdfViewerEnabled", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(navigator, "plugins", BuildEmptyPluginArray(realm, "PluginArray"));
+        realm.DefineValue(navigator, "mimeTypes", BuildEmptyPluginArray(realm, "MimeTypeArray"));
+        realm.DefineValue(navigator, "pdfViewerEnabled", JsValue.False);
 
         // navigator.getGamepads() (Gamepad §2.2) — the gamepads currently connected. Broiler has no
         // gamepad input path, so none ever are, and an empty list is what the specification asks
         // for in that case.
-        navigator.FastAddValue("getGamepads",
-            new DomFunction((in _) => new JSArray(), "getGamepads", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(navigator, "getGamepads",
+            realm.NewMethod("getGamepads", (in _) => realm.NewArray(), 0));
 
         // navigator.getBattery() (Battery Status §4).
-        navigator.FastAddValue("getBattery",
-            new DomFunction((in _) => GetBattery(), "getBattery", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(navigator, "getBattery",
+            realm.NewMethod("getBattery", (in _) => GetBattery(realm), 0));
 
         // navigator.requestMediaKeySystemAccess() (EME §5).
-        navigator.FastAddValue("requestMediaKeySystemAccess",
-            new DomFunction((in a) => RequestMediaKeySystemAccess(context, in a), "requestMediaKeySystemAccess", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(navigator, "requestMediaKeySystemAccess",
+            realm.NewMethod("requestMediaKeySystemAccess",
+                (in call) => RequestMediaKeySystemAccess(in call), 2));
     }
 
     /// <summary>
@@ -86,18 +78,18 @@ internal static class NavigatorCapabilityBinding
     /// array: these are indexed <em>and</em> named collections, and <c>Array.from</c> — how a page
     /// most often reads one — needs only the <c>length</c>.
     /// </summary>
-    private static JSObject BuildEmptyPluginArray(string name)
+    private static JsValue BuildEmptyPluginArray(IJsRealm realm, string name)
     {
-        var collection = new JSObject();
+        var collection = realm.NewObject();
 
-        collection.FastAddValue("length", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        collection.FastAddValue("item", DomBridge.NullFunction("item", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        collection.FastAddValue("namedItem", DomBridge.NullFunction("namedItem", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(collection, "length", JsValue.Number(0));
+        realm.DefineValue(collection, "item", NullMember(realm, "item", 1));
+        realm.DefineValue(collection, "namedItem", NullMember(realm, "namedItem", 1));
 
         // refresh() exists only on PluginArray, and re-checks for newly installed plugins. There are
         // none to find, but a page that calls it before iterating must not lose the iteration.
         if (name == "PluginArray")
-            collection.FastAddValue("refresh", DomBridge.UndefinedFunction("refresh", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(collection, "refresh", UndefinedMember(realm, "refresh", 0));
 
         return collection;
     }
@@ -109,27 +101,28 @@ internal static class NavigatorCapabilityBinding
     /// remaining to give. The alternative, rejecting, is reserved for a document that is not
     /// allowed to ask.
     /// </summary>
-    private static JSValue GetBattery()
+    private static JsValue GetBattery(IJsRealm realm)
     {
-        var battery = new JSObject();
+        var battery = realm.NewObject();
 
-        battery.FastAddValue("charging", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-        battery.FastAddValue("chargingTime", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        battery.FastAddValue("dischargingTime", new JSNumber(double.PositiveInfinity), JSPropertyAttributes.EnumerableConfigurableValue);
-        battery.FastAddValue("level", new JSNumber(1), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(battery, "charging", JsValue.True);
+        realm.DefineValue(battery, "chargingTime", JsValue.Number(0));
+        realm.DefineValue(battery, "dischargingTime", JsValue.Number(double.PositiveInfinity));
+        realm.DefineValue(battery, "level", JsValue.Number(1));
 
         // The four event-handler attributes, settable and never fired: none of the four values above
         // can change, so there is no change to deliver. A page assigns to them unconditionally.
         foreach (var handler in BatteryEventHandlers)
         {
-            JSValue stored = JSNull.Value;
-            battery.FastAddProperty(handler,
-                new DomFunction((in _) => stored, "get " + handler),
-                new DomFunction((in a) => stored = a.Length > 0 ? a[0] : JSNull.Value, "set " + handler),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            JsValue stored = JsValue.Null;
+            realm.DefineAccessor(battery, handler,
+                (in _) => stored,
+                (in call) => stored = call.Length > 0 ? call[0] : JsValue.Null);
         }
 
-        return new JSPromise((resolve, _) => resolve(battery));
+        var promise = realm.NewPromise(out var resolve, out _);
+        resolve(battery);
+        return promise;
     }
 
     private static readonly string[] BatteryEventHandlers =
@@ -141,23 +134,51 @@ internal static class NavigatorCapabilityBinding
     /// the rejection the specification defines for a key system the user agent does not support, so
     /// a player's existing <c>catch</c> takes its unencrypted path instead of waiting.
     /// </summary>
-    private static JSValue RequestMediaKeySystemAccess(JSContext context, in Arguments a)
+    private static JsValue RequestMediaKeySystemAccess(in JsCall call)
     {
-        string keySystem = a.Length > 0 ? a[0].ToString() : string.Empty;
+        var realm = call.Realm;
+        string keySystem = call.Length > 0 ? realm.ToJsString(call[0]) : string.Empty;
         var reason = BuildDomException(
-            context,
+            realm,
             $"The key system '{keySystem}' is not supported: no Content Decryption Module is available.",
             "NotSupportedError");
 
-        return new JSPromise((_, reject) => reject(reason));
+        var promise = realm.NewPromise(out _, out var reject);
+        reject(reason);
+        return promise;
     }
 
     /// <summary>
     /// A <c>DOMException</c> as a <em>value</em> — what a rejected promise carries, where
-    /// <c>DomBridge.ThrowDOMException</c> raises the same object as an exception.
+    /// <see cref="IJsCalls.DomError"/> raises the same object as an exception.
     /// </summary>
-    private static JSValue BuildDomException(JSContext context, string message, string name) =>
-        context["DOMException"] is Broiler.JavaScript.BuiltIns.Function.JSFunction constructor
-            ? constructor.CreateInstance(new Arguments(constructor, new JSString(message), new JSString(name)))
-            : new JSString($"DOMException: {message} ({name})");
+    /// <remarks>
+    /// Built through the realm's own <c>DOMException</c> global, which the bridge's registration pass
+    /// installs — the same lookup, the same argument order, and the same string fallback for a realm
+    /// that does not have one yet.
+    /// </remarks>
+    private static JsValue BuildDomException(IJsRealm realm, string message, string name)
+    {
+        var constructor = realm.GetProperty(realm.Global, "DOMException");
+        return constructor.IsFunction
+            ? realm.Construct(constructor, [JsValue.String(message), JsValue.String(name)])
+            : JsValue.String($"DOMException: {message} ({name})");
+    }
+
+    /// <summary>
+    /// The realm's spelling of <c>DomBridge.NullFunction</c>/<c>UndefinedFunction</c> — an inert
+    /// member answering <c>null</c> or <c>undefined</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>NewConstructor</c> rather than <c>NewMethod</c> because the engine-built pair carries a
+    /// prototype object and is therefore constructable, and preserving that is what makes this a
+    /// refactor rather than a change. (WebIDL says an operation should not be constructable; that is
+    /// a pre-existing deviation, and correcting it belongs in its own change.)
+    /// </remarks>
+    private static JsValue NullMember(IJsRealm realm, string name, int length = 0) =>
+        realm.NewConstructor(name, static (in _) => JsValue.Null, length);
+
+    /// <inheritdoc cref="NullMember"/>
+    private static JsValue UndefinedMember(IJsRealm realm, string name, int length = 0) =>
+        realm.NewConstructor(name, static (in _) => JsValue.Undefined, length);
 }

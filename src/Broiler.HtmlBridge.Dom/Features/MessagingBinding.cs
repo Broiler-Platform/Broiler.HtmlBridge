@@ -1,5 +1,3 @@
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Array.Typed;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -31,29 +29,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The channel/port object model is migrated to JSEAL; three edges are not, and this is which and
-/// why.</b> Everything that builds or routes a message — the ports, the channel, the
-/// <c>MessageEvent</c>, the origin comparison, the pending-message queue and the whole
+/// <b>The whole feature is migrated to JSEAL bar one edge, and this is which and why.</b> Everything
+/// that builds or routes a message — the ports, the channel, the <c>MessageEvent</c>, the origin
+/// comparison, the pending-message queue, the structured clone, the transfer list and the whole
 /// <see cref="IMessagingHost"/> contract — speaks <see cref="IJsRealm"/> and names no engine type.
-/// What still does:
+/// The clone is <see cref="IJsClone.Clone"/>, which is the same engine algorithm reached through the
+/// realm that owns it rather than through a static; the transfer list is
+/// <see cref="IJsClone.ClassifyTransferable"/> plus <c>WorkerTransfer.ArrayElements</c>, which is the
+/// hole-skipping walk expressed as the own-enumerable-index question it always was. What still names
+/// the engine:
 /// </para>
 /// <list type="bullet">
-/// <item><description>
-/// <b>the structured clone at the centre of both <c>postMessage</c> bodies.</b> JSEAL declares no
-/// structured-clone operation, so cloning is <c>JSGlobalStatic.StructuredClone</c> as it always was.
-/// That is not a formatting choice: a cloned payload may be a primitive, and a JSEAL handle over a
-/// primitive carries no engine instance (see <see cref="JsInterop"/>), so the value cannot cross the
-/// seam in either direction. The two callbacks therefore keep their engine argument frame, because
-/// that frame is where the payload is read.
-/// </description></item>
-/// <item><description>
-/// <b>the transfer list.</b> Deciding that an entry is a transferable <c>ArrayBuffer</c>, that it is
-/// not already detached, and building the <c>{ transfer: [...] }</c> options the engine's
-/// <c>structuredClone</c> understands are all statements about a type JSEAL does not model. The walk
-/// over the list is part of the same edge: <c>GetArrayElements(withHoles: false)</c> skips a hole,
-/// where a length-and-index walk would hand the hole on as a non-transferable value and turn it into
-/// a <c>DataCloneError</c> that a browser does not raise.
-/// </description></item>
 /// <item><description>
 /// <b>listener <em>registration</em> in the generic <c>EventTarget</c> dispatch</b> — not the dispatch
 /// itself, which now builds and stamps the event through the realm. What is left is the stores:
@@ -348,27 +334,28 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     /// <summary>Installs <c>window.postMessage</c> on <paramref name="window"/> (top window or a
     /// sub-window).</summary>
     /// <remarks>
-    /// Engine-typed, and pinned there twice over: <c>DomBridge/Registration/Window.cs</c> and
-    /// <see cref="SubWindowBinding"/> both hand it the engine's window object, and the operation it
-    /// installs reads its payload as an engine value because the structured clone at that payload's
-    /// centre has no JSEAL expression.
+    /// The engine-typed parameter is an adapter, pinned twice over:
+    /// <c>DomBridge/Registration/Window.cs</c> and <see cref="SubWindowBinding"/> both hand this the
+    /// engine's window object, and neither is this round's to change. The handle over it is minted
+    /// once here and is what the migrated operation closes over; the member itself is installed
+    /// through the realm, as a <see cref="IJsValues.NewMethod"/> because the member it replaces was
+    /// built non-constructable and staying so is what makes this a refactor.
     /// </remarks>
     internal void RegisterWindowMessaging(JSObject window)
     {
-        window.FastAddValue(
-            "postMessage",
-            new DomFunction((in a) => WindowPostMessage(window, in a), "postMessage", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        var handle = JsInterop.FromEngineObject(window);
+        _host.Realm.DefineValue(handle, "postMessage",
+            _host.Realm.NewMethod("postMessage", (in call) => WindowPostMessage(handle, in call), 2));
     }
 
-    private JSValue WindowPostMessage(JSObject window, in Arguments a)
+    private JsValue WindowPostMessage(JsValue window, in JsCall call)
     {
-        var targetWindow = JsInterop.FromEngineObject(a.This as JSObject ?? window);
+        var targetWindow = call.This.IsObject ? call.This : window;
         var sourceWindow = _host.ResolveCurrentWindow();
-        var (targetOrigin, ports, cloneOptions, transferredPorts) = GetPostMessageDispatchOptions(a);
+        var (targetOrigin, ports, transfer, transferredPorts) = GetPostMessageDispatchOptions(in call);
         if (!ShouldDeliverWindowMessage(targetWindow, sourceWindow, targetOrigin))
-            return JSUndefined.Value;
-        var payload = CloneForMessaging(a.Length > 0 ? a[0] : JSUndefined.Value, cloneOptions);
+            return JsValue.Undefined;
+        var payload = CloneForMessaging(call.Length > 0 ? call[0] : JsValue.Undefined, transfer);
         CommitTransferredPorts(transferredPorts, targetWindow);
         var origin = GetWindowOrigin(sourceWindow);
         _host.QueueFrameAction(() =>
@@ -387,104 +374,129 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
                     DispatchEventTarget(targetWindow, evt, "DomBridge.window.postMessage"));
             }
         });
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private (string TargetOrigin, JsValue Ports, JSValue CloneOptions, List<JsValue> TransferredPorts) GetPostMessageDispatchOptions(in Arguments a)
+    /// <remarks>
+    /// <para>
+    /// The two-argument and the options-object spellings of <c>postMessage</c>, told apart exactly as
+    /// before: an object carrying either <c>targetOrigin</c> or <c>transfer</c> is options, and
+    /// anything else is a target origin to coerce. A third argument is a transfer list whichever
+    /// spelling was used, and wins.
+    /// </para>
+    /// <para>
+    /// The properties are read the same number of times, in the same order, including the
+    /// short-circuit that skips reading <c>transfer</c> when <c>targetOrigin</c> is present — a page
+    /// may have installed getters, and how many times one runs is as observable as what it answers.
+    /// A property that was never installed reads back as <see cref="JsValue.Missing"/>, which is the
+    /// CLR <see langword="null"/> the former <c>is { }</c> tests were asking about, and
+    /// <see cref="JsValue.IsNullish"/> is the former <c>!= null &amp;&amp; !IsNullOrUndefined</c>.
+    /// <c>ToJsString</c> rather than the handle's own rendering, because these two reads were
+    /// <c>ToString()</c> on this engine and that is the observable ECMAScript coercion.
+    /// </para>
+    /// </remarks>
+    private (string TargetOrigin, JsValue Ports, JsValue[] Transfer, List<JsValue> TransferredPorts) GetPostMessageDispatchOptions(in JsCall call)
     {
+        var realm = call.Realm;
         var targetOrigin = "*";
-        JSValue transferValue = JSUndefined.Value;
+        var transferValue = JsValue.Undefined;
 
-        if (a.Length > 1)
+        if (call.Length > 1)
         {
-            if (a[1] is JSObject optionsObject &&
-                (optionsObject[(KeyString)"targetOrigin"] is { } ||
-                 optionsObject[(KeyString)"transfer"] is { }))
+            var argument = call[1];
+            if (argument.IsObject &&
+                (!realm.GetProperty(argument, "targetOrigin").IsMissing ||
+                 !realm.GetProperty(argument, "transfer").IsMissing))
             {
-                var targetOriginValue = optionsObject[(KeyString)"targetOrigin"];
-                if (targetOriginValue != null && !targetOriginValue.IsNullOrUndefined)
-                    targetOrigin = targetOriginValue.ToString();
+                var targetOriginValue = realm.GetProperty(argument, "targetOrigin");
+                if (!targetOriginValue.IsNullish)
+                    targetOrigin = realm.ToJsString(targetOriginValue);
 
-                transferValue = optionsObject[(KeyString)"transfer"] ?? JSUndefined.Value;
+                var transferProperty = realm.GetProperty(argument, "transfer");
+                transferValue = transferProperty.IsMissing ? JsValue.Undefined : transferProperty;
             }
             else
             {
-                targetOrigin = a[1].ToString();
+                targetOrigin = realm.ToJsString(argument);
             }
         }
 
-        if (a.Length > 2)
-            transferValue = a[2];
+        if (call.Length > 2)
+            transferValue = call[2];
 
-        var (ports, cloneOptions, transferredPorts) = ExtractTransferList(transferValue);
-        return (targetOrigin, ports, cloneOptions, transferredPorts);
+        var (ports, transfer, transferredPorts) = ExtractTransferList(transferValue);
+        return (targetOrigin, ports, transfer, transferredPorts);
     }
 
     /// <summary>
     /// Validates a transfer list and splits it into the ports the <c>MessageEvent</c> carries, the
-    /// <c>{ transfer: [...] }</c> options the engine's <c>structuredClone</c> understands, and the
-    /// ports whose owner window the send re-homes.
+    /// transferable objects the clone detaches, and the ports whose owner window the send re-homes.
     /// </summary>
     /// <remarks>
-    /// ENGINE-TYPED EDGE — see the second bullet in this class's remarks. Every decision it makes is
-    /// about a type JSEAL does not model (<c>ArrayBuffer</c>, and whether one is detached), and the
-    /// hole-skipping walk over the list has no JSEAL equivalent that keeps the same answer. Each
-    /// failure now <see langword="throw"/>s <see cref="IJsCalls.DomError"/> where it used to call the
-    /// bridge's <c>ThrowDOMException</c>, which threw the same <c>DOMException</c> — the difference
-    /// is that the compiler can now see that the path ends, so the unreachable returns are gone.
+    /// <para>
+    /// <b>The walk is the host's and only the entries it does not recognise are the engine's.</b> A
+    /// <c>MessagePort</c> is transferable and is a thing this module owns — its identity is a peer
+    /// entry in <see cref="MessagePortRegistry"/>, which no engine knows about — so ports are
+    /// classified here and everything else is handed to
+    /// <see cref="IJsClone.ClassifyTransferable"/>, which answers in the specification's vocabulary
+    /// (may this appear in a transfer list; has it already been spent) rather than by naming a type.
+    /// </para>
+    /// <para>
+    /// <c>WorkerTransfer.ArrayElements</c> is the former <c>GetArrayElements(withHoles: false)</c>: a
+    /// hole must be skipped, because a length-and-index walk would hand it on as a non-transferable
+    /// value and turn <c>postMessage(m, [ , buf])</c> into a <c>DataCloneError</c> a browser does not
+    /// raise.
+    /// </para>
+    /// <para>
+    /// Each failure <see langword="throw"/>s <see cref="IJsCalls.DomError"/> where it used to call the
+    /// bridge's <c>ThrowDOMException</c>, which threw the same <c>DOMException</c> — the difference is
+    /// that the compiler can now see that the path ends, so the unreachable returns are gone.
+    /// </para>
     /// </remarks>
-    private (JsValue Ports, JSValue CloneOptions, List<JsValue> TransferredPorts) ExtractTransferList(JSValue transferValue)
+    private (JsValue Ports, JsValue[] Transfer, List<JsValue> TransferredPorts) ExtractTransferList(JsValue transferValue)
     {
         var realm = _host.Realm;
 
-        if (transferValue.IsNullOrUndefined)
-            return (realm.NewArray(), JSUndefined.Value, []);
+        if (transferValue.IsNullish)
+            return (realm.NewArray(), [], []);
 
-        if (transferValue is not JSArray transferArray)
+        if (!transferValue.IsArray)
             throw realm.DomError("DataCloneError", "The transfer list contains a non-transferable value.");
 
-        var transferredPorts = new List<JSValue>();
-        var transferredPortHandles = new List<JsValue>();
-        var seenPorts = new HashSet<JSObject>(ReferenceEqualityComparer.Instance);
-        var transferredBuffers = new List<JSValue>();
-        var seenBuffers = new HashSet<JSArrayBuffer>(ReferenceEqualityComparer.Instance);
+        var transferredPorts = new List<JsValue>();
+        var seenPorts = new HashSet<JsValue>();
+        var transferredBuffers = new List<JsValue>();
+        var seenBuffers = new HashSet<JsValue>();
 
-        foreach (var (_, item) in transferArray.GetArrayElements(withHoles: false))
+        foreach (var item in WorkerTransfer.ArrayElements(realm, transferValue))
         {
-            if (item is JSObject port && _messagePorts.HasPeer(JsInterop.FromEngineObject(port)))
+            if (item.IsObject && _messagePorts.HasPeer(item))
             {
-                if (!seenPorts.Add(port))
+                if (!seenPorts.Add(item))
                     throw realm.DomError("DataCloneError", "The transfer list contains duplicate transferable values.");
 
-                transferredPorts.Add(port);
-                transferredPortHandles.Add(JsInterop.FromEngineObject(port));
+                transferredPorts.Add(item);
                 continue;
             }
 
-            if (item is JSArrayBuffer arrayBuffer)
+            switch (realm.ClassifyTransferable(item))
             {
-                if (arrayBuffer.Detached)
+                case JsTransferKind.Detached:
                     throw realm.DomError("DataCloneError", "The transfer list contains a detached ArrayBuffer.");
 
-                if (!seenBuffers.Add(arrayBuffer))
+                case JsTransferKind.Transferable when !seenBuffers.Add(item):
                     throw realm.DomError("DataCloneError", "The transfer list contains duplicate transferable values.");
 
-                transferredBuffers.Add(arrayBuffer);
-                continue;
+                case JsTransferKind.Transferable:
+                    transferredBuffers.Add(item);
+                    continue;
+
+                default:
+                    throw realm.DomError("DataCloneError", "The transfer list contains a non-transferable value.");
             }
-
-            throw realm.DomError("DataCloneError", "The transfer list contains a non-transferable value.");
         }
 
-        JSValue cloneOptions = JSUndefined.Value;
-        if (transferredBuffers.Count > 0)
-        {
-            var transferOptions = new JSObject();
-            transferOptions.FastAddValue("transfer", new JSArray(transferredBuffers), JSPropertyAttributes.EnumerableConfigurableValue);
-            cloneOptions = transferOptions;
-        }
-
-        return (JsInterop.FromEngineObject(new JSArray(transferredPorts)), cloneOptions, transferredPortHandles);
+        return (realm.NewArray(transferredPorts.ToArray()), [.. transferredBuffers], transferredPorts);
     }
 
     private void CommitTransferredPorts(IEnumerable<JsValue> transferredPorts, JsValue targetWindow)
@@ -570,20 +582,25 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     /// cloned.
     /// </summary>
     /// <remarks>
-    /// ENGINE-TYPED EDGE — see the first bullet in this class's remarks. JSEAL declares no
-    /// structured-clone operation, and the clone's result may be a primitive, which a JSEAL handle
-    /// cannot carry back across the seam. Both facts have to change together before this moves.
+    /// <para>
+    /// One clone, in one realm, because same-document messaging has one realm: the copy this produces
+    /// is the copy delivered. (A Worker message is cloned twice instead —
+    /// <see cref="IJsClone.Detach"/> then <see cref="IJsClone.Adopt"/> — because the second realm is
+    /// on another thread; see <see cref="WorkerBinding"/>.)
+    /// </para>
+    /// <para>
+    /// Cloning here rather than at delivery is what the messaging model requires: the sender's
+    /// <c>postMessage</c> is where a <c>DataCloneError</c> belongs, where the transfer list detaches
+    /// the sender's buffers, and after which mutating the payload is invisible to the receiver.
+    /// </para>
     /// </remarks>
-    private JSValue CloneForMessaging(JSValue value, JSValue cloneOptions = default)
+    private JsValue CloneForMessaging(JsValue value, JsValue[] transfer)
     {
         try
         {
-            if (cloneOptions == null || cloneOptions.IsNullOrUndefined)
-                return JavaScript.Globals.JSGlobalStatic.StructuredClone(new Arguments(JSUndefined.Value, value));
-
-            return JavaScript.Globals.JSGlobalStatic.StructuredClone(new Arguments(JSUndefined.Value, value, cloneOptions));
+            return _host.Realm.Clone(value, transfer);
         }
-        catch (JSException)
+        catch (JsEngineException)
         {
             throw _host.Realm.DomError("DataCloneError", "The object could not be cloned.");
         }
@@ -593,12 +610,11 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     /// Builds the <c>MessageEvent</c> delivered to a window or to a port.
     /// </summary>
     /// <remarks>
-    /// Every member but <c>data</c> is installed through the realm. <c>data</c> is the structured
-    /// clone, which is an engine value for the reason <see cref="CloneForMessaging"/> gives, so it is
-    /// installed on the engine's own object — in its original position, because property order is
-    /// what <c>Object.keys</c> and a <c>for…in</c> over the event report.
+    /// Every member is installed through the realm, in the order it always was, because property
+    /// order is what <c>Object.keys</c> and a <c>for…in</c> over the event report. <c>data</c> is the
+    /// structured clone, which is now a handle like everything else.
     /// </remarks>
-    private JsValue CreateMessageEvent(JSValue data, JsValue sourceWindow, string origin, JsValue ports)
+    private JsValue CreateMessageEvent(JsValue data, JsValue sourceWindow, string origin, JsValue ports)
     {
         var realm = _host.Realm;
         var evt = realm.NewObject();
@@ -606,7 +622,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
         realm.DefineValue(evt, "bubbles", JsValue.False);
         realm.DefineValue(evt, "cancelable", JsValue.False);
         realm.DefineValue(evt, "defaultPrevented", JsValue.False);
-        JsInterop.ToEngineObject(evt).FastAddValue("data", data, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "data", data);
         realm.DefineValue(evt, "origin", JsValue.String(origin));
         realm.DefineValue(evt, "lastEventId", JsValue.String(string.Empty));
         realm.DefineValue(evt, "source", sourceWindow.IsObject ? sourceWindow : JsValue.Null);
@@ -652,12 +668,10 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
         InstallEventTargetApi(portObject, "DomBridge.messagePort.dispatchEvent");
         JsValue onMessageHandler = JsValue.Null;
 
-        // postMessage keeps its engine argument frame: it reads the payload the clone consumes, and a
-        // clone has no JSEAL expression. Installed here rather than through the realm so that the
-        // member order a page enumerates is the one it always was.
-        portObject.FastAddValue("postMessage",
-            new DomFunction((in a) => PortPostMessage(port, in a), "postMessage", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        // A NewMethod because the member was built non-constructable, and in this position because
+        // the member order a page enumerates is the one it always was.
+        realm.DefineValue(port, "postMessage",
+            realm.NewMethod("postMessage", (in call) => PortPostMessage(port, in call), 1));
 
         realm.DefineAccessor(port, "onmessage",
             (in _) => onMessageHandler,
@@ -688,30 +702,39 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
         return JsValue.Undefined;
     }
 
-    private JSValue PortPostMessage(JsValue port, in Arguments a)
+    /// <remarks>
+    /// <c>this</c> is the port the call was made on when there is one, and the port the member was
+    /// installed on otherwise — the same two cases the former engine-typed receiver test drew,
+    /// asked of a handle. The <c>transfer</c> property is read twice and in the same order as before,
+    /// because a page may have installed a getter for it.
+    /// </remarks>
+    private JsValue PortPostMessage(JsValue port, in JsCall call)
     {
-        var sourcePort = a.This is JSObject thisPort ? JsInterop.FromEngineObject(thisPort) : port;
+        var realm = call.Realm;
+        var sourcePort = call.This.IsObject ? call.This : port;
         if (_messagePorts.IsClosed(sourcePort) || !_messagePorts.TryGetPeer(sourcePort, out var targetPort) || _messagePorts.IsClosed(targetPort))
         {
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         }
 
-        JSValue transferValue = JSUndefined.Value;
-        if (a.Length > 1)
+        var transferValue = JsValue.Undefined;
+        if (call.Length > 1)
         {
-            if (a[1] is JSObject optionsObject && optionsObject[(KeyString)"transfer"] is { })
+            var argument = call[1];
+            if (argument.IsObject && !realm.GetProperty(argument, "transfer").IsMissing)
             {
-                transferValue = optionsObject[(KeyString)"transfer"] ?? JSUndefined.Value;
+                var transferProperty = realm.GetProperty(argument, "transfer");
+                transferValue = transferProperty.IsMissing ? JsValue.Undefined : transferProperty;
             }
             else
             {
-                transferValue = a[1];
+                transferValue = argument;
             }
         }
 
         var targetOwner = FirstObject(_host.ResolveOwnerWindow(targetPort), _host.WindowObject, sourcePort);
-        var (ports, cloneOptions, transferredPorts) = ExtractTransferList(transferValue);
-        var payload = CloneForMessaging(a.Length > 0 ? a[0] : JSUndefined.Value, cloneOptions);
+        var (ports, transfer, transferredPorts) = ExtractTransferList(transferValue);
+        var payload = CloneForMessaging(call.Length > 0 ? call[0] : JsValue.Undefined, transfer);
         CommitTransferredPorts(transferredPorts, targetOwner);
         _host.QueueFrameAction(() =>
         {
@@ -723,7 +746,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
             var evt = CreateMessageEvent(payload, JsValue.Null, string.Empty, ports);
             DispatchOrQueueMessagePortEvent(targetPort, evt);
         });
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     private JsValue SetOnMessage(ref JsValue onMessageHandler, JsValue port, in JsCall call)

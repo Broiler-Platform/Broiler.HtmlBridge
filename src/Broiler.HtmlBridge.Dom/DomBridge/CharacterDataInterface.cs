@@ -61,12 +61,13 @@ namespace Broiler.HtmlBridge;
 /// <para>
 /// <b>Two vocabularies for installing a prototype member, and the file says which is which.</b>
 /// <see cref="DefinePrototypeMethod"/> and <see cref="DefinePrototypeAccessor"/> mint through the
-/// realm and are what every member below uses, because every body below calls a migrated binding and
-/// so needs a <see cref="JsCall"/> frame. <see cref="AddPrototypeMethod"/> and
+/// realm and are what every member below uses — the <c>ChildNode</c> mixin four included, since
+/// <c>ChildNodeBinding</c> migrated — because every body below calls a binding that reads a
+/// <see cref="JsCall"/> frame. <see cref="AddPrototypeMethod"/> and
 /// <see cref="AddPrototypeAccessor"/> are the engine-typed pair, kept for
 /// <c>DomBridge/ElementInterface.cs</c> and <c>DomBridge/HtmlElementInterface.cs</c>, whose bodies
-/// still take an <c>Arguments</c>; there is no adapter between two call frames, only between two
-/// object types, so those two sites keep the engine pair until their own bindings migrate.
+/// still take the engine's argument frame; there is no adapter between two call frames, only between
+/// two object types, so those two sites keep the engine pair until their own bindings migrate.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -300,10 +301,10 @@ public sealed partial class DomBridge
     /// separately, so they belong here rather than on <c>Node.prototype</c>.
     /// </summary>
     /// <remarks>
-    /// The four <c>ChildNode</c> members are the one group here still minted by the engine:
-    /// <c>ChildNodeBinding</c> takes an engine argument frame, and a member cannot be minted by the
-    /// realm while the body it would call takes an <c>Arguments</c>. They move when it does; installing
-    /// them onto the same prototype through the other pair keeps the member order unchanged meanwhile.
+    /// The four <c>ChildNode</c> members are minted by the realm like the rest: <c>ChildNodeBinding</c>
+    /// reads a <see cref="JsCall"/> at the entry point this prototype reaches it through. Their
+    /// position in the install order is unchanged, which is what
+    /// <c>Object.getOwnPropertyNames(CharacterData.prototype)</c> can see.
     /// </remarks>
     private void InstallCharacterDataPrototypeMembers(JsValue proto)
     {
@@ -324,16 +325,14 @@ public sealed partial class DomBridge
         DefinePrototypeMethod(proto, "replaceData", 3,
             (in call) => Dom.Features.CharacterDataBinding.ReplaceData(this, RequireNode(in call, "CharacterData", "replaceData"), in call));
 
-        var engineProto = Dom.Runtime.JsInterop.ToEngineObject(proto);
-
-        AddPrototypeMethod(engineProto, "remove", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.Remove(this, RequireNode(in a, "CharacterData", "remove"), in a));
-        AddPrototypeMethod(engineProto, "before", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.Before(this, RequireNode(in a, "CharacterData", "before"), in a));
-        AddPrototypeMethod(engineProto, "after", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.After(this, RequireNode(in a, "CharacterData", "after"), in a));
-        AddPrototypeMethod(engineProto, "replaceWith", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.ReplaceWith(this, RequireNode(in a, "CharacterData", "replaceWith"), in a));
+        DefinePrototypeMethod(proto, "remove", 0,
+            (in call) => Dom.Features.ChildNodeBinding.Remove(this, RequireNode(in call, "CharacterData", "remove"), in call));
+        DefinePrototypeMethod(proto, "before", 0,
+            (in call) => Dom.Features.ChildNodeBinding.Before(this, RequireNode(in call, "CharacterData", "before"), in call));
+        DefinePrototypeMethod(proto, "after", 0,
+            (in call) => Dom.Features.ChildNodeBinding.After(this, RequireNode(in call, "CharacterData", "after"), in call));
+        DefinePrototypeMethod(proto, "replaceWith", 0,
+            (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, RequireNode(in call, "CharacterData", "replaceWith"), in call));
     }
 
     /// <summary>

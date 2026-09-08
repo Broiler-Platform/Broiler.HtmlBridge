@@ -1,10 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Promise;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -31,6 +25,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// already knows from <c>Notification.permission</c> that nothing will be displayed, so there is no
 /// failure to report that it was not told before it asked.
 /// </para>
+/// <para>
+/// The interface object and everything on it are minted through the realm its registration site
+/// hands over. The two argument reads coerce with the realm's <c>ToJsString</c>, which is the
+/// observable ECMAScript <c>ToString</c> the engine's <c>ToString()</c> ran here before.
+/// </para>
 /// </remarks>
 internal static class NotificationBinding
 {
@@ -38,25 +37,22 @@ internal static class NotificationBinding
     private const string Permission = "denied";
 
     /// <summary>
-    /// Builds the <c>Notification</c> interface object. It is a <see cref="JSFunction"/> rather
-    /// than a <c>DomFunction</c> because pages legitimately <c>new</c> it.
+    /// Builds the <c>Notification</c> interface object. It is a constructor rather than a plain
+    /// method because pages legitimately <c>new</c> it.
     /// </summary>
-    public static JSFunction Build()
+    public static JsValue Build(IJsRealm realm)
     {
-        var constructor = new JSFunction(NewNotification, "Notification", 2);
+        var constructor = realm.NewConstructor("Notification", (in call) => NewNotification(in call), 2);
 
-        constructor.FastAddValue("permission",
-            new JSString(Permission), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(constructor, "permission", JsValue.String(Permission));
 
-        constructor.FastAddValue("requestPermission",
-            new DomFunction(RequestPermission, "requestPermission", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(constructor, "requestPermission",
+            realm.NewMethod("requestPermission", RequestPermission, 1));
 
         // The maximum number of actions a notification may carry. Zero is the honest count for a
         // notification that is never displayed, and it is a value the specification expects to vary
         // by user agent, so a page reading it is already prepared for zero.
-        constructor.FastAddValue("maxActions",
-            new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(constructor, "maxActions", JsValue.Number(0));
 
         return constructor;
     }
@@ -67,44 +63,43 @@ internal static class NotificationBinding
     /// supported: the promise the current specification returns, and the legacy callback argument
     /// that older code still passes.
     /// </summary>
-    private static JSValue RequestPermission(in Arguments a)
+    private static JsValue RequestPermission(in JsCall call)
     {
-        var permission = new JSString(Permission);
+        var realm = call.Realm;
+        var permission = JsValue.String(Permission);
 
-        if (a.Length > 0 && a[0].IsFunction)
-            a[0].InvokeFunction(new Arguments(JSUndefined.Value, permission));
+        if (call[0].IsFunction)
+            realm.Invoke(call[0], JsValue.Undefined, [permission]);
 
-        return new JSPromise((resolve, _) => resolve(permission));
+        var promise = realm.NewPromise(out var resolve, out _);
+        resolve(permission);
+        return promise;
     }
 
-    private static JSValue NewNotification(in Arguments a)
+    private static JsValue NewNotification(in JsCall call)
     {
-        var notification = new JSObject();
+        var realm = call.Realm;
+        var notification = realm.NewObject();
 
-        notification.FastAddValue("title",
-            a.Length > 0 ? new JSString(a[0].ToString()) : new JSString(string.Empty),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(notification, "title",
+            call.Length > 0 ? JsValue.String(realm.ToJsString(call[0])) : JsValue.String(string.Empty));
 
         // The options a caller passed are reflected back, because that is what the interface's
         // attributes are: a notification reports the values it was constructed with.
-        var options = a.Length > 1 && a[1] is JSObject given ? given : new JSObject();
+        var options = call[1].IsObject ? call[1] : realm.NewObject();
         foreach (var (name, fallback) in ReflectedOptions)
         {
-            var value = options[(KeyString)name];
-            notification.FastAddValue(name,
-                value is JSUndefined ? fallback : value,
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            var value = realm.GetProperty(options, name);
+            realm.DefineValue(notification, name, value.IsUndefined || value.IsMissing ? fallback : value);
         }
 
-        JSValue onError = JSNull.Value;
-        notification.FastAddProperty("onerror",
-            new DomFunction((in _) => onError, "get onerror"),
-            new DomFunction((in b) => onError = b.Length > 0 ? b[0] : JSNull.Value, "set onerror"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        JsValue onError = JsValue.Null;
+        realm.DefineAccessor(notification, "onerror",
+            (in _) => onError,
+            (in set) => onError = set.Length > 0 ? set[0] : JsValue.Null);
 
-        notification.FastAddValue("close",
-            DomBridge.UndefinedFunction("close", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(notification, "close",
+            realm.NewConstructor("close", static (in _) => JsValue.Undefined, 0));
 
         return notification;
     }
@@ -113,14 +108,14 @@ internal static class NotificationBinding
     /// The constructor options that are also readable attributes on the notification, with the
     /// value each has when it was not supplied.
     /// </summary>
-    private static readonly (string Name, JSValue Fallback)[] ReflectedOptions =
+    private static readonly (string Name, JsValue Fallback)[] ReflectedOptions =
     [
-        ("body", new JSString(string.Empty)),
-        ("tag", new JSString(string.Empty)),
-        ("icon", new JSString(string.Empty)),
-        ("lang", new JSString(string.Empty)),
-        ("dir", new JSString("auto")),
-        ("data", JSNull.Value),
-        ("silent", JSNull.Value),
+        ("body", JsValue.String(string.Empty)),
+        ("tag", JsValue.String(string.Empty)),
+        ("icon", JsValue.String(string.Empty)),
+        ("lang", JsValue.String(string.Empty)),
+        ("dir", JsValue.String("auto")),
+        ("data", JsValue.Null),
+        ("silent", JsValue.Null),
     ];
 }

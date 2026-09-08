@@ -23,12 +23,17 @@ namespace Broiler.HtmlBridge;
 /// migrated, so their bodies have a <see cref="JsCall"/> frame of their own.
 /// </para>
 /// <para>
-/// What is left engine-typed is pinned by its callee, not left behind. <c>ChildNodeBinding</c>,
-/// <c>EventTargetBinding</c>, <c>BuildChildNodeArgumentNodes</c> (the variadic
-/// <c>append</c>/<c>prepend</c> reader) and <c>FindInDescendants</c> each still take an engine
-/// argument frame or answer an engine value, and there is no adapter between two call frames — only
-/// between two object types. Those sites migrate when their callees do; the two halves install onto
-/// one object, so the wrapper's shape cannot drift while they are apart.
+/// What is left engine-typed is pinned by its callee, not left behind, and it is down to one thing:
+/// <c>EventTargetBinding</c> still takes an engine argument frame, so the three
+/// <c>addEventListener</c>/<c>removeEventListener</c>/<c>dispatchEvent</c> members are minted by the
+/// engine and each populator unwraps the handle for them alone. There is no adapter between two call
+/// frames — only between two object types — so they move when that binding does; the two halves
+/// install onto one object, so the wrapper's shape cannot drift while they are apart.
+/// </para>
+/// <para>
+/// <c>ChildNodeBinding</c> and the variadic <c>append</c>/<c>prepend</c> reader have both migrated;
+/// <c>FindInDescendants</c> has not, but it answers a <em>value</em> rather than taking a frame, and a
+/// value crosses — so the fragment's two selector members are the realm's over an engine-typed search.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -213,25 +218,23 @@ public sealed partial class DomBridge
                 (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, node, in call), 0));
 
         // -- ChildNode mixin --
-        // Still the engine's: ChildNodeBinding takes an Arguments, and a member cannot be minted by
-        // the realm while the body it would call takes the other call frame.
-        var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
+        // The realm's: ChildNodeBinding reads a JsCall frame at the two entry points this file and
+        // DomBridge/CharacterDataInterface.cs reach it through.
+        Realm.DefineValue(handle, "remove",
+            Realm.NewMethod("remove",
+                (in call) => Dom.Features.ChildNodeBinding.Remove(this, node, in call)));
 
-        obj.FastAddValue("remove",
-            new DomFunction((in a) => Dom.Features.ChildNodeBinding.Remove(this, node, in a), "remove", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "before",
+            Realm.NewMethod("before",
+                (in call) => Dom.Features.ChildNodeBinding.Before(this, node, in call)));
 
-        obj.FastAddValue("before",
-            new DomFunction((in a) => Dom.Features.ChildNodeBinding.Before(this, node, in a), "before", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "after",
+            Realm.NewMethod("after",
+                (in call) => Dom.Features.ChildNodeBinding.After(this, node, in call)));
 
-        obj.FastAddValue("after",
-            new DomFunction((in a) => Dom.Features.ChildNodeBinding.After(this, node, in a), "after", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
-        obj.FastAddValue("replaceWith",
-            new DomFunction((in a) => Dom.Features.ChildNodeBinding.ReplaceWith(this, node, in a), "replaceWith", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "replaceWith",
+            Realm.NewMethod("replaceWith",
+                (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, node, in call)));
 
 
         // The constants are on Node.prototype for every other wrapper; this one inherits nothing.
@@ -327,31 +330,32 @@ public sealed partial class DomBridge
                 (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, node, in call), 1));
 
         // -- ChildNode mixin --
-        // The engine's, pinned by ChildNodeBinding's argument frame; the wrapper below is the same
-        // object the handle carries, so the two halves install onto one object.
-        var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
+        // The realm's, like the character-data wrapper's four above.
+        Realm.DefineValue(handle, "remove",
+            Realm.NewMethod("remove",
+                (in call) => Dom.Features.ChildNodeBinding.Remove(this, node, in call)));
 
-        obj.FastAddValue("remove",
-            new DomFunction((in a) => Dom.Features.ChildNodeBinding.Remove(this, node, in a), "remove", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "before",
+            Realm.NewMethod("before",
+                (in call) => Dom.Features.ChildNodeBinding.Before(this, node, in call)));
 
-        obj.FastAddValue("before",
-            new DomFunction((in a) => Dom.Features.ChildNodeBinding.Before(this, node, in a), "before", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "after",
+            Realm.NewMethod("after",
+                (in call) => Dom.Features.ChildNodeBinding.After(this, node, in call)));
 
-        obj.FastAddValue("after",
-            new DomFunction((in a) => Dom.Features.ChildNodeBinding.After(this, node, in a), "after", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
-        obj.FastAddValue("replaceWith",
-            new DomFunction((in a) => Dom.Features.ChildNodeBinding.ReplaceWith(this, node, in a), "replaceWith", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "replaceWith",
+            Realm.NewMethod("replaceWith",
+                (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, node, in call)));
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
         // routed by receiver (DomBridge.EventTargetInterface.cs) — one function for every target, as
-        // in a browser. A wrapper minted before the realm carried it installs its own.
+        // in a browser. A wrapper minted before the realm carried it installs its own, and those three
+        // are the engine's: EventTargetBinding takes an Arguments. The handle carries this very object,
+        // so the two halves install onto one.
         if (!_eventTargetRoutingReady)
         {
+            var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
+
             obj.FastAddValue("addEventListener",
                 new DomFunction((in a) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in a), "addEventListener", 3),
                 JSPropertyAttributes.EnumerableConfigurableValue);
@@ -520,43 +524,47 @@ public sealed partial class DomBridge
                 InsertNodeAt(fragment, newEl, Math.Min(idx, fragment.ChildNodes.Count));
                 return call[1];
             }, 2));
-        // append/prepend stay on the engine's argument frame: BuildChildNodeArgumentNodes reads the
-        // whole variadic list — nodes and strings alike — and it takes an `Arguments`. They migrate
-        // when it does.
-        obj.FastAddValue("append",
-            new DomFunction((in a) =>
+        // append/prepend read the whole variadic list — nodes and strings alike — through the bridge's
+        // migrated ISubDocumentHost reading of it, which is the same reading the engine-framed
+        // BuildChildNodeArgumentNodes performs and coerces each non-node argument with the realm's
+        // ToString exactly as `value.ToString()` did.
+        Realm.DefineValue(handle, "append",
+            Realm.NewMethod("append", (in call) =>
             {
-                if (a.Length == 0)
-                    return JSUndefined.Value;
-                var nodes = BuildChildNodeArgumentNodes(a);
+                if (call.Length == 0)
+                    return JsValue.Undefined;
+                var nodes = ((Dom.Features.ISubDocumentHost)this).BuildChildNodeArgumentNodes(call.Arguments);
                 var insertIndex = fragment.ChildNodes.Count;
                 foreach (var child in nodes)
                     InsertNodeAt(fragment, child, insertIndex++);
-                return JSUndefined.Value;
-            }, "append", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        obj.FastAddValue("prepend",
-            new DomFunction((in a) =>
+                return JsValue.Undefined;
+            }));
+        Realm.DefineValue(handle, "prepend",
+            Realm.NewMethod("prepend", (in call) =>
             {
-                if (a.Length == 0)
-                    return JSUndefined.Value;
-                var nodes = BuildChildNodeArgumentNodes(a);
+                if (call.Length == 0)
+                    return JsValue.Undefined;
+                var nodes = ((Dom.Features.ISubDocumentHost)this).BuildChildNodeArgumentNodes(call.Arguments);
                 var insertIndex = 0;
                 foreach (var child in nodes)
                     InsertNodeAt(fragment, child, insertIndex++);
-                return JSUndefined.Value;
-            }, "prepend", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+                return JsValue.Undefined;
+            }));
 
         // -- Query --
-        // The descendant search answers an engine value (a wrapper, a NodeList, or the engine's null),
-        // so these two stay on the engine's frame until DomBridge/Utilities.cs migrates.
-        obj.FastAddValue("querySelector",
-            new DomFunction((in a) => FindInDescendants(fragment, a.Length > 0 ? a[0].ToString() : string.Empty, false, bridge), "querySelector", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        obj.FastAddValue("querySelectorAll",
-            new DomFunction((in a) => FindInDescendants(fragment, a.Length > 0 ? a[0].ToString() : string.Empty, true, bridge), "querySelectorAll", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        // The descendant search still answers an engine value — a wrapper, a NodeList, or the engine's
+        // null — because DomBridge/Utilities.cs has not migrated; FromEngineResult is the selectors
+        // seam's own handle-over-that pair of arms, so only the search stays engine-typed and the
+        // members themselves are the realm's. The selector is read with the realm's ToString, which is
+        // what the engine frame's `a[0].ToString()` performed: a selector object runs its own toString.
+        Realm.DefineValue(handle, "querySelector",
+            Realm.NewMethod("querySelector",
+                (in call) => FromEngineResult(FindInDescendants(
+                    fragment, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty, false, bridge)), 1));
+        Realm.DefineValue(handle, "querySelectorAll",
+            Realm.NewMethod("querySelectorAll",
+                (in call) => FromEngineResult(FindInDescendants(
+                    fragment, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty, true, bridge)), 1));
 
         // -- Node methods --
         Realm.DefineValue(handle, "cloneNode",

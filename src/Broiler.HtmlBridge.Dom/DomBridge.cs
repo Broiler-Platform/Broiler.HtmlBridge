@@ -6,6 +6,7 @@ using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 using Broiler.CSS.Dom;
 using Broiler.CSS;
@@ -77,10 +78,61 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     // Per-element inline-style runtime state (the last concern de-globalized off the former process-static
     // ElementRuntimeState table, 2026-07-17); reached via InlineStyleStateFor.
     private readonly ConditionalWeakTable<DomNode, InlineStyleRuntimeState> _inlineStyleStates = [];
+    // The three wrapper roots: the JS objects for `document`, `window` and `window.visualViewport`.
+    //
+    // They are still the engine's own objects because fourteen other files in this assembly read
+    // them as such — the two Registration passes and Registration/Window.cs assign them; the eleven
+    // readers are DomBridge.EventDispatchHost / .MessagingHost / .SubWindowHost / .WindowContextHost
+    // / .WindowLoad, DomBridge/CharacterDataInterface, /DomBridge.CanvasHost, /DomBridge.EventTargetHost,
+    // /EventTargetInterface, /LayoutMetrics.Scrolling and /ShadowDom — and a field cannot be half a
+    // type. The JSEAL half of each is the sibling handle below: the same object asked for as a
+    // JsValue, so a migrated caller neither unwraps nor re-wraps, and the two halves cannot drift the
+    // way two separately-assigned fields would. Nine of those readers do nothing but wrap the field
+    // the way the sibling already does, so each becomes a one-line change when its owner migrates;
+    // when the last one goes, the field becomes the handle and the sibling goes with it.
     private JSObject? _documentJSObject;
     private JSObject? _windowJSObject;
     private JSObject? _visualViewportJSObject;
     private JSContext? _jsContext;
+
+    /// <summary>
+    /// The <c>document</c> wrapper as a handle, or <see cref="JsValue.Missing"/> before one exists.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Missing rather than null or undefined</b> because "the bridge has not registered a document
+    /// yet" is not a value any page can observe — every caller either tests it or coalesces it to the
+    /// JavaScript value its own contract promises (<c>INodeAccessorsHost.DocumentWrapper</c> answers
+    /// <c>null</c>, for instance). Choosing one of those here would hide the distinction from the
+    /// other.
+    /// </para>
+    /// <para>
+    /// The handle carries the engine object, so this is a cast rather than a conversion and the
+    /// wrapper identity — <c>document === document</c>, and the weak tables keyed on it — is the same
+    /// question either way.
+    /// </para>
+    /// </remarks>
+    internal JsValue DocumentHandle =>
+        _documentJSObject is { } document ? Dom.Runtime.JsInterop.FromEngineObject(document) : JsValue.Missing;
+
+    /// <inheritdoc cref="DocumentHandle"/>
+    internal JsValue WindowHandle =>
+        _windowJSObject is { } window ? Dom.Runtime.JsInterop.FromEngineObject(window) : JsValue.Missing;
+
+    /// <inheritdoc cref="DocumentHandle"/>
+    internal JsValue VisualViewportHandle =>
+        _visualViewportJSObject is { } viewport ? Dom.Runtime.JsInterop.FromEngineObject(viewport) : JsValue.Missing;
+
+    /// <summary>
+    /// Drops the three wrapper roots. Called from <see cref="Dispose"/>, which owns the teardown
+    /// order; the fields are cleared here because this file declares them.
+    /// </summary>
+    private void ClearWrapperRoots()
+    {
+        _documentJSObject = null;
+        _windowJSObject = null;
+        _visualViewportJSObject = null;
+    }
 
     // P2.4: the timer/interval/requestAnimationFrame/frame-action queues, their id counters and the
     // drain (FlushTimerStep/FlushTimers) now live in BrowserEventLoop, the single owner of the

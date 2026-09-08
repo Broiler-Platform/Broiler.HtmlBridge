@@ -16,6 +16,20 @@ namespace Broiler.HtmlBridge;
 /// <c>element.animate</c> was a no-op stub, so animation-driven property values never rendered
 /// (a scaled/faded/animated element drew at its base value).
 /// </summary>
+/// <remarks>
+/// <b>This file is engine-typed end to end, and one call site outside it decides that.</b>
+/// <c>Animatable.animate()</c> is installed by <c>DomBridge/ElementInterface.cs</c> — not a file this
+/// group owns — with the engine's own <c>AddPrototypeMethod</c>, so <see cref="ElementAnimate"/>
+/// receives an engine argument frame. Such a frame cannot be lifted into a JSEAL <c>JsCall</c>: the
+/// mint side of a handle belongs to the provider, so there is no way to turn one of the engine's own
+/// argument values into a <c>JsValue</c> here. Everything below is downstream of those two arguments —
+/// <see cref="ParseAnimationKeyframes"/>, <see cref="ParseAnimationTiming"/> and
+/// <see cref="ParseAnimationPseudoElement"/> read the keyframes and the options object out of them —
+/// so the whole parsing surface moves in the same commit that moves the installation, and not before.
+/// The object it hands back is <em>not</em> pinned: it is built through the realm by
+/// <c>BuildAnimation</c> (<c>DomBridge/Registration/Animations.cs</c>) and only unwrapped at the
+/// return, which is a cast over the object the handle already carries.
+/// </remarks>
 public sealed partial class DomBridge
 {
     /// <summary>Web-Animations keyframe keys (camelCase) mapped to their CSS property names,
@@ -87,7 +101,11 @@ public sealed partial class DomBridge
             // Web Animations must not break the page: a bad animate() call is inert.
         }
 
-        return BuildAnimationObject(element);
+        // The Animation object is realm-built; the unwrap is the seam this callback's return type
+        // forces, and it is a cast rather than a conversion — the Animation a page gets from
+        // animate() and the one it finds in getAnimations() are the same code and the same object
+        // kind.
+        return Dom.Runtime.JsInterop.ToEngineObject(BuildAnimation(element));
     }
 
     // ------------------------------------------------------------------

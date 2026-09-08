@@ -1,12 +1,6 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
-// Engine-typed for one thing: DocumentCollectionBinding still builds its eight live collections from
-// a script context and hands back the engine's own value type, so the cached local each getter
-// closes over has to be one. See RegisterDocumentCollections.
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-
 namespace Broiler.HtmlBridge;
 
 /// <summary>
@@ -36,16 +30,15 @@ public sealed partial class DomBridge
     /// is single-threaded by construction, so the null check needs no guard.
     /// </para>
     /// <para>
-    /// <b>Pinned by <c>Features/DocumentCollectionBinding.cs</c>.</b> That module builds a collection
-    /// from a script context and returns an engine value, so the cached local, the builder delegate
-    /// and the getter are all engine-typed and the accessor is installed through
-    /// <c>PinnedAccessor</c> (Registration.cs). Nothing else about the shape changes: the accessor is
-    /// named, attributed and made non-constructable exactly as the realm would.
+    /// The cached local is a <see cref="JsValue"/> and the accessor is the realm's: the module's
+    /// collection builders are JSEAL's, and a handle is what "built once and closed over" now holds.
+    /// <see cref="JsValue.Missing"/> is the not-yet-built state rather than a nullable, because a
+    /// built collection is always an object and Missing is a kind no builder can answer with.
     /// </para>
     /// </remarks>
     private void RegisterDocumentCollections(JsValue document)
     {
-        var context = _jsContext;
+        var realm = Realm;
 
         Live("forms", Dom.Features.DocumentCollectionBinding.Forms);
         Live("images", Dom.Features.DocumentCollectionBinding.Images);
@@ -55,19 +48,30 @@ public sealed partial class DomBridge
         Live("styleSheets", Dom.Features.DocumentCollectionBinding.StyleSheets);
 
         // embeds and plugins are one collection under two names, not two collections that agree.
-        JSValue? embeds = null;
-        JSValue Embeds() => embeds ??= Dom.Features.DocumentCollectionBinding.Embeds(this, context);
+        var embeds = JsValue.Missing;
+        JsValue Embeds()
+        {
+            if (embeds.IsMissing)
+                embeds = Dom.Features.DocumentCollectionBinding.Embeds(this);
+            return embeds;
+        }
+
         Getter("embeds", Embeds);
         Getter("plugins", Embeds);
 
-        void Live(string name, Func<Dom.Features.IDocumentCollectionHost, JSContext?, JSValue> build)
+        void Live(string name, Func<Dom.Features.IDocumentCollectionHost, JsValue> build)
         {
-            JSValue? collection = null;
-            Getter(name, () => collection ??= build(this, context));
+            var collection = JsValue.Missing;
+            Getter(name, () =>
+            {
+                if (collection.IsMissing)
+                    collection = build(this);
+                return collection;
+            });
         }
 
-        void Getter(string name, Func<JSValue> read) =>
-            PinnedAccessor(document, name, (in _) => read());
+        void Getter(string name, Func<JsValue> read) =>
+            realm.DefineAccessor(document, name, (in _) => read(), null);
     }
 
     /// <summary>
