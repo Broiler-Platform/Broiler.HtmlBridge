@@ -81,6 +81,15 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
         // one. A page that evaluates one body from a loop compiles it once; a page cannot evict
         // another page's compiled documents, and cannot time whether another page evaluated a
         // string. VmScriptEngine.GuestLoadCache says why that scope rather than the wider one.
+        // NO ForceStrict HERE, AND THAT IS DELIBERATE RATHER THAN AN OVERSIGHT. The engine passes
+        // StrictModeEnabled to the compiler for the DOCUMENT's scripts, and not for this one — so a
+        // strict-mode page gets strict scripts and a sloppy eval, which reads like an inconsistency
+        // until you check the other engine. Broiler.JS does exactly the same: its PrepareSource
+        // prepends the directive to the scripts it runs and leaves the native eval untouched. The
+        // agreement is what matters, and it is also what the specification says, because an
+        // indirect eval evaluates a new script whose strictness comes from its own source. Forcing
+        // it here would make one page behave two ways depending on which engine ran it.
+        // StrictModeReachesDocumentScriptsAndNotEval pins both engines against each other.
         return Compiled(_cache.GetOrCompile(
             [new JsScriptUnit("main", source, SliceParseOptions.Script)], [], _request));
     }
