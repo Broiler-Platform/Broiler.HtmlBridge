@@ -40,11 +40,13 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
 
     private readonly VmModuleMap _modules;
     private readonly JsCompileRequest _request;
+    private readonly VmCompilationCache _cache;
 
-    internal VmSourceProvider(VmModuleMap modules, JsCompileRequest request)
+    internal VmSourceProvider(VmModuleMap modules, JsCompileRequest request, VmCompilationCache cache)
     {
         _modules = modules;
         _request = request;
+        _cache = cache;
     }
 
     /// <summary>The identity this provider is registered under.</summary>
@@ -75,7 +77,12 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
             return VmArtifactProviderAnswer.Refused(VmReason.MalformedEncoding);
         }
 
-        return Compiled(JsCompiler.Compile([new JsScriptUnit("main", source, SliceParseOptions.Script)], [], _request));
+        // THROUGH THE CACHE, which for guest-supplied source is this ENGINE's and not the shared
+        // one. A page that evaluates one body from a loop compiles it once; a page cannot evict
+        // another page's compiled documents, and cannot time whether another page evaluated a
+        // string. VmScriptEngine.GuestLoadCache says why that scope rather than the wider one.
+        return Compiled(_cache.GetOrCompile(
+            [new JsScriptUnit("main", source, SliceParseOptions.Script)], [], _request));
     }
 
     /// <summary>Answers a request for the module one specifier names from one referrer.</summary>
@@ -97,7 +104,7 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
         if (graph is null || graph.Count == 0)
             return VmArtifactProviderAnswer.NotFound(VmReason.ProviderArtifactNotFound);
 
-        return Compiled(JsCompiler.Compile([], graph, _request));
+        return Compiled(_cache.GetOrCompile([], graph, _request));
     }
 
     /// <summary>Turns a compilation into the answer the core's vocabulary has for it.</summary>

@@ -73,6 +73,57 @@ public sealed class VmScriptEngine : IScriptEngine
     internal VmCompilationCache Cache { get; set; } = VmCompilationCache.Shared;
 
     /// <summary>
+    /// The artifacts compiled for this engine's own <c>eval</c>, <c>new Function</c> and
+    /// <c>import()</c>. Separate from <see cref="Cache"/>, and deliberately not shared.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>SEPARATING IT IS A POLICY CHOICE AND NOT A CORRECTNESS FIX, which is worth saying first
+    /// because the reasons below would otherwise read as safety.</b> Sharing it would be sound: the
+    /// provider is a pure function of the payload and its constants, nothing in a
+    /// <c>VmArtifactRequest</c> — requesting runtime, operation, nesting depth, remaining allowance
+    /// — reaches the compiled bytes, and the contract explicitly endorses a host caching a
+    /// provider's answers (ADR 0008: "The compile cost is still paid once: the code cache is the
+    /// host-keyed persisted envelope ... and only verification repeats"). The rule that does
+    /// restrict reuse is about HANDLES, and this caches bytes that are re-verified into a fresh
+    /// handle under the requesting operation's own allowance every time.
+    /// </para>
+    /// <para>
+    /// <b>THE REASON THAT DECIDES IT IS EVICTION.</b> A page chooses how many distinct strings it
+    /// evaluates, the shared cache holds sixty-four entries, and a document's entry is stamped once
+    /// before its scripts run and then ages like any other. So <c>for (var i = 0; i &lt; 64; i++)
+    /// eval('var x' + i)</c> evicts every compiled document in the process — no hostility required,
+    /// one loop-happy page is enough, and it destroys the other cache's whole reason for existing.
+    /// Separated, a page can only evict itself.
+    /// </para>
+    /// <para>
+    /// <b>A timing signal is the second and weaker reason.</b> The realm installs <c>Date</c> with a
+    /// working <c>now</c>, so a page can time its own <c>eval</c> and, from a shared cache, learn
+    /// whether another page had already evaluated a given string. Real rather than theoretical —
+    /// but the clock is milliseconds, there is no <c>performance</c>, no timer, and no
+    /// <c>SharedArrayBuffer</c> to build a better one, and the attacker must guess the other page's
+    /// source byte for byte. It supports the decision; it does not carry it.
+    /// </para>
+    /// <para>
+    /// <b>THE ISOLATION IS PER NAVIGATION CHAIN, NOT PER PAGE.</b> <c>BrowserApp</c> builds one
+    /// engine before its hop loop and reuses it across meta-refresh and script-initiated
+    /// navigations, which can cross origins — so two documents in one redirect chain do share this.
+    /// Clearing it per hop is the fix if the VM engine ever reaches that path; it is stated rather
+    /// than quietly assumed away.
+    /// </para>
+    /// <para>
+    /// What is given up is a repeat across navigations. What is kept is the pattern that repeats:
+    /// one <c>new Function</c> body called from a loop, or a template evaluated once per row.
+    /// </para>
+    /// <para>
+    /// The byte bound matches <see cref="Cache"/>'s rather than being smaller, because
+    /// <c>eval</c> strings are not the large case and module graphs are: an artifact bigger than
+    /// the bound is never cached at all, and one just under it would evict everything else.
+    /// </para>
+    /// </remarks>
+    internal VmCompilationCache GuestLoadCache { get; set; } = new(maximumEntries: 32, maximumBytes: 8 * 1024 * 1024);
+
+    /// <summary>
     /// Creates a VM-backed engine that forwards the document-bearing paths to
     /// <paramref name="documentEngine"/>.
     /// </summary>
@@ -513,7 +564,7 @@ public sealed class VmScriptEngine : IScriptEngine
         {
             capabilities.Add(VmCapabilityRegistration.ArtifactProvider(
                 JavaScriptProfile.SourceProviderCapability,
-                new VmSourceProvider(modules, WideBytecode)));
+                new VmSourceProvider(modules, WideBytecode, GuestLoadCache)));
 
             capabilities.Add(VmCapabilityRegistration.Value(
                 JavaScriptProfile.ResolveCapability,
