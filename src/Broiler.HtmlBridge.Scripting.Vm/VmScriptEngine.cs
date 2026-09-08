@@ -280,7 +280,7 @@ public sealed class VmScriptEngine : IScriptEngine
         // THROUGH THE CACHE, so a document seen twice is compiled once. The bytes it returns are
         // still verified on every use: what is saved is the lowering and not the verification, and
         // Broiler.VM's own contract is what makes that distinction non-negotiable.
-        return Cache.GetOrCompile(units, [], WideBytecode, () => JsCompiler.Compile(units, [], WideBytecode));
+        return Cache.GetOrCompile(units, [], WideBytecode);
     }
 
     /// <summary>What this engine asks the front end for: the wide surface, lowered to bytecode.</summary>

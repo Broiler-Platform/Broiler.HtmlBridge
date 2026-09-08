@@ -32,8 +32,11 @@ namespace Broiler.HtmlBridge;
 /// whenever that assembly's bytes change, which is exactly the event that should invalidate.
 /// </description></item>
 /// <item><description>
-/// <b>The referrer</b>, which is the document's URL. It is not decoration: it is what a relative
-/// specifier in that unit resolves against, so the same text under two documents is two programs.
+/// <b>The referrer</b>, which is the document's URL. It reaches the artifact through exactly one
+/// instruction — the one a dynamic <c>import()</c> emits — so for the overwhelming majority of
+/// scripts it changes nothing, and keying on it is deliberately pessimistic: an extra miss is the
+/// safe direction, and a script that does contain an <c>import()</c> genuinely is a different
+/// program under a different base.
 /// </description></item>
 /// </list>
 /// <para>
@@ -46,17 +49,19 @@ internal sealed class VmCompilationCache
 {
     /// <summary>The cache the engine uses, shared across the engines a process creates.</summary>
     /// <remarks>
-    /// <b>WHAT ACTUALLY HITS IS THE SAME DOCUMENT AGAIN, AND NOTHING WIDER.</b> The key is a digest
-    /// over the whole ordered unit list including each unit's referrer, so a library shared by two
-    /// pages is not separately keyed — it is one unit inside a whole-document digest — and two
-    /// documents have two referrers and never collide. A hit is a reload, a back or forward, or any
-    /// return to a URL already visited in this process with the same scripts.
+    /// <b>WHAT HITS IS AN IDENTICAL UNIT LIST, WHICH IS NARROWER THAN "EVERY LIBRARY ONCE" AND
+    /// WIDER THAN "ONE DOCUMENT".</b> The key is a digest over the whole ordered unit list, so a
+    /// library shared by two pages is not separately keyed — it is one unit inside a whole-document
+    /// digest. Through <c>Execute(scripts)</c> no document URL is supplied, so two pages with
+    /// byte-identical script lists DO share, correctly: they compile to the same program. Through
+    /// the module-capable overload the URL joins the identity and separates them.
     /// <para>
-    /// That is narrower than "compile every library once", and it is the shape the engine's own
-    /// design forces: a document's scripts are compiled into ONE artifact so they share one realm,
-    /// and splitting them per script to widen this cache would change what the page runs. Shared
-    /// across engines rather than held per engine because <c>BrowserApp</c> builds a new engine per
-    /// navigation — a per-engine cache would never hit at all.
+    /// Whole-document granularity is what the engine's design forces rather than a limitation of
+    /// the key: a document's scripts are compiled into ONE artifact so they share one realm, and
+    /// each unit's code is emitted against the accumulated code of the ones before it — so bytes
+    /// keyed per script would be bytes compiled in a different neighbourhood. Shared across engines
+    /// rather than held per engine because a new engine is built per navigation; a per-engine cache
+    /// would never hit at all.
     /// </para>
     /// </remarks>
     internal static VmCompilationCache Shared { get; } = new(MaximumEntries, MaximumBytes);
@@ -126,8 +131,7 @@ internal sealed class VmCompilationCache
     internal JsCompilation GetOrCompile(
         IReadOnlyList<JsScriptUnit> units,
         IReadOnlyList<JsModuleUnit> modules,
-        JsCompileRequest request,
-        Func<JsCompilation> compile)
+        JsCompileRequest request)
     {
         var key = Key(units, modules, request);
 
@@ -144,7 +148,7 @@ internal sealed class VmCompilationCache
         // OUTSIDE THE LOCK. Compiling a megabyte of script while holding it would serialise every
         // other page in the process behind this one, and the worst a concurrent duplicate costs is
         // one wasted compilation that the second writer discards.
-        var compiled = compile();
+        var compiled = JsCompiler.Compile(units, modules, request);
 
         if (!compiled.Succeeded || compiled.Artifact is null)
         {
@@ -275,13 +279,25 @@ internal sealed class VmCompilationCache
         Add(digest, options.MaximumNestingDepth.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
+    /// <summary>Appends one length-prefixed field to the digest.</summary>
+    /// <remarks>
+    /// <b>THE UTF-16 CODE UNITS, NOT UTF-8, AND THAT IS A CORRECTNESS FIX RATHER THAN A
+    /// PREFERENCE.</b> <c>Encoding.UTF8.GetBytes</c> uses replacement fallback, so every lone
+    /// surrogate encodes to the same replacement bytes: <c>\uD800</c> and <c>\uD801</c> are
+    /// indistinguishable once encoded. That is reachable rather than theoretical — the profile's
+    /// tokenizer accepts a lone surrogate as a legal JavaScript string element, and says so — so
+    /// two scripts differing only there would have hashed to one key and the cache would have
+    /// served one page's program to another. Hashing the code units is a faithful injection: no
+    /// fallback, nothing collapsed, and the byte order is the platform's for both writer and
+    /// reader because the digest never leaves this process.
+    /// </remarks>
     private static void Add(IncrementalHash digest, string? value)
     {
-        var bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
+        var text = (value ?? string.Empty).AsSpan();
         Span<byte> length = stackalloc byte[4];
-        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(length, bytes.Length);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(length, text.Length);
         digest.AppendData(length);
-        digest.AppendData(bytes);
+        digest.AppendData(System.Runtime.InteropServices.MemoryMarshal.AsBytes(text));
     }
 
     private sealed class Entry(byte[] artifact, long lastUsed)
