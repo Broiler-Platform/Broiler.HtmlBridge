@@ -797,6 +797,29 @@ public class VmScriptEngineTests
                 Assert.Equal(1, third.Compilations);
             }
 
+            /// <summary>Clearing removes what was written, so enabling the store is reversible.</summary>
+            /// <remarks>
+            /// The gate on turning this on is whether a user can undo it, so the undo is tested.
+            /// </remarks>
+            [Fact]
+            public void ClearingRemovesEverythingWritten()
+            {
+                var store = new VmArtifactStore(_directory, 1 << 20);
+                var cache = new VmCompilationCache(8, 1 << 20) { Store = store };
+
+                Engine(cache).Execute(["var cleared = 1;"]);
+                Assert.NotEmpty(Directory.GetFiles(_directory, "*.bin"));
+
+                store.Clear();
+
+                Assert.False(Directory.Exists(_directory));
+
+                // And a cold cache over the cleared directory compiles again rather than erroring.
+                var second = Cache();
+                Assert.True(Engine(second).Execute(["var cleared = 1;"]));
+                Assert.Equal(1, second.Compilations);
+            }
+
             /// <summary>An unwritable directory degrades to no cache at all, not to an error.</summary>
             [Fact]
             public void AnUnusableDirectoryIsNotAFailure()
