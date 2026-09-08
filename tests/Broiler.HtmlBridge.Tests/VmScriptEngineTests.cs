@@ -132,6 +132,38 @@ public class VmScriptEngineTests
     /// the guest-initiated-load path is wired end to end: the guest asked, the core mediated, this
     /// composition compiled, the core verified the result and ran it.
     /// </summary>
+
+    /// <summary>
+    /// A DIRECT <c>eval</c> inside a function is refused, and the refusal comes from the profile
+    /// rather than from this engine's provider.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the sharpest limit on what "eval works" means here, so it is pinned rather than
+    /// left to be discovered.</b> The profile resolves every name at lowering, so evaluated source
+    /// cannot see the calling frame's bindings, and it says so in the error it throws. An indirect
+    /// eval evaluates in global scope, where there is no calling frame to see, and is admitted —
+    /// see the test below. Registering the source provider does not change this and could not:
+    /// the refusal happens before anything is asked of the host.
+    /// </remarks>
+    [Fact]
+    public void ADirectEvalInsideAFunctionIsRefusedByTheProfile()
+    {
+        var result = Engine().ExecuteDetailed(["function f() { return eval('1 + 1'); } f();"], null);
+
+        Assert.False(result.Success);
+        Assert.Contains("direct eval inside a function", Assert.Single(result.Errors).Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>An indirect eval inside a function evaluates in global scope and is admitted.</summary>
+    [Fact]
+    public void AnIndirectEvalInsideAFunctionIsAnswered()
+    {
+        Assert.Contains(
+            "indirect=2",
+            Printed(engine => engine.ExecuteDetailed(
+                ["function f() { return (0, eval)('1 + 1'); } print('indirect=' + f());"], null)));
+    }
+
     [Fact]
     public void EvalIsAnswered()
     {
