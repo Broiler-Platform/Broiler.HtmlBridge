@@ -1,6 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -9,9 +8,14 @@ namespace Broiler.HtmlBridge;
 // here as named primitives — the existing-root lookup, the mode read, and a single AttachShadowRoot that
 // creates the #shadow-root element, parents it and records the mode in one step. Explicit interface
 // members, so these seams do not widen the public DomBridge surface.
+//
+// The contract is spelled in JSEAL now, and the script context it used to carry is gone: it was there
+// only so the module could raise the second-attachment NotSupportedError, which IJsCalls.DomError owns.
+// The realm member must be explicit — DomBridge.Realm is internal, so an implicit implementation of a
+// public interface member cannot see it (CS0737).
 public sealed partial class DomBridge : Dom.Features.IShadowDomHost
 {
-    JSContext? Dom.Features.IShadowDomHost.JsContext => _jsContext;
+    IJsRealm Dom.Features.IShadowDomHost.Realm => Realm;
 
     DomElement? Dom.Features.IShadowDomHost.GetShadowRoot(DomElement element) => GetShadowRoot(element);
 
@@ -41,5 +45,7 @@ public sealed partial class DomBridge : Dom.Features.IShadowDomHost
         return shadowRoot;
     }
 
-    JSObject Dom.Features.IShadowDomHost.ToJSObject(DomNode node) => ToJSObject(node);
+    // The bridge's own JSEAL-vocabulary wrapper factory: a handle over the object its wrapper cache
+    // already holds, which is a cast rather than a conversion, so wrapper identity is unchanged.
+    JsValue Dom.Features.IShadowDomHost.WrapNode(DomNode node) => WrapNode(node);
 }

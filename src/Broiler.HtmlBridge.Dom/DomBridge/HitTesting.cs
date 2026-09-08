@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.Runtime;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.Dom;
 using Broiler.Dom.Html;
@@ -20,11 +19,6 @@ public sealed partial class DomBridge
 
     private DocumentRuntimeState DocumentStateFor(DomNode node) =>
         _documentRuntimeStates.GetValue(node, static _ => new DocumentRuntimeState());
-
-    internal static double GetCoordinateArgument(in Arguments args, int index) =>
-        args.Length > index && !args[index].IsNull && !args[index].IsUndefined
-            ? args[index].DoubleValue
-            : double.NaN;
 
     private IReadOnlyList<DomElement> HitTestDocumentPoint(DomNode docRoot, double x, double y)
     {

@@ -133,17 +133,15 @@ public sealed partial class DomBridge
     {
         var realm = Realm;
 
-        // The window-context switch is unmigrated and takes the engine object; unwrapping it once
-        // here, outside the callback, keeps the per-call work to the invoke itself.
-        var engineWindow = Dom.Runtime.JsInterop.ToEngineObject(subWindow);
-
         return realm.NewMethod(name, (in call) =>
         {
             // JsCall is a ref struct and cannot be captured, so the values are copied out first.
-            var forwarded = call.Arguments.ToArray();
+            var forwarded = new JsValue[call.Length];
+            for (var i = 0; i < forwarded.Length; i++)
+                forwarded[i] = call[i];
 
             var result = JsValue.Undefined;
-            RunWithWindowContext(engineWindow, () =>
+            RunWithWindowContext(subWindow, () =>
             {
                 result = realm.Invoke(declared, subWindow, forwarded);
             });

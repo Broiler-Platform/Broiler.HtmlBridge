@@ -35,13 +35,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// use its own position) gives <c>null</c> there and is wrong.
 /// </para>
 /// <para>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). Two members are engine-typed
-/// adapters and both are pinned from outside: <see cref="Install(IFormAssociationHost, JSObject,
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). One member is an engine-typed
+/// adapter and it is pinned from outside: <see cref="Install(IFormAssociationHost, JSObject,
 /// DomElement, string)"/>, whose caller <c>DomBridge/ElementInterfaces.cs</c> holds the wrapper as an
-/// engine object, and <see cref="LabelsNodeList"/>, whose caller
-/// <c>DomBridge.ElementInternalsHost.cs</c> implements an <c>IElementInternalsHost</c> that still
-/// declares an engine return type. Each forwards through <see cref="Runtime.JsInterop"/> — a cast,
-/// not a conversion — and each disappears when its caller migrates.
+/// engine object. It forwards through <see cref="Runtime.JsInterop"/> — a cast, not a conversion —
+/// and disappears when that caller migrates. The second adapter, <c>LabelsNodeList</c>, is gone with
+/// the migration of <see cref="IElementInternalsHost"/>: that contract's <c>LabelsFor</c> now takes
+/// a <see cref="JsValue"/> back, so it reads <see cref="LabelsList"/> directly.
 /// </para>
 /// </remarks>
 internal static class FormAssociationBinding
@@ -117,14 +117,6 @@ internal static class FormAssociationBinding
     /// </summary>
     internal static DomElement? FormOwnerOf(IFormAssociationHost host, DomElement element) =>
         FormOwner(host, element);
-
-    /// <summary>
-    /// Engine-typed adapter for <c>DomBridge.ElementInternalsHost.cs</c>: <c>IElementInternalsHost</c>
-    /// is not migrated and its <c>LabelsFor</c> takes an engine value back. See the remarks on this
-    /// class.
-    /// </summary>
-    internal static JSValue LabelsNodeList(IFormAssociationHost host, DomElement element) =>
-        Runtime.JsInterop.ToEngineObject(LabelsList(host, element));
 
     /// <summary>
     /// A control's live <c>labels</c> <c>NodeList</c>, without the hidden-input <c>null</c> case —

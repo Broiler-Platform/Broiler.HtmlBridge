@@ -18,7 +18,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The two facts this is built on were measured first.</b> <c>JSContextIsolationTests</c> showed
+/// <b>The two facts this is built on were measured first</b>, by the engine's own concurrency suite
+/// (Broiler.JS, <c>docs/roadmap/Concurrency.status.md</c>). Its context-isolation cases showed
 /// four contexts on four threads stay isolated under real overlap, and <c>--js-context-scaling</c>
 /// showed they run genuinely in parallel (2.66×/3.22× at four threads) rather than serializing on a
 /// global lock — the outcome that would have made a worker pointless.
@@ -148,12 +149,12 @@ internal sealed class WorkerBinding : IDisposable
     /// <remarks>
     /// <para>
     /// <b><c>terminate</c> and <c>addEventListener</c> are installed as constructors, and that is
-    /// preservation rather than intent.</b> They were built with <c>JSFunction</c> rather than
-    /// <c>DomFunction</c>, so each carries a <c>prototype</c> and <c>new w.terminate()</c> answers an
-    /// object where WebIDL says it should be a <c>TypeError</c>. That is the same deviation
-    /// <c>DomFunction</c> exists to fix, it is observable, and fixing it is not this change's
-    /// business — so <see cref="IJsValues.NewConstructor"/> reproduces it exactly and the fix is
-    /// reported instead.
+    /// preservation rather than intent.</b> They were built with the engine's constructable function
+    /// type rather than the bridge's non-constructable one, so each carries a <c>prototype</c> and
+    /// <c>new w.terminate()</c> answers an object where WebIDL says it should be a <c>TypeError</c>.
+    /// That is the same deviation <see cref="IJsValues.NewMethod"/> exists to fix, it is observable,
+    /// and fixing it is not this change's business — so <see cref="IJsValues.NewConstructor"/>
+    /// reproduces it exactly and the fix is reported instead.
     /// </para>
     /// <para>
     /// <c>postMessage</c> keeps its engine argument frame: it reads the payload the structured clone

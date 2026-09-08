@@ -1,4 +1,5 @@
 using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -15,6 +16,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>JsJsObjectsInsertBefore080Core</c>, <c>AppendChild088Core</c>, <c>Append089Core</c>,
 /// <c>Prepend090Core</c>, <c>RemoveChild091Core</c> and <c>ReplaceChild092Core</c> callbacks.
 /// </summary>
+/// <remarks>
+/// <b>The module's two halves are split by where their members are installed, not by what they do.</b>
+/// The three <c>ParentNode</c> members are on <c>Element.prototype</c>, installed by
+/// <c>DomBridge/ElementInterface.cs</c>, which is migrated — so they speak <see cref="JsCall"/> and
+/// <see cref="JsValue"/> and name no engine type. The five <c>Node</c> members stay each wrapper's own
+/// property, installed by <c>DomBridge/JsObjects.cs</c>, which is not: they are handed the engine's
+/// argument frame and the engine takes a value back, so their bodies are still written in it. That
+/// file is what pins the engine vocabulary below, and the halves join when it migrates.
+/// </remarks>
 internal static class TreeMutationBinding
 {
     /// <summary>
@@ -135,26 +145,26 @@ internal static class TreeMutationBinding
         return a[0];
     }
 
-    public static JSValue Append(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue Append(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        var nodes = host.BuildChildNodeArgumentNodes(a);
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        var nodes = host.BuildChildNodeArgumentNodes(call.Arguments);
         var insertIndex = element.ChildNodes.Count;
         foreach (var node in nodes)
             host.InsertNodeAt(element, node, insertIndex++);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    public static JSValue Prepend(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue Prepend(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        var nodes = host.BuildChildNodeArgumentNodes(a);
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        var nodes = host.BuildChildNodeArgumentNodes(call.Arguments);
         var insertIndex = 0;
         foreach (var node in nodes)
             host.InsertNodeAt(element, node, insertIndex++);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -175,9 +185,9 @@ internal static class TreeMutationBinding
     /// set of mutation records.
     /// </para>
     /// </remarks>
-    public static JSValue ReplaceChildren(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue ReplaceChildren(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        var nodes = a.Length == 0 ? [] : host.BuildChildNodeArgumentNodes(a);
+        var nodes = call.Length == 0 ? [] : host.BuildChildNodeArgumentNodes(call.Arguments);
 
         for (var index = element.ChildNodes.Count - 1; index >= 0; index--)
         {
@@ -194,7 +204,7 @@ internal static class TreeMutationBinding
         foreach (var node in nodes)
             host.InsertNodeAt(element, node, insertIndex++);
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     public static JSValue RemoveChild(ITreeMutationHost host, DomElement element, in Arguments a)

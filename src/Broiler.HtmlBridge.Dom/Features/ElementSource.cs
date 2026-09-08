@@ -1,4 +1,5 @@
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -20,11 +21,20 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// receiver is not an element — <c>Element.prototype.getAttribute.call({}, 'x')</c> is a
 /// <c>TypeError</c> naming the member, as it is in a browser. A capturing source ignores it.
 /// </para>
+/// <para>
+/// <b>This is the one source now; the engine-shaped <see cref="ElementSource"/> below is what is left
+/// of the pair.</b> The two used to be twins declared in two files — this one under the name
+/// <c>JsElementSource</c> beside the element-interface installer in <c>DomBridge/ElementInterface.cs</c>
+/// — because a member installed by <c>FastAddProperty</c> saw the engine's argument frame while one
+/// minted through <see cref="IJsRealm"/> sees a <see cref="JsCall"/>, and the installer had to hand
+/// each module the frame its own signature named. With the element-interface hubs migrated, the JSEAL
+/// frame is the one the installer speaks and the twins are one declaration again.
+/// </para>
 /// </remarks>
-internal delegate DomElement ElementSource(in Arguments a, string member);
+internal delegate DomElement JsElementSource(in JsCall call, string member);
 
 /// <summary>
-/// The JS wrapper a DOM member is operating on — the counterpart of <see cref="ElementSource"/> for
+/// The JS wrapper a DOM member is operating on — the counterpart of <see cref="JsElementSource"/> for
 /// the handful of members that need the object rather than the node.
 /// </summary>
 /// <remarks>
@@ -32,4 +42,19 @@ internal delegate DomElement ElementSource(in Arguments a, string member);
 /// an attribute node can name the element it came from. A capturing source answers the wrapper the
 /// member was installed on; a receiver-resolving one answers the receiver itself.
 /// </remarks>
-internal delegate JSObject WrapperSource(in Arguments a, string member);
+internal delegate JsValue WrapperSource(in JsCall call, string member);
+
+/// <summary>
+/// <see cref="JsElementSource"/> read through the engine's own argument frame, for the two feature
+/// modules that still install their members with <c>FastAddValue</c>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// It answers the same question by the same rule — the element-interface installer builds one of
+/// these out of the JSEAL source rather than resolving the receiver a second time, so the two cannot
+/// drift. It exists only because <see cref="DialogBinding.InstallElementMembers"/> and
+/// <see cref="FormControlBinding.InstallHtmlElementMembers"/> declare their installers against it;
+/// those two are what pin the engine vocabulary here, and this declaration goes with them.
+/// </para>
+/// </remarks>
+internal delegate DomElement ElementSource(in Arguments a, string member);

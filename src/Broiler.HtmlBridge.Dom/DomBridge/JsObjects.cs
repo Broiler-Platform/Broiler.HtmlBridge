@@ -1,5 +1,4 @@
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.JavaScript.Storage;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
@@ -20,14 +19,15 @@ namespace Broiler.HtmlBridge;
 /// </para>
 /// <para>
 /// <b>What is still engine-typed here is pinned from outside, not left behind.</b> A wrapper's
-/// members are installed by a dozen modules — the attribute surface, <c>CharacterDataBinding</c>, the
-/// tree mutations, <c>EventTargetBinding</c>, the form controls, <c>ElementContentBinding</c>, the
-/// element and HTMLElement interface installers, the iframe accessors — and each still takes an
-/// engine argument frame. A member cannot be minted by the realm while the body it would call takes
-/// an <c>Arguments</c>: there is no adapter between the two call frames, only between the two object
+/// members are installed by a dozen modules — the attribute surface, the tree mutations,
+/// <c>EventTargetBinding</c>, the form controls, <c>ElementContentBinding</c>, the element and
+/// HTMLElement interface installers, the iframe accessors — and each still takes an engine argument
+/// frame. A member cannot be minted by the realm while the body it would call takes an
+/// <c>Arguments</c>: there is no adapter between the two call frames, only between the two object
 /// types. So each install site here migrates when its callee does, and the ones whose callees already
-/// have — <c>FormSubmitBinding</c>, <c>CanvasBinding</c>, and the handful whose bodies read nothing
-/// but the DOM — are through the realm already.
+/// have — <c>CharacterDataBinding</c>, <c>NodeAccessorsBinding</c>,
+/// <c>NodeRelationshipsBinding</c>, <c>FormSubmitBinding</c>, <c>CanvasBinding</c>, and the handful
+/// whose bodies read nothing but the DOM — are through the realm already.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -58,10 +58,10 @@ public sealed partial class DomBridge
     /// </para>
     /// <para>
     /// <b>Why this delegates to <see cref="ToJSObject"/> rather than the other way round.</b> Building
-    /// a wrapper is not one file's work: the members go on it from twelve modules — the attribute
-    /// surface, the character-data operations, the tree mutations, the event target, the form
-    /// controls, the element and HTMLElement interface installers — and each of those still takes an
-    /// engine argument frame and installs an engine function. A wrapper minted by
+    /// a wrapper is not one file's work: the members go on it from a dozen modules — the attribute
+    /// surface, the tree mutations, the event target, the form controls, the element and HTMLElement
+    /// interface installers — and the ones that have not migrated still take an engine argument frame
+    /// and install an engine function. A wrapper minted by
     /// <see cref="IJsRealm.NewObject"/> would be handed straight back to them, so the realm would name
     /// the object and the engine would still furnish it. The direction inverts, and this method
     /// becomes the implementation, when those modules land; until then the honest shape is a handle
@@ -175,47 +175,49 @@ public sealed partial class DomBridge
         if (!_nodeInterfacePrototypesReady)
             PopulateElementNodeMembersOnInstance(handle, element);
 
+        // The CharacterData surface below is minted by the realm: its module is migrated, so each body
+        // has a JsCall frame of its own to read its offset and data arguments from.
+
         // data (read/write) — for text nodes and comment nodes (alias for nodeValue/textContent)
-        obj.FastAddProperty("data",
-            new DomFunction((in a) => Dom.Features.CharacterDataBinding.GetData(element, in a), "get data"),
-            new DomFunction((in a) => Dom.Features.CharacterDataBinding.SetData(this, element, in a), "set data"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "data",
+            (in call) => Dom.Features.CharacterDataBinding.GetData(element, in call),
+            (in call) => Dom.Features.CharacterDataBinding.SetData(this, element, in call));
 
         // length (read-only) — character count for text/comment nodes, child count for elements
-        obj.FastAddProperty("length",
-            new DomFunction((in a) => Dom.Features.CharacterDataBinding.GetLength(element, in a), "get length"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "length",
+            (in call) => Dom.Features.CharacterDataBinding.GetLength(element, in call),
+            null);
 
         // splitText(offset) — splits a text node at the given character offset
         if (IsText(element))
         {
-            obj.FastAddValue("splitText",
-                new DomFunction((in a) => Dom.Features.CharacterDataBinding.SplitText(this, element, in a), "splitText", 1),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "splitText",
+                Realm.NewMethod("splitText",
+                    (in call) => Dom.Features.CharacterDataBinding.SplitText(this, element, in call), 1));
         }
 
         // substringData(offset, count) — for text/comment CharacterData nodes
         if (IsText(element) || IsComment(element))
         {
-            obj.FastAddValue("substringData",
-                new DomFunction((in a) => Dom.Features.CharacterDataBinding.SubstringData(this, element, in a), "substringData", 2),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "substringData",
+                Realm.NewMethod("substringData",
+                    (in call) => Dom.Features.CharacterDataBinding.SubstringData(this, element, in call), 2));
 
-            obj.FastAddValue("appendData",
-                new DomFunction((in a) => Dom.Features.CharacterDataBinding.AppendData(this, element, in a), "appendData", 1),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "appendData",
+                Realm.NewMethod("appendData",
+                    (in call) => Dom.Features.CharacterDataBinding.AppendData(this, element, in call), 1));
 
-            obj.FastAddValue("deleteData",
-                new DomFunction((in a) => Dom.Features.CharacterDataBinding.DeleteData(this, element, in a), "deleteData", 2),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "deleteData",
+                Realm.NewMethod("deleteData",
+                    (in call) => Dom.Features.CharacterDataBinding.DeleteData(this, element, in call), 2));
 
-            obj.FastAddValue("insertData",
-                new DomFunction((in a) => Dom.Features.CharacterDataBinding.InsertData(this, element, in a), "insertData", 2),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "insertData",
+                Realm.NewMethod("insertData",
+                    (in call) => Dom.Features.CharacterDataBinding.InsertData(this, element, in call), 2));
 
-            obj.FastAddValue("replaceData",
-                new DomFunction((in a) => Dom.Features.CharacterDataBinding.ReplaceData(this, element, in a), "replaceData", 3),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "replaceData",
+                Realm.NewMethod("replaceData",
+                    (in call) => Dom.Features.CharacterDataBinding.ReplaceData(this, element, in call), 3));
         }
 
         // removeAttributeNodeNS(attr) — the one attribute member that stays the wrapper's own. DOM
@@ -333,7 +335,7 @@ public sealed partial class DomBridge
         // Node interface constants (DOM §4.4: these exist on all Node objects) — the type values and
         // the DOCUMENT_POSITION_* bits compareDocumentPosition returns. On Node.prototype, which this
         // wrapper inherits; a wrapper minted before the realm carried it installs its own.
-        InstallNodeConstantsIfNotInherited(obj);
+        InstallNodeConstantsIfNotInherited(handle);
 
         return obj;
     }
@@ -344,121 +346,111 @@ public sealed partial class DomBridge
     /// had before they moved to <c>Node.prototype</c>, kept for the one case that cannot use them: a
     /// wrapper minted before the realm carried the interfaces, which inherits from nothing.
     /// </summary>
+    /// <remarks>
+    /// Every member here is the realm's now: <c>NodeAccessorsBinding</c> and
+    /// <c>NodeRelationshipsBinding</c> are both migrated, so no body in this method needs an engine
+    /// argument frame and the wrapper is only ever named as a handle. The members and their order are
+    /// unchanged, which is what <c>Object.getOwnPropertyNames</c> can see.
+    /// </remarks>
     private void PopulateElementNodeMembersOnInstance(JsValue handle, DomElement element)
     {
-        var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
-
         // parentNode (read-only, dynamic) — a tree read and a wrapper, so the realm mints it.
         Realm.DefineAccessor(handle, "parentNode",
             (in _) => element.ParentNode != null ? WrapNode(element.ParentNode) : JsValue.Null,
             null);
 
-        obj.FastAddProperty("isConnected",
-            new DomFunction((in _) => Dom.Features.NodeAccessorsBinding.GetIsConnected(this, element, in _), "get isConnected"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "isConnected",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(this, element, in call), null);
 
         // childNodes (read-only, dynamic)
-        obj.FastAddProperty("childNodes",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetChildNodes(this, element, in a), "get childNodes"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "childNodes",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetChildNodes(this, element, in call), null);
 
         // firstChild (read-only, dynamic)
-        obj.FastAddProperty("firstChild",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetFirstChild(this, element, in a), "get firstChild"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "firstChild",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetFirstChild(this, element, in call), null);
 
         // lastChild (read-only, dynamic)
-        obj.FastAddProperty("lastChild",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetLastChild(this, element, in a), "get lastChild"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "lastChild",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetLastChild(this, element, in call), null);
 
         // nextSibling (read-only, dynamic)
-        obj.FastAddProperty("nextSibling",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetNextSibling(this, element, in a), "get nextSibling"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "nextSibling",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetNextSibling(this, element, in call), null);
 
         // previousSibling (read-only, dynamic)
-        obj.FastAddProperty("previousSibling",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetPreviousSibling(this, element, in a), "get previousSibling"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "previousSibling",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetPreviousSibling(this, element, in call), null);
 
         // nodeType (read-only)
-        obj.FastAddProperty("nodeType",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetNodeType(element, in a), "get nodeType"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "nodeType",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetNodeType(element, in call), null);
 
         // nodeName (read-only)
-        obj.FastAddProperty("nodeName",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetNodeName(element, in a), "get nodeName"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "nodeName",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetNodeName(element, in call), null);
 
         // localName (read-only) — null for non-element nodes; local part of tag name for elements
-        obj.FastAddProperty("localName",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetLocalName(element, in a), "get localName"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "localName",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetLocalName(element, in call), null);
 
         // prefix (read-only) — namespace prefix or null
-        obj.FastAddProperty("prefix",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetPrefix(element, in a), "get prefix"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "prefix",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetPrefix(element, in call), null);
 
         // namespaceURI (read-only) — returns namespace URI for elements created via createElementNS
-        obj.FastAddProperty("namespaceURI",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetNamespaceURI(element, in a), "get namespaceURI"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "namespaceURI",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetNamespaceURI(element, in call), null);
 
         // nodeValue (read/write) — null for elements, text content for text/comment nodes
-        obj.FastAddProperty("nodeValue",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetNodeValue(element, in a), "get nodeValue"),
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, element, in a), "set nodeValue"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "nodeValue",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetNodeValue(element, in call),
+            (in call) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, element, in call));
 
         // ownerDocument (read-only) — returns the Document node (nodeType=9)
-        obj.FastAddProperty("ownerDocument",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetOwnerDocument(this, element, in a), "get ownerDocument"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "ownerDocument",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetOwnerDocument(this, element, in call), null);
 
         // parentElement (read-only, dynamic) — like parentNode but returns null for non-element parents
-        obj.FastAddProperty("parentElement",
-            new DomFunction((in a) => Dom.Features.NodeAccessorsBinding.GetParentElement(this, element, in a), "get parentElement"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        Realm.DefineAccessor(handle, "parentElement",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetParentElement(this, element, in call), null);
 
         // hasChildNodes()
         Realm.DefineValue(handle, "hasChildNodes",
             Realm.NewMethod("hasChildNodes", (in _) => JsValue.Boolean(element.ChildNodes.Count > 0)));
 
         // contains(otherNode) — returns true if otherNode is a descendant
-        obj.FastAddValue("contains",
-            new DomFunction((in a) => Dom.Features.NodeRelationshipsBinding.Contains(this, element, in a), "contains", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "contains",
+            Realm.NewMethod("contains",
+                (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, element, in call), 1));
 
         // compareDocumentPosition(otherNode)
-        obj.FastAddValue("compareDocumentPosition",
-            new DomFunction((in a) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, element, in a), "compareDocumentPosition", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "compareDocumentPosition",
+            Realm.NewMethod("compareDocumentPosition",
+                (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, element, in call), 1));
 
         // isSameNode(otherNode)
-        obj.FastAddValue("isSameNode",
-            new DomFunction((in a) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, element, in a), "isSameNode", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "isSameNode",
+            Realm.NewMethod("isSameNode",
+                (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, element, in call), 1));
 
         // normalize()
-        obj.FastAddValue("normalize",
-            new DomFunction((in _) => Dom.Features.NodeRelationshipsBinding.Normalize(this, element, in _), "normalize", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "normalize",
+            Realm.NewMethod("normalize",
+                (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, element, in call), 0));
 
         // isEqualNode(otherNode)
-        obj.FastAddValue("isEqualNode",
-            new DomFunction((in a) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, element, in a), "isEqualNode", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "isEqualNode",
+            Realm.NewMethod("isEqualNode",
+                (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, element, in call), 1));
 
-        obj.FastAddValue("getRootNode",
-            new DomFunction((in a) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, element, in a), "getRootNode", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "getRootNode",
+            Realm.NewMethod("getRootNode",
+                (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, element, in call), 1));
 
         // cloneNode(deep)
-        obj.FastAddValue("cloneNode",
-            new DomFunction((in a) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, element, in a), "cloneNode", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "cloneNode",
+            Realm.NewMethod("cloneNode",
+                (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, element, in call), 1));
     }
 }

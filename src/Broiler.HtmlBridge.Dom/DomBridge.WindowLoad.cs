@@ -1,12 +1,8 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Boolean;
 using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.JavaScript.BuiltIns.Boolean;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Engine;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 
@@ -41,15 +37,12 @@ public sealed partial class DomBridge
 
         _documentReadyState = state;
 
-        if (_jsContext == null || _document == null)
+        if (_realm is null || _document == null)
             return;
 
         try
         {
-            var evt = new JSObject();
-            evt.FastAddValue("type", new JSString("readystatechange"), JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-            DispatchEventOnElement(_document, evt);
+            DispatchEventOnElement(_document, SimpleEvent("readystatechange", bubbles: false));
         }
         catch (Exception ex)
         {
@@ -83,7 +76,7 @@ public sealed partial class DomBridge
     /// </remarks>
     private void FireInlineSvgRootLoads(DomElement element)
     {
-        if (_jsContext == null)
+        if (_realm is null)
             return;
 
         if (string.Equals(element.TagName, "svg", StringComparison.OrdinalIgnoreCase))
@@ -116,10 +109,7 @@ public sealed partial class DomBridge
 
         try
         {
-            var evt = new JSObject();
-            evt.FastAddValue("type", new JSString("load"), JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-            DispatchEventOnElement(element, evt);
+            DispatchEventOnElement(element, SimpleEvent("load", bubbles: false));
         }
         catch (Exception ex)
         {
@@ -140,7 +130,7 @@ public sealed partial class DomBridge
     public void FireWindowLoadEvent()
     {
         ThrowIfDisposed();
-        if (_jsContext == null) return;
+        if (_realm is not { } realm) return;
 
         // Building the frames array is what mints each nested browsing context's window — and so
         // what runs that frame's scripts — so it is done eagerly here, before load fires, rather
@@ -180,7 +170,7 @@ public sealed partial class DomBridge
         //    from the <body onload="…"> inline attribute handler.
         try
         {
-            _jsContext.Eval(@"
+            realm.EvaluateHostScript(@"
 (function() {
   // A page may register the load handler either as `window.onload = fn`
   // or as a bare `onload = fn` assignment. In a browser `window` IS the
@@ -194,7 +184,7 @@ public sealed partial class DomBridge
   if (h) {
     try { h(); } catch(e) {}
   }
-})();");
+})();", "broiler:window-onload");
         }
         catch (Exception ex)
         {
@@ -238,8 +228,11 @@ public sealed partial class DomBridge
         // and addEventListener registrations using the same event path.
         try
         {
-            if (_jsContext.Eval("(function() { var e = document.createEvent('Event'); e.initEvent('load', false, false); return e; })()") is JSObject evt)
-                DispatchEventOnElement(body, evt);
+            var evt = realm.EvaluateHostScript(
+                "(function() { var e = document.createEvent('Event'); e.initEvent('load', false, false); return e; })()",
+                "broiler:body-load-event");
+            if (evt.IsObject)
+                DispatchEventOnElement(body, Dom.Runtime.JsInterop.ToEngineObject(evt));
         }
         catch (Exception ex)
         {
@@ -268,10 +261,7 @@ public sealed partial class DomBridge
     {
         try
         {
-            var evt = new JSObject();
-            evt.FastAddValue("type", new JSString("DOMContentLoaded"), JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("bubbles", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-            DispatchEventOnElement(_document, evt);
+            DispatchEventOnElement(_document, SimpleEvent("DOMContentLoaded", bubbles: true));
         }
         catch (Exception ex)
         {
@@ -290,31 +280,78 @@ public sealed partial class DomBridge
         }
     }
 
-    private JSBoolean DispatchWindowEvent(string eventType, bool bubbles = false)
+    /// <summary>
+    /// A plain event object carrying only the two members a bridge-fired simple event needs, minted
+    /// through the realm and handed back as the engine object the dispatch path still takes.
+    /// </summary>
+    /// <remarks>
+    /// The unwrap at the end is the seam, not a conversion: <c>DispatchEventOnElement</c> lives in
+    /// <c>DomBridge/Events.cs</c> — another group's file this round — and takes the engine's own
+    /// object, which is exactly what a JSEAL handle carries.
+    /// </remarks>
+    private JSObject SimpleEvent(string type, bool bubbles)
     {
-        var evt = new JSObject();
-        evt.FastAddValue("type", new JSString(eventType), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("bubbles", bubbles ? JSBoolean.True : JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        return DispatchWindowEvent(evt);
+        var realm = Realm;
+        var evt = realm.NewObject();
+        realm.DefineValue(evt, "type", JsValue.String(type));
+        realm.DefineValue(evt, "bubbles", JsValue.Boolean(bubbles));
+        return Dom.Runtime.JsInterop.ToEngineObject(evt);
     }
 
-    private JSBoolean DispatchWindowEvent(JSObject evt)
+    private JSBoolean DispatchWindowEvent(string eventType, bool bubbles = false)
     {
-        if (_jsContext == null || _windowJSObject == null)
+        if (_realm is null)
             return JSBoolean.True;
 
-        var eventType = evt[(KeyString)"type"]?.ToString() ?? "unknown";
-        evt.FastAddValue("target", _windowJSObject, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt[(KeyString)"srcElement"] = _windowJSObject;
-        evt.FastAddValue("currentTarget", _windowJSObject, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("eventPhase", new JSNumber(2), JSPropertyAttributes.EnumerableConfigurableValue);
+        return DispatchWindowEvent(SimpleEvent(eventType, bubbles));
+    }
+
+    /// <summary>
+    /// Fires <paramref name="evt"/> at the window: the synthetic event object is completed with its
+    /// target/phase members and the five propagation-control operations, then every registered window
+    /// listener for its type runs. Answers whether the default action survived
+    /// (<c>false</c> = <c>preventDefault()</c> was called), which is what <c>dispatchEvent</c> returns.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The event is built through the realm; three things here are not, and each is pinned by a
+    /// file outside this group.</b> The parameter and return types are the ones
+    /// <c>IWindowEventTargetHost</c>, <c>ILocationHost</c>, <c>DomBridge.MessagingHost.cs</c> and
+    /// <c>DomBridge/LayoutMetrics.Scrolling.cs</c> call with; <c>InvokeEventListener</c> in
+    /// <c>DomBridge/Events.cs</c> takes the engine object; and the five propagation-control bodies live
+    /// in <c>DomBridge/JsFunctionCallbacks/Callback.cs</c>, which reads an engine argument frame — and
+    /// there is no adapter between two call frames, only between two object types, so those five
+    /// installations stay as they are and move when that file does.
+    /// </para>
+    /// <para>
+    /// The event's <c>type</c> is read with the realm's <c>ToString</c> rather than the handle's own
+    /// rendering, because that is what the engine-typed read it replaces did: a page that dispatches an
+    /// object whose <c>type</c> has a <c>toString</c> gets that <c>toString</c> run, and the listener
+    /// lookup keys on its result.
+    /// </para>
+    /// </remarks>
+    private JSBoolean DispatchWindowEvent(JSObject evt)
+    {
+        if (_realm is not { } realm || _windowJSObject == null)
+            return JSBoolean.True;
+
+        var handle = Dom.Runtime.JsInterop.FromEngineObject(evt);
+        var window = Dom.Runtime.JsInterop.FromEngineObject(_windowJSObject);
+
+        // A CLR-absent `type` is the only thing that reads as "unknown"; an explicit `undefined`
+        // coerces to the string "undefined", exactly as the former ToString() did.
+        var typeValue = realm.GetProperty(handle, "type");
+        var eventType = typeValue.IsMissing ? "unknown" : realm.ToJsString(typeValue);
+        realm.DefineValue(handle, "target", window);
+        realm.SetProperty(handle, "srcElement", window);
+        realm.DefineValue(handle, "currentTarget", window);
+        realm.DefineValue(handle, "eventPhase", JsValue.Number(2));
 
         var immediateStopped = false;
-        var prevented = evt[(KeyString)"defaultPrevented"] is JSValue defaultPreventedValue &&
-                        defaultPreventedValue.BooleanValue;
+        var prevented = realm.GetProperty(handle, "defaultPrevented").AsBoolean;
         var currentListenerPassive = false;
         var legacyCancelBubble = false;
-        evt[(KeyString)"defaultPrevented"] = prevented ? JSBoolean.True : JSBoolean.False;
+        realm.SetProperty(handle, "defaultPrevented", JsValue.Boolean(prevented));
         evt.FastAddValue("stopPropagation",
             new DomFunction((in _) => JsCallbackStopPropagation001Core(ref legacyCancelBubble, in _), "stopPropagation", 0),
             JSPropertyAttributes.EnumerableConfigurableValue);
@@ -334,9 +371,8 @@ public sealed partial class DomBridge
             new DomFunction((in _) => prevented ? JSBoolean.False : JSBoolean.True, "get returnValue"),
             new DomFunction((in setArgs) => JsCallbackSetReturnValue007Core(currentListenerPassive, evt, ref prevented, in setArgs), "set returnValue"),
             JSPropertyAttributes.EnumerableConfigurableProperty);
-        evt.FastAddValue("composedPath",
-            new DomFunction((in _) => new JSArray(_windowJSObject), "composedPath", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(handle, "composedPath",
+            realm.NewMethod("composedPath", (in _) => realm.NewArray([window]), 0));
 
         if (_eventTargets.TryGetWindowListeners(eventType, out var listeners))
         {
@@ -354,8 +390,8 @@ public sealed partial class DomBridge
             }
         }
 
-        evt[(KeyString)"currentTarget"] = JSNull.Value;
-        evt[(KeyString)"eventPhase"] = new JSNumber(0);
+        realm.SetProperty(handle, "currentTarget", JsValue.Null);
+        realm.SetProperty(handle, "eventPhase", JsValue.Number(0));
         return prevented ? JSBoolean.False : JSBoolean.True;
     }
 

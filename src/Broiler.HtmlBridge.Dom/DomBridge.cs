@@ -1,14 +1,7 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.String;
 using System.Net;
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.BuiltIns.Number;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
@@ -92,7 +85,10 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     // P2.4: the timer/interval/requestAnimationFrame/frame-action queues, their id counters and the
     // drain (FlushTimerStep/FlushTimers) now live in BrowserEventLoop, the single owner of the
     // document's task queues (was the eight scattered _timerIdCounter/_timeoutCallbacks/… fields).
-    private readonly Dom.Runtime.BrowserEventLoop _eventLoop = new();
+    // Built in the constructor rather than initialised in place because it takes the bridge's JSEAL
+    // realm accessor — a queued page callback is invoked through the realm, which is adopted at
+    // Attach and so does not exist when this field does.
+    private readonly Dom.Runtime.BrowserEventLoop _eventLoop;
     // Runs the <script> elements the page's own JavaScript inserts — nothing did, so the loader
     // idiom (inject a <script src>, poll until the global it defines appears) never terminated. See
     // ScriptInsertionRunner; fed by the document.createElement funnel below.
@@ -261,6 +257,9 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     public DomBridge(DomBridgeSessionOptions? sessionOptions)
     {
         _layoutViewFactory = sessionOptions?.LayoutViewFactory;
+        // Null until Attach adopts one, and null again after teardown — states in which no page
+        // callback can be queued, because only script queues one and script needs that realm.
+        _eventLoop = new Dom.Runtime.BrowserEventLoop(() => _realm);
         _selectorMatcher = new CssSelectorMatcher(new BridgeSelectorStateProvider(this));
         _traversal = new Dom.Features.TraversalBinding(this);
         _mutations = new Dom.Features.MutationObserverBinding(this);

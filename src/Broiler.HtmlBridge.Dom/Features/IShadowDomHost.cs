@@ -1,6 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -11,12 +10,21 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// exposed here as named primitives (the P3.7 pattern) so the module never touches the runtime-state
 /// object: the existing-root lookup, the open/closed mode read, and a single <c>AttachShadowRoot</c>
 /// primitive that creates the <c>#shadow-root</c> element, links it to its host and records the mode in
-/// one step. JS-wrapper identity and the <see cref="JSContext"/> the DOM-exception thrower needs round it
-/// out.
+/// one step. JS-wrapper identity and the realm round it out.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
+/// type. The script context this contract used to carry was there for exactly one thing — raising the
+/// <c>NotSupportedError</c> a second <c>attachShadow</c> gets — and <see cref="IJsCalls.DomError"/>
+/// owns that now. The realm stays because the module still has to mint the mode read and the wrapper
+/// answers in it, and because <c>attachShadow</c> is also reached from
+/// <see cref="ElementInternalsBinding"/> through a path that carries no call frame.
+/// </remarks>
 internal interface IShadowDomHost
 {
-    JSContext? JsContext { get; }
+    /// <summary>The realm the shadow-root answers are minted in, and the one the
+    /// <c>NotSupportedError</c> is raised in.</summary>
+    IJsRealm Realm { get; }
 
     /// <summary>The element's attached shadow root, or null.</summary>
     DomElement? GetShadowRoot(DomElement element);
@@ -29,5 +37,5 @@ internal interface IShadowDomHost
     DomElement AttachShadowRoot(DomElement host, string mode);
 
     /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JSObject ToJSObject(DomNode node);
+    JsValue WrapNode(DomNode node);
 }

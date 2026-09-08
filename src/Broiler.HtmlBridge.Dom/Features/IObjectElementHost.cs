@@ -1,5 +1,5 @@
-using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -12,10 +12,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// browsing-context machinery. The same-origin test itself is the bridge's neutral <c>internal static</c>
 /// <c>IsCrossOrigin</c>, called directly.
 /// </summary>
+/// <remarks>
+/// The contract names no engine type — the sub-document is a <see cref="JsValue"/> handle. The bridge
+/// member behind the factory still hands back an engine object, so that seam lives in the bridge's
+/// implementation of this contract rather than in the module.
+/// </remarks>
 internal interface IObjectElementHost
 {
     string PageUrl { get; }
     void InvalidateCachedSubDocument(DomElement containerElement);
     bool IsObjectLoadFailed(DomElement objectElement);
-    JSObject GetOrCreateSubDocument(DomElement containerElement);
+    JsValue GetOrCreateSubDocument(DomElement containerElement);
 }

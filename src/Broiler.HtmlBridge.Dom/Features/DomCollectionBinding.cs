@@ -1,8 +1,16 @@
 using System;
 using System.Collections.Generic;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
+using System.Runtime.CompilerServices;
+
+using Broiler.HtmlBridge.Jseal;
+
+// The engine-typed half of this file, and every line of it is an adapter pinned by a caller outside
+// this group. Eight unmigrated sites build collections by handing over a script context and a list
+// of engine values (DomBridge.DocumentQueryHost/SelectorsHost/FormAssociationHost/FormControlHost/
+// SubDocumentHost, DomBridge/Utilities.cs, Features/NodeAccessorsBinding.cs,
+// Features/NodeMutationBinding.cs), DomBridge/Utilities.DomInterfaces.cs registers the interfaces
+// with a context, and Features/AttributesBinding.cs supplies the six NamedNodeMap operations as
+// engine callbacks. See RegisterNamedNodeMapOperations and the adapters below for what each pins.
 using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
@@ -31,14 +39,38 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// <b>Liveness is the whole design.</b> A collection object holds the <em>function</em> that
 /// produces its contents, not the contents, and answers <c>length</c> and every index from a fresh
-/// call to it — which is what <see cref="DomCollection.GetValue"/> overrides property access for. A
-/// static collection (<c>querySelectorAll</c>, which the specification defines as static) is the
+/// call to it — which is what <see cref="DomCollection"/> completes the object's property lookup for.
+/// A static collection (<c>querySelectorAll</c>, which the specification defines as static) is the
 /// same object over a function that returns a fixed list, so one type serves both and the difference
 /// is visible at the call site rather than buried in two classes.
 /// </para>
 /// <para>
+/// <b>The collection is an <see cref="IJsExotic"/> handler rather than an engine subclass.</b> A
+/// collection's members are not a fixed list — every integer below <c>length</c> and, for an
+/// <c>HTMLCollection</c>, every <c>id</c> and <c>name</c> its members carry — so it used to derive
+/// from the engine's own object type and override its lookup protocol. It now declares the hook
+/// instead: <see cref="IJsRealm.NewExotic"/> takes the handler and the provider owns the protocol.
+/// <b>The ordering the subclass established is the ordering the contract mandates</b> — ordinary
+/// properties and the prototype chain are consulted first and the handler answers only what they did
+/// not — which is what keeps a collection containing an element named <c>item</c> from shadowing its
+/// own <c>item()</c> method. That rule used to be written here, in a comment above a
+/// <c>base.GetValue</c> call; it is now written in <see cref="IJsExotic"/> and enforced by the realm.
+/// </para>
+/// <para>
+/// <b>The index materialisation moved with it, into the provider, because it was never a fact about
+/// the DOM.</b> The indices are real own properties rather than intercepted reads, because an array
+/// generic asks whether index <c>i</c> is <em>present</em> before reading it and
+/// <c>Object.keys</c>/<c>for…in</c>/spread ask the same way — presence, enumeration and retrieval are
+/// separate entry points with no single hook between them. Which of those entry points exist, and
+/// that they cannot be served by one override, is a property of an engine's property storage. So the
+/// handler now says only how many indexed elements there are
+/// (<see cref="IJsExotic.IndexedLength"/>) and what is at each one, and the provider materialises —
+/// growing <em>and</em> shrinking, which matters as much: a live collection whose element was removed
+/// must stop offering the index rather than keep a stale wrapper at it.
+/// </para>
+/// <para>
 /// <b>The methods are plain JavaScript on a real prototype.</b> Every one of them is expressible in
-/// terms of <c>this.length</c> and <c>this[i]</c>, which the live accessor already answers, so
+/// terms of <c>this.length</c> and <c>this[i]</c>, which the live lookup already answers, so
 /// writing them in JavaScript costs nothing and buys the parts that are awkward from C#:
 /// <c>Symbol.iterator</c>, the generator-based <c>entries</c>/<c>keys</c>/<c>values</c>, and
 /// correct <c>this</c> handling for a method held on the prototype rather than on each instance. It
@@ -56,12 +88,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal static class DomCollectionBinding
 {
     /// <summary>
-    /// Defines the two interfaces and their prototype methods. Runs once per context, with the
+    /// Defines the two interfaces and their prototype methods. Runs once per realm, with the
     /// other DOM interface constructors.
     /// </summary>
-    public static void RegisterInterfaces(JSContext context)
+    public static void RegisterInterfaces(IJsRealm realm)
     {
-        context.Eval("""
+        realm.EvaluateHostScript("""
             // Not constructible, as in a browser: a collection comes from the DOM, never from `new`.
             function NodeList() { throw new TypeError('Illegal constructor'); }
             function HTMLCollection() { throw new TypeError('Illegal constructor'); }
@@ -170,7 +202,7 @@ internal static class DomCollectionBinding
                     return value === undefined ? null : value;
                 });
             })();
-            """);
+            """, "interfaces:dom-collections");
     }
 
     /// <summary>
@@ -178,8 +210,8 @@ internal static class DomCollectionBinding
     /// live list (<c>childNodes</c>), or one that returns a fixed list for a static one
     /// (<c>querySelectorAll</c>, which DOM §4.2.6 defines as static).
     /// </summary>
-    public static JSValue NodeList(JSContext? context, Func<List<JSValue>> contents) =>
-        Create(context, "NodeList", contents, namedLookup: null);
+    public static JsValue NodeList(IJsRealm realm, Func<List<JsValue>> contents) =>
+        Create(realm, "NodeList", contents, namedLookup: null);
 
     /// <summary>
     /// An <c>HTMLCollection</c> over <paramref name="contents"/>, always live — every collection
@@ -187,17 +219,17 @@ internal static class DomCollectionBinding
     /// getter; it is given the requested name and returns the matching element or
     /// <see langword="null"/>.
     /// </summary>
-    public static JSValue HtmlCollection(
-        JSContext? context, Func<List<JSValue>> contents, Func<string, JSValue?>? namedLookup = null) =>
-        Create(context, "HTMLCollection", contents, namedLookup);
+    public static JsValue HtmlCollection(
+        IJsRealm realm, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup = null) =>
+        Create(realm, "HTMLCollection", contents, namedLookup);
 
     /// <summary>
     /// A <c>StyleSheetList</c> over <paramref name="contents"/> (CSSOM §6.1) — <c>document.styleSheets</c>
     /// and nothing else. Live, and with no named getter: CSSOM declares neither <c>namedItem</c> nor
     /// supported property names on it.
     /// </summary>
-    public static JSValue StyleSheetList(JSContext? context, Func<List<JSValue>> contents) =>
-        Create(context, "StyleSheetList", contents, namedLookup: null);
+    public static JsValue StyleSheetList(IJsRealm realm, Func<List<JsValue>> contents) =>
+        Create(realm, "StyleSheetList", contents, namedLookup: null);
 
     /// <summary>
     /// A <c>FileList</c> over <paramref name="contents"/> (File API §3.2) — a file input's
@@ -208,8 +240,156 @@ internal static class DomCollectionBinding
     /// exactly what a browser reports for an input the user has not touched. The collection is live
     /// over its contents function regardless, so the day a selection exists it needs no second shape.
     /// </remarks>
+    public static JsValue FileList(IJsRealm realm, Func<List<JsValue>> contents) =>
+        Create(realm, "FileList", contents, namedLookup: null);
+
+    private static JsValue Create(
+        IJsRealm realm, string interfaceName, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup)
+    {
+        var collection = realm.NewExotic(new DomCollection(contents, namedLookup));
+
+        // A realm that does not yet hold the interface constructors leaves the collection
+        // prototype-less rather than failing: it still answers length, the indices and the named
+        // lookups the handler serves, and only the shared methods are missing.
+        var constructor = realm.GetProperty(realm.Global, interfaceName);
+        if (constructor.IsObject)
+        {
+            var prototype = realm.GetProperty(constructor, "prototype");
+            if (prototype.IsObject)
+                realm.SetPrototype(collection, prototype);
+        }
+
+        return collection;
+    }
+
+    /// <summary>
+    /// The lookup a collection object completes for itself: its live <c>length</c>, its indexed
+    /// elements, and — for an <c>HTMLCollection</c> — the named getter DOM §4.2.10.2 gives it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What is <em>not</em> here is the ordering.</b> The class this replaces called the engine's
+    /// base lookup before its own on every path, and said so in a comment; the realm does that now,
+    /// for every handler, because <see cref="IJsExotic"/> states it. The consequence is the one worth
+    /// restating: a collection holding an element whose <c>id</c> is <c>item</c> still has its
+    /// <c>item()</c> method, because the prototype answers before this does.
+    /// </para>
+    /// <para>
+    /// <b><c>length</c> is answered rather than installed</b>, so it stays off <c>Object.keys</c>,
+    /// out of <c>for…in</c> and out of <c>Object.getOwnPropertyNames</c> — a browser's is an accessor
+    /// on the prototype, not an own property, and the difference is observable exactly there. It is
+    /// answered before the named lookup is consulted, as it was before, so a member named
+    /// <c>length</c> cannot displace the count.
+    /// </para>
+    /// </remarks>
+    private sealed class DomCollection(Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup) : IJsExotic
+    {
+        /// <summary>
+        /// The contents as of the last <see cref="IndexedLength"/> ask.
+        /// </summary>
+        /// <remarks>
+        /// <b>One walk of the tree per property access, which is what the subclass cost too.</b>
+        /// <see cref="IJsExotic.IndexedLength"/> is documented as being asked immediately before the
+        /// indices are used, and the provider does exactly that — every read entry point synchronises
+        /// first, and synchronising begins by asking for the length. So the list that answer was
+        /// computed from is the list the indices and <c>length</c> are then read out of, and a
+        /// collection over a whole-document walk is walked once per access rather than once per
+        /// element. Nothing runs between the two: the realm is single-threaded and no page script can
+        /// interleave with a single property lookup.
+        /// </remarks>
+        private List<JsValue>? _contents;
+
+        /// <inheritdoc />
+        public uint IndexedLength
+        {
+            get
+            {
+                _contents = contents();
+                return (uint)_contents.Count;
+            }
+        }
+
+        /// <inheritdoc />
+        public bool TryGetIndex(uint index, out JsValue value)
+        {
+            var items = _contents ??= contents();
+            if (index < (uint)items.Count)
+            {
+                value = items[(int)index];
+                return true;
+            }
+
+            // Past the end declines, so the read falls through to the ordinary miss — undefined,
+            // which is what an out-of-range index answered before.
+            value = JsValue.Undefined;
+            return false;
+        }
+
+        /// <inheritdoc />
+        public bool TryGetNamed(string name, out JsValue value)
+        {
+            if (name == "length")
+            {
+                value = JsValue.Number((_contents ?? contents()).Count);
+                return true;
+            }
+
+            if (namedLookup?.Invoke(name) is { } named)
+            {
+                value = named;
+                return true;
+            }
+
+            value = JsValue.Undefined;
+            return false;
+        }
+
+        /// <summary>
+        /// Never: a collection has no named setter, so an assignment is an ordinary one exactly as it
+        /// was — the subclass overrode no write path.
+        /// </summary>
+        public bool TrySetNamed(string name, JsValue value) => false;
+
+        /// <summary>
+        /// None. A collection's names were never enumerable — the subclass supplied no keys of its
+        /// own, so <c>Object.keys(document.forms)</c> is the indices and nothing else — and adding
+        /// the supported names here would be browser-correct and a behaviour change rather than a
+        /// refactor.
+        /// </summary>
+        public IReadOnlyList<string> SupportedNames => [];
+    }
+
+    // ------------------------------------------------------------------
+    //  Engine-typed adapters. Everything below is pinned by a file this group does not own.
+    // ------------------------------------------------------------------
+
+    /// <inheritdoc cref="RegisterInterfaces(IJsRealm)" />
+    /// <remarks>
+    /// Pinned by <c>DomBridge/Utilities.DomInterfaces.cs</c>, the unmigrated interface-registration
+    /// hub, which holds a script context and hands it over. Goes when that hub passes a realm.
+    /// </remarks>
+    public static void RegisterInterfaces(JSContext context) => RegisterInterfaces(RealmFor(context));
+
+    /// <inheritdoc cref="NodeList(IJsRealm, Func{List{JsValue}})" />
+    /// <remarks>The engine-typed form, for the callers listed at the top of this file.</remarks>
+    public static JSValue NodeList(JSContext? context, Func<List<JSValue>> contents) =>
+        ToEngineCollection(NodeList(RealmFor(context), Adapt(contents)));
+
+    /// <inheritdoc cref="HtmlCollection(IJsRealm, Func{List{JsValue}}, Func{string, JsValue?})" />
+    /// <remarks>The engine-typed form, for the callers listed at the top of this file.</remarks>
+    public static JSValue HtmlCollection(
+        JSContext? context, Func<List<JSValue>> contents, Func<string, JSValue?>? namedLookup = null) =>
+        ToEngineCollection(HtmlCollection(RealmFor(context), Adapt(contents), Adapt(namedLookup)));
+
+    /// <inheritdoc cref="StyleSheetList(IJsRealm, Func{List{JsValue}})" />
+    /// <remarks>The engine-typed form, for the callers listed at the top of this file.</remarks>
+    public static JSValue StyleSheetList(JSContext? context, Func<List<JSValue>> contents) =>
+        ToEngineCollection(StyleSheetList(RealmFor(context), Adapt(contents)));
+
+    /// <inheritdoc cref="FileList(IJsRealm, Func{List{JsValue}})" />
+    /// <remarks>The engine-typed form, for the callers listed at the top of this file.</remarks>
     public static JSValue FileList(JSContext? context, Func<List<JSValue>> contents) =>
-        Create(context, "FileList", contents, namedLookup: null);
+        ToEngineCollection(FileList(RealmFor(context), Adapt(contents)));
 
     /// <summary>
     /// A <c>NamedNodeMap</c> over <paramref name="contents"/> (DOM §4.9.1) — an element's
@@ -223,6 +403,12 @@ internal static class DomCollectionBinding
     /// <em>prototype</em>, shared, as Web IDL requires: each reads its element back from
     /// <paramref name="operations"/> keyed on the receiver, so no per-instance slot appears on the
     /// object and <c>Object.getOwnPropertyNames(el.attributes)</c> stays the indices alone.
+    /// <para>
+    /// There is no JSEAL-typed form of this one because there is no migrated caller for it to serve:
+    /// <see cref="NamedNodeMapOperations"/> is engine-typed, pinned by
+    /// <c>Features/AttributesBinding.cs</c>, so the whole map surface stays engine-typed until the
+    /// attribute binding's write path moves.
+    /// </para>
     /// </remarks>
     public static JSValue NamedNodeMap(
         JSContext? context,
@@ -230,14 +416,20 @@ internal static class DomCollectionBinding
         Func<string, JSValue?> namedLookup,
         NamedNodeMapOperations operations)
     {
-        var map = Create(context, "NamedNodeMap", contents, namedLookup);
-        if (map is JSObject instance)
-            OperationsByMap.Add(instance, operations);
+        var map = ToEngineCollection(
+            Create(RealmFor(context), "NamedNodeMap", Adapt(contents), Adapt(namedLookup)));
+        OperationsByMap.Add(map, operations);
         return map;
     }
 
     /// <summary>The element-dependent members of <c>NamedNodeMap</c>, supplied by the attribute
     /// binding, which owns the attribute write path.</summary>
+    /// <remarks>
+    /// Engine-typed, and pinned: <c>Features/AttributesBinding.cs</c> builds this record out of
+    /// methods whose call frame is still the engine's own argument frame, and a JSEAL
+    /// <c>JsNativeFunction</c> cannot be adapted to one — a <c>JsCall</c> cannot be turned back into
+    /// an engine frame. The six move when the attribute binding does, together.
+    /// </remarks>
     internal sealed class NamedNodeMapOperations
     {
         public required Func<Arguments, JSValue> GetNamedItem { get; init; }
@@ -252,17 +444,21 @@ internal static class DomCollectionBinding
     /// Which element each live <c>NamedNodeMap</c> belongs to, so a prototype method can find it from
     /// its receiver. A weak table, so a map that a page has dropped does not pin its element.
     /// </summary>
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<JSObject, NamedNodeMapOperations>
-        OperationsByMap = new();
+    private static readonly ConditionalWeakTable<JSObject, NamedNodeMapOperations> OperationsByMap = new();
 
     /// <summary>
     /// Installs the six host-backed <c>NamedNodeMap</c> methods on the interface prototype. Called
-    /// once per context, after <see cref="RegisterInterfaces"/> has defined the interface.
+    /// once per context, after the interface registration above has defined the interface.
     /// </summary>
     /// <remarks>
     /// Each looks its operations up from the receiver, so calling one on something that is not a
     /// <c>NamedNodeMap</c> is a <c>TypeError</c> rather than a silent wrong answer — which is what a
     /// browser gives for an illegal invocation.
+    /// <para>
+    /// Engine-typed throughout for the reason <see cref="NamedNodeMapOperations"/> gives: the bodies
+    /// it installs are the attribute binding's own engine callbacks, so there is nothing here to
+    /// express in JSEAL until those move.
+    /// </para>
     /// </remarks>
     public static void RegisterNamedNodeMapOperations(JSContext context)
     {
@@ -293,125 +489,107 @@ internal static class DomCollectionBinding
                 JSPropertyAttributes.EnumerableConfigurableValue);
     }
 
-    private static JSValue Create(
-        JSContext? context, string interfaceName, Func<List<JSValue>> contents, Func<string, JSValue?>? namedLookup)
-    {
-        var collection = new DomCollection(contents, namedLookup);
+    /// <summary>The engine object a migrated collection builder minted, for an unmigrated caller.</summary>
+    /// <remarks>
+    /// <see cref="Runtime.JsInterop"/> is a cast and not a conversion — the handle carries the
+    /// engine's own object — so the object handed back is the object the realm minted, and the
+    /// <c>ConditionalWeakTable</c>s the bridge keys on collection identity keep finding it.
+    /// </remarks>
+    private static JSObject ToEngineCollection(JsValue collection) => Runtime.JsInterop.ToEngineObject(collection);
 
-        // Before the bridge is attached there is no realm holding the interfaces, so the collection
-        // is left prototype-less rather than failing: it still answers length, indices and the
-        // property lookups the host serves, and only the shared methods are missing.
-        if (PrototypeOf(context, interfaceName) is { } prototype)
-            collection.BasePrototypeObject = prototype;
+    /// <summary>An engine-typed contents function as the JSEAL one the collection holds.</summary>
+    /// <remarks>
+    /// Re-wrapped on every read rather than once, because the function is what makes the collection
+    /// live: the list it answers with is different each time, and so are the wrappers in it. Every
+    /// member of every collection the bridge builds is an object wrapper — a node, an <c>Attr</c>, a
+    /// stylesheet — which is why six of the eight call sites already spell that cast themselves; the
+    /// two non-object arms are here so a supplier that answered otherwise keeps answering what it
+    /// answered rather than throwing on the way through.
+    /// </remarks>
+    private static Func<List<JsValue>> Adapt(Func<List<JSValue>> contents) =>
+        () =>
+        {
+            var engineValues = contents();
+            var handles = new List<JsValue>(engineValues.Count);
+            foreach (var value in engineValues)
+                handles.Add(Handle(value));
 
-        return collection;
-    }
+            return handles;
+        };
 
-    private static JSObject? PrototypeOf(JSContext? context, string interfaceName)
-    {
-        if (context is null)
-            return null;
+    /// <summary>An engine-typed named getter as the JSEAL one the handler consults.</summary>
+    /// <remarks>
+    /// A CLR <see langword="null"/> is the miss — the read falls through to the ordinary one, and
+    /// <c>in</c> answers false — and everything else is an answer, including the engine's <c>null</c>,
+    /// which is what a <c>NamedNodeMap</c>'s getter produces for a name whose <c>Attr</c> could not be
+    /// built. The distinction between the two was the shape of the old delegate and is preserved.
+    /// </remarks>
+    private static Func<string, JsValue?>? Adapt(Func<string, JSValue?>? namedLookup) =>
+        namedLookup is null
+            ? null
+            : name => namedLookup(name) is { } found ? Handle(found) : null;
 
-        return context[interfaceName] is JSObject constructor
-            ? constructor[(KeyString)"prototype"] as JSObject
-            : null;
-    }
+    /// <summary>An engine value a collection holds, as the handle the handler answers with.</summary>
+    private static JsValue Handle(JSValue value) =>
+        value is JSObject @object ? Runtime.JsInterop.FromEngineObject(@object)
+        : value.IsNull ? JsValue.Null
+        : JsValue.Undefined;
 
     /// <summary>
-    /// The collection object itself: an ordinary <see cref="JSObject"/> whose indexed properties and
-    /// <c>length</c> are answered from its contents function rather than stored.
+    /// The realm the collection is minted in: the one the registered provider wraps
+    /// <paramref name="context"/> as.
     /// </summary>
-    private sealed class DomCollection(Func<List<JSValue>> contents, Func<string, JSValue?>? namedLookup) : JSObject
+    /// <remarks>
+    /// <para>
+    /// <b>Adopted here because the call sites cannot pass a realm.</b> Eight of them hand over the
+    /// bridge's script context, and none of the eight is this group's to change. Adopting is what
+    /// the bridge itself does with the same object at <c>Attach</c> (see <c>DomBridge.Realm.cs</c>)
+    /// and what <c>Features/BlobBinding.cs</c> already does for the same reason: a provider that
+    /// recognises the context wraps it <em>without owning it</em>, and because every handle carries
+    /// the engine's own value a second wrapper over one context mints the objects the first would.
+    /// Cached per context so the eight collection factories — which run per property read, not once
+    /// per page — do not each build a wrapper and its job queue.
+    /// </para>
+    /// <para>
+    /// <b>A null context is now a failure rather than a prototype-less collection.</b> The old
+    /// builder had nowhere to read the interface prototypes from and shrugged; there is no realm to
+    /// mint an <em>object</em> in, so shrugging is not available. Every caller passes the bridge's
+    /// own context, which <c>Registration.cs</c> assigns on the first line of attach and before any
+    /// collection can be built, so this is a diagnosis rather than a path.
+    /// </para>
+    /// </remarks>
+    private static IJsRealm RealmFor(JSContext? context)
     {
-        private int _materialized;
-
-        /// <summary>
-        /// Brings the object's own indexed properties up to date with the contents function, and
-        /// returns the current count.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// The collection could instead answer indices purely by intercepting reads, and the first
-        /// attempt here did — which worked for everything written against <c>this[i]</c> and failed
-        /// for everything written against the object. <c>Array.prototype.map.call(list, …)</c> read
-        /// <c>length</c> correctly and then produced a hole for every element, because an array
-        /// generic asks whether index <c>i</c> is <em>present</em> before reading it, and an object
-        /// with no own indexed properties answers no. The same is true of <c>Object.keys</c>,
-        /// <c>for…in</c>, and spread. There is no single read hook to intercept — presence,
-        /// enumeration and retrieval are separate entry points — so the indices are made real
-        /// instead, and every generic algorithm then works on the collection without knowing what it
-        /// is. That is also the shape the bridge's other live collection (the CSSOM
-        /// <c>cssRules</c> list) already uses.
-        /// </para>
-        /// <para>
-        /// Called from each read entry point rather than on mutation, because a live collection has
-        /// no mutation of its own to hook: what it reflects is the tree, and the read is the only
-        /// moment it is known to matter.
-        /// </para>
-        /// </remarks>
-        private int Sync()
+        if (context is null)
         {
-            var items = contents();
-            for (var i = 0; i < items.Count; i++)
-                this[(uint)i] = items[i];
-
-            // Shrinking matters as much as growing: a live collection whose element was removed must
-            // stop offering the index, not keep a stale wrapper at it.
-            for (var i = items.Count; i < _materialized; i++)
-                GetElements().RemoveAt((uint)i);
-
-            _materialized = items.Count;
-            return items.Count;
+            throw new InvalidOperationException(
+                "A DOM collection was asked for before the bridge was attached to a script context, " +
+                "so there is no JavaScript realm to mint it in.");
         }
 
-        public override JSValue GetValue(uint key, JSValue receiver, bool throwError = true)
+        return RealmsByContext.GetValue(context, AdoptRealm);
+    }
+
+    /// <summary>One adopted realm per context; weakly keyed, so it goes when the context does.</summary>
+    private static readonly ConditionalWeakTable<JSContext, IJsRealm> RealmsByContext = new();
+
+    /// <inheritdoc cref="RealmFor" />
+    private static IJsRealm AdoptRealm(JSContext context)
+    {
+        foreach (var provider in JsEngineRegistry.All)
         {
-            Sync();
-            return base.GetValue(key, receiver, throwError);
+            if (provider is IJsRealmAdoption adoption &&
+                adoption.TryAdopt(context, out var realm) &&
+                realm is not null)
+            {
+                return realm;
+            }
         }
 
-        protected override JSValue GetValue(KeyString key, JSValue receiver, bool throwError = true)
-        {
-            var name = key.Value.ToString();
-
-            // length is answered rather than materialized, so it stays off Object.keys and out of
-            // for…in — a browser's is an accessor on the prototype, not an own property, and the
-            // difference is observable exactly there.
-            if (name == "length")
-                return new JSNumber(contents().Count);
-
-            Sync();
-
-            // The prototype's methods, and anything else, before the named getter: Web IDL consults
-            // named properties only when the object and its prototype chain do not already answer,
-            // so a collection holding an element named "item" still has its item() method.
-            var resolved = base.GetValue(key, receiver, false);
-            if (resolved != null && !resolved.IsUndefined)
-                return resolved;
-
-            if (namedLookup?.Invoke(name) is { } named)
-                return named;
-
-            return base.GetValue(key, receiver, throwError);
-        }
-
-        public override JSValue HasProperty(JSValue propertyKey)
-        {
-            var name = propertyKey.ToString();
-            if (name == "length")
-                return JSBoolean.True;
-
-            Sync();
-            if (base.HasProperty(propertyKey) is JSBoolean { BooleanValue: true } present)
-                return present;
-
-            return namedLookup?.Invoke(name) is not null ? JSBoolean.True : JSBoolean.False;
-        }
-
-        public override IElementEnumerator GetAllKeys(bool showEnumerableOnly = true, bool inherited = true)
-        {
-            Sync();
-            return base.GetAllKeys(showEnumerableOnly, inherited);
-        }
+        throw new InvalidOperationException(
+            "No registered JavaScript engine provider recognised the script context the DOM " +
+            "collection builder was handed. A host must reference an engine provider assembly — " +
+            "Broiler.HtmlBridge.Jseal.BroilerJs for Broiler.JS — and that assembly registers itself " +
+            "when it is loaded.");
     }
 }

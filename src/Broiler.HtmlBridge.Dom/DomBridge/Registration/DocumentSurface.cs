@@ -1,10 +1,11 @@
 using Broiler.Dom;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
+
+// Engine-typed for one thing: DocumentCollectionBinding still builds its eight live collections from
+// a script context and hands back the engine's own value type, so the cached local each getter
+// closes over has to be one. See RegisterDocumentCollections.
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge;
 
@@ -34,9 +35,18 @@ public sealed partial class DomBridge
     /// collection prototype-less and <c>document.forms instanceof HTMLCollection</c> false. A context
     /// is single-threaded by construction, so the null check needs no guard.
     /// </para>
+    /// <para>
+    /// <b>Pinned by <c>Features/DocumentCollectionBinding.cs</c>.</b> That module builds a collection
+    /// from a script context and returns an engine value, so the cached local, the builder delegate
+    /// and the getter are all engine-typed and the accessor is installed through
+    /// <c>PinnedAccessor</c> (Registration.cs). Nothing else about the shape changes: the accessor is
+    /// named, attributed and made non-constructable exactly as the realm would.
+    /// </para>
     /// </remarks>
-    private void RegisterDocumentCollections(JSContext context, JSObject document)
+    private void RegisterDocumentCollections(JsValue document)
     {
+        var context = _jsContext;
+
         Live("forms", Dom.Features.DocumentCollectionBinding.Forms);
         Live("images", Dom.Features.DocumentCollectionBinding.Images);
         Live("links", Dom.Features.DocumentCollectionBinding.Links);
@@ -57,9 +67,7 @@ public sealed partial class DomBridge
         }
 
         void Getter(string name, Func<JSValue> read) =>
-            document.FastAddProperty(
-                name, new DomFunction((in _) => read(), $"get {name}"), null,
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            PinnedAccessor(document, name, (in _) => read());
     }
 
     /// <summary>
@@ -74,44 +82,51 @@ public sealed partial class DomBridge
     /// by name.
     /// </para>
     /// </remarks>
-    private void RegisterDocumentMetadata(JSObject document)
+    private void RegisterDocumentMetadata(JsValue document)
     {
-        document.FastAddProperty(
+        var realm = Realm;
+
+        realm.DefineAccessor(
+            document,
             "doctype",
-            new DomFunction((in _) => DocumentTypeNode() is { } doctype ? ToJSObject(doctype) : JSNull.Value, "get doctype"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            (in _) => DocumentTypeNode() is { } doctype ? WrapNode(doctype) : JsValue.Null,
+            null);
 
         // HTML §3.2.6: `dir` reflects the document element's dir attribute *limited to only known
         // values* — the getter answers the canonical lower-case keyword or the empty string, while
         // the setter writes through unchanged. So `document.dir = 'LTR'` reads back as "ltr" with
         // the attribute still spelled "LTR", and an unknown value reads back as "" with the
         // attribute set to whatever was assigned.
-        document.FastAddProperty(
+        //
+        // The setter's coercion is the realm's ToJsString, not the handle's diagnostic rendering:
+        // `document.dir = {toString(){return 'rtl'}}` is entitled to run that toString, which is what
+        // the engine's own value-to-string did here before.
+        realm.DefineAccessor(
+            document,
             "dir",
-            new DomFunction((in _) => new JSString(DocumentDirection()), "get dir"),
-            new DomFunction((in a) =>
+            (in _) => JsValue.String(DocumentDirection()),
+            (in c) =>
             {
-                SetAttr(DocumentElement, "dir", a.Length > 0 ? a[0].ToString() : string.Empty);
-                return JSUndefined.Value;
-            }, "set dir"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+                SetAttr(DocumentElement, "dir", c.Length > 0 ? c.Realm.ToJsString(c[0]) : string.Empty);
+                return JsValue.Undefined;
+            });
 
         // HTML §3.2.7: an enumerated document state, not an attribute, so it lives on the bridge.
         // Assigning anything but "on"/"off" (ASCII case-insensitively) is ignored rather than
         // stored — `document.designMode = 'zzz'` leaves the previous value in place.
-        document.FastAddProperty(
+        realm.DefineAccessor(
+            document,
             "designMode",
-            new DomFunction((in _) => new JSString(_designMode), "get designMode"),
-            new DomFunction((in a) =>
+            (in _) => JsValue.String(_designMode),
+            (in c) =>
             {
-                var requested = a.Length > 0 ? a[0].ToString() : string.Empty;
+                var requested = c.Length > 0 ? c.Realm.ToJsString(c[0]) : string.Empty;
                 if (string.Equals(requested, "on", StringComparison.OrdinalIgnoreCase))
                     _designMode = "on";
                 else if (string.Equals(requested, "off", StringComparison.OrdinalIgnoreCase))
                     _designMode = "off";
-                return JSUndefined.Value;
-            }, "set designMode"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+                return JsValue.Undefined;
+            });
     }
 
     private string _designMode = "off";

@@ -1,5 +1,3 @@
-using Broiler.JavaScript.Engine;
-
 namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
@@ -8,15 +6,12 @@ public sealed partial class DomBridge
     /// Installs the typed-event constructor shims and the <c>MutationObserver</c> feature.
     /// </summary>
     /// <remarks>
-    /// <b>The <paramref name="context"/> parameter is an adapter, not a dependency.</b> Both halves
-    /// of this method now speak JSEAL — the shims are host script run through
-    /// <c>Realm.EvaluateHostScript</c>, and the observer module asks the realm for itself — but the
-    /// only caller is <c>DomBridge/Registration/Registration.cs</c>, a registration hub this
-    /// migration round does not own, which still holds a script context and passes it. Dropping the
-    /// parameter would change that call site; the parameter costs nothing and goes when the hub
-    /// moves.
+    /// This took a script context it never used: both halves speak JSEAL — the shims are host script
+    /// run through <c>Realm.EvaluateHostScript</c>, and the observer module asks the realm for
+    /// itself — and the parameter survived only because the registration hub that calls it was not
+    /// owned by the round that migrated this file. The hub has moved, so the adapter is gone.
     /// </remarks>
-    private void RegisterDocumentEventsAndMutationObservers(JSContext context)
+    private void RegisterDocumentEventsAndMutationObservers()
     {
         // Event / typed event constructors — DOM Level 4
         Realm.EvaluateHostScript(@"

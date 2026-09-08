@@ -14,10 +14,27 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// sub-document-root document wrapper cache — behind one narrow surface.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Wrappers are keyed by reference identity (a DOM node's identity is its object identity), never
 /// by value, so a node whose contents change keeps its wrapper. Instance-scoped to the owning
 /// bridge/document; <see cref="Clear"/> runs on re-parse and disposal. Not thread-safe — wrapper
 /// creation happens on the document thread (Phase 2's P2.4 defines that threading model).
+/// </para>
+/// <para>
+/// <b>Still engine-typed, and it is the last table that can migrate rather than the first.</b> This
+/// is the wrapper-identity choke point: thirteen files outside this group put wrappers in and take
+/// them out — <c>DomBridge/JsObjects.cs</c> and <c>JsObjects.NonElementNodes.cs</c>, the four
+/// interface files that find a node from a prototype method's receiver
+/// (<c>CharacterDataInterface</c>, <c>ElementInterface</c>, <c>EventTargetInterface</c>), the
+/// sub-document and custom-element hosts, and the registration and teardown paths — and every one of
+/// them holds the engine's object because it is mid-frame in an engine call. Migrating the keys means
+/// migrating all thirteen in one commit, which is the opposite of what the incremental seam is for.
+/// When it does move, the maps become <c>JsValue</c> without changing what they answer: a handle
+/// carries the engine's own object, and <c>JsValue</c> implements <c>Equals</c>/<c>GetHashCode</c>
+/// reflexively precisely so a dictionary keeps finding what was put in it. The
+/// <c>ConditionalWeakTable</c> below is the one member that needs more than a re-type — a weak table
+/// needs a reference key, so it would key on the handle's engine object rather than on the handle.
+/// </para>
 /// </remarks>
 internal sealed class JsObjectRegistry
 {

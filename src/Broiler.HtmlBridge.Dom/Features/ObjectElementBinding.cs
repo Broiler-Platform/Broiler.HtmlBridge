@@ -1,6 +1,10 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
+
+// Engine-typed only for the three entry points below, whose caller is an unmigrated registration site
+// with an engine call frame: DomBridge/ElementInterfaces.cs installs <object>.data, .contentDocument
+// and getSVGDocument() as DomFunctions and hands each an `in Arguments`.
+using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -17,6 +21,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>IsCrossOrigin</c> helpers directly. Was the bridge's
 /// <c>JsElementInterfacesSetData051Core</c>/<c>GetContentDocument054Core</c>/<c>GetSVGDocument055Core</c>.
 /// </summary>
+/// <remarks>
+/// The sub-document is a JSEAL <see cref="JsValue"/> handle throughout — that is what the host contract
+/// hands back. What has <em>not</em> moved is the call frame: all three members are registered from
+/// <c>DomBridge/ElementInterfaces.cs</c>, which has not migrated, so the argument read and the returned
+/// value are still engine ones and the unwrapping happens here. The coercion is unchanged — the same
+/// ECMAScript <c>ToString</c> on the same argument — and it becomes <c>call.Realm.ToJsString(call[0])</c>
+/// when that registration site migrates.
+/// </remarks>
 internal static class ObjectElementBinding
 {
     // <object>.data setter — writes the content attribute and invalidates the cached sub-document.
@@ -33,11 +45,11 @@ internal static class ObjectElementBinding
     {
         var dataUrl = DomBridge.TryGetAttribute(element, "data", out var d) ? d : string.Empty;
         if (DomBridge.IsCrossOrigin(dataUrl, host.PageUrl))
-            return JSNull.Value;
+            return JavaScript.BuiltIns.Null.JSNull.Value;
         // Check if the resource actually loaded successfully
         if (host.IsObjectLoadFailed(element))
-            return JSNull.Value;
-        return host.GetOrCreateSubDocument(element);
+            return JavaScript.BuiltIns.Null.JSNull.Value;
+        return Runtime.JsInterop.ToEngineObject(host.GetOrCreateSubDocument(element));
     }
 
     // <object>.getSVGDocument() — same-origin sub-document (no load-failure gate).
@@ -45,7 +57,7 @@ internal static class ObjectElementBinding
     {
         var dataUrl = DomBridge.TryGetAttribute(element, "data", out var d) ? d : string.Empty;
         if (DomBridge.IsCrossOrigin(dataUrl, host.PageUrl))
-            return JSNull.Value;
-        return host.GetOrCreateSubDocument(element);
+            return JavaScript.BuiltIns.Null.JSNull.Value;
+        return Runtime.JsInterop.ToEngineObject(host.GetOrCreateSubDocument(element));
     }
 }

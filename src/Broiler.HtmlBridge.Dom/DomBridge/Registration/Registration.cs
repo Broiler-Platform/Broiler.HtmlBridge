@@ -1,15 +1,29 @@
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
+
+// Engine-typed for three reasons, and only three:
+//
+//   * RegisterDocument takes the script context the host hands Attach and swaps its code cache for
+//     the process-shared one. That is a Broiler.JS optimisation with no JSEAL vocabulary — there is
+//     no "compile once per process" member on the realm contract — and the call site in DomBridge.cs
+//     is not owned this round either way.
+//   * AdoptRealm (DomBridge.Realm.cs) takes that same context to produce the realm, so the context
+//     has to reach it.
+//   * The four adapters at the foot of this file mint the functions whose feature modules still take
+//     the engine's own argument frame. See the note above them for what pins each.
+//
+// Everything the hubs actually install is built through the realm.
+using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.JavaScript.Engine;
+using Broiler.JavaScript.Runtime;
+using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// JavaScript bridge registration — wires up the <c>document</c>,
 /// <c>window</c>, <c>console</c>, and <c>XMLHttpRequest</c> globals
-/// on the YantraJS <see cref="JSContext"/>.
+/// on the realm the host handed over.
 /// </summary>
 public sealed partial class DomBridge
 {
@@ -39,8 +53,8 @@ public sealed partial class DomBridge
     /// <b>The cost was compiling, not executing.</b> Registration evaluates a fixed set of
     /// bridge-owned JavaScript sources — the content-rendering polyfill asset, the DOMException /
     /// Node / SVGLength constructors, XMLHttpRequest, the mutation-observer and event shims, and the
-    /// window→global mirror. Every document got a fresh <see cref="JSContext"/>, and a fresh context
-    /// builds its own <c>DictionaryCodeCache</c>, so all of that was parsed and compiled again from
+    /// window→global mirror. Every document got a fresh script context, and a fresh context builds
+    /// its own <c>DictionaryCodeCache</c>, so all of that was parsed and compiled again from
     /// nothing every time. Installing the process-shared cache for the duration takes
     /// <c>RegisterDocument</c> from <b>422.10 ms to 13.74 ms per call (30.7×)</b> and a 41-test
     /// reftest run from 69.5 s to 39.3 s, with execution untouched — which is what identifies the
@@ -48,15 +62,17 @@ public sealed partial class DomBridge
     /// </para>
     /// <para>
     /// <b>Why the swap is scoped to this call rather than set on the context.</b> The engine already
-    /// offers <c>JSContextOptions.UseProcessSharedCodeCache</c>, which would apply the shared cache
+    /// offers a context option, <c>UseProcessSharedCodeCache</c>, which would apply the shared cache
     /// to <em>everything</em> the context evaluates, including page script. That is a different and
     /// much larger claim: it would put one document's compiled code where the next document's
     /// evaluation can find it. Nothing here needs that. Within this method the only sources
     /// evaluated are compile-time constants owned by this assembly — verified rather than assumed:
-    /// no <c>Eval</c> reachable from here takes an interpolated or page-derived string, and page
+    /// no evaluation reachable from here takes an interpolated or page-derived string, and page
     /// script does not run until the host's own loop, after <c>Attach</c> has returned. Inline event
     /// handlers, which <em>are</em> page-controlled, are compiled at dispatch time and so still go
-    /// through the context's own cache.
+    /// through the context's own cache. The bridge's own evaluations reach the engine through
+    /// <see cref="IJsSource.EvaluateHostScript"/>, which is the same context underneath and so is
+    /// covered by the swap exactly as a direct evaluation was.
     /// </para>
     /// <para>
     /// <b>What the shared cache can therefore hold</b> is a fixed, bounded set of strings that ship
@@ -93,7 +109,7 @@ public sealed partial class DomBridge
     private void RegisterDocumentCore(JSContext context)
     {
         _jsContext = context;
-        _realm = AdoptRealm(context);
+        var realm = _realm = AdoptRealm(context);
 
         // EventTarget.prototype's three methods, routed by receiver
         // (DomBridge.EventTargetInterface.cs). First, because every wrapper registration below asks
@@ -101,31 +117,34 @@ public sealed partial class DomBridge
         // It depends only on the realm's own EventTarget, which the context already carries.
         RegisterEventTargetRouting();
 
-        var document = new JSObject();
+        var document = realm.NewObject();
 
-        // Map the document JSObject to the canonical DomDocument so that ToJSObject(_document)
-        // returns the same object as the 'document' variable visible in JS. This ensures
-        // strict equality checks like 'range.commonAncestorContainer === document' work.
-        _jsObjects.Set(_document, document);
+        // Map the document object to the canonical DomDocument so that the node-wrapper hub answers
+        // the same object as the 'document' variable visible in JS. This ensures strict equality
+        // checks like 'range.commonAncestorContainer === document' work. The registry is keyed on
+        // the engine's own object, and a JSEAL handle carries that object rather than wrapping it,
+        // so the two names below are one instance.
+        var documentObject = Dom.Runtime.JsInterop.ToEngineObject(document);
+        _jsObjects.Set(_document, documentObject);
 
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegDocumentObject))
         {
-            RegisterDocumentBasics(context, document);
-            RegisterDocumentEventsAndMutationObservers(context);
+            RegisterDocumentBasics(document);
+            RegisterDocumentEventsAndMutationObservers();
             RegisterDocumentWriting(document);
-            RegisterDocumentTraversalApis(context, document);
-            RegisterDocumentNodeAndCollectionApis(context, document);
+            RegisterDocumentTraversalApis(document);
+            RegisterDocumentNodeAndCollectionApis(document);
             RegisterDocumentEventTargetAndMetadata(document);
         }
 
-        _documentJSObject = document;
-        context["document"] = document;
+        _documentJSObject = documentObject;
+        realm.SetProperty(realm.Global, "document", document);
 
-        // `window` IS the global object, exactly as it is in a browser — the JSContext derives from
-        // JSObject and is the realm's global. It used to be a separate `new JSObject()`, which made
-        // every `window.foo = …` invisible to the unqualified `foo` that a page writes next, because
-        // identifier resolution consults the global object and nothing else. That is not a corner
-        // case: it is how google.com bootstraps itself, in one script —
+        // `window` IS the global object, exactly as it is in a browser — the realm's global is the
+        // script context itself, which derives from the engine's object type. It used to be a
+        // separate object, which made every `window.foo = …` invisible to the unqualified `foo` that
+        // a page writes next, because identifier resolution consults the global object and nothing
+        // else. That is not a corner case: it is how google.com bootstraps itself, in one script —
         //   (function(){var _g={kEI:…}; (function(){… window.google=_g;}).call(this);})();
         //   (function(){google.sn='webhp'; google.kHL='en';})();
         // — so the second IIFE threw `google is not defined`, which aborts the whole <script>. Every
@@ -136,43 +155,53 @@ public sealed partial class DomBridge
         // could never cover the within-one-script half, because there is no point between the write
         // and the read at which a host could run. Making the two one object removes the class of bug
         // rather than the symptom, and the mirror becomes the no-op it should always have been.
-        JSObject window = context;
-        _windowJSObject = window;
+        //
+        // That the two are one is a fact about this engine and the realm says so:
+        // JsCapabilities.GlobalIsVariableScope is what a provider asserts it with.
+        var window = realm.Global;
+        var windowObject = Dom.Runtime.JsInterop.ToEngineObject(window);
+        _windowJSObject = windowObject;
 
         var windowBasicsScope = Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowBasics);
         var console = RegisterWindowBasics(document, window);
-        var fetchFn = _fetch.Install(context, window);
+        var fetchFn = Dom.Runtime.JsInterop.FromEngineObject(_fetch.Install(context, windowObject));
         // MessageChannel (messaging) and getComputedStyle (CSSOM) historically lived inside the fetch
         // registration; they are registered here alongside the other window globals now that the fetch
         // networking surface is an isolated feature module.
-        var messageChannelCtor = new JSFunction((in _) => _messaging.CreateMessageChannel(), "MessageChannel", 0);
-        window.FastAddValue("MessageChannel", messageChannelCtor, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["MessageChannel"] = messageChannelCtor;
+        var messageChannelCtor = realm.NewConstructor(
+            "MessageChannel",
+            (in _) => Dom.Runtime.JsInterop.FromEngineObject(_messaging.CreateMessageChannel()),
+            0);
+        realm.DefineValue(window, "MessageChannel", messageChannelCtor);
+        realm.SetProperty(realm.Global, "MessageChannel", messageChannelCtor);
         // CSSStyleSheet constructor (constructable stylesheets / adoptedStyleSheets — CSSOM).
-        var cssStyleSheetCtor = new JSFunction((in a) => CreateConstructedStyleSheet(in a), "CSSStyleSheet", 0);
-        window.FastAddValue("CSSStyleSheet", cssStyleSheetCtor, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["CSSStyleSheet"] = cssStyleSheetCtor;
+        var cssStyleSheetCtor = realm.NewConstructor(
+            "CSSStyleSheet", (in _) => BuildConstructedStyleSheetObject([]), 0);
+        realm.DefineValue(window, "CSSStyleSheet", cssStyleSheetCtor);
+        realm.SetProperty(realm.Global, "CSSStyleSheet", cssStyleSheetCtor);
         // getComputedStyle (CSSOM), co-located in the ComputedStyleBinding feature module (Phase 3).
-        window.FastAddValue(
+        // Pinned: that module still reads the engine's argument frame to separate the element from
+        // the pseudo-element string.
+        realm.DefineValue(
+            window,
             "getComputedStyle",
-            new JSFunction((in a) => Dom.Features.ComputedStyleBinding.GetComputedStyle(this, in a), "getComputedStyle", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+            PinnedConstructor("getComputedStyle", (in a) => Dom.Features.ComputedStyleBinding.GetComputedStyle(this, in a), 2));
         windowBasicsScope.Dispose();
 
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowGlobals))
-            RegisterWindowGlobals(context, document, window, console, fetchFn);
+            RegisterWindowGlobals(document, window, console, fetchFn);
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowObjects))
         {
-            RegisterPerformanceObject(context, window);
-            RegisterHistoryObject(context, window);
-            RegisterObservationStubs(context, window);
-            RegisterNavigatorObject(context, window);
-            RegisterViewportObjects(context, window);
+            RegisterPerformanceObject(window);
+            RegisterHistoryObject(window);
+            RegisterObservationStubs(window);
+            RegisterNavigatorObject(window);
+            RegisterViewportObjects(window);
         }
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegContentPolyfills))
-            RegisterContentRenderingPolyfills(context, document);
+            RegisterContentRenderingPolyfills(document);
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegSecurityPolyfills))
-            RegisterSecurityAndConstructorPolyfills(context, window);
+            RegisterSecurityAndConstructorPolyfills(window);
 
         // Interface prototypes, which have to be applied *here* rather than where each object is
         // built: the constructors they point at are registered by the polyfill pass immediately
@@ -188,20 +217,20 @@ public sealed partial class DomBridge
         // Custom elements last among the constructor globals: its HTMLElement replaces the
         // non-constructible one the polyfill pass registers, and it keeps that interface's
         // prototype object so every element wrapper already linked to it stays linked.
-        RegisterCustomElements(context, window);
+        RegisterCustomElements(context, windowObject);
 
-        LinkToInterface(document, "HTMLDocument");
+        LinkToInterface(documentObject, "HTMLDocument");
         foreach (var (node, wrapper) in _jsObjects.Entries)
         {
-            if (!ReferenceEquals(wrapper, document))
+            if (!ReferenceEquals(wrapper, documentObject))
                 ApplyInterfacePrototype(wrapper, node);
         }
         // Worker (multithreading item #18). Registered after the window globals so the constructor
         // lands on a fully-built window, and before the global mirror below so it is reachable
         // unqualified the way page scripts spell it.
-        _workers?.Register(context, window);
+        _workers?.Register(context, windowObject);
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowMirror))
-            MirrorWindowMembersOntoGlobal(context, window);
+            MirrorWindowMembersOntoGlobal(realm, window);
     }
 
     /// <summary>
@@ -217,8 +246,8 @@ public sealed partial class DomBridge
     /// corpus, so this silently emptied entire test pages.
     /// </para>
     /// <para>
-    /// The mirror list used to be maintained by hand, one <c>context["x"] = window["x"]</c> at a
-    /// time (see the timer globals in RegisterWindowGlobals), and had drifted: <c>localStorage</c>,
+    /// The mirror list used to be maintained by hand, one global assignment at a time (see the timer
+    /// globals in RegisterWindowGlobals), and had drifted: <c>localStorage</c>,
     /// <c>matchMedia</c>, <c>location</c>, <c>alert</c>, <c>getComputedStyle</c>, <c>self</c>,
     /// <c>innerWidth</c>/<c>innerHeight</c>, <c>outerWidth</c>/<c>outerHeight</c>,
     /// <c>scrollX</c>/<c>scrollY</c>, <c>pageXOffset</c>/<c>pageYOffset</c> and
@@ -241,7 +270,7 @@ public sealed partial class DomBridge
     /// <see cref="SyncWindowMembersOntoGlobal"/> between them.
     /// </para>
     /// </summary>
-    private static void MirrorWindowMembersOntoGlobal(JSContext context, JSObject window)
+    private static void MirrorWindowMembersOntoGlobal(IJsRealm realm, JsValue window)
     {
         // The bridge now makes `window` the global object (see RegisterDocumentCore), so there is
         // nothing to copy and no gap to close — the sweep would define every own property of the
@@ -249,14 +278,16 @@ public sealed partial class DomBridge
         // (WptTestRunner calls SyncWindowMembersOntoGlobal after every script) instead of paying for
         // an Object.getOwnPropertyNames walk of the whole global that skips all of its own results.
         // The sweep is kept rather than deleted because it is still correct for any realm where the
-        // two are genuinely distinct objects.
-        if (ReferenceEquals(context, window))
+        // two are genuinely distinct objects — which is exactly what a provider that does not declare
+        // JsCapabilities.GlobalIsVariableScope may present, so the comparison is on the handles
+        // rather than on an assumption.
+        if (realm.Global == window)
             return;
 
-        context["__broilerWindowForGlobalMirror"] = window;
+        realm.SetProperty(realm.Global, "__broilerWindowForGlobalMirror", window);
         try
         {
-            context.Eval(@"
+            realm.EvaluateHostScript(@"
 (function() {
   var w = __broilerWindowForGlobalMirror;
   var g = globalThis;
@@ -270,7 +301,7 @@ public sealed partial class DomBridge
     // skipped rather than aborting the sweep for every member after it.
     try { Object.defineProperty(g, name, descriptor); } catch (e) {}
   }
-})();");
+})();", "bridge:window-global-mirror");
         }
         catch (Exception ex)
         {
@@ -279,7 +310,8 @@ public sealed partial class DomBridge
         }
         finally
         {
-            context.Eval("delete globalThis.__broilerWindowForGlobalMirror;");
+            realm.EvaluateHostScript(
+                "delete globalThis.__broilerWindowForGlobalMirror;", "bridge:window-global-mirror-cleanup");
         }
     }
 
@@ -319,11 +351,84 @@ public sealed partial class DomBridge
         context.CodeCache = DictionaryCodeCache.Current;
         try
         {
-            MirrorWindowMembersOntoGlobal(context, window);
+            MirrorWindowMembersOntoGlobal(Realm, Dom.Runtime.JsInterop.FromEngineObject(window));
         }
         finally
         {
             context.CodeCache = previousCache;
         }
     }
+
+    // ── inert members, in the realm's vocabulary ───────────────────────────────────────────────
+
+    /// <summary>
+    /// <c>UndefinedFunction</c> and <c>TrueFunction</c> (DomBridge/JsNative.cs) as the realm mints
+    /// them — an inert member that answers <c>undefined</c>, or one that answers <c>true</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>NewConstructor</c> rather than <c>NewMethod</c> because the engine-built pair carries a
+    /// prototype object and is therefore constructable, and preserving that is what makes this a
+    /// refactor. (WebIDL says an operation should not be constructable; that is a pre-existing
+    /// deviation shared by every <c>JSFunction</c>-built member of the registration hubs, and
+    /// correcting it belongs in its own change.)
+    /// </remarks>
+    private JsValue UndefinedMember(string name, int length = 0) =>
+        Realm.NewConstructor(name, static (in _) => JsValue.Undefined, length);
+
+    /// <inheritdoc cref="UndefinedMember"/>
+    private JsValue TrueMember(string name, int length = 0) =>
+        Realm.NewConstructor(name, static (in _) => JsValue.True, length);
+
+    // ── the engine-typed adapters the registration hubs are pinned by ──────────────────────────
+    //
+    // Every member below installs a callback that cannot yet speak JSEAL: the feature module behind
+    // it still takes Broiler.JS's own `in Arguments` frame and hands back its `JSValue`, and those
+    // modules live in files this round does not own. A JsCall cannot be turned into an Arguments —
+    // the argument handles belong to the engine's call frame, not to the host — so the function has
+    // to be minted by the engine and given to the realm as a handle over it. That is all these do,
+    // and each disappears when the module behind it moves.
+    //
+    // What pins which:
+    //   PinnedMethod       Features/WindowDocumentMiscBinding.cs (alert),
+    //                      Features/WindowScrollBinding.cs,
+    //                      Features/WindowEventTargetBinding.cs,
+    //                      Features/DocumentEventTargetBinding.cs
+    //   PinnedConstructor  Features/ComputedStyleBinding.cs, Features/HitTestBinding.cs,
+    //                      Features/DocumentFactoryBinding.cs, Features/NodeMutationBinding.cs,
+    //                      Features/WindowDocumentMiscBinding.cs (hasFocus),
+    //                      DomBridge.ViewTransition.cs (startViewTransition)
+    //   PinnedAccessor     Features/NodeMutationBinding.cs (document.childNodes),
+    //                      Features/DocumentCollectionBinding.cs (currentScript and the eight live
+    //                      collections), Features/WindowDocumentMiscBinding.cs (contentType, domain,
+    //                      lastModified, document.cookie, visualViewport.scale)
+    //
+    // The two function adapters split the way the realm's own two do, and for the same reason:
+    // DomFunction is non-constructable and mirrors NewMethod, JSFunction carries a prototype and
+    // mirrors NewConstructor. Which one a member had before this round is which one it keeps.
+
+    /// <summary>A non-constructable host function over an engine callback — the realm's <c>NewMethod</c>, pinned.</summary>
+    private static JsValue PinnedMethod(string name, JSFunctionDelegate body, int length = 0) =>
+        Dom.Runtime.JsInterop.FromEngineObject(new DomFunction(body, name, length));
+
+    /// <summary>A constructable host function over an engine callback — the realm's <c>NewConstructor</c>, pinned.</summary>
+    private static JsValue PinnedConstructor(string name, JSFunctionDelegate body, int length = 0) =>
+        Dom.Runtime.JsInterop.FromEngineObject(new JSFunction(body, name, length));
+
+    /// <summary>
+    /// An accessor property whose getter, setter, or both are engine callbacks — the realm's
+    /// <c>DefineAccessor</c>, pinned.
+    /// </summary>
+    /// <remarks>
+    /// The accessor functions are named and shaped exactly as <see cref="IJsMembers.DefineAccessor"/>
+    /// names and shapes them — <c>get x</c> / <c>set x</c>, non-constructable, the setter declaring
+    /// its one argument — so a member that moves off this adapter later does not change shape on the
+    /// way. A <see langword="null"/> setter is a read-only attribute, which is how both this and the
+    /// realm spell one.
+    /// </remarks>
+    private static void PinnedAccessor(JsValue target, string name, JSFunctionDelegate getter, JSFunctionDelegate? setter = null) =>
+        Dom.Runtime.JsInterop.ToEngineObject(target).FastAddProperty(
+            (KeyString)name,
+            new DomFunction(getter, $"get {name}"),
+            setter is null ? null : new DomFunction(setter, $"set {name}", 1),
+            JSPropertyAttributes.EnumerableConfigurableProperty);
 }

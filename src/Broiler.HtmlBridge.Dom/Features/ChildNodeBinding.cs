@@ -13,6 +13,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// node-iterator / mutation-observer notifications through the <see cref="IChildNodeHost"/> contract.
 /// Was the bridge's <c>JsJsObjectsRemove093Core</c>..<c>ReplaceWith096Core</c>.
 /// </summary>
+/// <remarks>
+/// <b>These four bodies are still written in the engine's vocabulary, and three unmigrated files are
+/// why.</b> The mixin is installed in three places — on <c>Node.prototype</c> by
+/// <c>DomBridge/CharacterDataInterface.cs</c>, on the non-element wrappers by
+/// <c>DomBridge/JsObjects.NonElementNodes.cs</c>, and on <c>Element.prototype</c> by
+/// <c>DomBridge/ElementInterface.cs</c> — and only the last has migrated. An engine-framed entry point
+/// cannot forward to a JSEAL body, because the seam carries objects across and not the primitives an
+/// argument list is full of; so the alternative to keeping one engine-framed body is keeping two
+/// bodies, one per frame, that must be read against each other forever. One body is the better trade
+/// while two of the three installers are unmigrated: the element hub adapts its frame at the call site
+/// instead, and all four members move together when those two files do.
+/// </remarks>
 internal static class ChildNodeBinding
 {
     public static JSValue Remove(IChildNodeHost host, DomNode element, in Arguments _)

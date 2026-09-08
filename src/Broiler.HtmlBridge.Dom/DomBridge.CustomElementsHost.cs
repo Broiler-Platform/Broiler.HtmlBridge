@@ -1,29 +1,56 @@
 using Broiler.HtmlBridge.Dom.Features;
-using Broiler.JavaScript.BuiltIns.Promise;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// <see cref="DomBridge"/>'s implementation of <see cref="ICustomElementsHost"/> — the DOM and
-/// engine services the custom element registry needs. Explicit interface members, so calling into
-/// page code does not become part of the public <c>DomBridge</c> surface.
+/// <see cref="DomBridge"/>'s implementation of <see cref="ICustomElementsHost"/> — the DOM services
+/// the custom element registry needs, plus the realm it calls page code back through. Explicit
+/// interface members, so calling into page code does not become part of the public <c>DomBridge</c>
+/// surface.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Six members are gone with the contract's migration: constructing a definition, calling a reaction
+/// and the three promise factories were engine operations with no bridge state behind them, so the
+/// registry asks the realm for them rather than asking the bridge to relay them. What is left is what
+/// only the bridge can answer.
+/// </para>
+/// <para>
+/// <see cref="Realm"/> is implemented explicitly because it has to be: <c>DomBridge.Realm</c> is
+/// <see langword="internal"/>, and an implicit implementation of a public interface member typed
+/// against it does not compile (CS0737).
+/// </para>
+/// </remarks>
 public sealed partial class DomBridge : ICustomElementsHost
 {
-    JSContext ICustomElementsHost.JsContext => _jsContext!;
+    IJsRealm ICustomElementsHost.Realm => Realm;
 
     IReadOnlyList<DomElement> ICustomElementsHost.Elements => Elements;
 
-    JSObject ICustomElementsHost.ToJSObject(DomNode node) => ToJSObject(node);
+    // The bridge's own JSEAL-vocabulary wrapper factory: a handle over the object the engine-typed
+    // wrapper cache already holds. It is a cast, not a conversion, so wrapper identity is unchanged
+    // and the weak tables keyed on it keep keying on the same instances.
+    JsValue ICustomElementsHost.WrapNode(DomNode node) => WrapNode(node);
 
-    bool ICustomElementsHost.TryGetWrapper(DomElement element, out JSObject wrapper) =>
-        _jsObjects.TryGet(element, out wrapper);
+    bool ICustomElementsHost.TryGetWrapper(DomElement element, out JsValue wrapper)
+    {
+        if (_jsObjects.TryGet(element, out var cached))
+        {
+            wrapper = JsInterop.FromEngineObject(cached);
+            return true;
+        }
 
-    DomNode? ICustomElementsHost.NodeFor(JSObject wrapper) => FindDomNodeByJSObject(wrapper);
+        wrapper = JsValue.Missing;
+        return false;
+    }
+
+    // The registry only asks this of a handle it has already established is an object, so unwrapping
+    // cannot fail here.
+    DomNode? ICustomElementsHost.FindNode(JsValue wrapper) =>
+        FindDomNodeByJSObject(JsInterop.ToEngineObject(wrapper));
 
     DomElement ICustomElementsHost.CreateBridgeElement(string tagName) => CreateBridgeElement(tagName);
 
@@ -54,50 +81,4 @@ public sealed partial class DomBridge : ICustomElementsHost
         Dom.Features.FormAssociationBinding.FormOwnerOf(this, element);
 
     bool ICustomElementsHost.IsFormControlDisabled(DomElement element) => IsFormControlDisabled(element);
-
-    JSObject? ICustomElementsHost.Construct(JSObject constructor) =>
-        constructor is JavaScript.BuiltIns.Function.JSFunction function
-            ? function.CreateInstance(new Arguments(function)) as JSObject
-            : null;
-
-    void ICustomElementsHost.Call(JSObject function, JSValue thisValue, JSValue[] arguments)
-    {
-        var call = arguments.Length switch
-        {
-            0 => new Arguments(thisValue),
-            1 => new Arguments(thisValue, arguments[0]),
-            2 => new Arguments(thisValue, arguments[0], arguments[1]),
-            _ => new Arguments(thisValue, arguments[0], arguments[1], arguments[2]),
-        };
-        function.InvokeFunction(call);
-    }
-
-    JSValue ICustomElementsHost.ResolvedPromise(JSValue value) =>
-        new JSPromise((resolve, _) => resolve(value));
-
-    JSValue ICustomElementsHost.RejectedPromise(string message) =>
-        new JSPromise((_, reject) => reject(new JSString(message)));
-
-    /// <summary>
-    /// A promise plus its resolver. The executor runs synchronously, so the resolve delegate is
-    /// captured out of it and wrapped as a function object the registry can hold onto until the
-    /// definition it is waiting for arrives.
-    /// </summary>
-    (JSValue Promise, JSObject Resolver) ICustomElementsHost.PendingPromise()
-    {
-        Action<JSValue>? captured = null;
-        var promise = new JSPromise((resolve, _) => captured = resolve);
-        var resolver = new DomFunction(
-            (in Arguments a) =>
-            {
-                captured?.Invoke(a.Length > 0 ? a[0] : JSUndefined.Value);
-                return JSUndefined.Value;
-            },
-            "resolve",
-            1);
-        return (promise, resolver);
-    }
-
-    void ICustomElementsHost.Resolve(JSObject resolver, JSValue value) =>
-        resolver.InvokeFunction(new Arguments(JSUndefined.Value, value));
 }

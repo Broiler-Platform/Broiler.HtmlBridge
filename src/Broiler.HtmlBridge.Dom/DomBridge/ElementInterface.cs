@@ -2,37 +2,9 @@ using System.Runtime.CompilerServices;
 
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge;
-
-/// <summary>
-/// Where a DOM member built by the realm finds the element it operates on — the JSEAL twin of
-/// <see cref="Dom.Features.ElementSource"/>.
-/// </summary>
-/// <remarks>
-/// <para>
-/// The two differ in one thing: which call frame they read. A member installed by
-/// <c>FastAddProperty</c> sees the engine's <c>Arguments</c>; one minted by
-/// <see cref="Jseal.IJsValues.NewMethod"/> or <see cref="Jseal.IJsMembers.DefineAccessor"/> sees a
-/// <see cref="JsCall"/>. Both answer the same question — the captured element, or the one the
-/// receiver names — so a migrated feature module takes this and an unmigrated one takes the other,
-/// and <see cref="DomBridge.JsSourceOf"/> makes the second out of the first rather than resolving the
-/// receiver twice in two vocabularies.
-/// </para>
-/// <para>
-/// It is declared here, beside the installer that builds both, rather than next to
-/// <see cref="Dom.Features.ElementSource"/>: that file's delegate is still the one nine unmigrated
-/// modules take, so the pair cannot yet live together under one name.
-/// </para>
-/// </remarks>
-internal delegate DomElement JsElementSource(in JsCall call, string member);
 
 /// <summary>
 /// <c>Element</c> as a real interface: its members on <c>Element.prototype</c>, found through the
@@ -63,12 +35,24 @@ internal delegate DomElement JsElementSource(in JsCall call, string member);
 /// smuggled onto this one.
 /// </para>
 /// <para>
-/// <b>One installer serves both places.</b> Each member is written once, against an
-/// <see cref="Dom.Features.ElementSource"/> that answers either the element captured when the wrapper
-/// was built or the element the receiver names. The prototype gets the receiver-resolving source and
-/// a wrapper minted before the realm exists — which inherits from nothing — gets the capturing one.
-/// The two cannot drift, which is what the earlier moves had to establish by reading every copy
-/// against its prototype counterpart by hand.
+/// <b>One installer serves both places.</b> Each member is written once, against a
+/// <see cref="Dom.Features.JsElementSource"/> that answers either the element captured when the
+/// wrapper was built or the element the receiver names. The prototype gets the receiver-resolving
+/// source and a wrapper minted before the realm exists — which inherits from nothing — gets the
+/// capturing one. The two cannot drift, which is what the earlier moves had to establish by reading
+/// every copy against its prototype counterpart by hand.
+/// </para>
+/// <para>
+/// <b>The installer speaks JSEAL, and the engine vocabulary that is left is a list of unmigrated
+/// neighbours.</b> Members are minted through <see cref="Realm"/> and installed on a handle over the
+/// target, which is a cast rather than a conversion — so each lands on the object in the position it
+/// is written in and <c>Object.getOwnPropertyNames</c> reports the order it always did, with the
+/// migrated and unmigrated members interleaved exactly as below. What still needs the engine's
+/// argument frame is named where it appears: <c>animate</c> (<c>DomBridge/WebAnimations.cs</c>), the
+/// four <c>ChildNode</c> members (<see cref="Dom.Features.ChildNodeBinding"/>, whose bodies are
+/// engine-framed because two unmigrated files install them elsewhere), <see cref="_dialogs"/>, and the
+/// two entry points below that are handed an engine object by <c>DomBridge/JsObjects.cs</c> and
+/// <c>DomBridge/CharacterDataInterface.cs</c>.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -87,9 +71,10 @@ public sealed partial class DomBridge
     /// A weak table, like the <c>NamedNodeMap</c> cache <c>attributes</c> already uses: the list reads
     /// and writes the element's <c>class</c> attribute on every call, so a second instance would be
     /// redundant rather than fresher, and neither cache should keep an element alive after the page
-    /// has dropped it.
+    /// has dropped it. The box is because a <see cref="ConditionalWeakTable{TKey,TValue}"/> value must
+    /// be a reference type and a <see cref="JsValue"/> handle is a struct.
     /// </remarks>
-    private readonly ConditionalWeakTable<DomElement, JSObject> _classLists = new();
+    private readonly ConditionalWeakTable<DomElement, StrongBox<JsValue>> _classLists = new();
 
     /// <summary>
     /// Installs <c>Element</c>'s members on <c>Element.prototype</c>. A no-op when the realm does not
@@ -100,7 +85,8 @@ public sealed partial class DomBridge
         if (PrototypeOfInterface("Element") is not { } proto)
             return;
 
-        InstallElementInterface(proto, RequireElementReceiver, RequireWrapperReceiver);
+        InstallElementInterface(
+            Dom.Runtime.JsInterop.FromEngineObject(proto), RequireElementReceiver, RequireWrapperReceiver);
         _elementInterfacePrototypeReady = true;
     }
 
@@ -109,9 +95,14 @@ public sealed partial class DomBridge
     /// they moved, kept for the one case that cannot use the prototype: a wrapper minted before the
     /// realm carried the interfaces, which inherits from nothing.
     /// </summary>
+    /// <remarks>
+    /// Engine-typed because its caller is: <c>DomBridge/JsObjects.cs</c> mints the wrapper and holds
+    /// it as the engine's own object. The seam is a cast, so the handle below is that object.
+    /// </remarks>
     private void PopulateElementInterfaceOnInstance(JSObject obj, DomElement element)
     {
-        InstallElementInterface(obj, (in Arguments _, string _) => element, (in Arguments _, string _) => obj);
+        var wrapper = Dom.Runtime.JsInterop.FromEngineObject(obj);
+        InstallElementInterface(wrapper, (in JsCall _, string _) => element, (in JsCall _, string _) => wrapper);
     }
 
     /// <summary>The element the receiver names, or a <c>TypeError</c> when it is not one.</summary>
@@ -120,64 +111,87 @@ public sealed partial class DomBridge
     /// .call(document, 'x')</c> and <c>.call(textNode, 'x')</c> are both illegal invocations, because
     /// neither implements <c>Element</c> however node-like it is.
     /// </remarks>
-    private DomElement RequireElementReceiver(in Arguments a, string member)
+    private DomElement RequireElementReceiver(in JsCall call, string member)
     {
-        if (a.This is JSObject receiver && _jsObjects.TryGetNode(receiver, out var node) && node is DomElement element)
+        // The wrapper registry is keyed on the engine's own objects and has not migrated, so the
+        // handle is unwrapped to ask it. A non-object receiver never reaches that: it answers the
+        // same TypeError the engine-object test used to.
+        if (call.This.IsObject &&
+            _jsObjects.TryGetNode(Dom.Runtime.JsInterop.ToEngineObject(call.This), out var node) &&
+            node is DomElement element)
+        {
             return element;
+        }
 
-        return JSException.ThrowTypeError<DomElement>(
+        throw call.Realm.Error(JsErrorKind.TypeError,
+            $"Failed to execute '{member}' on 'Element': Illegal invocation");
+    }
+
+    /// <summary>The receiver itself, once it is known to be an element wrapper.</summary>
+    private JsValue RequireWrapperReceiver(in JsCall call, string member)
+    {
+        if (call.This.IsObject &&
+            _jsObjects.TryGetNode(Dom.Runtime.JsInterop.ToEngineObject(call.This), out var node) &&
+            node is DomElement)
+        {
+            return call.This;
+        }
+
+        throw call.Realm.Error(JsErrorKind.TypeError,
             $"Failed to execute '{member}' on 'Element': Illegal invocation");
     }
 
     /// <summary>
-    /// An <see cref="Dom.Features.ElementSource"/> as a <see cref="JsElementSource"/>, for the feature
-    /// modules that are migrated and so see a JSEAL call frame.
+    /// A <see cref="Dom.Features.JsElementSource"/> as the engine-shaped
+    /// <see cref="Dom.Features.ElementSource"/>, for the feature modules that still install their
+    /// members on an engine argument frame.
     /// </summary>
     /// <remarks>
-    /// One resolution rule, asked through whichever frame the member happens to have. Building a
-    /// second receiver-resolving source against <see cref="JsCall"/> would work and is exactly what
-    /// must not happen: the prototype's members and a pre-realm wrapper's are the same members because
-    /// one installer writes them, and two sources answering "which element is this" independently is
-    /// the drift that arrangement exists to prevent.
+    /// One resolution rule, asked through whichever frame the member happens to have — this is the
+    /// mirror of the <c>JsSourceOf</c> that used to point the other way, and it exists for the same
+    /// reason. Building a second receiver-resolving source against the engine's frame would work and is
+    /// exactly what must not happen: the prototype's members and a pre-realm wrapper's are the same
+    /// members because one installer writes them, and two sources answering "which element is this"
+    /// independently is the drift that arrangement exists to prevent.
+    /// <para>
+    /// Both sources look at the receiver and nothing else (<see cref="RequireElementReceiver"/> tests
+    /// <c>call.This</c>; the capturing source ignores the frame entirely), so presenting the engine
+    /// frame's receiver as a receiver-only <see cref="JsCall"/> asks each of them exactly the question
+    /// it answers — including the <c>TypeError</c> a receiver that is not an element still raises. A
+    /// receiver that is not an engine object becomes <c>undefined</c>, which fails the same test the
+    /// engine-object one did.
+    /// </para>
     /// </remarks>
-    private static JsElementSource JsSourceOf(Dom.Features.ElementSource element) =>
-        (in JsCall call, string member) => ElementOf(element, in call, member);
+    private Dom.Features.ElementSource EngineSourceOf(Dom.Features.JsElementSource element) =>
+        (in Arguments a, string member) =>
+        {
+            var receiver = a.This is JSObject wrapper
+                ? Dom.Runtime.JsInterop.FromEngineObject(wrapper)
+                : JsValue.Undefined;
+            var call = new JsCall(Realm, receiver, default);
+            return element(in call, member);
+        };
 
-    /// <summary>The element a realm-minted member's receiver names.</summary>
+    /// <summary>Adds a WebIDL operation to an interface prototype.</summary>
     /// <remarks>
-    /// <see cref="Dom.Features.ElementSource"/> is still engine-shaped — it reads the call's
-    /// <c>Arguments</c> — while a realm-minted member sees a JSEAL call frame. Both sources look at
-    /// the receiver and nothing else (<see cref="RequireElementReceiver"/> tests <c>a.This</c>; the
-    /// capturing source ignores the frame entirely), so presenting the frame's receiver as a
-    /// receiver-only <c>Arguments</c> asks each of them exactly the question it answers — including
-    /// the <c>TypeError</c> a receiver that is not an element still raises.
+    /// Enumerable and configurable but not writable-as-data is what the instance properties were, and
+    /// what Web IDL asks for on a prototype; keeping the same attributes means only the *location* of
+    /// the member changes. <see cref="JsPropertyFlags.Default"/> is that pair, which is why it is not
+    /// spelled at any of these call sites.
     /// </remarks>
-    private static DomElement ElementOf(Dom.Features.ElementSource element, in JsCall call, string member)
-    {
-        var receiver = new Arguments(Dom.Runtime.JsInterop.ToEngineValue(call.This) ?? JSUndefined.Value);
-        return element(in receiver, member);
-    }
+    private void AddInterfaceMethod(JsValue target, string name, int length, JsNativeFunction body) =>
+        Realm.DefineValue(target, name, Realm.NewMethod(name, body, length));
 
-    /// <summary>The receiver itself, once it is known to be an element wrapper.</summary>
-    private JSObject RequireWrapperReceiver(in Arguments a, string member)
-    {
-        if (a.This is JSObject receiver && _jsObjects.TryGetNode(receiver, out var node) && node is DomElement)
-            return receiver;
-
-        return JSException.ThrowTypeError<JSObject>(
-            $"Failed to execute '{member}' on 'Element': Illegal invocation");
-    }
+    /// <summary>Adds a WebIDL attribute to an interface prototype, read-only unless a setter is given.</summary>
+    private void AddInterfaceAccessor(JsValue target, string name,
+        JsNativeFunction getter, JsNativeFunction? setter = null) =>
+        Realm.DefineAccessor(target, name, getter, setter);
 
     /// <summary>
     /// The whole <c>Element</c> interface onto <paramref name="target"/> — <c>Element.prototype</c>,
     /// or one wrapper when there is no prototype to inherit from.
     /// </summary>
-    /// <remarks>
-    /// The property attributes are the ones the wrapper always used and the ones Web IDL asks for on a
-    /// prototype — enumerable and configurable — so a member's <em>location</em> is the only thing this
-    /// change moves.
-    /// </remarks>
-    private void InstallElementInterface(JSObject target, Dom.Features.ElementSource element, Dom.Features.WrapperSource wrapper)
+    private void InstallElementInterface(JsValue target, Dom.Features.JsElementSource element, Dom.Features.WrapperSource wrapper)
     {
         InstallElementIdentityMembers(target, element);
         InstallElementAttributeMembers(target, element, wrapper);
@@ -185,41 +199,50 @@ public sealed partial class DomBridge
         InstallElementTreeMembers(target, element);
         InstallElementSelectionMembers(target, element);
 
-        // The geometry module is migrated, so it is handed the realm, a handle over this same object —
-        // the seam is a cast, so the members land on it in this position, which is what keeps
-        // Object.getOwnPropertyNames(el) in the order it has always had — and the JSEAL source.
-        Dom.Features.ElementGeometryBinding.InstallElementMembers(
-            this, Realm, Dom.Runtime.JsInterop.FromEngineObject(target), JsSourceOf(element));
-        _dialogs.InstallElementMembers(target, element);
+        Dom.Features.ElementGeometryBinding.InstallElementMembers(this, Realm, target, element);
 
-        // Animatable.animate() — Web Animations §Animatable, which Element includes.
-        AddPrototypeMethod(target, "animate", 2,
-            (in Arguments a) => ElementAnimate(element(in a, "animate"), in a));
+        // The dialog/details/popover module and animate() still install against the engine's own
+        // object and read its argument frame, so each is handed both — the same object this file has
+        // been installing on, and the same resolution rule under the frame its members read. The
+        // adapted source is built once here rather than per call.
+        var engineTarget = Dom.Runtime.JsInterop.ToEngineObject(target);
+        var engineElement = EngineSourceOf(element);
+
+        _dialogs.InstallElementMembers(engineTarget, engineElement);
+
+        // Animatable.animate() — Web Animations §Animatable, which Element includes. ElementAnimate is
+        // the bridge's own unmigrated callback (DomBridge/WebAnimations.cs) and reads the engine frame.
+        AddPrototypeMethod(engineTarget, "animate", 2,
+            (in Arguments a) => ElementAnimate(engineElement(in a, "animate"), in a));
     }
 
     /// <summary>
     /// <c>tagName</c>, the reflected <c>id</c>/<c>className</c>, <c>classList</c> and the shadow-host
     /// pair.
     /// </summary>
-    private void InstallElementIdentityMembers(JSObject target, Dom.Features.ElementSource element)
+    private void InstallElementIdentityMembers(JsValue target, Dom.Features.JsElementSource element)
     {
         // tagName is an accessor here where the wrapper installed a JSString fixed when it was built.
         // That was the "per-instance value" half of the item: a captured value cannot serve a
         // prototype, and a browser's tagName is an accessor in any case.
-        AddPrototypeAccessor(target, "tagName",
-            (in Arguments a) => new JSString(TagNameForScript(element(in a, "tagName"))));
+        AddInterfaceAccessor(target, "tagName",
+            (in call) => JsValue.String(TagNameForScript(element(in call, "tagName"))));
 
-        Dom.Features.GlobalAttributeBinding.InstallElementMembers(
-            this, Realm, Dom.Runtime.JsInterop.FromEngineObject(target), JsSourceOf(element));
+        Dom.Features.GlobalAttributeBinding.InstallElementMembers(this, Realm, target, element);
 
         // classList — one DOMTokenList per element, memoized so identity holds (see _classLists).
-        AddPrototypeAccessor(target, "classList",
-            (in Arguments a) => ClassListFor(element(in a, "classList")));
+        AddInterfaceAccessor(target, "classList",
+            (in call) => ClassListFor(element(in call, "classList")));
 
-        AddPrototypeAccessor(target, "shadowRoot",
-            (in Arguments a) => Dom.Features.ShadowDomBinding.GetShadowRoot(this, element(in a, "shadowRoot"), in a));
-        AddPrototypeMethod(target, "attachShadow", 1,
-            (in Arguments a) => Dom.Features.ShadowDomBinding.AttachShadow(this, element(in a, "attachShadow"), in a));
+        AddInterfaceAccessor(target, "shadowRoot",
+            (in call) => Dom.Features.ShadowDomBinding.GetShadowRoot(this, element(in call, "shadowRoot")));
+        AddInterfaceMethod(target, "attachShadow", 1,
+            (in call) => Dom.Features.ShadowDomBinding.AttachShadow(
+                this,
+                element(in call, "attachShadow"),
+                // Only an object argument carries options — the test the engine frame applied, kept
+                // here so anything else still leaves the mode at its default.
+                call.Length > 0 && call[0].IsObject ? call[0] : JsValue.Undefined));
     }
 
     /// <summary>
@@ -233,113 +256,120 @@ public sealed partial class DomBridge
     /// its own namespace. Putting it here would give <c>Element.prototype</c> a member a browser's has
     /// not got, so it stays the instance's until it is decided on its own.
     /// </remarks>
-    private void InstallElementAttributeMembers(JSObject target, Dom.Features.ElementSource element, Dom.Features.WrapperSource wrapper)
+    private void InstallElementAttributeMembers(JsValue target, Dom.Features.JsElementSource element, Dom.Features.WrapperSource wrapper)
     {
-        AddPrototypeAccessor(target, "attributes", (in Arguments a) =>
-            _attributes.BuildNamedNodeMap(element(in a, "attributes"), wrapper(in a, "attributes")));
+        AddInterfaceAccessor(target, "attributes", (in call) =>
+            _attributes.BuildNamedNodeMap(element(in call, "attributes"), wrapper(in call, "attributes")));
 
-        AddPrototypeMethod(target, "getAttribute", 1,
-            (in Arguments a) => _attributes.GetAttribute(element(in a, "getAttribute"), in a));
-        AddPrototypeMethod(target, "getAttributeNS", 2,
-            (in Arguments a) => _attributes.GetAttributeNS(element(in a, "getAttributeNS"), in a));
-        AddPrototypeMethod(target, "getAttributeNames", 0, (in Arguments a) =>
-            new JSArray([.. AttributeNames(element(in a, "getAttributeNames")).Select(static name => (JSValue)new JSString(name))]));
+        AddInterfaceMethod(target, "getAttribute", 1,
+            (in call) => _attributes.GetAttribute(element(in call, "getAttribute"), in call));
+        AddInterfaceMethod(target, "getAttributeNS", 2,
+            (in call) => _attributes.GetAttributeNS(element(in call, "getAttributeNS"), in call));
+        AddInterfaceMethod(target, "getAttributeNames", 0, (in call) =>
+            Realm.NewArray([.. AttributeNames(element(in call, "getAttributeNames")).Select(static name => JsValue.String(name))]));
 
-        AddPrototypeMethod(target, "setAttribute", 2,
-            (in Arguments a) => _attributes.SetAttribute(element(in a, "setAttribute"), in a));
-        AddPrototypeMethod(target, "setAttributeNS", 3,
-            (in Arguments a) => _attributes.SetAttributeNS(element(in a, "setAttributeNS"), in a));
+        AddInterfaceMethod(target, "setAttribute", 2,
+            (in call) => _attributes.SetAttribute(element(in call, "setAttribute"), in call));
+        AddInterfaceMethod(target, "setAttributeNS", 3,
+            (in call) => _attributes.SetAttributeNS(element(in call, "setAttributeNS"), in call));
 
-        AddPrototypeMethod(target, "removeAttribute", 1,
-            (in Arguments a) => _attributes.RemoveAttribute(element(in a, "removeAttribute"), in a));
-        AddPrototypeMethod(target, "removeAttributeNS", 2,
-            (in Arguments a) => _attributes.RemoveAttributeNS(element(in a, "removeAttributeNS"), in a));
-        AddPrototypeMethod(target, "toggleAttribute", 2,
-            (in Arguments a) => _attributes.ToggleAttribute(element(in a, "toggleAttribute"), in a));
+        AddInterfaceMethod(target, "removeAttribute", 1,
+            (in call) => _attributes.RemoveAttribute(element(in call, "removeAttribute"), in call));
+        AddInterfaceMethod(target, "removeAttributeNS", 2,
+            (in call) => _attributes.RemoveAttributeNS(element(in call, "removeAttributeNS"), in call));
+        AddInterfaceMethod(target, "toggleAttribute", 2,
+            (in call) => _attributes.ToggleAttribute(element(in call, "toggleAttribute"), in call));
 
-        AddPrototypeMethod(target, "hasAttribute", 1,
-            (in Arguments a) => _attributes.HasAttribute(element(in a, "hasAttribute"), in a));
-        AddPrototypeMethod(target, "hasAttributeNS", 2,
-            (in Arguments a) => _attributes.HasAttributeNS(element(in a, "hasAttributeNS"), in a));
-        AddPrototypeMethod(target, "hasAttributes", 0, (in Arguments a) =>
-            element(in a, "hasAttributes").Attributes.Count > 0 ? JSBoolean.True : JSBoolean.False);
+        AddInterfaceMethod(target, "hasAttribute", 1,
+            (in call) => _attributes.HasAttribute(element(in call, "hasAttribute"), in call));
+        AddInterfaceMethod(target, "hasAttributeNS", 2,
+            (in call) => _attributes.HasAttributeNS(element(in call, "hasAttributeNS"), in call));
+        AddInterfaceMethod(target, "hasAttributes", 0, (in call) =>
+            JsValue.Boolean(element(in call, "hasAttributes").Attributes.Count > 0));
 
-        AddPrototypeMethod(target, "getAttributeNode", 1, (in Arguments a) =>
-            _attributes.GetAttributeNode(element(in a, "getAttributeNode"), wrapper(in a, "getAttributeNode"), in a));
-        AddPrototypeMethod(target, "getAttributeNodeNS", 2, (in Arguments a) =>
-            _attributes.GetAttributeNodeNS(element(in a, "getAttributeNodeNS"), wrapper(in a, "getAttributeNodeNS"), in a));
-        AddPrototypeMethod(target, "setAttributeNode", 1, (in Arguments a) =>
-            _attributes.SetAttributeNode(element(in a, "setAttributeNode"), wrapper(in a, "setAttributeNode"), in a));
-        AddPrototypeMethod(target, "setAttributeNodeNS", 1, (in Arguments a) =>
-            _attributes.SetAttributeNodeNS(element(in a, "setAttributeNodeNS"), wrapper(in a, "setAttributeNodeNS"), in a));
-        AddPrototypeMethod(target, "removeAttributeNode", 1, (in Arguments a) =>
-            _attributes.RemoveAttributeNode(element(in a, "removeAttributeNode"), wrapper(in a, "removeAttributeNode"), in a));
+        AddInterfaceMethod(target, "getAttributeNode", 1, (in call) =>
+            _attributes.GetAttributeNode(element(in call, "getAttributeNode"), wrapper(in call, "getAttributeNode"), in call));
+        AddInterfaceMethod(target, "getAttributeNodeNS", 2, (in call) =>
+            _attributes.GetAttributeNodeNS(element(in call, "getAttributeNodeNS"), wrapper(in call, "getAttributeNodeNS"), in call));
+        AddInterfaceMethod(target, "setAttributeNode", 1, (in call) =>
+            _attributes.SetAttributeNode(element(in call, "setAttributeNode"), wrapper(in call, "setAttributeNode"), in call));
+        AddInterfaceMethod(target, "setAttributeNodeNS", 1, (in call) =>
+            _attributes.SetAttributeNodeNS(element(in call, "setAttributeNodeNS"), wrapper(in call, "setAttributeNodeNS"), in call));
+        AddInterfaceMethod(target, "removeAttributeNode", 1, (in call) =>
+            _attributes.RemoveAttributeNode(element(in call, "removeAttributeNode"), wrapper(in call, "removeAttributeNode"), in call));
     }
 
     /// <summary>The markup members: <c>innerHTML</c>/<c>outerHTML</c> and the three adjacent inserts.</summary>
-    private void InstallElementContentMembers(JSObject target, Dom.Features.ElementSource element)
+    private void InstallElementContentMembers(JsValue target, Dom.Features.JsElementSource element)
     {
-        Dom.Features.ElementContentBinding.InstallHtmlSerialization(
-            this, Realm, Dom.Runtime.JsInterop.FromEngineObject(target), JsSourceOf(element));
-        Dom.Features.InsertAdjacentBinding.Install(this, target, element);
+        Dom.Features.ElementContentBinding.InstallHtmlSerialization(this, Realm, target, element);
+        Dom.Features.InsertAdjacentBinding.Install(this, Realm, target, element);
     }
 
     /// <summary>
     /// The tree members <c>Element</c> carries: the <c>ParentNode</c> element views and inserts, the
     /// <c>ChildNode</c> mixin, and the two <c>NonDocumentTypeChildNode</c> siblings.
     /// </summary>
-    private void InstallElementTreeMembers(JSObject target, Dom.Features.ElementSource element)
+    private void InstallElementTreeMembers(JsValue target, Dom.Features.JsElementSource element)
     {
-        AddPrototypeAccessor(target, "children", (in Arguments a) => Dom.Runtime.JsInterop.ToEngineObject(
-            Dom.Features.ElementTraversalBinding.GetChildren(this, element(in a, "children"))));
-        AddPrototypeAccessor(target, "childElementCount", (in Arguments a) =>
-            new JSNumber(ChildElements(element(in a, "childElementCount")).Count(c => !IsText(c))));
-        AddPrototypeAccessor(target, "firstElementChild", (in Arguments a) => ObjectOrNull(
-            Dom.Features.ElementTraversalBinding.GetFirstElementChild(this, element(in a, "firstElementChild"))));
-        AddPrototypeAccessor(target, "lastElementChild", (in Arguments a) => ObjectOrNull(
-            Dom.Features.ElementTraversalBinding.GetLastElementChild(this, element(in a, "lastElementChild"))));
-        AddPrototypeAccessor(target, "nextElementSibling", (in Arguments a) => ObjectOrNull(
-            Dom.Features.ElementTraversalBinding.GetNextElementSibling(this, element(in a, "nextElementSibling"))));
-        AddPrototypeAccessor(target, "previousElementSibling", (in Arguments a) => ObjectOrNull(
-            Dom.Features.ElementTraversalBinding.GetPreviousElementSibling(this, element(in a, "previousElementSibling"))));
+        AddInterfaceAccessor(target, "children", (in call) =>
+            Dom.Features.ElementTraversalBinding.GetChildren(this, element(in call, "children")));
+        AddInterfaceAccessor(target, "childElementCount", (in call) =>
+            JsValue.Number(ChildElements(element(in call, "childElementCount")).Count(c => !IsText(c))));
+        AddInterfaceAccessor(target, "firstElementChild", (in call) =>
+            Dom.Features.ElementTraversalBinding.GetFirstElementChild(this, element(in call, "firstElementChild")));
+        AddInterfaceAccessor(target, "lastElementChild", (in call) =>
+            Dom.Features.ElementTraversalBinding.GetLastElementChild(this, element(in call, "lastElementChild")));
+        AddInterfaceAccessor(target, "nextElementSibling", (in call) =>
+            Dom.Features.ElementTraversalBinding.GetNextElementSibling(this, element(in call, "nextElementSibling")));
+        AddInterfaceAccessor(target, "previousElementSibling", (in call) =>
+            Dom.Features.ElementTraversalBinding.GetPreviousElementSibling(this, element(in call, "previousElementSibling")));
 
-        AddPrototypeMethod(target, "append", 0,
-            (in Arguments a) => Dom.Features.TreeMutationBinding.Append(this, element(in a, "append"), in a));
-        AddPrototypeMethod(target, "prepend", 0,
-            (in Arguments a) => Dom.Features.TreeMutationBinding.Prepend(this, element(in a, "prepend"), in a));
+        AddInterfaceMethod(target, "append", 0,
+            (in call) => Dom.Features.TreeMutationBinding.Append(this, element(in call, "append"), in call));
+        AddInterfaceMethod(target, "prepend", 0,
+            (in call) => Dom.Features.TreeMutationBinding.Prepend(this, element(in call, "prepend"), in call));
         // replaceChildren is the ParentNode member the wrapper never had: the document's has been
         // here since the mixin was bound there, and an element's — the commoner one, since
         // `container.replaceChildren()` is how a page empties a node — threw as undefined.
-        AddPrototypeMethod(target, "replaceChildren", 0,
-            (in Arguments a) => Dom.Features.TreeMutationBinding.ReplaceChildren(this, element(in a, "replaceChildren"), in a));
+        AddInterfaceMethod(target, "replaceChildren", 0,
+            (in call) => Dom.Features.TreeMutationBinding.ReplaceChildren(this, element(in call, "replaceChildren"), in call));
 
-        AddPrototypeMethod(target, "remove", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.Remove(this, element(in a, "remove"), in a));
-        AddPrototypeMethod(target, "before", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.Before(this, element(in a, "before"), in a));
-        AddPrototypeMethod(target, "after", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.After(this, element(in a, "after"), in a));
-        AddPrototypeMethod(target, "replaceWith", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.ReplaceWith(this, element(in a, "replaceWith"), in a));
+        // The ChildNode mixin is the one group here whose bodies are still engine-framed, and not
+        // because of this file: DomBridge/CharacterDataInterface.cs and
+        // DomBridge/JsObjects.NonElementNodes.cs install the same four members on Node.prototype and
+        // on the non-element wrappers, so ChildNodeBinding reads the engine's frame for all three
+        // callers. Writing a second, JSEAL-framed copy of those four bodies to serve this one is the
+        // duplication the shared installer above exists to avoid, so the engine frame is adapted here
+        // instead and the four move together when those two files do.
+        var engineTarget = Dom.Runtime.JsInterop.ToEngineObject(target);
+        var engineElement = EngineSourceOf(element);
+
+        AddPrototypeMethod(engineTarget, "remove", 0,
+            (in Arguments a) => Dom.Features.ChildNodeBinding.Remove(this, engineElement(in a, "remove"), in a));
+        AddPrototypeMethod(engineTarget, "before", 0,
+            (in Arguments a) => Dom.Features.ChildNodeBinding.Before(this, engineElement(in a, "before"), in a));
+        AddPrototypeMethod(engineTarget, "after", 0,
+            (in Arguments a) => Dom.Features.ChildNodeBinding.After(this, engineElement(in a, "after"), in a));
+        AddPrototypeMethod(engineTarget, "replaceWith", 0,
+            (in Arguments a) => Dom.Features.ChildNodeBinding.ReplaceWith(this, engineElement(in a, "replaceWith"), in a));
     }
 
     /// <summary>The selector and collection lookups scoped to an element.</summary>
-    private void InstallElementSelectionMembers(JSObject target, Dom.Features.ElementSource element)
+    private void InstallElementSelectionMembers(JsValue target, Dom.Features.JsElementSource element)
     {
-        AddPrototypeMethod(target, "querySelector", 1, (in Arguments a) => ObjectOrNull(
-            Dom.Features.SelectorsBinding.QuerySelector(this, element(in a, "querySelector"), StringArgument(in a))));
-        AddPrototypeMethod(target, "querySelectorAll", 1, (in Arguments a) => Dom.Runtime.JsInterop.ToEngineObject(
-            Dom.Features.SelectorsBinding.QuerySelectorAll(this, element(in a, "querySelectorAll"), StringArgument(in a))));
-        AddPrototypeMethod(target, "matches", 1, (in Arguments a) =>
-            Dom.Features.SelectorsBinding.Matches(this, element(in a, "matches"), StringArgument(in a)).AsBoolean
-                ? JSBoolean.True
-                : JSBoolean.False);
-        AddPrototypeMethod(target, "closest", 1, (in Arguments a) => ObjectOrNull(
-            Dom.Features.SelectorsBinding.Closest(this, element(in a, "closest"), StringArgument(in a))));
-        AddPrototypeMethod(target, "getElementsByTagName", 1, (in Arguments a) => Dom.Runtime.JsInterop.ToEngineObject(
-            Dom.Features.SelectorsBinding.GetElementsByTagName(this, element(in a, "getElementsByTagName"), StringArgument(in a))));
-        AddPrototypeMethod(target, "getElementsByClassName", 1, (in Arguments a) => Dom.Runtime.JsInterop.ToEngineObject(
-            Dom.Features.SelectorsBinding.GetElementsByClassName(this, element(in a, "getElementsByClassName"), StringArgument(in a))));
+        AddInterfaceMethod(target, "querySelector", 1, (in call) =>
+            Dom.Features.SelectorsBinding.QuerySelector(this, element(in call, "querySelector"), StringArgument(in call)));
+        AddInterfaceMethod(target, "querySelectorAll", 1, (in call) =>
+            Dom.Features.SelectorsBinding.QuerySelectorAll(this, element(in call, "querySelectorAll"), StringArgument(in call)));
+        AddInterfaceMethod(target, "matches", 1, (in call) =>
+            Dom.Features.SelectorsBinding.Matches(this, element(in call, "matches"), StringArgument(in call)));
+        AddInterfaceMethod(target, "closest", 1, (in call) =>
+            Dom.Features.SelectorsBinding.Closest(this, element(in call, "closest"), StringArgument(in call)));
+        AddInterfaceMethod(target, "getElementsByTagName", 1, (in call) =>
+            Dom.Features.SelectorsBinding.GetElementsByTagName(this, element(in call, "getElementsByTagName"), StringArgument(in call)));
+        AddInterfaceMethod(target, "getElementsByClassName", 1, (in call) =>
+            Dom.Features.SelectorsBinding.GetElementsByClassName(this, element(in call, "getElementsByClassName"), StringArgument(in call)));
     }
 
     /// <summary>
@@ -347,26 +377,14 @@ public sealed partial class DomBridge
     /// wrote — or the empty string when nothing was passed.
     /// </summary>
     /// <remarks>
-    /// The selector and collection members read their argument here rather than inside the migrated
-    /// <see cref="Dom.Features.SelectorsBinding"/>, because this registration site still runs on an
-    /// engine call frame and the module no longer knows one. It is the same read on the same value it
-    /// always was, and it moves inside the module — as <c>call.Realm.ToJsString(call[0])</c> — when
-    /// this file migrates in its turn.
+    /// The selector and collection members read their argument here rather than inside
+    /// <see cref="Dom.Features.SelectorsBinding"/>, because the module's entry points take the string
+    /// their caller has already produced — the sub-document and <c>DocumentFragment</c> forms share
+    /// them. It is the realm's <c>ToString</c> and not the handle's rendering, which is the same read
+    /// on the same value the engine frame performed.
     /// </remarks>
-    private static string StringArgument(in Arguments a) => a.Length > 0 ? a[0].ToString() : string.Empty;
-
-    /// <summary>
-    /// The engine value behind a handle produced by a migrated member that answers an object or
-    /// JavaScript <c>null</c>.
-    /// </summary>
-    /// <remarks>
-    /// The seam (<c>Runtime/JsInterop.cs</c>) is a cast, not a conversion: a handle either carries the
-    /// engine's own object or it carries no reference at all. For these members — a wrapper, a
-    /// collection, or nothing found — "no reference" is exactly <c>null</c>, so the engine's own
-    /// <c>null</c> is what a caller must see.
-    /// </remarks>
-    private static JSValue ObjectOrNull(JsValue value) =>
-        Dom.Runtime.JsInterop.ToEngineValue(value) ?? JSNull.Value;
+    private static string StringArgument(in JsCall call) =>
+        call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
 
     /// <summary>
     /// <c>tagName</c>'s value: upper-cased for an HTML element, verbatim otherwise, which is the rule
@@ -379,7 +397,7 @@ public sealed partial class DomBridge
             : element.TagName;
 
     /// <summary>The element's one <c>DOMTokenList</c>, built on first use.</summary>
-    private JSObject ClassListFor(DomElement element) =>
-        _classLists.GetValue(element, key => Dom.Runtime.JsInterop.ToEngineObject(
-            Dom.Features.ClassListBinding.Build(Realm, key, InvalidateStyleScope)));
+    private JsValue ClassListFor(DomElement element) =>
+        _classLists.GetValue(element, key => new StrongBox<JsValue>(
+            Dom.Features.ClassListBinding.Build(Realm, key, InvalidateStyleScope))).Value;
 }

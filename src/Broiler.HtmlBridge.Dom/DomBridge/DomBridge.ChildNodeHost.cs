@@ -8,6 +8,10 @@ namespace Broiler.HtmlBridge;
 // exposes the child-node argument builder, the side-effecting insertion primitive, style-scope
 // invalidation and the node-iterator / mutation notifications via explicit interface members, so the
 // module never reaches an arbitrary bridge private field and the public surface is unchanged.
+//
+// The engine-framed argument builder is what the mixin's three installers pin: two of them
+// (DomBridge/CharacterDataInterface.cs and DomBridge/JsObjects.NonElementNodes.cs) still hand those
+// members the engine's own frame, so the binding reads it and this seam hands it over unchanged.
 public sealed partial class DomBridge : Dom.Features.IChildNodeHost
 {
     List<DomNode> Dom.Features.IChildNodeHost.BuildChildNodeArgumentNodes(in Arguments arguments)

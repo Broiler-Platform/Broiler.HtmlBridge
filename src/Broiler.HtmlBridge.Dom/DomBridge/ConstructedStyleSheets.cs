@@ -213,12 +213,6 @@ public sealed partial class DomBridge
 
     // -------- engine-typed adapters (see the note at the head of this file) --------
 
-    /// <summary><c>new CSSStyleSheet(options)</c> — an empty constructed stylesheet. Options
-    /// (media/disabled/baseURL) are accepted but not yet modelled; a constructed sheet's rules
-    /// resolve relative <c>url()</c>s against the document base at render time.</summary>
-    private JSObject CreateConstructedStyleSheet(in Arguments a) =>
-        JsInterop.ToEngineObject(BuildConstructedStyleSheetObject([]));
-
     /// <summary>The live <c>document.adoptedStyleSheets</c> array, as its unmigrated getter reads it.</summary>
     private JSObject AdoptedStyleSheetsArray() => JsInterop.ToEngineObject(AdoptedStyleSheets());
 

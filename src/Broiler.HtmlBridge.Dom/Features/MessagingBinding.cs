@@ -1,8 +1,5 @@
 using Broiler.JavaScript.BuiltIns.Array;
 using Broiler.JavaScript.BuiltIns.Array.Typed;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -58,13 +55,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// a <c>DataCloneError</c> that a browser does not raise.
 /// </description></item>
 /// <item><description>
-/// <b>the generic <c>EventTarget</c> dispatch</b>, because the stores it reads are:
+/// <b>listener <em>registration</em> in the generic <c>EventTarget</c> dispatch</b> — not the dispatch
+/// itself, which now builds and stamps the event through the realm. What is left is the stores:
 /// <see cref="EventTargetRegistry"/> keys its listener and owner maps on the engine's objects,
 /// <c>EventListenerRegistration.Listener</c> and <c>EventListenerBinding</c>'s two operations take
 /// engine values, and <c>DomBridge.InvokeEventListener</c> takes one. A listener, and an
 /// <c>addEventListener</c> options argument, are routinely primitives — <c>addEventListener(t, f,
 /// true)</c> — so this edge has the same handle-carries-no-primitive problem as the clone. It moves
-/// when those three do, rather than one call deeper.
+/// when those four do, rather than one call deeper.
 /// </description></item>
 /// </list>
 /// </remarks>
@@ -83,15 +81,29 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     // ==================== Generic EventTarget dispatch ====================
     // Installed on message ports and on sub-windows (the two non-node event targets).
     //
-    // ENGINE-TYPED EDGE. See the third bullet in this class's remarks: every store this section reads
-    // or writes — the listener map, the owner-window map, a registration's listener and the bridge's
-    // listener invoker — is declared in the engine's vocabulary, and the values they carry include
-    // primitives that a JSEAL handle cannot hold. This section migrates when they do.
+    // THE EVENT IS THE REALM'S; THE LISTENER STORE IS STILL THE ENGINE'S. See the third bullet in
+    // this class's remarks. Everything this section does to an event object — reading its type,
+    // stamping target/currentTarget/eventPhase, installing stopPropagation/preventDefault/
+    // composedPath and the two legacy accessors — goes through IJsRealm. Registration does not:
+    // the listener map, the owner-window map, a registration's listener and the bridge's listener
+    // invoker are all declared in the engine's vocabulary, and the values they carry include
+    // primitives that a JSEAL handle cannot hold. That half migrates when those four files do.
 
     /// <summary>Installs <c>addEventListener</c>/<c>removeEventListener</c>/<c>dispatchEvent</c> on a
     /// generic event target (a message port or a sub-window).</summary>
+    /// <remarks>
+    /// The engine-typed parameter is an adapter pinned by <see cref="SubWindowBinding"/> and by
+    /// <see cref="CreateMessagePort"/>'s own engine-typed installation; the handle over it is minted
+    /// once here and is what the migrated operation closes over. The first two operations keep their
+    /// engine argument frame because their listener and options arguments may be primitives; the
+    /// third does not, and is installed through the realm <em>in its original position</em>, because
+    /// property order is what <c>Object.getOwnPropertyNames</c> reports.
+    /// </remarks>
     internal void InstallEventTargetApi(JSObject target, string logContext)
     {
+        var handle = JsInterop.FromEngineObject(target);
+        var realm = _host.Realm;
+
         target.FastAddValue("addEventListener",
             new DomFunction((in a) => AddEventListener(target, in a), "addEventListener", 3),
             JSPropertyAttributes.EnumerableConfigurableValue);
@@ -100,9 +112,8 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
             new DomFunction((in a) => RemoveEventListener(target, in a), "removeEventListener", 3),
             JSPropertyAttributes.EnumerableConfigurableValue);
 
-        target.FastAddValue("dispatchEvent",
-            new DomFunction((in a) => DispatchEvent(logContext, target, in a), "dispatchEvent", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(handle, "dispatchEvent",
+            realm.NewMethod("dispatchEvent", (in call) => DispatchEvent(handle, logContext, in call), 1));
     }
 
     private JSValue AddEventListener(JSObject target, in Arguments a)
@@ -128,11 +139,15 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
         return JSUndefined.Value;
     }
 
-    private JSValue DispatchEvent(string logContext, JSObject target, in Arguments a)
+    /// <remarks>
+    /// <c>!IsObject</c> is the question the former engine-typed pattern match was asking, and it
+    /// covers the no-argument case the same way — a missing argument is not an object.
+    /// </remarks>
+    private JsValue DispatchEvent(JsValue target, string logContext, in JsCall call)
     {
-        if (a.Length == 0 || a[0] is not JSObject evt)
-            return JSBoolean.True;
-        return DispatchEventTarget(target, evt, logContext);
+        if (call.Length == 0 || !call[0].IsObject)
+            return JsValue.True;
+        return DispatchEventTarget(target, call[0], logContext);
     }
 
     private List<EventListenerRegistration> GetOrCreateEventTargetListeners(JSObject target, string type)
@@ -148,50 +163,72 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
         return listeners;
     }
 
-    private JSValue DispatchEventTarget(JSObject target, JSObject evt, string logContext)
+    /// <remarks>
+    /// <para>
+    /// The member <em>order</em> is the order it always was, and it is observable: a page that
+    /// enumerates a dispatched event sees <c>target</c>, <c>currentTarget</c>, <c>eventPhase</c>, the
+    /// three propagation operations, the two legacy accessors and <c>composedPath</c> in exactly this
+    /// sequence. <c>srcElement</c> is a plain write rather than a definition because it always was —
+    /// it is the only member here that goes through the object's own setter path.
+    /// </para>
+    /// <para>
+    /// <c>ToJsString</c> rather than the handle's own rendering for the event type: that read was
+    /// <c>evt["type"].ToString()</c>, which on this engine is the observable ECMAScript coercion and
+    /// may run a <c>toString</c> the page wrote. Only a property that was never installed
+    /// short-circuits, which is what the former <c>?.ToString() ?? "unknown"</c> did.
+    /// </para>
+    /// </remarks>
+    private JsValue DispatchEventTarget(JsValue target, JsValue evt, string logContext)
     {
-        var eventType = evt[(KeyString)"type"]?.ToString() ?? "unknown";
-        evt.FastAddValue("target", target, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt[(KeyString)"srcElement"] = target;
-        evt.FastAddValue("currentTarget", target, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("eventPhase", new JSNumber(2), JSPropertyAttributes.EnumerableConfigurableValue);
+        var realm = _host.Realm;
+
+        var typeValue = realm.GetProperty(evt, "type");
+        var eventType = typeValue.IsMissing ? "unknown" : realm.ToJsString(typeValue);
+
+        realm.DefineValue(evt, "target", target);
+        realm.SetProperty(evt, "srcElement", target);
+        realm.DefineValue(evt, "currentTarget", target);
+        realm.DefineValue(evt, "eventPhase", JsValue.Number(2));
 
         var immediateStopped = false;
-        var prevented = evt[(KeyString)"defaultPrevented"] is JSValue defaultPreventedValue &&
-                        defaultPreventedValue.BooleanValue;
+
+        // AsBoolean, not the realm's coercion: ECMAScript ToBoolean never runs script, so this is the
+        // whole of what the former BooleanValue did — and a property that was never installed reads
+        // back as Missing, which is falsy, exactly as the former engine-typed pattern failing was.
+        var prevented = realm.GetProperty(evt, "defaultPrevented").AsBoolean;
         var currentListenerPassive = false;
         var legacyCancelBubble = false;
-        evt[(KeyString)"defaultPrevented"] = prevented ? JSBoolean.True : JSBoolean.False;
+        realm.SetProperty(evt, "defaultPrevented", JsValue.Boolean(prevented));
 
-        evt.FastAddValue("stopPropagation",
-            new DomFunction((in _) => StopPropagation(ref legacyCancelBubble, in _), "stopPropagation", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "stopPropagation",
+            realm.NewMethod("stopPropagation", (in _) => StopPropagation(ref legacyCancelBubble, in _)));
 
-        evt.FastAddValue("stopImmediatePropagation",
-            new DomFunction((in _) => StopImmediatePropagation(ref immediateStopped, ref legacyCancelBubble, in _), "stopImmediatePropagation", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "stopImmediatePropagation",
+            realm.NewMethod("stopImmediatePropagation",
+                (in _) => StopImmediatePropagation(ref immediateStopped, ref legacyCancelBubble, in _)));
 
-        evt.FastAddValue("preventDefault",
-            new DomFunction((in _) => PreventDefault(currentListenerPassive, evt, ref prevented, in _), "preventDefault", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "preventDefault",
+            realm.NewMethod("preventDefault", (in _) => PreventDefault(currentListenerPassive, evt, ref prevented, in _)));
 
-        evt.FastAddProperty("cancelBubble",
-            new DomFunction((in _) => legacyCancelBubble ? JSBoolean.True : JSBoolean.False, "get cancelBubble"),
-            new DomFunction((in setArgs) => SetCancelBubble(ref legacyCancelBubble, in setArgs), "set cancelBubble"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(evt, "cancelBubble",
+            (in _) => JsValue.Boolean(legacyCancelBubble),
+            (in setArgs) => SetCancelBubble(ref legacyCancelBubble, in setArgs));
 
-        evt.FastAddProperty("returnValue",
-            new DomFunction((in _) => prevented ? JSBoolean.False : JSBoolean.True, "get returnValue"),
-            new DomFunction((in setArgs) => SetReturnValue(currentListenerPassive, evt, ref prevented, in setArgs), "set returnValue"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(evt, "returnValue",
+            (in _) => JsValue.Boolean(!prevented),
+            (in setArgs) => SetReturnValue(currentListenerPassive, evt, ref prevented, in setArgs));
 
-        evt.FastAddValue("composedPath",
-            new DomFunction((in _) => new JSArray(target), "composedPath", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "composedPath",
+            realm.NewMethod("composedPath", (in _) => realm.NewArray([target])));
 
         InvokeEventTargetHandler(target, eventType, evt, logContext);
 
-        if (_eventTargets.TryGetTargetListeners(target, out var listenersByType) &&
+        // The listener store and the invoker are the engine's — see the note at the head of this
+        // section. A handle carries the engine's own object, so unwrapping it is a cast rather than a
+        // conversion, and the registration's listener is never named here because the work is handed
+        // over as an Action instead.
+        var engineEvent = JsInterop.ToEngineObject(evt);
+        if (_eventTargets.TryGetTargetListeners(JsInterop.ToEngineObject(target), out var listenersByType) &&
             listenersByType.TryGetValue(eventType, out var listeners))
         {
             foreach (var registration in listeners.ToList())
@@ -200,7 +237,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
                     break;
 
                 currentListenerPassive = registration.Passive;
-                InvokeEventListenerWithOwner(target, registration.Listener, evt, logContext);
+                RunInOwnerWindow(target, () => DomBridge.InvokeEventListener(registration.Listener, engineEvent, logContext));
                 currentListenerPassive = false;
 
                 if (registration.Once)
@@ -208,78 +245,102 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
             }
         }
 
-        evt[(KeyString)"currentTarget"] = JSNull.Value;
-        evt[(KeyString)"eventPhase"] = new JSNumber(0);
-        return prevented ? JSBoolean.False : JSBoolean.True;
+        realm.SetProperty(evt, "currentTarget", JsValue.Null);
+        realm.SetProperty(evt, "eventPhase", JsValue.Number(0));
+        return JsValue.Boolean(!prevented);
     }
 
-    private void InvokeEventTargetHandler(JSObject target, string eventType, JSObject evt, string logContext)
+    /// <remarks>
+    /// The <c>on…</c> handler is read in the engine's vocabulary on purpose. It is handed to
+    /// <c>DomBridge.InvokeEventListener</c>, which takes an engine value, and a handler a page set to
+    /// a primitive must still reach it: a handle cannot carry one, so a JSEAL read here would have to
+    /// skip the call — which is a no-op either way, but it would also skip the listener-turn bracket
+    /// that invoker opens. The three cases that return early (never installed, <c>null</c>,
+    /// <c>undefined</c>) are the three the former pattern tested.
+    /// </remarks>
+    private void InvokeEventTargetHandler(JsValue target, string eventType, JsValue evt, string logContext)
     {
-        if (target[(KeyString)$"on{eventType}"] is not JSValue handler ||
-            handler.IsNullOrUndefined)
-        {
+        var handler = JsInterop.ToEngineObject(target)[(KeyString)$"on{eventType}"];
+        if (handler is null || handler.IsNullOrUndefined)
             return;
-        }
 
-        InvokeEventListenerWithOwner(target, handler, evt, logContext);
+        var engineEvent = JsInterop.ToEngineObject(evt);
+        RunInOwnerWindow(target, () => DomBridge.InvokeEventListener(handler, engineEvent, logContext));
     }
 
-    private void InvokeEventListenerWithOwner(JSObject target, JSValue listener, JSObject evt, string logContext)
+    /// <summary>
+    /// Runs <paramref name="invoke"/> with the global bindings switched to the window that owns
+    /// <paramref name="target"/>, or as-is when there is none.
+    /// </summary>
+    /// <remarks>
+    /// The owner-window seam speaks handles, so "no owner" arrives as a value that is not an object
+    /// rather than as a CLR null; the branch is the same one. It takes the work as an
+    /// <see cref="Action"/> rather than as a listener because the listener it would otherwise take is
+    /// an engine value, and this method has no other reason to name one.
+    /// </remarks>
+    private void RunInOwnerWindow(JsValue target, Action invoke)
     {
-        // The owner-window seam speaks handles now, so "no owner" arrives as a value that is not an
-        // object rather than as a CLR null; the branch is the same one.
-        var ownerWindow = _host.ResolveOwnerWindow(JsInterop.FromEngineObject(target));
+        var ownerWindow = _host.ResolveOwnerWindow(target);
         if (!ownerWindow.IsObject)
         {
-            DomBridge.InvokeEventListener(listener, evt, logContext);
+            invoke();
             return;
         }
 
-        _host.RunWithWindowContext(ownerWindow, () => DomBridge.InvokeEventListener(listener, evt, logContext));
+        _host.RunWithWindowContext(ownerWindow, invoke);
     }
 
-    private static JSValue StopPropagation(ref bool legacyCancelBubble, in Arguments _)
+    private static JsValue StopPropagation(ref bool legacyCancelBubble, in JsCall _)
     {
         legacyCancelBubble = true;
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue StopImmediatePropagation(ref bool immediateStopped, ref bool legacyCancelBubble, in Arguments _)
+    private static JsValue StopImmediatePropagation(ref bool immediateStopped, ref bool legacyCancelBubble, in JsCall _)
     {
         immediateStopped = true;
         legacyCancelBubble = true;
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue PreventDefault(bool currentListenerPassive, JSObject evt, ref bool prevented, in Arguments _)
+    /// <remarks>
+    /// <c>cancelable</c> is read before the guard, as it always was, so a getter the page installed
+    /// for it runs whether or not the event turns out to be cancelable. A never-installed
+    /// <c>cancelable</c> reads back as <see cref="JsValue.Missing"/>, whose <c>AsBoolean</c> is
+    /// <see langword="false"/> — the same answer the former CLR-null check gave.
+    /// </remarks>
+    private static JsValue PreventDefault(bool currentListenerPassive, JsValue evt, ref bool prevented, in JsCall call)
     {
-        var cancelable = evt[(KeyString)"cancelable"];
-        if (!currentListenerPassive && cancelable != null && cancelable.BooleanValue)
+        var realm = call.Realm;
+        var cancelable = realm.GetProperty(evt, "cancelable");
+        if (!currentListenerPassive && cancelable.AsBoolean)
         {
             prevented = true;
-            evt[(KeyString)"defaultPrevented"] = JSBoolean.True;
+            realm.SetProperty(evt, "defaultPrevented", JsValue.True);
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue SetCancelBubble(ref bool legacyCancelBubble, in Arguments setArgs)
+    private static JsValue SetCancelBubble(ref bool legacyCancelBubble, in JsCall setArgs)
     {
-        if (setArgs.Length > 0 && setArgs[0].BooleanValue)
+        if (setArgs.Length > 0 && setArgs[0].AsBoolean)
             legacyCancelBubble = true;
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue SetReturnValue(bool currentListenerPassive, JSObject evt, ref bool prevented, in Arguments setArgs)
+    /// <inheritdoc cref="PreventDefault"/>
+    private static JsValue SetReturnValue(bool currentListenerPassive, JsValue evt, ref bool prevented, in JsCall setArgs)
     {
-        var cancelable = evt[(KeyString)"cancelable"];
-        if (setArgs.Length > 0 && !setArgs[0].BooleanValue && !currentListenerPassive && cancelable != null && cancelable.BooleanValue)
+        var realm = setArgs.Realm;
+        var cancelable = realm.GetProperty(evt, "cancelable");
+        if (setArgs.Length > 0 && !setArgs[0].AsBoolean && !currentListenerPassive && cancelable.AsBoolean)
         {
             prevented = true;
-            evt[(KeyString)"defaultPrevented"] = JSBoolean.True;
+            realm.SetProperty(evt, "defaultPrevented", JsValue.True);
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     // ==================== window.postMessage ====================
@@ -302,8 +363,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
 
     private JSValue WindowPostMessage(JSObject window, in Arguments a)
     {
-        var targetObject = a.This as JSObject ?? window;
-        var targetWindow = JsInterop.FromEngineObject(targetObject);
+        var targetWindow = JsInterop.FromEngineObject(a.This as JSObject ?? window);
         var sourceWindow = _host.ResolveCurrentWindow();
         var (targetOrigin, ports, cloneOptions, transferredPorts) = GetPostMessageDispatchOptions(a);
         if (!ShouldDeliverWindowMessage(targetWindow, sourceWindow, targetOrigin))
@@ -324,7 +384,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
             else
             {
                 _host.RunWithWindowContext(targetWindow, () =>
-                    DispatchEventTarget(targetObject, JsInterop.ToEngineObject(evt), "DomBridge.window.postMessage"));
+                    DispatchEventTarget(targetWindow, evt, "DomBridge.window.postMessage"));
             }
         });
         return JSUndefined.Value;
@@ -732,17 +792,11 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
         }
     }
 
-    private void DispatchMessagePortEvent(JsValue targetPort, JsValue evt)
-    {
-        var targetOwner = _host.ResolveOwnerWindow(targetPort);
-        if (!targetOwner.IsObject)
-        {
-            DispatchEventTarget(JsInterop.ToEngineObject(targetPort), JsInterop.ToEngineObject(evt), "DomBridge.messagePort.postMessage");
-        }
-        else
-        {
-            _host.RunWithWindowContext(targetOwner, () =>
-                DispatchEventTarget(JsInterop.ToEngineObject(targetPort), JsInterop.ToEngineObject(evt), "DomBridge.messagePort.postMessage"));
-        }
-    }
+    /// <remarks>
+    /// The owner-window branch this used to spell out twice is <see cref="RunInOwnerWindow"/>, which
+    /// is the same two-case decision the listener paths make.
+    /// </remarks>
+    private void DispatchMessagePortEvent(JsValue targetPort, JsValue evt) =>
+        RunInOwnerWindow(targetPort, () =>
+            DispatchEventTarget(targetPort, evt, "DomBridge.messagePort.postMessage"));
 }

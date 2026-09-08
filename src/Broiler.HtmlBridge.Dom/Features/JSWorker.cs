@@ -23,19 +23,56 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// <para>
 /// <b>This is the one file in the messaging/worker group that JSEAL cannot express, and the gap is
-/// exact.</b> It creates a realm — <c>new JSContext()</c> — on a thread it owns, and it moves values
-/// into that realm with the engine's <c>structuredClone</c>. <see cref="JsCapabilities.WorkerRealms"/>
-/// declares that an engine <em>can</em> do both; no contract offers a way to ask it to. A JSEAL
-/// worker-realm seam would have to say four things, and each of them is a decision rather than a
-/// rename: who creates the second realm and on which thread; how a value is cloned <em>out of</em>
-/// one realm and <em>into</em> another, given that the two clones happen on two threads and the
-/// intermediate must be reachable from neither realm's script; what a host holds between the two
-/// clones, since a <see cref="JsValue"/> handle is only meaningful to the realm that minted it; and
-/// what the worker realm's job queue is driven by, given that a provider's realm scope installs its
-/// own pump as the thread's <c>SynchronizationContext</c> — so a worker realm that were merely
-/// <em>adopted</em> rather than created would leave its promise reactions reporting to whatever pump
-/// its context captured when it was built, which is the defect that shape was written to avoid. Until
-/// that seam exists, this file names the engine, and the rest of the group does not.
+/// exact.</b> It builds a realm of its own on a thread it owns, and it moves values into that realm
+/// with the engine's <c>structuredClone</c>. <see cref="JsCapabilities.WorkerRealms"/> declares that
+/// an engine <em>can</em> do both; no contract offers a way to ask it to.
+/// <see cref="IJsEngineProvider.CreateRealm"/> answers the first half of that, and reading what it
+/// hands back is how the five points below are known rather than guessed.
+/// </para>
+/// <para>
+/// <b>What a JSEAL worker-realm-and-clone seam would have to say.</b> Each of these is a decision
+/// about the contract rather than a rename inside this file:
+/// </para>
+/// <list type="number">
+/// <item><description>
+/// <b>Who creates the second realm, and on which thread.</b> A provider can build one; nothing in the
+/// contract says a host may ask for one bound to the thread doing the asking, nor what happens if it
+/// is later touched from another.
+/// </description></item>
+/// <item><description>
+/// <b>How a value is cloned out of one realm and into another.</b> JSEAL declares no clone operation
+/// at all, and this file needs two per message — on two threads, with an intermediate that must be
+/// reachable from neither realm's script, which is what makes post-send mutation invisible.
+/// </description></item>
+/// <item><description>
+/// <b>What the host holds between the two clones.</b> A <see cref="JsValue"/> handle is only
+/// meaningful to the realm that minted it, and a clone's result may be a primitive, for which a handle
+/// carries no engine instance at all (see <c>Runtime/JsInterop.cs</c>). So the inbox cannot be a queue of
+/// handles: the contract would have to name a third thing — a detached, realm-free carrier — and say
+/// who may hold one, and for how long.
+/// </description></item>
+/// <item><description>
+/// <b>How long a realm stays current on a thread.</b> This is the point that decides the file. A
+/// provider makes its realm current for the duration of <em>one contract call</em> and restores the
+/// previous ambient realm on the way out. The engine's <c>structuredClone</c> is not a contract call:
+/// it reads the ambient realm to decide which realm the objects it mints belong to, and that is the
+/// whole mechanism the cross-context clone tests verified. A clone taken between two JSEAL calls would
+/// mint into whatever realm happened to be current rather than the worker's — silently, and on the
+/// path where the two realms are supposed to stop touching. Nothing in JSEAL brackets a host-authored
+/// block with a realm, and adding such a bracket would re-export exactly the ambient state
+/// <see cref="JsCall"/> exists to keep off the contract.
+/// </description></item>
+/// <item><description>
+/// <b>What drives the worker realm's job queue.</b> A realm the provider creates hands its own pump to
+/// the engine, so a promise made in a worker callback reports to a queue that only the host's
+/// <see cref="IJsJobs.DrainJobs"/> empties — and this pump loop does not call it, so adopting the shape
+/// without also deciding that would change when, and whether, a worker's promise reactions run. A
+/// realm merely <em>adopted</em> over this file's own context is worse: the context captured whatever
+/// synchronization context existed when it was built, and that cannot be changed afterwards.
+/// </description></item>
+/// </list>
+/// <para>
+/// Until that seam exists, this file names the engine, and the rest of the group does not.
 /// </para>
 /// <para>
 /// <b>One thread, one context, for the thread's whole life.</b> That is item #15's rule kept rather

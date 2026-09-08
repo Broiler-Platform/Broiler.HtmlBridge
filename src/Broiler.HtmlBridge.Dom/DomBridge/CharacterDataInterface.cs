@@ -1,6 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
 
@@ -23,7 +22,7 @@ namespace Broiler.HtmlBridge;
 /// <para>
 /// This is the first node interface to move, and the mechanism it needs is the general one:
 /// a member on a prototype has no node captured in a closure, so it finds one from its receiver
-/// (<see cref="NodeFromReceiver"/>, over the registry's constant-time reverse map). That is also what
+/// (<see cref="RequireNode"/>, over the registry's constant-time reverse map). That is also what
 /// makes an illegal invocation — <c>Text.prototype.splitText.call({}, 1)</c> — a <c>TypeError</c>
 /// rather than a crash or a silent wrong answer. <c>Range</c>, <c>Selection</c> and <c>Blob</c> are
 /// the same shape with their state in a weak table; a node's state is the node, so the registry that
@@ -59,6 +58,16 @@ namespace Broiler.HtmlBridge;
 /// <c>EventTarget.prototype</c> itself: see <c>DomBridge.EventTargetInterface.cs</c>, which routes
 /// those three by receiver. A text or comment node consequently carries no own properties at all.
 /// </para>
+/// <para>
+/// <b>Two vocabularies for installing a prototype member, and the file says which is which.</b>
+/// <see cref="DefinePrototypeMethod"/> and <see cref="DefinePrototypeAccessor"/> mint through the
+/// realm and are what every member below uses, because every body below calls a migrated binding and
+/// so needs a <see cref="JsCall"/> frame. <see cref="AddPrototypeMethod"/> and
+/// <see cref="AddPrototypeAccessor"/> are the engine-typed pair, kept for
+/// <c>DomBridge/ElementInterface.cs</c> and <c>DomBridge/HtmlElementInterface.cs</c>, whose bodies
+/// still take an <c>Arguments</c>; there is no adapter between two call frames, only between two
+/// object types, so those two sites keep the engine pair until their own bindings migrate.
+/// </para>
 /// </remarks>
 public sealed partial class DomBridge
 {
@@ -81,21 +90,28 @@ public sealed partial class DomBridge
     /// </summary>
     internal void RegisterCharacterDataInterface()
     {
-        if (PrototypeOfInterface("Node") is not { } nodeProto ||
-            PrototypeOfInterface("CharacterData") is not { } characterDataProto ||
-            PrototypeOfInterface("Text") is not { } textProto)
-        {
+        // Asked for one at a time, so that a realm missing `Node` never looks the other two up — the
+        // short-circuit the `is not { } … || …` chain this replaces performed.
+        var nodeProto = PrototypeHandleOfInterface("Node");
+        if (!nodeProto.IsObject)
             return;
-        }
+
+        var characterDataProto = PrototypeHandleOfInterface("CharacterData");
+        if (!characterDataProto.IsObject)
+            return;
+
+        var textProto = PrototypeHandleOfInterface("Text");
+        if (!textProto.IsObject)
+            return;
 
         InstallNodePrototypeMembers(nodeProto);
         InstallCharacterDataPrototypeMembers(characterDataProto);
         InstallElementNamePrototypeMembers();
 
         // Text's alone: a Comment inherits CharacterData and must not answer splitText.
-        AddPrototypeMethod(textProto, "splitText", 1,
-            (in Arguments a) => Dom.Features.CharacterDataBinding.SplitText(
-                this, RequireNode(in a, "Text", "splitText"), in a));
+        DefinePrototypeMethod(textProto, "splitText", 1,
+            (in call) => Dom.Features.CharacterDataBinding.SplitText(
+                this, RequireNode(in call, "Text", "splitText"), in call));
 
         _nodeInterfacePrototypesReady = true;
 
@@ -129,14 +145,18 @@ public sealed partial class DomBridge
     /// </remarks>
     private void DropDocumentNodeMemberCopies()
     {
+        // The document wrapper is still an engine object held by DomBridge.cs; the handle over it is
+        // the same object, so deleting through the realm deletes from what the page holds.
         if (_documentJSObject is not { } document)
             return;
 
+        var handle = Dom.Runtime.JsInterop.FromEngineObject(document);
+
         foreach (var member in new[] { "nodeType", "nodeName", "childNodes", "firstChild", "lastChild" })
-            document.Delete((KeyString)member);
+            Realm.DeleteProperty(handle, member);
 
         foreach (var constant in Dom.Features.NodeConstantsBinding.Names)
-            document.Delete((KeyString)constant);
+            Realm.DeleteProperty(handle, constant);
     }
 
     /// <summary>
@@ -144,13 +164,41 @@ public sealed partial class DomBridge
     /// carried the interfaces. Every other wrapper's chain reaches <c>Node.prototype</c>, which has
     /// all eighteen.
     /// </summary>
-    private void InstallNodeConstantsIfNotInherited(JSObject obj)
+    private void InstallNodeConstantsIfNotInherited(JsValue handle)
     {
         if (!_nodeInterfacePrototypesReady)
-            Dom.Features.NodeConstantsBinding.Install(Realm, Dom.Runtime.JsInterop.FromEngineObject(obj));
+            Dom.Features.NodeConstantsBinding.Install(Realm, handle);
     }
 
-    /// <summary>The prototype object of a registered interface global, if the realm has one.</summary>
+    /// <summary>
+    /// The prototype object of a registered interface global as a JSEAL handle, or
+    /// <see cref="JsValue.Undefined"/> when the realm carries no such interface.
+    /// </summary>
+    /// <remarks>
+    /// The same two property reads <see cref="PrototypeOfInterface"/> makes, through the realm rather
+    /// than through the context — <c>Realm.Global</c> <em>is</em> that context under the Broiler.JS
+    /// provider, so this asks the same object the same question.
+    /// </remarks>
+    private JsValue PrototypeHandleOfInterface(string interfaceName)
+    {
+        var constructor = Realm.GetProperty(Realm.Global, interfaceName);
+        if (!constructor.IsObject)
+            return JsValue.Undefined;
+
+        var prototype = Realm.GetProperty(constructor, "prototype");
+        return prototype.IsObject ? prototype : JsValue.Undefined;
+    }
+
+    /// <summary>
+    /// <see cref="PrototypeHandleOfInterface"/> as the engine object the unmigrated interface
+    /// installers hold.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is an engine-typed adapter and it is pinned from outside.</b>
+    /// <c>DomBridge/ElementInterface.cs</c>, <c>DomBridge/HtmlElementInterface.cs</c> and
+    /// <c>DomBridge/EventTargetInterface.cs</c> each take the prototype as a <c>JSObject</c> and
+    /// install onto it with the engine pair below; it goes when they do.
+    /// </remarks>
     private JSObject? PrototypeOfInterface(string interfaceName) =>
         _jsContext?[interfaceName] is JSObject constructor
             ? constructor[(KeyString)"prototype"] as JSObject
@@ -161,58 +209,61 @@ public sealed partial class DomBridge
     /// though only character-data wrappers read them today — an element or document shadows each one
     /// with its own copy until it is migrated too.
     /// </summary>
-    private void InstallNodePrototypeMembers(JSObject proto)
+    private void InstallNodePrototypeMembers(JsValue proto)
     {
-        AddPrototypeAccessor(proto, "nodeType",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetNodeType(RequireNode(in a, "Node", "nodeType"), in a));
-        AddPrototypeAccessor(proto, "nodeName",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetNodeName(RequireNode(in a, "Node", "nodeName"), in a));
+        DefinePrototypeAccessor(proto, "nodeType",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetNodeType(RequireNode(in call, "Node", "nodeType"), in call));
+        DefinePrototypeAccessor(proto, "nodeName",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetNodeName(RequireNode(in call, "Node", "nodeName"), in call));
 
-        AddPrototypeAccessor(proto, "nodeValue",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetNodeValue(RequireNode(in a, "Node", "nodeValue"), in a),
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, RequireNode(in a, "Node", "nodeValue"), in a));
-        AddPrototypeAccessor(proto, "textContent",
-            (in Arguments a) => GetNodeTextValue(RequireNode(in a, "Node", "textContent")),
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, RequireNode(in a, "Node", "textContent"), in a));
+        DefinePrototypeAccessor(proto, "nodeValue",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetNodeValue(RequireNode(in call, "Node", "nodeValue"), in call),
+            (in call) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, RequireNode(in call, "Node", "nodeValue"), in call));
+        DefinePrototypeAccessor(proto, "textContent",
+            // JsValue.String turns the "no text at all" null into JavaScript null, which is the
+            // distinction DOM §4.4 draws for a document and a doctype — the same value the engine-typed
+            // GetNodeTextValue adapter produces for the sites that still take an engine value.
+            (in call) => JsValue.String(NodeTextOrNull(RequireNode(in call, "Node", "textContent"))),
+            (in call) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, RequireNode(in call, "Node", "textContent"), in call));
 
-        AddPrototypeAccessor(proto, "parentNode", (in Arguments a) =>
+        DefinePrototypeAccessor(proto, "parentNode", (in call) =>
         {
-            var node = RequireNode(in a, "Node", "parentNode");
-            return node.ParentNode != null ? ToJSObject(node.ParentNode) : JSNull.Value;
+            var node = RequireNode(in call, "Node", "parentNode");
+            return node.ParentNode != null ? WrapNode(node.ParentNode) : JsValue.Null;
         });
-        AddPrototypeAccessor(proto, "parentElement",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetParentElement(this, RequireNode(in a, "Node", "parentElement"), in a));
-        AddPrototypeAccessor(proto, "isConnected",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetIsConnected(this, RequireNode(in a, "Node", "isConnected"), in a));
-        AddPrototypeAccessor(proto, "childNodes",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetChildNodes(this, RequireNode(in a, "Node", "childNodes"), in a));
-        AddPrototypeAccessor(proto, "firstChild",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetFirstChild(this, RequireNode(in a, "Node", "firstChild"), in a));
-        AddPrototypeAccessor(proto, "lastChild",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetLastChild(this, RequireNode(in a, "Node", "lastChild"), in a));
-        AddPrototypeAccessor(proto, "nextSibling",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetNextSibling(this, RequireNode(in a, "Node", "nextSibling"), in a));
-        AddPrototypeAccessor(proto, "previousSibling",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetPreviousSibling(this, RequireNode(in a, "Node", "previousSibling"), in a));
-        AddPrototypeAccessor(proto, "ownerDocument",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetOwnerDocument(this, RequireNode(in a, "Node", "ownerDocument"), in a));
+        DefinePrototypeAccessor(proto, "parentElement",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetParentElement(this, RequireNode(in call, "Node", "parentElement"), in call));
+        DefinePrototypeAccessor(proto, "isConnected",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(this, RequireNode(in call, "Node", "isConnected"), in call));
+        DefinePrototypeAccessor(proto, "childNodes",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetChildNodes(this, RequireNode(in call, "Node", "childNodes"), in call));
+        DefinePrototypeAccessor(proto, "firstChild",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetFirstChild(this, RequireNode(in call, "Node", "firstChild"), in call));
+        DefinePrototypeAccessor(proto, "lastChild",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetLastChild(this, RequireNode(in call, "Node", "lastChild"), in call));
+        DefinePrototypeAccessor(proto, "nextSibling",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetNextSibling(this, RequireNode(in call, "Node", "nextSibling"), in call));
+        DefinePrototypeAccessor(proto, "previousSibling",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetPreviousSibling(this, RequireNode(in call, "Node", "previousSibling"), in call));
+        DefinePrototypeAccessor(proto, "ownerDocument",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetOwnerDocument(this, RequireNode(in call, "Node", "ownerDocument"), in call));
 
-        AddPrototypeMethod(proto, "hasChildNodes", 0, (in Arguments a) =>
-            RequireNode(in a, "Node", "hasChildNodes").ChildNodes.Count > 0 ? JSBoolean.True : JSBoolean.False);
-        AddPrototypeMethod(proto, "cloneNode", 1,
-            (in Arguments a) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, RequireNode(in a, "Node", "cloneNode"), in a));
-        AddPrototypeMethod(proto, "contains", 1,
-            (in Arguments a) => Dom.Features.NodeRelationshipsBinding.Contains(this, RequireNode(in a, "Node", "contains"), in a));
-        AddPrototypeMethod(proto, "compareDocumentPosition", 1,
-            (in Arguments a) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, RequireNode(in a, "Node", "compareDocumentPosition"), in a));
-        AddPrototypeMethod(proto, "isSameNode", 1,
-            (in Arguments a) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, RequireNode(in a, "Node", "isSameNode"), in a));
-        AddPrototypeMethod(proto, "isEqualNode", 1,
-            (in Arguments a) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, RequireNode(in a, "Node", "isEqualNode"), in a));
-        AddPrototypeMethod(proto, "getRootNode", 1,
-            (in Arguments a) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, RequireNode(in a, "Node", "getRootNode"), in a));
-        AddPrototypeMethod(proto, "normalize", 0,
-            (in Arguments a) => Dom.Features.NodeRelationshipsBinding.Normalize(this, RequireNode(in a, "Node", "normalize"), in a));
+        DefinePrototypeMethod(proto, "hasChildNodes", 0, (in call) =>
+            JsValue.Boolean(RequireNode(in call, "Node", "hasChildNodes").ChildNodes.Count > 0));
+        DefinePrototypeMethod(proto, "cloneNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, RequireNode(in call, "Node", "cloneNode"), in call));
+        DefinePrototypeMethod(proto, "contains", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, RequireNode(in call, "Node", "contains"), in call));
+        DefinePrototypeMethod(proto, "compareDocumentPosition", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, RequireNode(in call, "Node", "compareDocumentPosition"), in call));
+        DefinePrototypeMethod(proto, "isSameNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, RequireNode(in call, "Node", "isSameNode"), in call));
+        DefinePrototypeMethod(proto, "isEqualNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, RequireNode(in call, "Node", "isEqualNode"), in call));
+        DefinePrototypeMethod(proto, "getRootNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, RequireNode(in call, "Node", "getRootNode"), in call));
+        DefinePrototypeMethod(proto, "normalize", 0,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, RequireNode(in call, "Node", "normalize"), in call));
     }
 
     /// <summary>
@@ -231,15 +282,16 @@ public sealed partial class DomBridge
     /// </remarks>
     private void InstallElementNamePrototypeMembers()
     {
-        if (PrototypeOfInterface("Element") is not { } proto)
+        var proto = PrototypeHandleOfInterface("Element");
+        if (!proto.IsObject)
             return;
 
-        AddPrototypeAccessor(proto, "localName",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetLocalName(RequireNode(in a, "Element", "localName"), in a));
-        AddPrototypeAccessor(proto, "prefix",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetPrefix(RequireNode(in a, "Element", "prefix"), in a));
-        AddPrototypeAccessor(proto, "namespaceURI",
-            (in Arguments a) => Dom.Features.NodeAccessorsBinding.GetNamespaceURI(RequireNode(in a, "Element", "namespaceURI"), in a));
+        DefinePrototypeAccessor(proto, "localName",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetLocalName(RequireNode(in call, "Element", "localName"), in call));
+        DefinePrototypeAccessor(proto, "prefix",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetPrefix(RequireNode(in call, "Element", "prefix"), in call));
+        DefinePrototypeAccessor(proto, "namespaceURI",
+            (in call) => Dom.Features.NodeAccessorsBinding.GetNamespaceURI(RequireNode(in call, "Element", "namespaceURI"), in call));
     }
 
     /// <summary>
@@ -247,32 +299,40 @@ public sealed partial class DomBridge
     /// which the mixin gives to <c>CharacterData</c>, <c>Element</c> and <c>DocumentType</c>
     /// separately, so they belong here rather than on <c>Node.prototype</c>.
     /// </summary>
-    private void InstallCharacterDataPrototypeMembers(JSObject proto)
+    /// <remarks>
+    /// The four <c>ChildNode</c> members are the one group here still minted by the engine:
+    /// <c>ChildNodeBinding</c> takes an engine argument frame, and a member cannot be minted by the
+    /// realm while the body it would call takes an <c>Arguments</c>. They move when it does; installing
+    /// them onto the same prototype through the other pair keeps the member order unchanged meanwhile.
+    /// </remarks>
+    private void InstallCharacterDataPrototypeMembers(JsValue proto)
     {
-        AddPrototypeAccessor(proto, "data",
-            (in Arguments a) => Dom.Features.CharacterDataBinding.GetData(RequireNode(in a, "CharacterData", "data"), in a),
-            (in Arguments a) => Dom.Features.CharacterDataBinding.SetData(this, RequireNode(in a, "CharacterData", "data"), in a));
-        AddPrototypeAccessor(proto, "length",
-            (in Arguments a) => Dom.Features.CharacterDataBinding.GetLength(RequireNode(in a, "CharacterData", "length"), in a));
+        DefinePrototypeAccessor(proto, "data",
+            (in call) => Dom.Features.CharacterDataBinding.GetData(RequireNode(in call, "CharacterData", "data"), in call),
+            (in call) => Dom.Features.CharacterDataBinding.SetData(this, RequireNode(in call, "CharacterData", "data"), in call));
+        DefinePrototypeAccessor(proto, "length",
+            (in call) => Dom.Features.CharacterDataBinding.GetLength(RequireNode(in call, "CharacterData", "length"), in call));
 
-        AddPrototypeMethod(proto, "substringData", 2,
-            (in Arguments a) => Dom.Features.CharacterDataBinding.SubstringData(this, RequireNode(in a, "CharacterData", "substringData"), in a));
-        AddPrototypeMethod(proto, "appendData", 1,
-            (in Arguments a) => Dom.Features.CharacterDataBinding.AppendData(this, RequireNode(in a, "CharacterData", "appendData"), in a));
-        AddPrototypeMethod(proto, "deleteData", 2,
-            (in Arguments a) => Dom.Features.CharacterDataBinding.DeleteData(this, RequireNode(in a, "CharacterData", "deleteData"), in a));
-        AddPrototypeMethod(proto, "insertData", 2,
-            (in Arguments a) => Dom.Features.CharacterDataBinding.InsertData(this, RequireNode(in a, "CharacterData", "insertData"), in a));
-        AddPrototypeMethod(proto, "replaceData", 3,
-            (in Arguments a) => Dom.Features.CharacterDataBinding.ReplaceData(this, RequireNode(in a, "CharacterData", "replaceData"), in a));
+        DefinePrototypeMethod(proto, "substringData", 2,
+            (in call) => Dom.Features.CharacterDataBinding.SubstringData(this, RequireNode(in call, "CharacterData", "substringData"), in call));
+        DefinePrototypeMethod(proto, "appendData", 1,
+            (in call) => Dom.Features.CharacterDataBinding.AppendData(this, RequireNode(in call, "CharacterData", "appendData"), in call));
+        DefinePrototypeMethod(proto, "deleteData", 2,
+            (in call) => Dom.Features.CharacterDataBinding.DeleteData(this, RequireNode(in call, "CharacterData", "deleteData"), in call));
+        DefinePrototypeMethod(proto, "insertData", 2,
+            (in call) => Dom.Features.CharacterDataBinding.InsertData(this, RequireNode(in call, "CharacterData", "insertData"), in call));
+        DefinePrototypeMethod(proto, "replaceData", 3,
+            (in call) => Dom.Features.CharacterDataBinding.ReplaceData(this, RequireNode(in call, "CharacterData", "replaceData"), in call));
 
-        AddPrototypeMethod(proto, "remove", 0,
+        var engineProto = Dom.Runtime.JsInterop.ToEngineObject(proto);
+
+        AddPrototypeMethod(engineProto, "remove", 0,
             (in Arguments a) => Dom.Features.ChildNodeBinding.Remove(this, RequireNode(in a, "CharacterData", "remove"), in a));
-        AddPrototypeMethod(proto, "before", 0,
+        AddPrototypeMethod(engineProto, "before", 0,
             (in Arguments a) => Dom.Features.ChildNodeBinding.Before(this, RequireNode(in a, "CharacterData", "before"), in a));
-        AddPrototypeMethod(proto, "after", 0,
+        AddPrototypeMethod(engineProto, "after", 0,
             (in Arguments a) => Dom.Features.ChildNodeBinding.After(this, RequireNode(in a, "CharacterData", "after"), in a));
-        AddPrototypeMethod(proto, "replaceWith", 0,
+        AddPrototypeMethod(engineProto, "replaceWith", 0,
             (in Arguments a) => Dom.Features.ChildNodeBinding.ReplaceWith(this, RequireNode(in a, "CharacterData", "replaceWith"), in a));
     }
 
@@ -280,6 +340,26 @@ public sealed partial class DomBridge
     /// The node a prototype member was called on, or a <c>TypeError</c> naming the interface and the
     /// member when the receiver is not a node wrapper — which is what a browser answers for
     /// <c>Text.prototype.splitText.call({}, 1)</c>.
+    /// </summary>
+    private DomNode RequireNode(in JsCall call, string interfaceName, string member)
+    {
+        // The reverse map is keyed on the engine object, which an object handle carries; a non-object
+        // receiver answers no node without asking, which is the branch the `is JSObject` test took.
+        if (call.This.IsObject &&
+            _jsObjects.TryGetNode(Dom.Runtime.JsInterop.ToEngineObject(call.This), out var node))
+        {
+            return node;
+        }
+
+        throw call.Realm.Error(
+            JsErrorKind.TypeError,
+            $"Failed to execute '{member}' on '{interfaceName}': Illegal invocation");
+    }
+
+    /// <summary>
+    /// <see cref="RequireNode(in JsCall, string, string)"/> for a member whose body still takes an
+    /// engine argument frame — the four <c>ChildNode</c> mixin operations, and the ones
+    /// <c>DomBridge/ElementInterface.cs</c> installs.
     /// </summary>
     private DomNode RequireNode(in Arguments a, string interfaceName, string member)
     {
@@ -290,17 +370,42 @@ public sealed partial class DomBridge
             $"Failed to execute '{member}' on '{interfaceName}': Illegal invocation");
     }
 
-    /// <summary>Adds a WebIDL operation to an interface prototype.</summary>
+    /// <summary>Adds a WebIDL operation to an interface prototype, through the realm.</summary>
     /// <remarks>
-    /// Enumerable and configurable but not writable-as-data is what the instance properties were, and
-    /// what Web IDL asks for on a prototype; keeping the same attributes means only the *location* of
-    /// the member changes.
+    /// <see cref="JsPropertyFlags.Default"/> is enumerable, configurable and writable — what the
+    /// instance properties were and what Web IDL asks for on a prototype; keeping the same attributes
+    /// means only the *location* of the member changes.
+    /// </remarks>
+    private void DefinePrototypeMethod(JsValue proto, string name, int length, JsNativeFunction body) =>
+        Realm.DefineValue(proto, name, Realm.NewMethod(name, body, length));
+
+    /// <summary>Adds a WebIDL attribute to an interface prototype, read-only unless a setter is given.</summary>
+    /// <remarks>
+    /// A null <paramref name="setter"/> is how a read-only IDL attribute is spelled, and the realm
+    /// names the pair <c>get name</c>/<c>set name</c> — the names the engine-typed pair below gave
+    /// them explicitly.
+    /// </remarks>
+    private void DefinePrototypeAccessor(JsValue proto, string name,
+        JsNativeFunction getter, JsNativeFunction? setter = null) =>
+        Realm.DefineAccessor(proto, name, getter, setter);
+
+    /// <summary>Adds a WebIDL operation to an interface prototype, with the engine's argument frame.</summary>
+    /// <remarks>
+    /// <b>An engine-typed adapter, pinned by the interface installers that have not migrated.</b>
+    /// <c>DomBridge/ElementInterface.cs</c> and <c>DomBridge/HtmlElementInterface.cs</c> pass bodies
+    /// taking an <c>Arguments</c>, and there is no adapter between two call frames — only between two
+    /// object types — so this stays until they move. Enumerable and configurable but not
+    /// writable-as-data is what the instance properties were, and what Web IDL asks for on a prototype.
     /// </remarks>
     private static void AddPrototypeMethod(JSObject proto, string name, int length, JSFunctionDelegate body) =>
         proto.FastAddValue(name, new DomFunction(body, name, length),
             JSPropertyAttributes.EnumerableConfigurableValue);
 
-    /// <summary>Adds a WebIDL attribute to an interface prototype, read-only unless a setter is given.</summary>
+    /// <summary>
+    /// Adds a WebIDL attribute to an interface prototype with the engine's argument frame, read-only
+    /// unless a setter is given. The engine-typed sibling of
+    /// <see cref="DefinePrototypeAccessor"/>; see <see cref="AddPrototypeMethod"/> for what pins it.
+    /// </summary>
     private static void AddPrototypeAccessor(JSObject proto, string name,
         JSFunctionDelegate getter, JSFunctionDelegate? setter = null) =>
         proto.FastAddProperty(name,

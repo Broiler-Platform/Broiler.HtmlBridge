@@ -1,11 +1,14 @@
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
+using System.Runtime.InteropServices;
 using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 using Broiler.CSS;
+
+// Engine-typed for the one adapter at the foot of this file. DomBridge.WebAnimations.cs's
+// ElementAnimate returns the engine's own value type and hands back what this builds, and that file
+// is not owned this round.
+using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -16,15 +19,15 @@ public sealed partial class DomBridge
     // a per-bridge instance table, owned by the session's bridge. Still an element-keyed
     // ConditionalWeakTable, so it GCs with the element and the cloneNode copy (see CloneDomElement) is
     // preserved. The one static caller (the AnimationObjectBinding currentTime get/set feature
-    // callbacks) is threaded the resolved AnimationRuntimeState by the now-instance BuildAnimationObject.
+    // callbacks) is threaded the resolved AnimationRuntimeState by the now-instance BuildAnimation.
     private readonly ConditionalWeakTable<DomElement, AnimationRuntimeState> _animationRuntimeStates = [];
 
     private AnimationRuntimeState AnimationStateFor(DomElement element) =>
         _animationRuntimeStates.GetValue(element, static _ => new AnimationRuntimeState());
 
-    private JSArray BuildAnimationList(DomElement? target)
+    private JsValue BuildAnimationList(DomElement? target)
     {
-        var animations = new List<JSValue>();
+        var animations = new List<JsValue>();
         foreach (var element in Elements)
         {
             if (IsText(element) || IsComment(element))
@@ -36,10 +39,12 @@ public sealed partial class DomBridge
                 continue;
 
             EnsureAnimationCurrentTime(element, animationShorthand, animationDelay);
-            animations.Add(BuildAnimationObject(element));
+            animations.Add(BuildAnimation(element));
         }
 
-        return new JSArray(animations);
+        // The list's own storage, not a copy of it: NewArray takes a span and materialises the array
+        // from it, which is the same one pass the engine's list constructor made.
+        return Realm.NewArray(CollectionsMarshal.AsSpan(animations));
     }
 
     private bool TryGetAnimationProperties(
@@ -96,15 +101,20 @@ public sealed partial class DomBridge
         AnimationStateFor(element).CurrentTimeMilliseconds.Set(currentTimeMs);
     }
 
-    private JSObject BuildAnimationObject(DomElement element)
+    /// <summary>
+    /// One <c>Animation</c> object for <paramref name="element"/>: its <c>currentTime</c> accessor
+    /// pair and the <c>ready</c> thenable.
+    /// </summary>
+    /// <remarks>
+    /// The surface is the co-located AnimationObjectBinding feature module (Phase 3), written against
+    /// JSEAL — so the object, its accessor pair and the two ready-promise methods are minted by the
+    /// realm, which names the accessors "get/set currentTime" and makes every function
+    /// non-constructable exactly as the bridge's own native-callable type did. currentTime reads and writes
+    /// the element's per-bridge animation timeline; it is resolved once here (a stable
+    /// ConditionalWeakTable identity for this element and bridge) and handed to the callbacks.
+    /// </remarks>
+    private JsValue BuildAnimation(DomElement element)
     {
-        // The animation-object currentTime/ready.then surface is the co-located AnimationObjectBinding
-        // feature module (Phase 3), now written against JSEAL — so the object, its accessor pair and the
-        // two ready-promise methods are minted by the realm (which names the accessors "get/set
-        // currentTime" and makes every function non-constructable, as DomFunction did here) and handed
-        // back to this still-engine-typed caller through the JsInterop seam. currentTime reads/writes
-        // the element's per-bridge animation timeline; resolve it once here (stable CWT identity for
-        // this element/bridge) and hand it to the callbacks.
         var realm = Realm;
         var animation = realm.NewObject();
         var animationState = AnimationStateFor(element);
@@ -121,7 +131,19 @@ public sealed partial class DomBridge
             realm.NewMethod("catch", (in _) => ready, 1));
 
         realm.DefineValue(animation, "ready", ready);
-        return JsInterop.ToEngineObject(animation);
+        return animation;
     }
 
+    /// <summary>
+    /// <see cref="BuildAnimation"/> as the engine object <c>element.animate()</c> hands back.
+    /// </summary>
+    /// <remarks>
+    /// The engine-typed adapter, pinned by <c>DomBridge.WebAnimations.cs</c>: <c>ElementAnimate</c>
+    /// is an engine callback that returns the engine's own value type, and that file belongs to
+    /// another group. A JSEAL object handle carries the engine's object rather than wrapping it, so
+    /// this is a cast and not a conversion — the Animation a page gets from <c>animate()</c> and the
+    /// one it finds in <c>getAnimations()</c> are built by the same code.
+    /// </remarks>
+    private JSObject BuildAnimationObject(DomElement element) =>
+        JsInterop.ToEngineObject(BuildAnimation(element));
 }

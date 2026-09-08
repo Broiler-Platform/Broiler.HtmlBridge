@@ -29,6 +29,25 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// through one <c>load.php</c> bundle, so the abort took the entire bundle with it (ResourceLoader,
 /// the Vector skin's scripts and every module queued behind them) off one identifier.
 /// </para>
+/// <para>
+/// <b>This is the one object that completes its own property lookup and has not become an
+/// <see cref="Jseal.IJsExotic"/>, and there are two independent reasons.</b> The first is that
+/// nothing here has a realm to mint an object in: <c>DomBridge/Registration/Window.cs</c> builds both
+/// areas with <c>WebStorageBinding.BuildStorage()</c> — no realm, no context, no argument at all —
+/// and that file belongs to another slice, so a parameter cannot be added to the call from here.
+/// Every member below needs a realm, so the whole module waits on that call site rather than half of
+/// it.
+/// </para>
+/// <para>
+/// The second reason would outlive the first being fixed. <c>Storage</c> is the only one of the six
+/// lookup-completing objects whose behaviour includes a <em>deletion</em>: the override on
+/// <see cref="StorageObject"/> takes <c>delete localStorage.foo</c> out of the backing map, so
+/// <c>getItem</c> stops answering for it and <c>length</c> and <c>key(n)</c> stop counting it.
+/// <see cref="Jseal.IJsExotic"/> declares hooks for a named read, an indexed read and a named write,
+/// and none for a delete — so converting as the contract stands would leave the ordinary property
+/// deleted and the item still in the store, which is a wrong answer rather than a missing feature.
+/// The contract needs a delete hook before this object can move; reported rather than worked around.
+/// </para>
 /// </remarks>
 internal static class WebStorageBinding
 {

@@ -1,6 +1,9 @@
 using System;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
-using Broiler.JavaScript.BuiltIns.Boolean;
+
+// Engine-typed only for the Location object itself — see the last paragraph of the class remarks for
+// which two callers pin it.
 using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
@@ -64,6 +67,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// navigation the document did not change, so neither did its origin, host or path, and a
 /// <c>location.pathname</c> that answers for a document nobody loaded is a harder thing to debug
 /// than one that answers for the document actually in hand.
+/// </para>
+/// <para>
+/// <b>The Location object is still built as an engine object, and that is a caller's constraint rather
+/// than this module's.</b> Both entry points hand one over or hand one back: <c>Registration/Window.cs</c>
+/// builds the top-level Location itself and passes it to <see cref="AddNavigationSurface"/>, and
+/// <c>SubWindowBinding</c> asks <see cref="Build"/> for a frame's. Neither can supply an
+/// <see cref="IJsRealm"/> — the second is a static call with no host at all — and an engine argument
+/// frame cannot be lifted into a <see cref="JsCall"/>, so the property installers and their argument
+/// reads stay engine-typed until those two callers migrate. Everything that does not need to mint an
+/// object is JSEAL's: the host contract, and the <c>hashchange</c> event a fragment navigation fires.
 /// </para>
 /// </summary>
 internal static class LocationBinding
@@ -300,12 +313,13 @@ internal static class LocationBinding
         if (host == null)
             return;
 
-        var evt = new JSObject();
-        evt.FastAddValue("type", new JSString("hashchange"), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("cancelable", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("oldURL", new JSString(oldUrl), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("newURL", new JSString(newUrl), JSPropertyAttributes.EnumerableConfigurableValue);
+        var realm = host.Realm;
+        var evt = realm.NewObject();
+        realm.DefineValue(evt, "type", JsValue.String("hashchange"));
+        realm.DefineValue(evt, "bubbles", JsValue.False);
+        realm.DefineValue(evt, "cancelable", JsValue.False);
+        realm.DefineValue(evt, "oldURL", JsValue.String(oldUrl));
+        realm.DefineValue(evt, "newURL", JsValue.String(newUrl));
 
         try
         {

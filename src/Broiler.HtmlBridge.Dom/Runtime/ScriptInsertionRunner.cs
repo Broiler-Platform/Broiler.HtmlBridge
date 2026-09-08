@@ -113,7 +113,7 @@ internal sealed class ScriptInsertionRunner
 
     private void OnDocumentMutation(DomMutationRecord record)
     {
-        if (_pending.Count == 0 || _host.MutationDeliverySuppressed || !_host.HasJsContext)
+        if (_pending.Count == 0 || _host.MutationDeliverySuppressed || !_host.HasRealm)
             return;
 
         // A ChildList record may have connected a pending script (directly, or by attaching a

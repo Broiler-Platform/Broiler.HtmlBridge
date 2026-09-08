@@ -1,11 +1,7 @@
 
 using Broiler.CSS;
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge;
@@ -120,23 +116,26 @@ public sealed partial class DomBridge
     /// reftests gate their screenshot on <c>ready</c>, so resolving synchronously lets that fire once
     /// the new DOM is in place.
     /// </summary>
-    internal JSValue StartViewTransition(in Arguments a)
+    /// <param name="options">
+    /// The one argument the operation takes: the update callback, the dictionary carrying it, or
+    /// <see cref="JsValue.Missing"/> when the page passed nothing.
+    /// </param>
+    internal JsValue StartViewTransition(JsValue options)
     {
+        var realm = Realm;
         var state = new ViewTransitionState();
-        JSFunction? updateCallback = null;
+        var updateCallback = JsValue.Missing;
 
-        if (a.Length > 0)
+        if (options.IsFunction)
         {
-            if (a[0] is JSFunction fn)
-            {
-                updateCallback = fn;
-            }
-            else if (a[0] is JSObject options)
-            {
-                if (options[(KeyString)"update"] is JSFunction updateFn)
-                    updateCallback = updateFn;
-                CollectViewTransitionTypes(options[(KeyString)"types"], state.Types);
-            }
+            updateCallback = options;
+        }
+        else if (options.IsObject)
+        {
+            var update = realm.GetProperty(options, "update");
+            if (update.IsFunction)
+                updateCallback = update;
+            CollectViewTransitionTypes(realm, realm.GetProperty(options, "types"), state.Types);
         }
 
         _activeViewTransition = state;
@@ -158,11 +157,13 @@ public sealed partial class DomBridge
                 $"Old view-transition capture failed: {ex.Message}", ex);
         }
 
-        if (updateCallback is not null)
+        if (updateCallback.IsFunction)
         {
             try
             {
-                updateCallback.InvokeFunction(new Arguments(updateCallback));
+                // The callback is its own receiver — what the engine-typed call frame this replaces
+                // passed, and what every thenable below still passes.
+                realm.Invoke(updateCallback, updateCallback);
             }
             catch (System.Exception ex)
             {
@@ -176,75 +177,104 @@ public sealed partial class DomBridge
 
     /// <summary>Reads the <c>types</c> option — a JS array/iterable of strings — into
     /// <paramref name="into"/>. Absent or non-array values contribute nothing.</summary>
-    private static void CollectViewTransitionTypes(JSValue? types, HashSet<string> into)
+    /// <remarks>
+    /// Both reads are the engine's own coercions rather than the handle's cheap ones: <c>length</c>
+    /// goes through <c>ToNumber</c> and each entry through <c>ToString</c>, because the dictionary is
+    /// the page's and either member may be a string — or an object with a <c>valueOf</c>/
+    /// <c>toString</c>. That is exactly what the <c>DoubleValue</c>/<c>ToString()</c> this replaces
+    /// did on this engine, both of which run the coercion rather than reading a field.
+    /// </remarks>
+    private static void CollectViewTransitionTypes(IJsRealm realm, JsValue types, HashSet<string> into)
     {
-        if (types is not JSObject arrayLike)
+        if (!types.IsObject)
             return;
 
-        var lengthValue = arrayLike[(KeyString)"length"];
-        if (lengthValue is null || lengthValue.IsUndefined)
+        var lengthValue = realm.GetProperty(types, "length");
+        if (lengthValue.IsMissing || lengthValue.IsUndefined)
             return;
 
-        var length = (int)lengthValue.DoubleValue;
+        var length = (int)realm.ToNumber(lengthValue);
         for (var i = 0; i < length; i++)
         {
-            var item = arrayLike[(uint)i];
-            if (item is not null && !item.IsUndefined && !item.IsNull)
-                into.Add(item.ToString());
+            var item = realm.GetIndex(types, (uint)i);
+            if (!item.IsNullish)
+                into.Add(realm.ToJsString(item));
         }
     }
 
-    private JSObject BuildViewTransitionObject(ViewTransitionState state)
+    private JsValue BuildViewTransitionObject(ViewTransitionState state)
     {
-        var transition = new JSObject();
-        transition.FastAddValue("ready", ReadyThenable(state), JSPropertyAttributes.EnumerableConfigurableValue);
+        var realm = Realm;
+        var transition = realm.NewObject();
+        realm.DefineValue(transition, "ready", ReadyThenable(state));
         // `finished` resolving means the transition is over: the ::view-transition tree has been
         // removed and the DOM is back to its plain final state. A reftest that screenshots from
         // finished (rather than ready) therefore expects the final DOM, not the pseudo tree — so
         // realizing this thenable clears the active transition, and the serialize-time bake becomes
         // a no-op (WPT element-stops-grouping-after-animation).
-        transition.FastAddValue("finished", FinishedThenable(), JSPropertyAttributes.EnumerableConfigurableValue);
-        transition.FastAddValue("updateCallbackDone", ResolvedThenable(), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(transition, "finished", FinishedThenable());
+        realm.DefineValue(transition, "updateCallbackDone", ResolvedThenable());
 
-        var typesArray = new JavaScript.BuiltIns.Array.JSArray();
+        var types = new JsValue[state.Types.Count];
+        var next = 0;
         foreach (var type in state.Types)
-            typesArray.Add(new JavaScript.BuiltIns.String.JSString(type));
-        transition.FastAddValue("types", typesArray, JSPropertyAttributes.EnumerableConfigurableValue);
+            types[next++] = JsValue.String(type);
+        realm.DefineValue(transition, "types", realm.NewArray(types));
 
         // skipTransition() ends the transition without animating; the still is already the final
         // state here, so it is a no-op beyond clearing the active state.
-        transition.FastAddValue("skipTransition",
-            new DomFunction((in _) => { _activeViewTransition = null; return JSUndefined.Value; }, "skipTransition", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(transition, "skipTransition",
+            realm.NewMethod("skipTransition", (in _) => { _activeViewTransition = null; return JsValue.Undefined; }, 0));
 
         return transition;
     }
+
+    /// <summary>The callback argument of a thenable's <c>then</c>/<c>finally</c>: the function the
+    /// page passed, or <see cref="JsValue.Missing"/> for anything else — the same narrowing the
+    /// former engine-typed narrowing cast did, an argument that was never passed included.</summary>
+    private static JsValue ThenCallback(in JsCall call) => call[0].IsFunction ? call[0] : JsValue.Missing;
 
     /// <summary>A minimal already-resolved thenable, mirroring the bridge's synchronous-promise
     /// pattern (see FetchBinding): <c>then</c> invokes its callback immediately with
     /// <c>undefined</c> and returns a thenable so <c>.then().then()</c> chains, and the rAF the
     /// reftests schedule from it is pumped by the event loop as usual.</summary>
-    private static JSObject ResolvedThenable()
+    /// <remarks>
+    /// <c>finally</c> passes no argument and swallows a throw without logging it, where <c>then</c>
+    /// passes <c>undefined</c> and logs — preserved as it stood rather than unified, because a
+    /// callback that can tell the two apart is a page that can see the difference.
+    /// </remarks>
+    private JsValue ResolvedThenable()
     {
-        var thenable = new JSObject();
-        JSValue Then(in Arguments args)
+        var realm = Realm;
+        var thenable = realm.NewObject();
+
+        void RunThen(JsValue cb)
         {
-            if (args.Length > 0 && args[0] is JSFunction cb)
+            if (!cb.IsFunction)
+                return;
+
+            try { realm.Invoke(cb, cb, [JsValue.Undefined]); }
+            catch (System.Exception ex)
             {
-                try { cb.InvokeFunction(new Arguments(cb, JSUndefined.Value)); }
-                catch (System.Exception ex)
-                {
-                    RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.viewTransition.then",
-                        $"View transition promise callback threw: {ex.Message}", ex);
-                }
+                RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.viewTransition.then",
+                    $"View transition promise callback threw: {ex.Message}", ex);
             }
-            return thenable;
         }
-        thenable.FastAddValue("then", new DomFunction(Then, "then", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        thenable.FastAddValue("catch", new DomFunction((in _) => thenable, "catch", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        thenable.FastAddValue("finally",
-            new DomFunction((in a) => { if (a.Length > 0 && a[0] is JSFunction cb) { try { cb.InvokeFunction(new Arguments(cb)); } catch { } } return thenable; }, "finally", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+
+        void RunFinally(JsValue cb)
+        {
+            if (!cb.IsFunction)
+                return;
+
+            try { realm.Invoke(cb, cb); }
+            catch { }
+        }
+
+        realm.DefineValue(thenable, "then",
+            realm.NewMethod("then", (in call) => { RunThen(ThenCallback(in call)); return thenable; }, 1));
+        realm.DefineValue(thenable, "catch", realm.NewMethod("catch", (in _) => thenable, 1));
+        realm.DefineValue(thenable, "finally",
+            realm.NewMethod("finally", (in call) => { RunFinally(ThenCallback(in call)); return thenable; }, 1));
         return thenable;
     }
 
@@ -264,18 +294,20 @@ public sealed partial class DomBridge
     /// release here settles it at the moment it happens.
     /// </para>
     /// </summary>
-    private JSObject ReadyThenable(ViewTransitionState state)
+    private JsValue ReadyThenable(ViewTransitionState state)
     {
+        var realm = Realm;
+
         bool ScreenshotPending() =>
             (GetAttr(DocumentElement, "class") ?? string.Empty)
                 .Contains("reftest-wait", System.StringComparison.Ordinal);
 
-        void Run(JSFunction? cb)
+        void Run(JsValue cb)
         {
             bool waitBefore = ScreenshotPending();
-            if (cb is not null)
+            if (cb.IsFunction)
             {
-                try { cb.InvokeFunction(new Arguments(cb, JSUndefined.Value)); }
+                try { realm.Invoke(cb, cb, [JsValue.Undefined]); }
                 catch (System.Exception ex)
                 {
                     RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.viewTransition.ready.then",
@@ -287,17 +319,12 @@ public sealed partial class DomBridge
                 state.ScreenshotReleasedByReady = true;
         }
 
-        var thenable = new JSObject();
-        JSValue Then(in Arguments args)
-        {
-            Run(args.Length > 0 ? args[0] as JSFunction : null);
-            return thenable;
-        }
-        thenable.FastAddValue("then", new DomFunction(Then, "then", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        thenable.FastAddValue("catch", new DomFunction((in _) => thenable, "catch", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        thenable.FastAddValue("finally",
-            new DomFunction((in a) => { Run(a.Length > 0 ? a[0] as JSFunction : null); return thenable; }, "finally", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        var thenable = realm.NewObject();
+        realm.DefineValue(thenable, "then",
+            realm.NewMethod("then", (in call) => { Run(ThenCallback(in call)); return thenable; }, 1));
+        realm.DefineValue(thenable, "catch", realm.NewMethod("catch", (in _) => thenable, 1));
+        realm.DefineValue(thenable, "finally",
+            realm.NewMethod("finally", (in call) => { Run(ThenCallback(in call)); return thenable; }, 1));
         return thenable;
     }
 
@@ -305,8 +332,10 @@ public sealed partial class DomBridge
     /// transition complete — clearing <see cref="_activeViewTransition"/> so the serialize-time pseudo
     /// tree bake is skipped and the plain final DOM renders — then, like <see cref="ResolvedThenable"/>,
     /// invokes the callback (e.g. the reftest's <c>takeScreenshot</c>) and chains.</summary>
-    private JSObject FinishedThenable()
+    private JsValue FinishedThenable()
     {
+        var realm = Realm;
+
         // reftest-wait is removed by the reftest's takeScreenshot(). If the finished callback is the
         // one that removes it, the screenshot is being taken from `finished` — the transition is over
         // and the still must be the plain final DOM, so clear the active transition (the serialize-time
@@ -318,12 +347,12 @@ public sealed partial class DomBridge
             (GetAttr(DocumentElement, "class") ?? string.Empty)
                 .Contains("reftest-wait", System.StringComparison.Ordinal);
 
-        void RunAndMaybeFinish(JSFunction? cb)
+        void RunAndMaybeFinish(JsValue cb)
         {
             bool waitBefore = ScreenshotPending();
-            if (cb is not null)
+            if (cb.IsFunction)
             {
-                try { cb.InvokeFunction(new Arguments(cb, JSUndefined.Value)); }
+                try { realm.Invoke(cb, cb, [JsValue.Undefined]); }
                 catch (System.Exception ex)
                 {
                     RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.viewTransition.finished.then",
@@ -358,19 +387,52 @@ public sealed partial class DomBridge
                 _activeViewTransition.FinishedObserved = true;
         }
 
-        var thenable = new JSObject();
-        JSValue Then(in Arguments args)
-        {
-            RunAndMaybeFinish(args.Length > 0 ? args[0] as JSFunction : null);
-            return thenable;
-        }
-        thenable.FastAddValue("then", new DomFunction(Then, "then", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        thenable.FastAddValue("catch", new DomFunction((in _) => thenable, "catch", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        thenable.FastAddValue("finally",
-            new DomFunction((in a) => { RunAndMaybeFinish(a.Length > 0 ? a[0] as JSFunction : null); return thenable; }, "finally", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        var thenable = realm.NewObject();
+        realm.DefineValue(thenable, "then",
+            realm.NewMethod("then", (in call) => { RunAndMaybeFinish(ThenCallback(in call)); return thenable; }, 1));
+        realm.DefineValue(thenable, "catch", realm.NewMethod("catch", (in _) => thenable, 1));
+        realm.DefineValue(thenable, "finally",
+            realm.NewMethod("finally", (in call) => { RunAndMaybeFinish(ThenCallback(in call)); return thenable; }, 1));
         return thenable;
     }
+
+    // ── Engine-typed adapters ───────────────────────────────────────────────
+    //
+    // The two entry points as their unmigrated callers still spell them: `document.startViewTransition`
+    // is registered in DomBridge/Registration/Document.cs, and `subDocument.startViewTransition` is
+    // reached through DomBridge.SubDocumentHost.cs — both other groups' files this round, and both hand
+    // over an engine argument frame. Each reads exactly one slot of it, so a handle over that slot is
+    // the whole of what the migrated bodies above can observe.
+
+    /// <inheritdoc cref="StartViewTransition(JsValue)"/>
+    internal JavaScript.Runtime.JSValue StartViewTransition(in JavaScript.Runtime.Arguments a) =>
+        Dom.Runtime.JsInterop.ToEngineObject(StartViewTransition(OptionsHandle(in a)));
+
+    /// <inheritdoc cref="StartSubDocumentViewTransition(DomNode, JsValue)"/>
+    internal JavaScript.Runtime.JSValue StartSubDocumentViewTransition(
+        DomNode docRoot, in JavaScript.Runtime.Arguments arguments) =>
+        Dom.Runtime.JsInterop.ToEngineObject(
+            StartSubDocumentViewTransition(docRoot, OptionsHandle(in arguments)));
+
+    /// <summary>
+    /// A handle over argument zero of an engine call frame, for the two adapters above.
+    /// </summary>
+    /// <remarks>
+    /// Only the callable/object distinction survives, which is all either body reads: a primitive
+    /// argument becomes <see cref="JsValue.Missing"/>, and both bodies ignore it exactly as the
+    /// engine-typed narrowing casts they replace did. Minting the handle here rather than through
+    /// <c>Runtime/JsInterop.cs</c> is what keeps a function a function — that helper mints every object
+    /// under the ordinary-object kind, and an update callback narrowed to one would stop being
+    /// callable.
+    /// </remarks>
+    private static JsValue OptionsHandle(in JavaScript.Runtime.Arguments a) =>
+        (a.Length > 0 ? a[0] : null) switch
+        {
+            JavaScript.BuiltIns.Function.JSFunction function => Jseal.Providers.JsProviderValue.Function(function),
+            JavaScript.BuiltIns.Array.JSArray array => Jseal.Providers.JsProviderValue.Array(array),
+            JavaScript.Runtime.JSObject @object => Jseal.Providers.JsProviderValue.Object(@object),
+            _ => JsValue.Missing,
+        };
 
     // ── Serialize-time rendering ────────────────────────────────────────────
 

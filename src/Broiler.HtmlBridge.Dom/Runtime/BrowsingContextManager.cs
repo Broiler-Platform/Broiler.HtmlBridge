@@ -17,6 +17,15 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// window resolution, resource loading, onload dispatch); they read and mutate this state through the
 /// narrow surface here. Instance-scoped to the owning bridge/document.</para>
 ///
+/// <para><b>A sub-document and a sub-window are stored as the engine's own object, and that is a pin
+/// rather than a choice.</b> Every one of these maps is keyed on, or hands back, a JS object that
+/// <c>DomBridge/SubDocuments.cs</c>, <c>Dom.Features.SubWindowBinding</c> and the iframe host contract
+/// hold engine-typed — other groups' files this round — so narrowing the identity to a JSEAL handle
+/// here would break each of them at the seam rather than at a boundary. The one consumer that has
+/// migrated, <see cref="WindowContextManager"/>, converts at each call it makes here, which is a cast:
+/// a JSEAL handle carries the engine object, so the reference identity these maps depend on is the
+/// same either way.</para>
+///
 /// <para>The sub-window maps have deliberately asymmetric lifecycles, preserved from the pre-consolidation
 /// code: the container→sub-window map (<see cref="TryGetSubWindow"/>) is dropped per container when a
 /// sub-document is invalidated (<see cref="RemoveContainerCaches"/>), while the reverse sub-window→container

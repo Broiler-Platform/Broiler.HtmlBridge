@@ -1,7 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge;
@@ -47,15 +45,23 @@ public sealed partial class DomBridge
     /// returns a <c>ViewTransition</c> whose promises are already resolved — the reftests gate their
     /// screenshot on <c>ready</c>.
     /// </summary>
-    internal JSValue StartSubDocumentViewTransition(DomNode docRoot, in Arguments arguments)
+    /// <param name="options">
+    /// The one argument the operation takes: the update callback, the dictionary carrying it, or
+    /// <see cref="JsValue.Missing"/> when the page passed nothing.
+    /// </param>
+    internal JsValue StartSubDocumentViewTransition(DomNode docRoot, JsValue options)
     {
-        JSFunction? updateCallback = null;
-        if (arguments.Length > 0)
+        var realm = Realm;
+        var updateCallback = JsValue.Missing;
+        if (options.IsFunction)
         {
-            if (arguments[0] is JSFunction fn)
-                updateCallback = fn;
-            else if (arguments[0] is JSObject options && options[(KeyString)"update"] is JSFunction updateFn)
-                updateCallback = updateFn;
+            updateCallback = options;
+        }
+        else if (options.IsObject)
+        {
+            var update = realm.GetProperty(options, "update");
+            if (update.IsFunction)
+                updateCallback = update;
         }
 
         // Captured before the callback runs, so it is genuinely the old state. A sub-document that
@@ -63,11 +69,11 @@ public sealed partial class DomBridge
         if (SerializeSubDocumentChildren(docRoot) is { Length: > 0 } oldMarkup)
             _subDocumentViewTransitionOldMarkup[docRoot] = oldMarkup;
 
-        if (updateCallback is not null)
+        if (updateCallback.IsFunction)
         {
             try
             {
-                updateCallback.InvokeFunction(new Arguments(updateCallback));
+                realm.Invoke(updateCallback, updateCallback);
             }
             catch (System.Exception ex)
             {
@@ -76,18 +82,17 @@ public sealed partial class DomBridge
             }
         }
 
-        var transition = new JSObject();
-        transition.FastAddValue("ready", ResolvedThenable(), JSPropertyAttributes.EnumerableConfigurableValue);
-        transition.FastAddValue("finished", ResolvedThenable(), JSPropertyAttributes.EnumerableConfigurableValue);
-        transition.FastAddValue("updateCallbackDone", ResolvedThenable(), JSPropertyAttributes.EnumerableConfigurableValue);
-        transition.FastAddValue("types", new JavaScript.BuiltIns.Array.JSArray(), JSPropertyAttributes.EnumerableConfigurableValue);
-        transition.FastAddValue("skipTransition",
-            new DomFunction((in _) =>
+        var transition = realm.NewObject();
+        realm.DefineValue(transition, "ready", ResolvedThenable());
+        realm.DefineValue(transition, "finished", ResolvedThenable());
+        realm.DefineValue(transition, "updateCallbackDone", ResolvedThenable());
+        realm.DefineValue(transition, "types", realm.NewArray());
+        realm.DefineValue(transition, "skipTransition",
+            realm.NewMethod("skipTransition", (in _) =>
             {
                 _subDocumentViewTransitionOldMarkup.Remove(docRoot);
-                return JSUndefined.Value;
-            }, "skipTransition", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+                return JsValue.Undefined;
+            }, 0));
         return transition;
     }
 

@@ -155,13 +155,6 @@ internal sealed class DialogBinding(IDialogHost host)
     }
 
     /// <summary>
-    /// Engine-typed adapter for <c>DomBridge/Registration/Document.cs</c>, which installs
-    /// <c>document.exitFullscreen</c> with an engine function and so takes an engine value back. See
-    /// the remarks on this class.
-    /// </summary>
-    internal JSObject ExitFullscreen() => Runtime.JsInterop.ToEngineObject(ExitFullscreenCore());
-
-    /// <summary>
     /// Fullscreen §<c>exitFullscreen()</c>: takes the document's fullscreen element back out of the
     /// top layer and fires <c>fullscreenchange</c> at it. A no-op when nothing is fullscreen.
     /// </summary>

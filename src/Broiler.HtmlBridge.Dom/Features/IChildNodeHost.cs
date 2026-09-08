@@ -12,6 +12,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// (<c>ParentEl</c>, <c>ChildIndexOf</c>, <c>RemoveNthChild</c>, <c>SetParent</c>) stay the bridge's
 /// <c>internal static</c> helpers, called directly.
 /// </summary>
+/// <remarks>
+/// The argument builder is the contract's one engine-shaped member, and it is shaped by its consumer:
+/// <see cref="ChildNodeBinding"/>'s four bodies read the engine's argument frame because two of the
+/// three files that install them have not migrated (see the remarks there). It becomes the
+/// <c>ReadOnlySpan&lt;JsValue&gt;</c> reading its sibling contracts already take when they do.
+/// </remarks>
 internal interface IChildNodeHost
 {
     List<DomNode> BuildChildNodeArgumentNodes(in Arguments arguments);

@@ -1,47 +1,53 @@
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    private void RegisterContentRenderingPolyfills(JSContext context, JSObject document)
+    private void RegisterContentRenderingPolyfills(JsValue document)
     {
         // Google Search Compliance content-rendering / fidelity polyfills — Image, IntersectionObserver,
         // ResizeObserver, TextEncoder/TextDecoder, URL/URLSearchParams and AbortController — are a versioned
         // embedded .js asset (Phase 3 work item 6, externalized from inline C# string literals) evaluated
         // once here. See Polyfills/content-rendering-polyfills.js.
-        context.Eval(PolyfillAssets.ContentRendering);
+        //
+        // Host script, not guest source: this repository authored it, it ships in this assembly, and
+        // it is not subject to the page's content policy — which is the distinction IJsSource exists
+        // to draw and the reason a realm built without GuestEval still runs it.
+        Realm.EvaluateHostScript(PolyfillAssets.ContentRendering, "polyfill:content-rendering");
 
         // document.cookie — get/set stub (in-memory, non-persistent). Host-driven (not pure JS), so it stays
         // here rather than in the JS asset. Order-independent of the pure-JS polyfills above.
+        //
+        // Pinned by Features/WindowDocumentMiscBinding.cs: SetCookie parses the assignment out of the
+        // engine's own argument frame, and takes the backing store by reference, so the setter is an
+        // engine callback. The getter is written the same way only so that the pair stays one
+        // property; PinnedAccessor names and attributes both exactly as the realm would.
         var cookieStore = "";
-        document.FastAddProperty(
+        PinnedAccessor(
+            document,
             "cookie",
-            new DomFunction((in _) => new JSString(cookieStore), "get cookie"),
-            new DomFunction((in a) => Dom.Features.WindowDocumentMiscBinding.SetCookie(ref cookieStore, in a), "set cookie"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+            (in _) => new JavaScript.BuiltIns.String.JSString(cookieStore),
+            (in a) => Dom.Features.WindowDocumentMiscBinding.SetCookie(ref cookieStore, in a));
     }
 
-    private void RegisterSecurityAndConstructorPolyfills(JSContext context, JSObject window)
+    private void RegisterSecurityAndConstructorPolyfills(JsValue window)
     {
+        var realm = Realm;
+        var context = _jsContext!;
+
         // window.crypto — the getRandomValues/randomUUID subset (Phase 3: co-located CryptoBinding module)
-        var cryptoObj = Dom.Runtime.JsInterop.ToEngineObject(Dom.Features.CryptoBinding.Build(Realm));
-        window.FastAddValue("crypto", cryptoObj, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["crypto"] = cryptoObj;
+        var cryptoObj = Dom.Features.CryptoBinding.Build(realm);
+        realm.DefineValue(window, "crypto", cryptoObj);
+        realm.SetProperty(realm.Global, "crypto", cryptoObj);
 
         // window.CSS — the CSSOM namespace object (supports/escape). Host-driven rather than a
         // pure-JS polyfill because supports() has to answer from the CSS engine's own @supports
         // evaluator; answering from the CSSOM instead would claim support for everything, since
         // Broiler's CSSOM stores declarations without validating them.
-        // Built through the realm (JSEAL) like crypto above; the seam hands the engine object this
-        // still-engine-typed registration needs for the window property and the global.
-        var cssObj = Dom.Runtime.JsInterop.ToEngineObject(Dom.Features.CssBinding.Build(Realm));
-        window.FastAddValue("CSS", cssObj, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["CSS"] = cssObj;
+        var cssObj = Dom.Features.CssBinding.Build(realm);
+        realm.DefineValue(window, "CSS", cssObj);
+        realm.SetProperty(realm.Global, "CSS", cssObj);
 
         // DOMException constructor
         RegisterDOMException(context);
@@ -93,18 +99,18 @@ public sealed partial class DomBridge
         ElementInternals.RegisterInterfaces(context);
 
         // Storage interface global — the name a page tests before it touches an area.
-        RegisterStorageConstructor(context);
+        RegisterStorageConstructor();
 
         // Notification — the interface, with its permission already settled at "denied" because
         // there is no surface to show one on (NotificationBinding).
-        var notification = Dom.Features.NotificationBinding.Build();
-        window.FastAddValue("Notification", notification, JSPropertyAttributes.EnumerableConfigurableValue);
+        var notification = Dom.Runtime.JsInterop.FromEngineObject(Dom.Features.NotificationBinding.Build());
+        realm.DefineValue(window, "Notification", notification);
 
         // MediaSource — the Media Source Extensions entry point, whose isTypeSupported answers for
         // the playback pipeline the HTML layer does not yet have (MediaCapabilityBinding, which also
         // installs canPlayType on the media elements themselves).
-        var mediaSource = Dom.Features.MediaCapabilityBinding.BuildMediaSource(context);
-        window.FastAddValue("MediaSource", mediaSource, JSPropertyAttributes.EnumerableConfigurableValue);
+        var mediaSource = Dom.Runtime.JsInterop.FromEngineObject(Dom.Features.MediaCapabilityBinding.BuildMediaSource(context));
+        realm.DefineValue(window, "MediaSource", mediaSource);
     }
 
     /// <summary>
@@ -120,9 +126,8 @@ public sealed partial class DomBridge
     /// <c>instanceof</c> from the object's shape, because a bridge storage object carries its
     /// members directly instead of inheriting them from this constructor's prototype.
     /// </remarks>
-    private static void RegisterStorageConstructor(JSContext context)
-    {
-        context.Eval(@"
+    private void RegisterStorageConstructor() =>
+        Realm.EvaluateHostScript(@"
             function Storage() { throw new TypeError('Illegal constructor'); }
 
             Object.defineProperty(Storage, Symbol.hasInstance, {
@@ -136,7 +141,5 @@ public sealed partial class DomBridge
                 },
                 writable: false, enumerable: false, configurable: true
             });
-        ");
-    }
-
+        ", "polyfill:storage-interface");
 }

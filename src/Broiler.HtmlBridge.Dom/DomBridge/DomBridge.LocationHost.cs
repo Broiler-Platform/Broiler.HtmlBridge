@@ -1,12 +1,18 @@
 using Broiler.HtmlBridge.Dom;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
 // Explicit ILocationHost implementation for the LocationBinding feature module, following the same
 // shape as DomBridge.WindowEventTargetHost: the module reaches a named contract rather than a bridge
 // private, and the public surface gains only the PendingNavigation the runtime interface declares.
+//
+// The dispatch below is the engine-typed half of the seam: window dispatch still takes the engine's own
+// event object, and Dom.Runtime.JsInterop is a cast rather than a conversion — the listeners see the
+// object the module built. Realm is implemented explicitly because DomBridge.Realm is internal, and an
+// implicit implementation of a public interface member cannot be satisfied by a non-public property
+// (CS0737).
 public sealed partial class DomBridge : Dom.Features.ILocationHost
 {
     private NavigationRequest? _pendingNavigation;
@@ -19,8 +25,10 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
         return pending;
     }
 
-    JSValue Dom.Features.ILocationHost.DispatchWindowEvent(JSObject evt)
-        => DispatchWindowEvent(evt);
+    IJsRealm Dom.Features.ILocationHost.Realm => Realm;
+
+    void Dom.Features.ILocationHost.DispatchWindowEvent(JsValue evt)
+        => DispatchWindowEvent(Dom.Runtime.JsInterop.ToEngineObject(evt));
 
     void Dom.Features.ILocationHost.RequestNavigation(NavigationRequest request)
         => RequestNavigation(request);

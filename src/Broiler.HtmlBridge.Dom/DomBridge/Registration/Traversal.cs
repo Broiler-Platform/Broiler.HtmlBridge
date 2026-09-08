@@ -1,3 +1,5 @@
+using Broiler.HtmlBridge.Jseal;
+
 namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
@@ -6,10 +8,11 @@ public sealed partial class DomBridge
     // createComment) is installed by the co-located TraversalBinding feature module. This thin
     // entry point keeps the historical registration call site source-compatible.
     //
-    // The module speaks JSEAL now, so the document wrapper crosses the seam as a handle over the
-    // same engine object (Dom.Runtime.JsInterop) and the context is no longer passed on: the module
-    // reaches this realm through ITraversalHost.Realm. Both parameters stay because
-    // DomBridge/Registration/Registration.cs, which calls this, is still engine-typed.
-    private void RegisterDocumentTraversalApis(Broiler.JavaScript.Engine.JSContext context, Broiler.JavaScript.Runtime.JSObject document) =>
-        _traversal.RegisterDocumentApis(Dom.Runtime.JsInterop.FromEngineObject(document));
+    // Both sides speak JSEAL now, so the document wrapper crosses as a handle over the same object
+    // and nothing else crosses at all: the module reaches this realm through ITraversalHost.Realm
+    // rather than being handed a script context. The two parameters this had — a context it did not
+    // pass on and an engine object it converted — were the shape of the half-migrated seam, and the
+    // seam is gone.
+    private void RegisterDocumentTraversalApis(JsValue document) =>
+        _traversal.RegisterDocumentApis(document);
 }

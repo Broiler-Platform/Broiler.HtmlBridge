@@ -1,7 +1,16 @@
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
+
+// The engine-typed half of this file, and every line of it is an adapter. The three registration
+// sites are unmigrated: DomBridge/Registration/DocumentSurface.cs installs the eight document
+// collections through a `Func<IDocumentCollectionHost, JSContext?, JSValue>`, so the shape of the
+// eight builders is fixed by a delegate type rather than by a call; DomBridge.SubDocumentHost.cs
+// calls the same eight for a frame's document; and DomBridge/Registration/Document.cs installs
+// currentScript as an engine callback, so its call frame is still the engine's own. See the adapters
+// at the foot of the file.
+using Broiler.JavaScript.BuiltIns.Null;
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Null;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -20,10 +29,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// named getter rather than properties copied onto a snapshot.
 /// </para>
 /// <para>
-/// They used to be <see cref="JavaScript.BuiltIns.Array.JSArray"/>s built fresh per read, which was
-/// wrong three ways at once. An array is not live, so a page that held <c>document.forms</c> across a
-/// <c>appendChild</c> read a stale length; it has <c>map</c> and <c>filter</c> but no <c>item</c> or
-/// <c>namedItem</c>, the opposite of a browser in both directions; and a fresh object per read made
+/// They used to be JavaScript arrays built fresh per read, which was wrong three ways at once. An
+/// array is not live, so a page that held <c>document.forms</c> across a <c>appendChild</c> read a
+/// stale length; it has <c>map</c> and <c>filter</c> but no <c>item</c> or <c>namedItem</c>, the
+/// opposite of a browser in both directions; and a fresh object per read made
 /// <c>document.forms === document.forms</c> <see langword="false"/>, where every browser hands back
 /// one cached object per document. The last one is why the collections are built once at
 /// registration and closed over: identity is part of the contract, and
@@ -34,23 +43,31 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>anchors</c>, <c>embeds</c> and <c>plugins</c> did not exist at all, so each read was
 /// <c>undefined</c> and the idiomatic <c>document.embeds.length</c> a <c>TypeError</c>.
 /// </para>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): a wrapper is a
+/// <see cref="JsValue"/>, and the script context this module used to take beside its host is gone
+/// from the migrated entry points. It was there for one thing — being handed straight back to the
+/// collection builder so it could find the interface prototypes — and the builder now asks the
+/// host's realm for those. What remains engine-typed is the adapters the three unmigrated
+/// registration sites bind to; see the note at the top of the file.
+/// </para>
 /// </remarks>
 internal static class DocumentCollectionBinding
 {
     /// <summary>Every <c>&lt;form&gt;</c> in the document, in tree order.</summary>
-    public static JSValue Forms(IDocumentCollectionHost host, JSContext? context) =>
-        Collection(host, context, static element => IsTag(element, "form"));
+    public static JsValue Forms(IDocumentCollectionHost host) =>
+        Collection(host, static element => IsTag(element, "form"));
 
     /// <summary>Every <c>&lt;img&gt;</c> in the document, in tree order.</summary>
-    public static JSValue Images(IDocumentCollectionHost host, JSContext? context) =>
-        Collection(host, context, static element => IsTag(element, "img"));
+    public static JsValue Images(IDocumentCollectionHost host) =>
+        Collection(host, static element => IsTag(element, "img"));
 
     /// <summary>
     /// Every <c>&lt;a&gt;</c> and <c>&lt;area&gt;</c> that <em>has an <c>href</c></em> (HTML §3.1.5) —
     /// an anchor without one is not a link and is not in this collection.
     /// </summary>
-    public static JSValue Links(IDocumentCollectionHost host, JSContext? context) =>
-        Collection(host, context, static element =>
+    public static JsValue Links(IDocumentCollectionHost host) =>
+        Collection(host, static element =>
             (IsTag(element, "a") || IsTag(element, "area")) && DomBridge.HasAttr(element, "href"));
 
     /// <summary>
@@ -59,8 +76,8 @@ internal static class DocumentCollectionBinding
     /// <c>href</c> is in <c>anchors</c> and not in <c>links</c>, and an <c>&lt;a href&gt;</c> with no
     /// <c>name</c> is the reverse.
     /// </summary>
-    public static JSValue Anchors(IDocumentCollectionHost host, JSContext? context) =>
-        Collection(host, context, static element => IsTag(element, "a") && DomBridge.HasAttr(element, "name"));
+    public static JsValue Anchors(IDocumentCollectionHost host) =>
+        Collection(host, static element => IsTag(element, "a") && DomBridge.HasAttr(element, "name"));
 
     /// <summary>
     /// <c>document.scripts</c> — every <c>&lt;script&gt;</c> element in tree order.
@@ -74,15 +91,15 @@ internal static class DocumentCollectionBinding
     /// property being absent threw a TypeError out of a script the page never asked for. It was
     /// reported against html5test.com; nothing about that site is special.
     /// </remarks>
-    public static JSValue Scripts(IDocumentCollectionHost host, JSContext? context) =>
-        Collection(host, context, static element => IsTag(element, "script"));
+    public static JsValue Scripts(IDocumentCollectionHost host) =>
+        Collection(host, static element => IsTag(element, "script"));
 
     /// <summary>
     /// Every <c>&lt;embed&gt;</c> in the document. <c>document.plugins</c> is the same object, not a
     /// second one over the same filter — see the remarks on this class.
     /// </summary>
-    public static JSValue Embeds(IDocumentCollectionHost host, JSContext? context) =>
-        Collection(host, context, static element => IsTag(element, "embed"));
+    public static JsValue Embeds(IDocumentCollectionHost host) =>
+        Collection(host, static element => IsTag(element, "embed"));
 
     /// <summary>
     /// <c>document.currentScript</c> — the <c>&lt;script&gt;</c> element whose classic script is
@@ -102,14 +119,14 @@ internal static class DocumentCollectionBinding
     /// <c>document.scripts[document.scripts.length - 1]</c>, the fallback the same idiom usually
     /// carries, does not help a script that spells the access without one.
     /// </remarks>
-    public static JSValue GetCurrentScript(IDocumentCollectionHost host, in Arguments a)
+    public static JsValue GetCurrentScript(IDocumentCollectionHost host)
     {
         var index = host.CurrentScriptIndex;
         if (index < 0 || index >= host.Elements.Count)
-            return JSNull.Value;
+            return JsValue.Null;
 
         var element = host.Elements[index];
-        return IsTag(element, "script") ? host.ToJSObject(element) : JSNull.Value;
+        return IsTag(element, "script") ? host.WrapNode(element) : JsValue.Null;
     }
 
     /// <summary>
@@ -118,10 +135,10 @@ internal static class DocumentCollectionBinding
     /// <c>&lt;link rel=stylesheet&gt;</c>. <see cref="IDocumentCollectionHost.Elements"/> is already
     /// in document order, which is the order the collection is defined in.
     /// </summary>
-    public static JSValue StyleSheets(IDocumentCollectionHost host, JSContext? context) =>
-        DomCollectionBinding.StyleSheetList(context, () =>
+    public static JsValue StyleSheets(IDocumentCollectionHost host) =>
+        DomCollectionBinding.StyleSheetList(host.Realm, () =>
         {
-            var sheets = new List<JSValue>();
+            var sheets = new List<JsValue>();
             foreach (var element in host.Elements)
             {
                 if (host.HasAssociatedStyleSheet(element))
@@ -130,8 +147,7 @@ internal static class DocumentCollectionBinding
             return sheets;
         });
 
-    private static JSValue Collection(
-        IDocumentCollectionHost host, JSContext? context, Func<DomElement, bool> predicate)
+    private static JsValue Collection(IDocumentCollectionHost host, Func<DomElement, bool> predicate)
     {
         List<DomElement> Members()
         {
@@ -145,12 +161,12 @@ internal static class DocumentCollectionBinding
         }
 
         return DomCollectionBinding.HtmlCollection(
-            context,
+            host.Realm,
             () =>
             {
-                var wrappers = new List<JSValue>();
+                var wrappers = new List<JsValue>();
                 foreach (var member in Members())
-                    wrappers.Add(host.ToJSObject(member));
+                    wrappers.Add(host.WrapNode(member));
                 return wrappers;
             },
             name => NamedItem(host, Members(), name));
@@ -167,7 +183,7 @@ internal static class DocumentCollectionBinding
     /// agrees: over <c>&lt;form id=b&gt;&lt;form name=a id=c&gt;&lt;form name=b&gt;</c>,
     /// <c>document.forms.b</c> is the first form, not the third.
     /// </remarks>
-    private static JSValue? NamedItem(IDocumentCollectionHost host, List<DomElement> members, string name)
+    private static JsValue? NamedItem(IDocumentCollectionHost host, List<DomElement> members, string name)
     {
         // The empty string is never a supported property name, however many members carry an empty
         // name attribute.
@@ -179,7 +195,7 @@ internal static class DocumentCollectionBinding
             if ((DomBridge.TryGetAttribute(member, "id", out var id) && id == name) ||
                 (DomBridge.TryGetAttribute(member, "name", out var named) && named == name))
             {
-                return host.ToJSObject(member);
+                return host.WrapNode(member);
             }
         }
 
@@ -188,4 +204,50 @@ internal static class DocumentCollectionBinding
 
     private static bool IsTag(DomElement element, string tag) =>
         string.Equals(element.TagName, tag, StringComparison.OrdinalIgnoreCase);
+
+    // ------------------------------------------------------------------
+    //  Engine-typed adapters. Pinned by the three registration sites named at the top of the file.
+    // ------------------------------------------------------------------
+
+    /// <inheritdoc cref="Forms(IDocumentCollectionHost)" />
+    /// <remarks>
+    /// <b>The context parameter is unread and cannot be dropped.</b> <c>DocumentSurface.cs</c> installs
+    /// all seven of these through one <c>Func&lt;IDocumentCollectionHost, JSContext?, JSValue&gt;</c>
+    /// local, so the parameter is part of a delegate type in a file this group does not own rather
+    /// than something a call site could stop passing. The realm that used to be found from it is now
+    /// <see cref="IDocumentCollectionHost.Realm"/>, which the same host already answers. All seven
+    /// adapters, and this remark, go when that registration site migrates.
+    /// </remarks>
+    public static JSValue Forms(IDocumentCollectionHost host, JSContext? context) => ToEngine(Forms(host));
+
+    /// <summary>The engine-typed <c>document.images</c> adapter; see the remark on <c>Forms</c>.</summary>
+    public static JSValue Images(IDocumentCollectionHost host, JSContext? context) => ToEngine(Images(host));
+
+    /// <summary>The engine-typed <c>document.links</c> adapter; see the remark on <c>Forms</c>.</summary>
+    public static JSValue Links(IDocumentCollectionHost host, JSContext? context) => ToEngine(Links(host));
+
+    /// <summary>The engine-typed <c>document.anchors</c> adapter; see the remark on <c>Forms</c>.</summary>
+    public static JSValue Anchors(IDocumentCollectionHost host, JSContext? context) => ToEngine(Anchors(host));
+
+    /// <summary>The engine-typed <c>document.scripts</c> adapter; see the remark on <c>Forms</c>.</summary>
+    public static JSValue Scripts(IDocumentCollectionHost host, JSContext? context) => ToEngine(Scripts(host));
+
+    /// <summary>The engine-typed <c>document.embeds</c> adapter; see the remark on <c>Forms</c>.</summary>
+    public static JSValue Embeds(IDocumentCollectionHost host, JSContext? context) => ToEngine(Embeds(host));
+
+    /// <summary>The engine-typed <c>document.styleSheets</c> adapter; see the remark on <c>Forms</c>.</summary>
+    public static JSValue StyleSheets(IDocumentCollectionHost host, JSContext? context) => ToEngine(StyleSheets(host));
+
+    /// <inheritdoc cref="GetCurrentScript(IDocumentCollectionHost)" />
+    /// <remarks>
+    /// Pinned by <c>DomBridge/Registration/Document.cs</c>, which installs <c>currentScript</c> as an
+    /// engine callback. Unlike the seven above this one can answer a non-object, so it unwraps
+    /// through the value seam rather than the object one: <c>null</c> carries no engine reference,
+    /// and is the answer whenever no classic script is running.
+    /// </remarks>
+    public static JSValue GetCurrentScript(IDocumentCollectionHost host, in Arguments a) =>
+        Runtime.JsInterop.ToEngineValue(GetCurrentScript(host)) ?? JSNull.Value;
+
+    /// <summary>The engine object a migrated collection builder minted, for an unmigrated caller.</summary>
+    private static JSValue ToEngine(JsValue collection) => Runtime.JsInterop.ToEngineObject(collection);
 }
