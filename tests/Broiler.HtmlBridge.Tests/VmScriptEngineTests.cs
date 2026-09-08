@@ -158,6 +158,50 @@ public class VmScriptEngineTests
                 ["function f() { return (0, eval)('1 + 1'); } print('indirect=' + f());"], null)));
     }
 
+    /// <summary>
+    /// <c>StrictModeEnabled</c> makes the document's scripts strict and leaves <c>eval</c>'d source
+    /// alone — on BOTH engines, identically.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is pinned because it looks like a bug and is not one.</b> Reading the two engines
+    /// side by side suggests an inconsistency: <c>VmScriptEngine.Unit</c> passes
+    /// <c>StrictModeEnabled</c> to the compiler as <c>ForceStrict</c>, while
+    /// <c>VmSourceProvider</c> builds its unit with the default — so a strict-mode page appears to
+    /// get strict scripts and sloppy <c>eval</c>. It does. So does Broiler.JS, whose
+    /// <c>PrepareSource</c> prepends the directive to the scripts the engine runs and leaves the
+    /// native <c>eval</c> untouched.
+    /// </para>
+    /// <para>
+    /// The agreement is the point, and it is also what the specification says: an indirect
+    /// <c>eval</c> evaluates a new script whose strictness comes from its own source, so a host
+    /// that forced it strict would make the same page behave differently here than anywhere else.
+    /// A future change that "fixes" one engine will fail this and have to fix both, or neither.
+    /// </para>
+    /// <para>
+    /// The probe is an assignment to an undeclared name: sloppy mode creates a global, strict mode
+    /// throws — so <c>Execute</c> returning <see langword="true"/> means sloppy.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void StrictModeReachesDocumentScriptsAndNotEval(bool strict)
+    {
+        var vm = Engine();
+        vm.StrictModeEnabled = strict;
+
+        var js = new ScriptEngine { StrictModeEnabled = strict };
+
+        // Indirect eval: sloppy on both, whatever the flag says.
+        Assert.True(vm.Execute(["(0, eval)('vmProbe" + strict + " = 1;');"]));
+        Assert.True(js.Execute(["(0, eval)('jsProbe" + strict + " = 1;');"]));
+
+        // The document's own script: strict exactly when the flag says so, on both.
+        Assert.Equal(!strict, vm.Execute(["vmDirect" + strict + " = 1;"]));
+        Assert.Equal(!strict, js.Execute(["jsDirect" + strict + " = 1;"]));
+    }
+
     [Fact]
     public void EvalIsAnswered()
     {
