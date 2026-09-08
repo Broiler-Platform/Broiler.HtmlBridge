@@ -641,6 +641,201 @@ public class VmScriptEngineTests
         }
 
         /// <summary>
+        /// The on-disk tier: what it survives, and what it must refuse to serve.
+        /// </summary>
+        /// <remarks>
+        /// Each case gets its own directory under the test run's temporary path, so nothing here
+        /// touches the real cache location and two cases cannot see each other.
+        /// </remarks>
+        public sealed class OnDisk : IDisposable
+        {
+            private readonly string _directory =
+                Path.Combine(Path.GetTempPath(), "broiler-vm-cache-test", Guid.NewGuid().ToString("N"));
+
+            public void Dispose()
+            {
+                try
+                {
+                    if (Directory.Exists(_directory))
+                        Directory.Delete(_directory, recursive: true);
+                }
+                catch (IOException)
+                {
+                    // A leftover temporary directory is not worth failing a test over.
+                }
+            }
+
+            private VmCompilationCache Cache() =>
+                new(maximumEntries: 8, maximumBytes: 1 << 20) { Store = new VmArtifactStore(_directory, 1 << 20) };
+
+            private static VmScriptEngine Engine(VmCompilationCache cache) =>
+                new(new RecordingEngine()) { Cache = cache };
+
+            /// <summary>
+            /// A second cache with a cold memory tier and the same directory compiles nothing —
+            /// which is the only thing disk buys over memory.
+            /// </summary>
+            [Fact]
+            public void ADocumentCompiledOnceSurvivesAColdMemoryTier()
+            {
+                string[] scripts = ["var persisted = 1 + 1;"];
+
+                var first = Cache();
+                Assert.True(Engine(first).Execute(scripts));
+                Assert.Equal(1, first.Compilations);
+
+                // A fresh cache is what the next run of the process has: nothing in memory, the
+                // same directory on disk.
+                var second = Cache();
+                Assert.True(Engine(second).Execute(scripts));
+
+                Assert.Equal(0, second.Compilations);
+                Assert.Equal(1, second.Hits);
+            }
+
+            /// <summary>And it still runs, rather than merely being found.</summary>
+            [Fact]
+            public void APersistedDocumentStillProducesItsValue()
+            {
+                string[] scripts = ["print('disk=' + (20 + 22));"];
+
+                Engine(Cache()).Execute(scripts);
+
+                var written = new List<string>();
+                void Capture(RenderLogEntry entry) => written.Add(entry.Message);
+
+                var second = Cache();
+                RenderLogger.EntryLogged += Capture;
+                try
+                {
+                    Engine(second).Execute(scripts);
+                }
+                finally
+                {
+                    RenderLogger.EntryLogged -= Capture;
+                }
+
+                Assert.Contains("disk=42", string.Join("\n", written));
+                Assert.Equal(0, second.Compilations);
+            }
+
+            /// <summary>
+            /// A truncated file is a miss, not a crash and not a refusal the page sees.
+            /// </summary>
+            [Fact]
+            public void ATruncatedFileIsAMiss()
+            {
+                string[] scripts = ["var truncated = 1;"];
+                Engine(Cache()).Execute(scripts);
+
+                var file = Directory.GetFiles(_directory, "*.bin").Single();
+                File.WriteAllBytes(file, File.ReadAllBytes(file)[..8]);
+
+                var second = Cache();
+                Assert.True(Engine(second).Execute(scripts));
+                Assert.Equal(1, second.Compilations);
+                Assert.Equal(0, second.Hits);
+            }
+
+            /// <summary>Garbage where an artifact should be is a miss too.</summary>
+            [Fact]
+            public void GarbageIsAMiss()
+            {
+                string[] scripts = ["var garbage = 1;"];
+                Engine(Cache()).Execute(scripts);
+
+                var file = Directory.GetFiles(_directory, "*.bin").Single();
+                File.WriteAllBytes(file, Enumerable.Repeat((byte)0xAB, 512).ToArray());
+
+                var second = Cache();
+                Assert.True(Engine(second).Execute(scripts));
+                Assert.Equal(1, second.Compilations);
+            }
+
+            /// <summary>
+            /// A file whose embedded key is not the one asked for is refused, even though its bytes
+            /// are a perfectly valid artifact.
+            /// </summary>
+            /// <remarks>
+            /// This is the substitution case the digest inside the file exists for: a directory
+            /// copied between machines, a partial rename, a filesystem that folded case. It does not
+            /// defend against someone who can write both the name and the contents — nothing here
+            /// could — and <c>VmArtifactStore</c> says so.
+            /// </remarks>
+            [Fact]
+            public void AFileHoldingAnotherDocumentsArtifactIsRefused()
+            {
+                Engine(Cache()).Execute(["print('one=1');"]);
+                var one = Directory.GetFiles(_directory, "*.bin").Single();
+                var onesBytes = File.ReadAllBytes(one);
+                File.Delete(one);
+
+                string[] other = ["print('two=2');"];
+                Engine(Cache()).Execute(other);
+                var two = Directory.GetFiles(_directory, "*.bin").Single();
+
+                // The first document's whole file, under the second document's name.
+                File.WriteAllBytes(two, onesBytes);
+
+                var written = new List<string>();
+                void Capture(RenderLogEntry entry) => written.Add(entry.Message);
+
+                var third = Cache();
+                RenderLogger.EntryLogged += Capture;
+                try
+                {
+                    Engine(third).Execute(other);
+                }
+                finally
+                {
+                    RenderLogger.EntryLogged -= Capture;
+                }
+
+                var all = string.Join("\n", written);
+                Assert.Contains("two=2", all);       // the document that was asked for
+                Assert.DoesNotContain("one=1", all); // and not the one whose bytes were planted
+                Assert.Equal(1, third.Compilations);
+            }
+
+            /// <summary>Clearing removes what was written, so enabling the store is reversible.</summary>
+            /// <remarks>
+            /// The gate on turning this on is whether a user can undo it, so the undo is tested.
+            /// </remarks>
+            [Fact]
+            public void ClearingRemovesEverythingWritten()
+            {
+                var store = new VmArtifactStore(_directory, 1 << 20);
+                var cache = new VmCompilationCache(8, 1 << 20) { Store = store };
+
+                Engine(cache).Execute(["var cleared = 1;"]);
+                Assert.NotEmpty(Directory.GetFiles(_directory, "*.bin"));
+
+                store.Clear();
+
+                Assert.False(Directory.Exists(_directory));
+
+                // And a cold cache over the cleared directory compiles again rather than erroring.
+                var second = Cache();
+                Assert.True(Engine(second).Execute(["var cleared = 1;"]));
+                Assert.Equal(1, second.Compilations);
+            }
+
+            /// <summary>An unwritable directory degrades to no cache at all, not to an error.</summary>
+            [Fact]
+            public void AnUnusableDirectoryIsNotAFailure()
+            {
+                var cache = new VmCompilationCache(8, 1 << 20)
+                {
+                    // A path under a file rather than a directory: creating it must fail.
+                    Store = new VmArtifactStore(Path.Combine(GetType().Assembly.Location, "nope"), 1 << 20),
+                };
+
+                Assert.True(Engine(cache).Execute(["var unwritable = 1;"]));
+                Assert.Equal(1, cache.Compilations);
+            }
+        }
+
+        /// <summary>
         /// The shapes the cache key mirrors, pinned so that one growing a field fails HERE.
         /// </summary>
         /// <remarks>
