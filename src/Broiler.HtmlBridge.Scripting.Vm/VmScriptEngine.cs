@@ -95,12 +95,13 @@ public sealed class VmScriptEngine : IScriptEngine
 
     /// <inheritdoc />
     /// <remarks>
-    /// Forwarded, and unread on the VM path. A CSP gates <c>eval()</c>; on this engine
-    /// <c>eval</c> is refused unconditionally, because answering it needs the profile's
-    /// source-provider capability and <see cref="RuntimeOptions"/> registers none. That is
-    /// stricter than any policy a document could state, so there is nothing for the policy to
-    /// decide — and the property is still forwarded, because the delegated document paths run on
-    /// an engine where it does decide.
+    /// <b>On this engine the policy decides the SHAPE OF THE RUNTIME rather than the outcome of a
+    /// check.</b> A profile cannot compile a string on its own, so <c>eval</c>, <c>new Function</c>
+    /// and dynamic <c>import()</c> are answerable only by a registered artifact provider. When
+    /// <see cref="ContentSecurityPolicy.AllowsEval"/> is false this engine registers none, and the
+    /// core refuses every guest-initiated load deterministically — a contract outcome the page may
+    /// catch, rather than an engine consulting a policy object mid-execution. See
+    /// <see cref="RuntimeOptions"/> and <see cref="VmSourceProvider"/>.
     /// </remarks>
     public ContentSecurityPolicy? Csp
     {
@@ -111,6 +112,17 @@ public sealed class VmScriptEngine : IScriptEngine
             _documentEngine.Csp = value;
         }
     }
+
+    /// <summary>
+    /// Whether this engine will answer a guest-initiated load — <c>eval</c>, <c>new Function</c>,
+    /// dynamic <c>import()</c> — for the policy currently set.
+    /// </summary>
+    /// <remarks>
+    /// No policy means yes: a document that states none is not a document that forbids evaluation,
+    /// and defaulting to refusal would make the VM engine quietly stricter than the Broiler.JS one
+    /// on the same page.
+    /// </remarks>
+    internal bool AnswersGuestLoads => Csp is not { AllowsEval: false };
 
     /// <inheritdoc />
     public ScriptProfilingHook? Profiler
@@ -135,19 +147,39 @@ public sealed class VmScriptEngine : IScriptEngine
     public bool Execute(IReadOnlyList<string> scripts) => ExecuteDetailed(scripts).Success;
 
     /// <inheritdoc />
-    public ScriptExecutionResult ExecuteDetailed(IReadOnlyList<string> scripts)
+    public ScriptExecutionResult ExecuteDetailed(IReadOnlyList<string> scripts) =>
+        ExecuteDetailed(scripts, null);
+
+    /// <summary>
+    /// Executes <paramref name="scripts"/> with the document's authorised module roots available to
+    /// a dynamic <c>import()</c>.
+    /// </summary>
+    /// <remarks>
+    /// <b>This overload is this engine's own and is not on <see cref="IScriptEngine"/>.</b> The
+    /// interface carries module roots only on the overloads that also take a document, and those
+    /// are the ones this engine forwards — so there was no document-free way to hand it a module
+    /// map, and widening the interface would change a surface that out-of-repo consumers implement.
+    /// The roots are the same <see cref="ModuleRoot"/> values <c>ScriptExtractionService</c>
+    /// produces, so a caller that has extracted a document already has them.
+    /// </remarks>
+    public ScriptExecutionResult ExecuteDetailed(
+        IReadOnlyList<string> scripts, IReadOnlyList<ModuleRoot>? moduleRoots, string? documentUrl = null)
     {
         ArgumentNullException.ThrowIfNull(scripts);
 
         if (scripts.Count == 0)
             return new ScriptExecutionResult { Success = true };
 
-        var compiled = Compile(scripts);
+        var modules = moduleRoots is { Count: > 0 }
+            ? new VmModuleMap(moduleRoots, documentUrl)
+            : VmModuleMap.Empty;
+
+        var compiled = Compile(scripts, documentUrl);
 
         if (!compiled.Succeeded || compiled.Artifact is null)
             return new ScriptExecutionResult { Success = false, Errors = AttributeRefusal(scripts, compiled) };
 
-        var created = VmRuntime.Create(ProfileCatalog(), RuntimeOptions());
+        var created = VmRuntime.Create(ProfileCatalog(), RuntimeOptions(modules));
 
         if (!created.TryGetRuntime(out var runtime))
         {
@@ -221,12 +253,12 @@ public sealed class VmScriptEngine : IScriptEngine
     }
 
     /// <summary>Compiles a document's scripts into one artifact, one entry point each.</summary>
-    private JsCompilation Compile(IReadOnlyList<string> scripts)
+    private JsCompilation Compile(IReadOnlyList<string> scripts, string? documentUrl)
     {
         var units = new List<JsScriptUnit>(scripts.Count);
 
         for (var index = 0; index < scripts.Count; index++)
-            units.Add(Unit(scripts[index], index));
+            units.Add(Unit(scripts[index], index, documentUrl));
 
         // THE SURFACE AND THE FORM ARE NAMED RATHER THAN DEFAULTED, and that is worth the two
         // extra arguments: JsCompiler's parameterless request happens to default to exactly this
@@ -247,8 +279,17 @@ public sealed class VmScriptEngine : IScriptEngine
     private static readonly JsCompileRequest WideBytecode =
         new(JsFeatureManifest.Wide, JsOutputForm.Bytecode);
 
-    private JsScriptUnit Unit(string source, int index) =>
-        new(EntryPoint(index), source, SliceParseOptions.Script, StrictModeEnabled);
+    /// <summary>One script as a compilation unit, named and referred from the document.</summary>
+    /// <remarks>
+    /// THE REFERRER IS THE DOCUMENT'S URL, and it is what makes `import('./a.mjs')` in a classic
+    /// script mean the same thing it means in a module beside it. A module carries the key the host
+    /// resolved it to and needs no second identity; a script is a text, so the host that read the
+    /// text says where it was read from. Left empty, the profile still asks for the module - and
+    /// VmModuleMap resolves nothing from a referrer it does not recognise, so every import() from a
+    /// script would answer not-found for a reason no page could see.
+    /// </remarks>
+    private JsScriptUnit Unit(string source, int index, string? documentUrl) =>
+        new(EntryPoint(index), source, SliceParseOptions.Script, StrictModeEnabled, documentUrl ?? string.Empty);
 
     /// <summary>The entry point the compiler emits for the <paramref name="index"/>-th script.</summary>
     private static string EntryPoint(int index) =>
@@ -275,7 +316,7 @@ public sealed class VmScriptEngine : IScriptEngine
 
         for (var index = 0; index < scripts.Count; index++)
         {
-            var alone = JsCompiler.Compile([Unit(scripts[index], index)], [], WideBytecode);
+            var alone = JsCompiler.Compile([Unit(scripts[index], index, null)], [], WideBytecode);
 
             if (alone.Succeeded)
                 continue;
@@ -422,16 +463,25 @@ public sealed class VmScriptEngine : IScriptEngine
     /// slow one, because the VM charges fuel per instruction and not per second.
     /// </para>
     /// <para>
-    /// <b>One capability is registered and two are not, and the two are the interesting ones.</b>
-    /// <c>print</c> reaches the render log, which is this composition's decision. No source
-    /// provider is registered, so <c>eval</c> and <c>new Function</c> are refused
-    /// deterministically; no resolver is registered, so <c>import()</c> is too. Registering either
-    /// would mean this engine deciding what a page may evaluate and what a specifier names, and
-    /// neither question has an answer here yet — the document paths that would need them run on
-    /// the other engine.
+    /// <b>THE CAPABILITY SET IS WHERE THIS ENGINE'S CONTENT POLICY LIVES.</b> <c>print</c> reaches
+    /// the render log unconditionally, which is this composition's decision. The other two are the
+    /// interesting ones and both follow from the page:
+    /// </para>
+    /// <para>
+    /// The <b>source provider</b> is registered only when the page's CSP permits evaluation. A
+    /// profile cannot compile a string on its own, so registering it is the permission and
+    /// withholding it is the prohibition — <c>eval</c>, <c>new Function</c> and <c>import()</c> are
+    /// then refused by the core deterministically rather than by a check inside an engine. A page
+    /// with <c>unsafe-eval</c> and one without get two differently shaped runtimes.
+    /// </para>
+    /// <para>
+    /// The <b>resolver</b> is registered alongside it, and answers what a specifier names using the
+    /// document's own module map. Admitting the module surface is the descriptor's act; saying what
+    /// a specifier resolves to is this one's, and it is answered from the roots the document
+    /// declared rather than by fetching anything.
     /// </para>
     /// </remarks>
-    private static VmRuntimeCreationOptions RuntimeOptions()
+    private VmRuntimeCreationOptions RuntimeOptions(VmModuleMap modules)
     {
         var ceilings = ImmutableArray.CreateBuilder<VmCeilingSpec>();
 
@@ -444,6 +494,35 @@ public sealed class VmScriptEngine : IScriptEngine
 
         var capabilities = ImmutableArray.CreateBuilder<VmCapabilityRegistration>();
         capabilities.Add(VmCapabilityRegistration.Value(JavaScriptProfile.WriteCapability, Write));
+
+        if (AnswersGuestLoads)
+        {
+            capabilities.Add(VmCapabilityRegistration.ArtifactProvider(
+                JavaScriptProfile.SourceProviderCapability,
+                new VmSourceProvider(modules, WideBytecode)));
+
+            capabilities.Add(VmCapabilityRegistration.Value(
+                JavaScriptProfile.ResolveCapability,
+                (VmBytes argument, out VmOpaqueRef result) =>
+                {
+                    result = default;
+
+                    // Refused is a POLICY answer and not a failed call, which is exactly what it
+                    // means here: the artifact was resolved by rules that are not this document's,
+                    // and this host declines to evaluate it.
+                    return modules.Confirms(argument.Span)
+                        ? VmHostCallOutcome.Completed
+                        : VmHostCallOutcome.Refused;
+                }));
+        }
+        else
+        {
+            RenderLogger.LogDebug(
+                LogCategory.JavaScript,
+                LogContext,
+                "The page's content security policy forbids evaluation, so no source provider is " +
+                "registered and every guest-initiated load will be refused by the runtime.");
+        }
 
         return new VmRuntimeCreationOptions(
             aggregateBudget: null,
