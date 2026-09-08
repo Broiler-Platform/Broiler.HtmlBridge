@@ -19,6 +19,17 @@ namespace Broiler.HtmlBridge.Scripting;
 /// module path — the string-rewriting linker fallback was retired once the engine (patches 0010/0011:
 /// top-level-await codegen + module-orchestration completion) was pinned and every surface took this path.
 /// </summary>
+/// <remarks>
+/// <b>This type stays engine-typed on purpose, and it is not a seam JSEAL can close.</b> The other
+/// bridge units name engine types to build values; this one <em>is</em> an engine type — the module
+/// graph's resolve/fetch hooks are <see langword="protected"/> overrides, so the coupling is the base
+/// class, not a call. JSEAL has no module-graph contract to override instead: it declares only that an
+/// engine binds modules (<c>JsCapabilities.Modules</c>, <c>DynamicImport</c>) and how host versus guest
+/// source is run (<c>IJsSource</c>), neither of which offers a specifier resolver or a source fetcher.
+/// Nothing needs to change for the migration to proceed around it: this derives from the engine's
+/// context type, so the provider's <c>IJsRealmAdoption.TryAdopt</c> already accepts an instance of it,
+/// and a page whose modules run in one gets the same JSEAL realm as a page whose scripts do not.
+/// </remarks>
 internal sealed class BridgeModuleContext : JSModuleContext
 {
     private readonly ContentSecurityPolicy? _csp;

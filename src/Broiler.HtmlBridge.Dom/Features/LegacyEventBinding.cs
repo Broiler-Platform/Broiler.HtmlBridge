@@ -1,10 +1,4 @@
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -17,329 +11,333 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// class with no host contract. Previously the bridge's JsRegistrationCreateEvent033Core in the
 /// shared JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
+/// type. The event object and the flag behind <c>cancelBubble</c> are still captured by the operation
+/// closures exactly as before; what changed is that the object is minted by the realm, its members are
+/// installed through <see cref="IJsMembers"/>, and its own fields are read and written through the
+/// realm rather than through the engine's indexer.
+/// </para>
+/// <para>
+/// <b>Every numeric argument goes through the realm's <c>ToNumber</c>, not the handle's
+/// <c>AsNumber</c>.</b> These are page-supplied <c>init*Event</c> arguments and the engine's
+/// <c>DoubleValue</c> — which this code called on each of them — <em>is</em> ECMAScript
+/// <c>ToNumber</c>: it coerces a numeric string and reaches a <c>valueOf</c> the page wrote. A page
+/// calling <c>initMouseEvent('click', true, true, window, 1, '10', '20', …)</c> is common enough that
+/// answering <c>NaN</c> for those would be a silent behaviour change rather than a tightening.
+/// </para>
+/// </remarks>
 internal static class LegacyEventBinding
 {
-    public static JSValue Create(in Arguments a)
+    public static JsValue Create(in JsCall call)
     {
-        var evt = new JSObject();
+        var realm = call.Realm;
+        var evt = realm.NewObject();
         var legacyCancelBubble = false;
 
-        evt.FastAddValue("type", new JSString(string.Empty), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("cancelable", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("defaultPrevented", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("target", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("currentTarget", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("srcElement", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("eventPhase", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("isTrusted", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("timeStamp", new JSNumber(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("detail", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("view", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("screenX", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("screenY", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("clientX", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("clientY", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("x", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("y", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("ctrlKey", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("altKey", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("shiftKey", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("metaKey", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("key", new JSString(string.Empty), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("location", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("repeat", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("keyCode", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("charCode", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("which", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("button", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("buttons", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("deltaX", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("deltaY", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("deltaZ", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("deltaMode", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("relatedTarget", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "type", JsValue.String(string.Empty));
+        realm.DefineValue(evt, "bubbles", JsValue.False);
+        realm.DefineValue(evt, "cancelable", JsValue.False);
+        realm.DefineValue(evt, "defaultPrevented", JsValue.False);
+        realm.DefineValue(evt, "target", JsValue.Null);
+        realm.DefineValue(evt, "currentTarget", JsValue.Null);
+        realm.DefineValue(evt, "srcElement", JsValue.Null);
+        realm.DefineValue(evt, "eventPhase", JsValue.Number(0));
+        realm.DefineValue(evt, "isTrusted", JsValue.False);
+        realm.DefineValue(evt, "timeStamp", JsValue.Number(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        realm.DefineValue(evt, "detail", JsValue.Number(0));
+        realm.DefineValue(evt, "view", JsValue.Null);
+        realm.DefineValue(evt, "screenX", JsValue.Number(0));
+        realm.DefineValue(evt, "screenY", JsValue.Number(0));
+        realm.DefineValue(evt, "clientX", JsValue.Number(0));
+        realm.DefineValue(evt, "clientY", JsValue.Number(0));
+        realm.DefineValue(evt, "x", JsValue.Number(0));
+        realm.DefineValue(evt, "y", JsValue.Number(0));
+        realm.DefineValue(evt, "ctrlKey", JsValue.False);
+        realm.DefineValue(evt, "altKey", JsValue.False);
+        realm.DefineValue(evt, "shiftKey", JsValue.False);
+        realm.DefineValue(evt, "metaKey", JsValue.False);
+        realm.DefineValue(evt, "key", JsValue.String(string.Empty));
+        realm.DefineValue(evt, "location", JsValue.Number(0));
+        realm.DefineValue(evt, "repeat", JsValue.False);
+        realm.DefineValue(evt, "keyCode", JsValue.Number(0));
+        realm.DefineValue(evt, "charCode", JsValue.Number(0));
+        realm.DefineValue(evt, "which", JsValue.Number(0));
+        realm.DefineValue(evt, "button", JsValue.Number(0));
+        realm.DefineValue(evt, "buttons", JsValue.Number(0));
+        realm.DefineValue(evt, "deltaX", JsValue.Number(0));
+        realm.DefineValue(evt, "deltaY", JsValue.Number(0));
+        realm.DefineValue(evt, "deltaZ", JsValue.Number(0));
+        realm.DefineValue(evt, "deltaMode", JsValue.Number(0));
+        realm.DefineValue(evt, "relatedTarget", JsValue.Null);
 
-        JSValue JsRegistrationStopPropagation018(in Arguments _)
+        realm.DefineValue(evt, "stopPropagation", realm.NewMethod("stopPropagation", StopPropagation, 0));
+        realm.DefineValue(evt, "stopImmediatePropagation", realm.NewMethod("stopImmediatePropagation", StopImmediatePropagation, 0));
+        realm.DefineValue(evt, "preventDefault", realm.NewMethod("preventDefault", PreventDefault, 0));
+        realm.DefineAccessor(evt, "cancelBubble", GetCancelBubble, SetCancelBubble);
+        realm.DefineAccessor(evt, "returnValue", GetReturnValue, SetReturnValue);
+        realm.DefineValue(evt, "initEvent", realm.NewMethod("initEvent", InitEvent, 3));
+        realm.DefineValue(evt, "initUIEvent", realm.NewMethod("initUIEvent", InitUIEvent, 5));
+        realm.DefineValue(evt, "initInputEvent", realm.NewMethod("initInputEvent", InitInputEvent, 7));
+        realm.DefineValue(evt, "initCustomEvent", realm.NewMethod("initCustomEvent", InitCustomEvent, 4));
+        realm.DefineValue(evt, "initFocusEvent", realm.NewMethod("initFocusEvent", InitFocusEvent, 6));
+        realm.DefineValue(evt, "initKeyboardEvent", realm.NewMethod("initKeyboardEvent", InitKeyboardEvent, 13));
+        realm.DefineValue(evt, "initMouseEvent", realm.NewMethod("initMouseEvent", InitMouseEvent, 15));
+        realm.DefineValue(evt, "initWheelEvent", realm.NewMethod("initWheelEvent", InitWheelEvent, 16));
+
+        return evt;
+
+        JsValue StopPropagation(in JsCall _)
         {
             legacyCancelBubble = true;
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         }
 
-        evt.FastAddValue("stopPropagation", new DomFunction(JsRegistrationStopPropagation018, "stopPropagation", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        JSValue JsRegistrationStopImmediatePropagation019(in Arguments _)
+        JsValue StopImmediatePropagation(in JsCall _)
         {
             legacyCancelBubble = true;
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         }
 
-        evt.FastAddValue("stopImmediatePropagation", new DomFunction(JsRegistrationStopImmediatePropagation019, "stopImmediatePropagation", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        JSValue JsRegistrationPreventDefault020(in Arguments _)
+        JsValue PreventDefault(in JsCall preventCall)
         {
-            var cancelable = evt[(KeyString)"cancelable"];
-            if (cancelable != null && cancelable.BooleanValue)
-                evt[(KeyString)"defaultPrevented"] = JSBoolean.True;
-            return JSUndefined.Value;
+            // An absent `cancelable` reads as an absent value and is not truthy, which is the same
+            // answer the engine-typed `!= null && .BooleanValue` pair gave.
+            if (preventCall.Realm.GetProperty(evt, "cancelable").AsBoolean)
+                preventCall.Realm.SetProperty(evt, "defaultPrevented", JsValue.True);
+            return JsValue.Undefined;
         }
 
-        evt.FastAddValue("preventDefault", new DomFunction(JsRegistrationPreventDefault020, "preventDefault", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        JSValue JsRegistrationGetCancelBubble021(in Arguments _)
-        {
-            return legacyCancelBubble ? JSBoolean.True : JSBoolean.False;
-        }
+        JsValue GetCancelBubble(in JsCall _) => JsValue.Boolean(legacyCancelBubble);
 
-        JSValue JsRegistrationSetCancelBubble022(in Arguments setArgs)
+        JsValue SetCancelBubble(in JsCall setCall)
         {
-            if (setArgs.Length > 0 && setArgs[0].BooleanValue)
+            // Assigning a falsy value does not clear the flag. That is the legacy property's
+            // documented one-way behaviour, and it is what this did before.
+            if (setCall.Length > 0 && setCall[0].AsBoolean)
                 legacyCancelBubble = true;
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         }
 
-        evt.FastAddProperty("cancelBubble", new DomFunction(JsRegistrationGetCancelBubble021, "get cancelBubble"), new DomFunction(JsRegistrationSetCancelBubble022, "set cancelBubble"), JSPropertyAttributes.EnumerableConfigurableProperty);
-        JSValue JsRegistrationGetReturnValue023(in Arguments _)
+        JsValue GetReturnValue(in JsCall getCall) =>
+            JsValue.Boolean(!getCall.Realm.GetProperty(evt, "defaultPrevented").AsBoolean);
+
+        JsValue SetReturnValue(in JsCall setCall)
         {
-            return evt[(KeyString)"defaultPrevented"].BooleanValue ? JSBoolean.False : JSBoolean.True;
+            // Read first and test second, as this did before: were a page to redefine `cancelable` as
+            // an accessor, its getter would run on every assignment either way.
+            var cancelable = setCall.Realm.GetProperty(evt, "cancelable").AsBoolean;
+            if (setCall.Length > 0 && !setCall[0].AsBoolean && cancelable)
+                setCall.Realm.SetProperty(evt, "defaultPrevented", JsValue.True);
+            return JsValue.Undefined;
         }
 
-        JSValue JsRegistrationSetReturnValue024(in Arguments setArgs)
+        JsValue InitEvent(in JsCall initCall)
         {
-            var cancelable = evt[(KeyString)"cancelable"];
-            if (setArgs.Length > 0 && !setArgs[0].BooleanValue && cancelable != null && cancelable.BooleanValue)
-                evt[(KeyString)"defaultPrevented"] = JSBoolean.True;
-            return JSUndefined.Value;
+            InitBase(in initCall);
+            return JsValue.Undefined;
         }
 
-        evt.FastAddProperty("returnValue", new DomFunction(JsRegistrationGetReturnValue023, "get returnValue"), new DomFunction(JsRegistrationSetReturnValue024, "set returnValue"), JSPropertyAttributes.EnumerableConfigurableProperty);
-        JSValue JsRegistrationInitEvent025(in Arguments initArgs)
+        JsValue InitUIEvent(in JsCall initCall)
         {
-            if (initArgs.Length > 0)
-                evt[(KeyString)"type"] = new JSString(initArgs[0].ToString());
-            if (initArgs.Length > 1)
-                evt[(KeyString)"bubbles"] = initArgs[1].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 2)
-                evt[(KeyString)"cancelable"] = initArgs[2].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            return JSUndefined.Value;
+            InitBase(in initCall);
+            if (initCall.Length > 3)
+                initCall.Realm.SetProperty(evt, "view", initCall[3]);
+            if (initCall.Length > 4)
+                initCall.Realm.SetProperty(evt, "detail", initCall[4]);
+            return JsValue.Undefined;
         }
 
-        evt.FastAddValue("initEvent", new DomFunction(JsRegistrationInitEvent025, "initEvent", 3), JSPropertyAttributes.EnumerableConfigurableValue);
-        JSValue JsRegistrationInitUIEvent026(in Arguments initArgs)
+        JsValue InitInputEvent(in JsCall initCall)
         {
-            if (initArgs.Length > 0)
-                evt[(KeyString)"type"] = new JSString(initArgs[0].ToString());
-            if (initArgs.Length > 1)
-                evt[(KeyString)"bubbles"] = initArgs[1].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 2)
-                evt[(KeyString)"cancelable"] = initArgs[2].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 3)
-                evt[(KeyString)"view"] = initArgs[3];
-            if (initArgs.Length > 4)
-                evt[(KeyString)"detail"] = initArgs[4];
-            return JSUndefined.Value;
+            InitBase(in initCall);
+            if (initCall.Length > 3)
+                initCall.Realm.SetProperty(evt, "view", initCall[3]);
+            if (initCall.Length > 4)
+                initCall.Realm.SetProperty(evt, "data", initCall[4]);
+            if (initCall.Length > 5)
+                initCall.Realm.SetProperty(evt, "inputType", JsValue.String(initCall.Realm.ToJsString(initCall[5])));
+            if (initCall.Length > 6)
+                initCall.Realm.SetProperty(evt, "isComposing", JsValue.Boolean(initCall[6].AsBoolean));
+            return JsValue.Undefined;
         }
 
-        evt.FastAddValue("initUIEvent", new DomFunction(JsRegistrationInitUIEvent026, "initUIEvent", 5), JSPropertyAttributes.EnumerableConfigurableValue);
-        JSValue JsRegistrationInitInputEvent027(in Arguments initArgs)
+        JsValue InitCustomEvent(in JsCall initCall)
         {
-            if (initArgs.Length > 0)
-                evt[(KeyString)"type"] = new JSString(initArgs[0].ToString());
-            if (initArgs.Length > 1)
-                evt[(KeyString)"bubbles"] = initArgs[1].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 2)
-                evt[(KeyString)"cancelable"] = initArgs[2].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 3)
-                evt[(KeyString)"view"] = initArgs[3];
-            if (initArgs.Length > 4)
-                evt[(KeyString)"data"] = initArgs[4];
-            if (initArgs.Length > 5)
-                evt[(KeyString)"inputType"] = new JSString(initArgs[5].ToString());
-            if (initArgs.Length > 6)
-                evt[(KeyString)"isComposing"] = initArgs[6].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            return JSUndefined.Value;
+            InitBase(in initCall);
+            // Unconditional, unlike every other field: an initCustomEvent with no detail argument
+            // resets detail to null rather than leaving the previous value.
+            initCall.Realm.SetProperty(evt, "detail", initCall.Length > 3 ? initCall[3] : JsValue.Null);
+            return JsValue.Undefined;
         }
 
-        evt.FastAddValue("initInputEvent", new DomFunction(JsRegistrationInitInputEvent027, "initInputEvent", 7), JSPropertyAttributes.EnumerableConfigurableValue);
-        JSValue JsRegistrationInitCustomEvent028(in Arguments initArgs)
+        JsValue InitFocusEvent(in JsCall initCall)
         {
-            if (initArgs.Length > 0)
-                evt[(KeyString)"type"] = new JSString(initArgs[0].ToString());
-            if (initArgs.Length > 1)
-                evt[(KeyString)"bubbles"] = initArgs[1].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 2)
-                evt[(KeyString)"cancelable"] = initArgs[2].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            evt[(KeyString)"detail"] = initArgs.Length > 3 ? initArgs[3] : JSNull.Value;
-            return JSUndefined.Value;
+            InitBase(in initCall);
+            if (initCall.Length > 3)
+                initCall.Realm.SetProperty(evt, "view", initCall[3]);
+            if (initCall.Length > 4)
+                initCall.Realm.SetProperty(evt, "detail", JsValue.Number(initCall.Realm.ToNumber(initCall[4])));
+            if (initCall.Length > 5)
+                initCall.Realm.SetProperty(evt, "relatedTarget", initCall[5]);
+            return JsValue.Undefined;
         }
 
-        evt.FastAddValue("initCustomEvent", new DomFunction(JsRegistrationInitCustomEvent028, "initCustomEvent", 4), JSPropertyAttributes.EnumerableConfigurableValue);
-        JSValue JsRegistrationInitFocusEvent029(in Arguments initArgs)
+        JsValue InitKeyboardEvent(in JsCall initCall)
         {
-            if (initArgs.Length > 0)
-                evt[(KeyString)"type"] = new JSString(initArgs[0].ToString());
-            if (initArgs.Length > 1)
-                evt[(KeyString)"bubbles"] = initArgs[1].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 2)
-                evt[(KeyString)"cancelable"] = initArgs[2].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 3)
-                evt[(KeyString)"view"] = initArgs[3];
-            if (initArgs.Length > 4)
-                evt[(KeyString)"detail"] = new JSNumber(initArgs[4].DoubleValue);
-            if (initArgs.Length > 5)
-                evt[(KeyString)"relatedTarget"] = initArgs[5];
-            return JSUndefined.Value;
-        }
-
-        evt.FastAddValue("initFocusEvent", new DomFunction(JsRegistrationInitFocusEvent029, "initFocusEvent", 6), JSPropertyAttributes.EnumerableConfigurableValue);
-        JSValue JsRegistrationInitKeyboardEvent030(in Arguments initArgs)
-        {
-            if (initArgs.Length > 0)
-                evt[(KeyString)"type"] = new JSString(initArgs[0].ToString());
-            if (initArgs.Length > 1)
-                evt[(KeyString)"bubbles"] = initArgs[1].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 2)
-                evt[(KeyString)"cancelable"] = initArgs[2].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 3)
-                evt[(KeyString)"view"] = initArgs[3];
-            if (initArgs.Length > 4)
-                evt[(KeyString)"key"] = new JSString(initArgs[4].ToString());
-            if (initArgs.Length > 5)
-                evt[(KeyString)"location"] = new JSNumber(initArgs[5].DoubleValue);
-            if (initArgs.Length > 6)
-                evt[(KeyString)"ctrlKey"] = initArgs[6].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 7)
-                evt[(KeyString)"altKey"] = initArgs[7].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 8)
-                evt[(KeyString)"shiftKey"] = initArgs[8].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 9)
-                evt[(KeyString)"metaKey"] = initArgs[9].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 10)
-                evt[(KeyString)"repeat"] = initArgs[10].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 11)
+            InitBase(in initCall);
+            if (initCall.Length > 3)
+                initCall.Realm.SetProperty(evt, "view", initCall[3]);
+            if (initCall.Length > 4)
+                initCall.Realm.SetProperty(evt, "key", JsValue.String(initCall.Realm.ToJsString(initCall[4])));
+            if (initCall.Length > 5)
+                initCall.Realm.SetProperty(evt, "location", JsValue.Number(initCall.Realm.ToNumber(initCall[5])));
+            if (initCall.Length > 6)
+                initCall.Realm.SetProperty(evt, "ctrlKey", JsValue.Boolean(initCall[6].AsBoolean));
+            if (initCall.Length > 7)
+                initCall.Realm.SetProperty(evt, "altKey", JsValue.Boolean(initCall[7].AsBoolean));
+            if (initCall.Length > 8)
+                initCall.Realm.SetProperty(evt, "shiftKey", JsValue.Boolean(initCall[8].AsBoolean));
+            if (initCall.Length > 9)
+                initCall.Realm.SetProperty(evt, "metaKey", JsValue.Boolean(initCall[9].AsBoolean));
+            if (initCall.Length > 10)
+                initCall.Realm.SetProperty(evt, "repeat", JsValue.Boolean(initCall[10].AsBoolean));
+            if (initCall.Length > 11)
             {
-                var keyCode = initArgs[11].DoubleValue;
-                evt[(KeyString)"keyCode"] = new JSNumber(keyCode);
-                evt[(KeyString)"which"] = new JSNumber(keyCode);
+                var keyCode = initCall.Realm.ToNumber(initCall[11]);
+                initCall.Realm.SetProperty(evt, "keyCode", JsValue.Number(keyCode));
+                initCall.Realm.SetProperty(evt, "which", JsValue.Number(keyCode));
             }
 
-            if (initArgs.Length > 12)
+            if (initCall.Length > 12)
             {
-                var charCode = initArgs[12].DoubleValue;
-                evt[(KeyString)"charCode"] = new JSNumber(charCode);
+                var charCode = initCall.Realm.ToNumber(initCall[12]);
+                initCall.Realm.SetProperty(evt, "charCode", JsValue.Number(charCode));
+                // A zero charCode leaves `which` reporting the keyCode above — a key press with no
+                // character does not overwrite it.
                 if (charCode != 0)
-                    evt[(KeyString)"which"] = new JSNumber(charCode);
+                    initCall.Realm.SetProperty(evt, "which", JsValue.Number(charCode));
             }
 
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         }
 
-        evt.FastAddValue("initKeyboardEvent", new DomFunction(JsRegistrationInitKeyboardEvent030, "initKeyboardEvent", 13), JSPropertyAttributes.EnumerableConfigurableValue);
-        JSValue JsRegistrationInitMouseEvent031(in Arguments initArgs)
+        JsValue InitMouseEvent(in JsCall initCall)
         {
-            if (initArgs.Length > 0)
-                evt[(KeyString)"type"] = new JSString(initArgs[0].ToString());
-            if (initArgs.Length > 1)
-                evt[(KeyString)"bubbles"] = initArgs[1].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 2)
-                evt[(KeyString)"cancelable"] = initArgs[2].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 3)
-                evt[(KeyString)"view"] = initArgs[3];
-            if (initArgs.Length > 4)
-                evt[(KeyString)"detail"] = new JSNumber(initArgs[4].DoubleValue);
-            if (initArgs.Length > 5)
-                evt[(KeyString)"screenX"] = new JSNumber(initArgs[5].DoubleValue);
-            if (initArgs.Length > 6)
-                evt[(KeyString)"screenY"] = new JSNumber(initArgs[6].DoubleValue);
-            if (initArgs.Length > 7)
+            InitBase(in initCall);
+            if (initCall.Length > 3)
+                initCall.Realm.SetProperty(evt, "view", initCall[3]);
+            if (initCall.Length > 4)
+                initCall.Realm.SetProperty(evt, "detail", JsValue.Number(initCall.Realm.ToNumber(initCall[4])));
+            if (initCall.Length > 5)
+                initCall.Realm.SetProperty(evt, "screenX", JsValue.Number(initCall.Realm.ToNumber(initCall[5])));
+            if (initCall.Length > 6)
+                initCall.Realm.SetProperty(evt, "screenY", JsValue.Number(initCall.Realm.ToNumber(initCall[6])));
+            if (initCall.Length > 7)
             {
-                evt[(KeyString)"clientX"] = new JSNumber(initArgs[7].DoubleValue);
-                evt[(KeyString)"x"] = new JSNumber(initArgs[7].DoubleValue);
+                var clientX = initCall.Realm.ToNumber(initCall[7]);
+                initCall.Realm.SetProperty(evt, "clientX", JsValue.Number(clientX));
+                initCall.Realm.SetProperty(evt, "x", JsValue.Number(clientX));
             }
 
-            if (initArgs.Length > 8)
+            if (initCall.Length > 8)
             {
-                evt[(KeyString)"clientY"] = new JSNumber(initArgs[8].DoubleValue);
-                evt[(KeyString)"y"] = new JSNumber(initArgs[8].DoubleValue);
+                var clientY = initCall.Realm.ToNumber(initCall[8]);
+                initCall.Realm.SetProperty(evt, "clientY", JsValue.Number(clientY));
+                initCall.Realm.SetProperty(evt, "y", JsValue.Number(clientY));
             }
 
-            if (initArgs.Length > 9)
-                evt[(KeyString)"ctrlKey"] = initArgs[9].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 10)
-                evt[(KeyString)"altKey"] = initArgs[10].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 11)
-                evt[(KeyString)"shiftKey"] = initArgs[11].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 12)
-                evt[(KeyString)"metaKey"] = initArgs[12].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 13)
+            if (initCall.Length > 9)
+                initCall.Realm.SetProperty(evt, "ctrlKey", JsValue.Boolean(initCall[9].AsBoolean));
+            if (initCall.Length > 10)
+                initCall.Realm.SetProperty(evt, "altKey", JsValue.Boolean(initCall[10].AsBoolean));
+            if (initCall.Length > 11)
+                initCall.Realm.SetProperty(evt, "shiftKey", JsValue.Boolean(initCall[11].AsBoolean));
+            if (initCall.Length > 12)
+                initCall.Realm.SetProperty(evt, "metaKey", JsValue.Boolean(initCall[12].AsBoolean));
+            if (initCall.Length > 13)
             {
-                var button = initArgs[13].DoubleValue;
-                evt[(KeyString)"button"] = new JSNumber(button);
-                evt[(KeyString)"buttons"] = new JSNumber(button switch
+                var button = initCall.Realm.ToNumber(initCall[13]);
+                initCall.Realm.SetProperty(evt, "button", JsValue.Number(button));
+                // The buttons bitmask the button index implies: primary is bit 0, middle bit 2,
+                // secondary bit 1 — and anything else reports no button held.
+                initCall.Realm.SetProperty(evt, "buttons", JsValue.Number(button switch
                 {
                     0 => 1,
                     1 => 4,
                     2 => 2,
                     _ => 0
-                });
+                }));
             }
 
-            if (initArgs.Length > 14)
-                evt[(KeyString)"relatedTarget"] = initArgs[14];
-            return JSUndefined.Value;
+            if (initCall.Length > 14)
+                initCall.Realm.SetProperty(evt, "relatedTarget", initCall[14]);
+            return JsValue.Undefined;
         }
 
-        evt.FastAddValue("initMouseEvent", new DomFunction(JsRegistrationInitMouseEvent031, "initMouseEvent", 15), JSPropertyAttributes.EnumerableConfigurableValue);
-        JSValue JsRegistrationInitWheelEvent032(in Arguments initArgs)
+        JsValue InitWheelEvent(in JsCall initCall)
         {
-            if (initArgs.Length > 0)
-                evt[(KeyString)"type"] = new JSString(initArgs[0].ToString());
-            if (initArgs.Length > 1)
-                evt[(KeyString)"bubbles"] = initArgs[1].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 2)
-                evt[(KeyString)"cancelable"] = initArgs[2].BooleanValue ? JSBoolean.True : JSBoolean.False;
-            if (initArgs.Length > 3)
-                evt[(KeyString)"view"] = initArgs[3];
-            if (initArgs.Length > 4)
-                evt[(KeyString)"detail"] = new JSNumber(initArgs[4].DoubleValue);
-            if (initArgs.Length > 5)
-                evt[(KeyString)"screenX"] = new JSNumber(initArgs[5].DoubleValue);
-            if (initArgs.Length > 6)
-                evt[(KeyString)"screenY"] = new JSNumber(initArgs[6].DoubleValue);
-            if (initArgs.Length > 7)
+            InitBase(in initCall);
+            if (initCall.Length > 3)
+                initCall.Realm.SetProperty(evt, "view", initCall[3]);
+            if (initCall.Length > 4)
+                initCall.Realm.SetProperty(evt, "detail", JsValue.Number(initCall.Realm.ToNumber(initCall[4])));
+            if (initCall.Length > 5)
+                initCall.Realm.SetProperty(evt, "screenX", JsValue.Number(initCall.Realm.ToNumber(initCall[5])));
+            if (initCall.Length > 6)
+                initCall.Realm.SetProperty(evt, "screenY", JsValue.Number(initCall.Realm.ToNumber(initCall[6])));
+            if (initCall.Length > 7)
             {
-                evt[(KeyString)"clientX"] = new JSNumber(initArgs[7].DoubleValue);
-                evt[(KeyString)"x"] = new JSNumber(initArgs[7].DoubleValue);
+                var clientX = initCall.Realm.ToNumber(initCall[7]);
+                initCall.Realm.SetProperty(evt, "clientX", JsValue.Number(clientX));
+                initCall.Realm.SetProperty(evt, "x", JsValue.Number(clientX));
             }
 
-            if (initArgs.Length > 8)
+            if (initCall.Length > 8)
             {
-                evt[(KeyString)"clientY"] = new JSNumber(initArgs[8].DoubleValue);
-                evt[(KeyString)"y"] = new JSNumber(initArgs[8].DoubleValue);
+                var clientY = initCall.Realm.ToNumber(initCall[8]);
+                initCall.Realm.SetProperty(evt, "clientY", JsValue.Number(clientY));
+                initCall.Realm.SetProperty(evt, "y", JsValue.Number(clientY));
             }
 
-            if (initArgs.Length > 9)
-                evt[(KeyString)"button"] = new JSNumber(initArgs[9].DoubleValue);
-            if (initArgs.Length > 10)
-                evt[(KeyString)"relatedTarget"] = initArgs[10];
-            if (initArgs.Length > 11)
+            if (initCall.Length > 9)
+                initCall.Realm.SetProperty(evt, "button", JsValue.Number(initCall.Realm.ToNumber(initCall[9])));
+            if (initCall.Length > 10)
+                initCall.Realm.SetProperty(evt, "relatedTarget", initCall[10]);
+            if (initCall.Length > 11)
             {
-                var modifiers = initArgs[11].ToString().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                evt[(KeyString)"ctrlKey"] = Array.Exists(modifiers, m => string.Equals(m, "Control", StringComparison.OrdinalIgnoreCase)) ? JSBoolean.True : JSBoolean.False;
-                evt[(KeyString)"altKey"] = Array.Exists(modifiers, m => string.Equals(m, "Alt", StringComparison.OrdinalIgnoreCase)) ? JSBoolean.True : JSBoolean.False;
-                evt[(KeyString)"shiftKey"] = Array.Exists(modifiers, m => string.Equals(m, "Shift", StringComparison.OrdinalIgnoreCase)) ? JSBoolean.True : JSBoolean.False;
-                evt[(KeyString)"metaKey"] = Array.Exists(modifiers, m => string.Equals(m, "Meta", StringComparison.OrdinalIgnoreCase)) ? JSBoolean.True : JSBoolean.False;
+                // The wheel form takes its modifiers as a whitespace-separated key list rather than as
+                // four booleans, so each flag is the presence of a name in it.
+                var modifiers = initCall.Realm.ToJsString(initCall[11])
+                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                initCall.Realm.SetProperty(evt, "ctrlKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Control", StringComparison.OrdinalIgnoreCase))));
+                initCall.Realm.SetProperty(evt, "altKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Alt", StringComparison.OrdinalIgnoreCase))));
+                initCall.Realm.SetProperty(evt, "shiftKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Shift", StringComparison.OrdinalIgnoreCase))));
+                initCall.Realm.SetProperty(evt, "metaKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Meta", StringComparison.OrdinalIgnoreCase))));
             }
 
-            if (initArgs.Length > 12)
-                evt[(KeyString)"deltaX"] = new JSNumber(initArgs[12].DoubleValue);
-            if (initArgs.Length > 13)
-                evt[(KeyString)"deltaY"] = new JSNumber(initArgs[13].DoubleValue);
-            if (initArgs.Length > 14)
-                evt[(KeyString)"deltaZ"] = new JSNumber(initArgs[14].DoubleValue);
-            if (initArgs.Length > 15)
-                evt[(KeyString)"deltaMode"] = new JSNumber(initArgs[15].DoubleValue);
-            return JSUndefined.Value;
+            if (initCall.Length > 12)
+                initCall.Realm.SetProperty(evt, "deltaX", JsValue.Number(initCall.Realm.ToNumber(initCall[12])));
+            if (initCall.Length > 13)
+                initCall.Realm.SetProperty(evt, "deltaY", JsValue.Number(initCall.Realm.ToNumber(initCall[13])));
+            if (initCall.Length > 14)
+                initCall.Realm.SetProperty(evt, "deltaZ", JsValue.Number(initCall.Realm.ToNumber(initCall[14])));
+            if (initCall.Length > 15)
+                initCall.Realm.SetProperty(evt, "deltaMode", JsValue.Number(initCall.Realm.ToNumber(initCall[15])));
+            return JsValue.Undefined;
         }
 
-        evt.FastAddValue("initWheelEvent", new DomFunction(JsRegistrationInitWheelEvent032, "initWheelEvent", 16), JSPropertyAttributes.EnumerableConfigurableValue);
-        return evt;
+        // (type, bubbles, cancelable) — the first three arguments every one of the eight init forms
+        // takes, and the eight copies of this that were written out in full.
+        void InitBase(in JsCall initCall)
+        {
+            if (initCall.Length > 0)
+                initCall.Realm.SetProperty(evt, "type", JsValue.String(initCall.Realm.ToJsString(initCall[0])));
+            if (initCall.Length > 1)
+                initCall.Realm.SetProperty(evt, "bubbles", JsValue.Boolean(initCall[1].AsBoolean));
+            if (initCall.Length > 2)
+                initCall.Realm.SetProperty(evt, "cancelable", JsValue.Boolean(initCall[2].AsBoolean));
+        }
     }
 }

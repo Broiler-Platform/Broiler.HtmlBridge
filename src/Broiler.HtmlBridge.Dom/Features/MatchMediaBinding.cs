@@ -1,10 +1,5 @@
 using Broiler.CSS.Dom;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.String;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -18,24 +13,33 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>JsRegistrationMatchMedia069Core</c> in the shared JsFunctionCallbacks/Registration.cs grab-bag,
 /// with its media-query evaluation in the (now removed) <c>DomBridge.EvaluateMediaQuery</c> wrapper.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the realm arrives on the call frame,
+/// so nothing here names an engine type. The media-query evaluation never was engine-coupled.
+/// </remarks>
 internal static class MatchMediaBinding
 {
-    public static JSValue MatchMedia(IMatchMediaHost host, in Arguments a)
+    public static JsValue MatchMedia(IMatchMediaHost host, in JsCall call)
     {
+        var realm = call.Realm;
+
         // An empty query parses to an empty media-query list, which is equivalent
         // to `all` and therefore matches — the evaluator handles that itself, so
         // the empty string is passed straight through rather than short-circuited.
-        var query = a.Length > 0 ? a[0].ToString() : string.Empty;
+        //
+        // ToJsString, not the handle's rendering: `matchMedia(obj)` coerces its argument the way the
+        // language does, so an object argument runs the `toString` the page gave it.
+        var query = call.Length > 0 ? realm.ToJsString(call[0]) : string.Empty;
         var matches = CssStyleEngine.MatchesMediaQuery(
             query,
             new CssEnvironment(host.ViewportWidth, host.ViewportHeight));
 
-        var result = new JSObject();
-        result.FastAddValue("matches", matches ? JSBoolean.True : JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        result.FastAddValue("media", new JSString(query), JSPropertyAttributes.EnumerableConfigurableValue);
+        var result = realm.NewObject();
+        realm.DefineValue(result, "matches", JsValue.Boolean(matches));
+        realm.DefineValue(result, "media", JsValue.String(query));
         // addListener / removeListener stubs (the legacy MediaQueryList API) — no-ops.
-        result.FastAddValue("addListener", NoOp("addListener"), JSPropertyAttributes.EnumerableConfigurableValue);
-        result.FastAddValue("removeListener", NoOp("removeListener"), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(result, "addListener", NoOp(realm, "addListener"));
+        realm.DefineValue(result, "removeListener", NoOp(realm, "removeListener"));
 
         // CSSOM View §4.2 made MediaQueryList an EventTarget, and that is the pair current code
         // registers with — the two above are the deprecated spelling kept for old callers. Having
@@ -49,16 +53,29 @@ internal static class MatchMediaBinding
         // A capture renders one frame at a fixed viewport, so no `change` event can ever fire and
         // the listener is genuinely never called; what matters is that registering one is not an
         // error. `dispatchEvent` reports false — nothing was dispatched — for the same reason.
-        result.FastAddValue("addEventListener", NoOp("addEventListener"), JSPropertyAttributes.EnumerableConfigurableValue);
-        result.FastAddValue("removeEventListener", NoOp("removeEventListener"), JSPropertyAttributes.EnumerableConfigurableValue);
-        result.FastAddValue(
+        realm.DefineValue(result, "addEventListener", NoOp(realm, "addEventListener"));
+        realm.DefineValue(result, "removeEventListener", NoOp(realm, "removeEventListener"));
+        realm.DefineValue(
+            result,
             "dispatchEvent",
-            new JSFunction((in _) => JSBoolean.False, "dispatchEvent", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        result.FastAddValue("onchange", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.NewConstructor("dispatchEvent", static (in _) => JsValue.False, 1));
+        realm.DefineValue(result, "onchange", JsValue.Null);
 
         return result;
     }
 
-    private static JSFunction NoOp(string name) => new((in _) => JSUndefined.Value, name, 1);
+    /// <summary>
+    /// One of the four inert listener-registration members.
+    /// </summary>
+    /// <remarks>
+    /// <b>Constructable, which a WebIDL operation should not be — and it is kept that way because
+    /// this is a refactor.</b> These five members were built with the engine's ordinary function
+    /// constructor rather than with the bridge's non-constructable helper, so each carries a
+    /// <c>prototype</c> object and <c>new mql.addListener()</c> answers an object where a browser
+    /// throws. <see cref="IJsValues.NewConstructor"/> is the mapping that preserves that exactly;
+    /// tightening the five to <see cref="IJsValues.NewMethod"/> is a real fix and belongs in its own
+    /// commit, not smuggled in under a vocabulary change.
+    /// </remarks>
+    private static JsValue NoOp(IJsRealm realm, string name) =>
+        realm.NewConstructor(name, static (in _) => JsValue.Undefined, 1);
 }

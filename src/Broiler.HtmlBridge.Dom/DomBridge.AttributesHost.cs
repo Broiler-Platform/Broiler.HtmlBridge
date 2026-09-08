@@ -1,3 +1,4 @@
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Features;
 using Broiler.Dom;
 
@@ -13,6 +14,8 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 public sealed partial class DomBridge : IAttributesHost
 {
+    IJsRealm IAttributesHost.Realm => Realm;
+
     Broiler.JavaScript.Engine.JSContext? IAttributesHost.JsContext => _jsContext;
 
     void IAttributesHost.ApplyStyleAttribute(DomElement element, string value)
@@ -31,6 +34,11 @@ public sealed partial class DomBridge : IAttributesHost
     void IAttributesHost.NotifyAttributeMutationObservers(DomElement element, string attributeName, string? oldValue) =>
         NotifyAttributeMutationObservers(element, attributeName, oldValue);
 
-    void IAttributesHost.LinkToInterface(Broiler.JavaScript.Runtime.JSObject wrapper, string interfaceName) =>
-        LinkToInterface(wrapper, interfaceName);
+    /// <remarks>
+    /// The wrapper crosses as a JSEAL handle and is unwrapped to the engine object the bridge's
+    /// prototype table is keyed on — a cast, not a conversion, because the handle carries that very
+    /// object.
+    /// </remarks>
+    void IAttributesHost.LinkToInterface(JsValue wrapper, string interfaceName) =>
+        LinkToInterface(Dom.Runtime.JsInterop.ToEngineObject(wrapper), interfaceName);
 }

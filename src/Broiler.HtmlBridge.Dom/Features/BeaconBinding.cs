@@ -1,8 +1,4 @@
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.String;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -23,28 +19,46 @@ internal static class BeaconBinding
     /// <c>keepalive: true</c>. Returns <c>true</c> when the request was queued, <c>false</c> when no
     /// data was supplied, no <c>fetch</c> entry point is available, or the delegation threw.
     /// </summary>
-    public static JSValue Send(JSObject? window, in Arguments a)
+    /// <param name="window">The window whose <c>fetch</c> performs the request.</param>
+    /// <param name="call">The call frame — its realm is what reads and builds the values below.</param>
+    public static JsValue Send(JsValue window, in JsCall call)
     {
-        if (a.Length == 0 || a[0].IsNullOrUndefined)
-            return JSBoolean.False;
+        if (call.Length == 0 || call[0].IsNullish)
+            return JsValue.False;
         try
         {
+            var realm = call.Realm;
+
             // Per sendBeacon semantics, failure to queue because no live fetch entry
             // point is available should return false instead of throwing.
-            if (window[(KeyString)"fetch"] is not JSFunction currentFetch)
-                return JSBoolean.False;
-            var options = new JSObject();
-            options[(KeyString)"method"] = new JSString("POST");
-            options[(KeyString)"keepalive"] = JSBoolean.True;
-            if (a.Length > 1 && !a[1].IsNullOrUndefined)
-                options[(KeyString)"body"] = new JSString(a[1].ToString());
-            currentFetch.InvokeFunction(new Arguments(currentFetch, a[0], options));
-            return JSBoolean.True;
+            var currentFetch = realm.GetProperty(window, "fetch");
+            if (!currentFetch.IsFunction)
+                return JsValue.False;
+
+            // Ordinary [[Set]]s, as before, rather than property definitions: an options bag is a
+            // plain object the page never sees, and the two differ only if something on
+            // Object.prototype intercepts one of these names — which is the page's business, and was
+            // its business before this migration too.
+            var options = realm.NewObject();
+            realm.SetProperty(options, "method", JsValue.String("POST"));
+            realm.SetProperty(options, "keepalive", JsValue.True);
+            if (call.Length > 1 && !call[1].IsNullish)
+            {
+                // ToJsString, not the handle's rendering: the body argument is commonly an object
+                // (a URLSearchParams, a page's own payload wrapper) whose own `toString` is what
+                // decides the bytes sent. That coercion is observable, so it stays the realm's.
+                realm.SetProperty(options, "body", JsValue.String(realm.ToJsString(call[1])));
+            }
+
+            // The receiver is `fetch` itself, which is what the engine-typed call site passed as
+            // this call's `this` before.
+            realm.Invoke(currentFetch, currentFetch, [call[0], options]);
+            return JsValue.True;
         }
         catch (Exception ex)
         {
             RenderLogger.LogError(LogCategory.JavaScript, "DomBridge.navigator.sendBeacon", $"sendBeacon error: {ex.Message}", ex);
-            return JSBoolean.False;
+            return JsValue.False;
         }
     }
 }

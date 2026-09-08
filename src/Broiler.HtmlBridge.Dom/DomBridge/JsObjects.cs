@@ -252,8 +252,13 @@ public sealed partial class DomBridge
 
         // submit() — for form elements (Phase 3 P3.61: co-located FormSubmitBinding feature module,
         // reached through IFormSubmitHost; DomBridge.FormSubmitHost.cs).
+        // FormSubmitBinding is migrated: the method is minted by the realm — which is what gives its
+        // body a call frame to build the synthetic event in — and the seam unwraps the handle for
+        // this engine-typed wrapper, and wraps the wrapper as the event's target.
         obj.FastAddValue("submit",
-            new DomFunction((in a) => Dom.Features.FormSubmitBinding.Submit(this, element, obj, in a), "submit", 0),
+            Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("submit",
+                (in call) => Dom.Features.FormSubmitBinding.Submit(
+                    this, element, Dom.Runtime.JsInterop.FromEngineObject(obj), in call), 0)),
             JSPropertyAttributes.EnumerableConfigurableValue);
 
         // getContext(contextType) — for <canvas> elements. Phase 3 P3.64: extracted into the co-located

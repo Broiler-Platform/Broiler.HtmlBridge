@@ -1,12 +1,7 @@
+using System.Runtime.CompilerServices;
+
 using Broiler.Dom;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -34,7 +29,7 @@ internal static class DatasetBinding
 {
     /// <summary>
     /// The JavaScript half: a factory taking the four accessors as functions and returning the
-    /// proxy. It is a compile-time constant of this assembly, evaluated once per context (and
+    /// proxy. It is a compile-time constant of this assembly, evaluated once per realm (and
     /// served from the shared code cache during registration like the bridge's other sources).
     /// <para>
     /// <c>getOwnPropertyDescriptor</c> is not optional decoration: <c>Object.keys</c>,
@@ -71,81 +66,114 @@ internal static class DatasetBinding
   });
 })";
 
+    // The factory is a per-realm constant, so it is compiled and evaluated once per realm rather
+    // than once per element: a document has thousands of elements and would otherwise pay an
+    // evaluation and a fresh closure for each. Keyed weakly so a finished document's realm — and the
+    // engine values it owns — stay collectable. The handle is boxed because a weak table's value has
+    // to be a reference type and JsValue is a struct.
+    private static readonly ConditionalWeakTable<IJsRealm, StrongBox<JsValue>> Factories = new();
+
     /// <summary>
-    /// Builds the live <c>DOMStringMap</c> for <paramref name="element"/>. Returns <c>null</c> when
-    /// the engine has no <c>Proxy</c> to build it from, so the caller can leave <c>dataset</c>
-    /// unregistered rather than publish a map that silently drops writes.
+    /// The realm's one proxy factory, or a non-function value when the realm has no <c>Proxy</c>.
     /// </summary>
-    // The factory is a per-realm constant, so it is compiled and evaluated once per context rather
-    // than once per element: a document has thousands of elements and would otherwise pay an Eval
-    // and a fresh closure for each. Keyed weakly so a finished document's context is collectable.
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<JSContext, JSFunction> Factories = new();
-
-    private static JSFunction? FactoryFor(JSContext context)
+    /// <remarks>
+    /// The source is this repository's own, not the page's, so it goes through
+    /// <see cref="IJsSource.EvaluateHostScript"/> — the half of the source contract that is exempt
+    /// from the page's content policy. A failure is not cached, exactly as before: a realm that
+    /// answered nothing once is asked again rather than remembered as broken.
+    /// </remarks>
+    private static JsValue FactoryFor(IJsRealm realm)
     {
-        if (Factories.TryGetValue(context, out var cached))
-            return cached;
+        if (Factories.TryGetValue(realm, out var cached))
+            return cached.Value;
 
-        if (context.Eval(FactorySource, "broiler:dataset") is not JSFunction factory)
-            return null;
+        var factory = realm.EvaluateHostScript(FactorySource, "broiler:dataset");
+        if (!factory.IsFunction)
+            return JsValue.Undefined;
 
-        Factories.AddOrUpdate(context, factory);
+        Factories.AddOrUpdate(realm, new StrongBox<JsValue>(factory));
         return factory;
     }
 
-    internal static JSObject? Build(JSContext context, DomElement element, Action<DomElement>? onAttributeChanged)
+    /// <summary>
+    /// Builds the live <c>DOMStringMap</c> for <paramref name="element"/>. Answers a non-object when
+    /// the realm has no <c>Proxy</c> to build it from, so the caller can leave <c>dataset</c>
+    /// unregistered rather than publish a map that silently drops writes.
+    /// </summary>
+    /// <param name="realm">The realm the factory, the four traps' callbacks and the proxy belong to.</param>
+    /// <param name="element">The element whose <c>data-*</c> attributes the map is a view over.</param>
+    /// <param name="onAttributeChanged">Run after a write or a delete reaches the element.</param>
+    internal static JsValue Build(IJsRealm realm, DomElement element, Action<DomElement>? onAttributeChanged)
     {
-        if (FactoryFor(context) is not { } factory)
-            return null;
+        var factory = FactoryFor(realm);
+        if (!factory.IsFunction)
+            return JsValue.Undefined;
 
-        var get = new DomFunction((in a) =>
+        var get = realm.NewMethod("get", (in call) =>
         {
-            var attribute = AttributeNameOf(NameArgument(in a));
+            var attribute = AttributeNameOf(NameArgument(in call));
             if (attribute == null)
-                return JSNull.Value;
+                return JsValue.Null;
 
-            // JSNull rather than undefined so the traps can tell "no such data-* attribute" from an
+            // Null rather than undefined so the traps can tell "no such data-* attribute" from an
             // attribute whose value is the empty string, which is a real, readable value.
-            return element.GetAttribute(attribute) is { } value ? new JSString(value) : JSNull.Value;
-        }, "get", 1);
+            return element.GetAttribute(attribute) is { } value ? JsValue.String(value) : JsValue.Null;
+        }, 1);
 
-        var set = new DomFunction((in a) =>
+        var set = realm.NewMethod("set", (in call) =>
         {
-            var attribute = AttributeNameOf(NameArgument(in a));
+            var attribute = AttributeNameOf(NameArgument(in call));
             if (attribute != null)
             {
-                element.SetAttribute(attribute, a.Length > 1 ? a[1].ToString() : string.Empty);
+                // The realm's ToString, not the handle's: the trap already passed String(value), but
+                // this operation is reachable by name and the coercion a caller observes is the
+                // ECMAScript one.
+                element.SetAttribute(attribute, call.Length > 1 ? call.Realm.ToJsString(call[1]) : string.Empty);
                 onAttributeChanged?.Invoke(element);
             }
 
-            return JSUndefined.Value;
-        }, "set", 2);
+            return JsValue.Undefined;
+        }, 2);
 
-        var del = new DomFunction((in a) =>
+        var del = realm.NewMethod("delete", (in call) =>
         {
-            var attribute = AttributeNameOf(NameArgument(in a));
+            var attribute = AttributeNameOf(NameArgument(in call));
             if (attribute != null && element.RemoveAttribute(attribute))
                 onAttributeChanged?.Invoke(element);
 
-            return JSUndefined.Value;
-        }, "delete", 1);
+            return JsValue.Undefined;
+        }, 1);
 
-        var keys = new DomFunction((in _) =>
+        var keys = realm.NewMethod("keys", (in call) =>
         {
-            var names = new JSArray();
+            var names = new List<JsValue>();
             foreach (var (key, _) in element.Attributes)
             {
                 if (PropertyNameOf(key.LocalName) is { } propertyName)
-                    names.Add(new JSString(propertyName));
+                    names.Add(JsValue.String(propertyName));
             }
 
-            return names;
-        }, "keys", 0);
+            return call.Realm.NewArray([.. names]);
+        }, 0);
 
-        return factory.InvokeFunction(new Arguments(JSUndefined.Value, get, set, del, keys)) as JSObject;
+        // The factory is called with undefined as its receiver, as it was before; it closes over the
+        // four callbacks and returns the proxy.
+        var map = realm.Invoke(factory, JsValue.Undefined, [get, set, del, keys]);
+        return map.IsObject ? map : JsValue.Undefined;
     }
 
-    private static string? NameArgument(in Arguments a) => a.Length > 0 ? a[0].ToString() : null;
+    /// <summary>
+    /// The property name a trap was asked about, or <see langword="null"/> when it was called with
+    /// nothing at all.
+    /// </summary>
+    /// <remarks>
+    /// The rendering is the realm's <c>ToString</c> rather than the handle's, because that is the
+    /// observable ECMAScript coercion the engine's own <c>ToString()</c> was performing here. A
+    /// missing argument is not coerced: there is nothing to convert, and the traps read that as
+    /// "no such property".
+    /// </remarks>
+    private static string? NameArgument(in JsCall call) =>
+        call.Length > 0 ? call.Realm.ToJsString(call[0]) : null;
 
     /// <summary>
     /// The <c>data-*</c> attribute a <c>dataset</c> property name addresses: each ASCII uppercase

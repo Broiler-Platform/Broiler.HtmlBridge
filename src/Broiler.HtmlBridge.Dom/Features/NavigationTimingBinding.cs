@@ -1,9 +1,5 @@
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Net;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -41,12 +37,19 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// user marks belong to buffers a capture does not keep, so the entry-list getters answer with an
 /// empty list for them rather than inventing one.
 /// </para>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the realm mints the entry, the
+/// three accessors and every array they answer with, so nothing here names an engine type. The
+/// entry object itself is captured by the accessors exactly as before — one entry per document,
+/// handed out by reference, so a page that compares two results gets the same object.
+/// </para>
 /// </remarks>
 internal static class NavigationTimingBinding
 {
     /// <summary>
     /// Installs the entry-list accessors on <paramref name="performance"/>.
     /// </summary>
+    /// <param name="realm">The realm the entry, the accessors and their arrays belong to.</param>
     /// <param name="performance">The <c>performance</c> object being built.</param>
     /// <param name="pageUrl">The document's URL, or the empty string when it has none.</param>
     /// <param name="pageProtocol">
@@ -64,25 +67,23 @@ internal static class NavigationTimingBinding
     /// "not observed" <c>0</c>.
     /// </param>
     public static void Install(
-        JSObject performance,
+        IJsRealm realm,
+        JsValue performance,
         string pageUrl,
         string pageProtocol,
         NavigationTimingState timing,
         DocumentFetchTiming? fetchTiming)
     {
-        var navigation = BuildNavigationEntry(pageUrl, pageProtocol, timing, fetchTiming);
+        var navigation = BuildNavigationEntry(realm, pageUrl, pageProtocol, timing, fetchTiming);
 
-        performance.FastAddValue("getEntries",
-            new DomFunction((in _) => new JSArray([navigation]), "getEntries", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(performance, "getEntries",
+            realm.NewMethod("getEntries", (in call) => call.Realm.NewArray([navigation]), 0));
 
-        performance.FastAddValue("getEntriesByType",
-            new DomFunction((in a) => EntriesByType(navigation, in a), "getEntriesByType", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(performance, "getEntriesByType",
+            realm.NewMethod("getEntriesByType", (in call) => EntriesByType(navigation, in call), 1));
 
-        performance.FastAddValue("getEntriesByName",
-            new DomFunction((in a) => EntriesByName(navigation, pageUrl, in a), "getEntriesByName", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(performance, "getEntriesByName",
+            realm.NewMethod("getEntriesByName", (in call) => EntriesByName(navigation, pageUrl, in call), 1));
     }
 
     /// <summary>
@@ -93,20 +94,21 @@ internal static class NavigationTimingBinding
     private static string NextHopProtocol(string pageProtocol) =>
         pageProtocol is "http:" or "https:" ? Layout.Net.BroilerHttpProtocol.NextHopProtocol : string.Empty;
 
-    private static JSObject BuildNavigationEntry(
+    private static JsValue BuildNavigationEntry(
+        IJsRealm realm,
         string pageUrl,
         string pageProtocol,
         NavigationTimingState timing,
         DocumentFetchTiming? fetchTiming)
     {
-        var entry = new JSObject();
+        var entry = realm.NewObject();
 
         // PerformanceEntry (Performance Timeline §3.1). A navigation entry is named by the
         // document's URL and its startTime is 0 by definition — the time origin *is* this
         // navigation's start.
-        entry.FastAddValue("name", new JSString(pageUrl), JSPropertyAttributes.EnumerableConfigurableValue);
-        entry.FastAddValue("entryType", new JSString("navigation"), JSPropertyAttributes.EnumerableConfigurableValue);
-        entry.FastAddValue("startTime", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(entry, "name", JsValue.String(pageUrl));
+        realm.DefineValue(entry, "entryType", JsValue.String("navigation"));
+        realm.DefineValue(entry, "startTime", JsValue.Number(0));
 
         // duration is loadEventEnd - startTime (Navigation Timing §4), and startTime is 0 for a
         // navigation entry, so it *is* loadEventEnd. It was a hardcoded 0, which is right only until
@@ -115,22 +117,22 @@ internal static class NavigationTimingBinding
         // so reporting 0 was worse than reporting nothing: it is a plausible number rather than an
         // absent one. An accessor, not a value, for the same reason the marks are: the entry is built
         // before the load sequence runs, and reads 0 until it reaches the end of it.
-        AddTimingAccessor(entry, "duration", () => timing.LoadEventEnd);
+        AddTimingAccessor(realm, entry, "duration", () => timing.LoadEventEnd);
 
         // PerformanceResourceTiming (Resource Timing §4.1), of which a navigation entry is a
         // subtype. `initiatorType` is fixed at "navigation" for one, and the protocol is the engine's
         // own — see BroilerHttpProtocol, which pins the request version this names.
-        entry.FastAddValue("initiatorType", new JSString("navigation"), JSPropertyAttributes.EnumerableConfigurableValue);
-        entry.FastAddValue("nextHopProtocol", new JSString(NextHopProtocol(pageProtocol)), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(entry, "initiatorType", JsValue.String("navigation"));
+        realm.DefineValue(entry, "nextHopProtocol", JsValue.String(NextHopProtocol(pageProtocol)));
 
         // PerformanceNavigationTiming (Navigation Timing §4). "navigate" is the plain case — the
         // alternatives ("reload", "back_forward", "prerender") describe entries into a session
         // history Broiler does not keep, so none of them can arise here.
-        entry.FastAddValue("type", new JSString("navigate"), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(entry, "type", JsValue.String("navigate"));
 
         // Redirects are followed inside the HTTP client, which does not report how many it took, so
         // this is the count Broiler can vouch for rather than a measurement.
-        entry.FastAddValue("redirectCount", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(entry, "redirectCount", JsValue.Number(0));
 
         // --- Timing attributes (Navigation Timing §4). ---
         //
@@ -143,21 +145,21 @@ internal static class NavigationTimingBinding
         // performance.now() uses, so a page can compare a mark against a now() reading and get two
         // points on one timeline. Each reads 0 until its moment is reached, which is what the
         // specification says an unreached mark reports.
-        AddTimingAccessor(entry, "domInteractive", () => timing.DomInteractive);
-        AddTimingAccessor(entry, "domContentLoadedEventStart", () => timing.DomContentLoadedEventStart);
-        AddTimingAccessor(entry, "domContentLoadedEventEnd", () => timing.DomContentLoadedEventEnd);
-        AddTimingAccessor(entry, "domComplete", () => timing.DomComplete);
-        AddTimingAccessor(entry, "loadEventStart", () => timing.LoadEventStart);
-        AddTimingAccessor(entry, "loadEventEnd", () => timing.LoadEventEnd);
+        AddTimingAccessor(realm, entry, "domInteractive", () => timing.DomInteractive);
+        AddTimingAccessor(realm, entry, "domContentLoadedEventStart", () => timing.DomContentLoadedEventStart);
+        AddTimingAccessor(realm, entry, "domContentLoadedEventEnd", () => timing.DomContentLoadedEventEnd);
+        AddTimingAccessor(realm, entry, "domComplete", () => timing.DomComplete);
+        AddTimingAccessor(realm, entry, "loadEventStart", () => timing.LoadEventStart);
+        AddTimingAccessor(realm, entry, "loadEventEnd", () => timing.LoadEventEnd);
 
         // These are 0 because the phase genuinely did not happen, which is the value the
         // specification gives for each: nothing redirected, there is no previous document to unload,
         // and no service worker intercepted the navigation.
-        AddTimingConstant(entry, "redirectStart", 0);
-        AddTimingConstant(entry, "redirectEnd", 0);
-        AddTimingConstant(entry, "unloadEventStart", 0);
-        AddTimingConstant(entry, "unloadEventEnd", 0);
-        AddTimingConstant(entry, "workerStart", 0);
+        AddTimingConstant(realm, entry, "redirectStart", 0);
+        AddTimingConstant(realm, entry, "redirectEnd", 0);
+        AddTimingConstant(realm, entry, "unloadEventStart", 0);
+        AddTimingConstant(realm, entry, "unloadEventEnd", 0);
+        AddTimingConstant(realm, entry, "workerStart", 0);
 
         // The network phases, measured when the host handed its document-fetch timings across and
         // 0 — the specification's "not observed" — when it did not.
@@ -176,59 +178,64 @@ internal static class NavigationTimingBinding
         // DocumentFetchTiming): a file: document does no DNS lookup and opens no connection, so its
         // lookup and connect marks collapse onto fetchStart. secureConnectionStart is the exception
         // and stays 0 when no TLS handshake happened.
-        AddTimingConstant(entry, "fetchStart", fetchTiming?.FetchStart ?? 0);
-        AddTimingConstant(entry, "domainLookupStart", fetchTiming?.DomainLookupStart ?? 0);
-        AddTimingConstant(entry, "domainLookupEnd", fetchTiming?.DomainLookupEnd ?? 0);
-        AddTimingConstant(entry, "connectStart", fetchTiming?.ConnectStart ?? 0);
-        AddTimingConstant(entry, "connectEnd", fetchTiming?.ConnectEnd ?? 0);
-        AddTimingConstant(entry, "secureConnectionStart", fetchTiming?.SecureConnectionStart ?? 0);
-        AddTimingConstant(entry, "requestStart", fetchTiming?.RequestStart ?? 0);
-        AddTimingConstant(entry, "responseStart", fetchTiming?.ResponseStart ?? 0);
-        AddTimingConstant(entry, "responseEnd", fetchTiming?.ResponseEnd ?? 0);
+        AddTimingConstant(realm, entry, "fetchStart", fetchTiming?.FetchStart ?? 0);
+        AddTimingConstant(realm, entry, "domainLookupStart", fetchTiming?.DomainLookupStart ?? 0);
+        AddTimingConstant(realm, entry, "domainLookupEnd", fetchTiming?.DomainLookupEnd ?? 0);
+        AddTimingConstant(realm, entry, "connectStart", fetchTiming?.ConnectStart ?? 0);
+        AddTimingConstant(realm, entry, "connectEnd", fetchTiming?.ConnectEnd ?? 0);
+        AddTimingConstant(realm, entry, "secureConnectionStart", fetchTiming?.SecureConnectionStart ?? 0);
+        AddTimingConstant(realm, entry, "requestStart", fetchTiming?.RequestStart ?? 0);
+        AddTimingConstant(realm, entry, "responseStart", fetchTiming?.ResponseStart ?? 0);
+        AddTimingConstant(realm, entry, "responseEnd", fetchTiming?.ResponseEnd ?? 0);
 
         // Resource Timing's body-size trio, from the same measurement. 0 is its documented "not
         // available" value, which is still the answer when no fetch was measured.
-        AddTimingConstant(entry, "transferSize", fetchTiming?.TransferSize ?? 0);
-        AddTimingConstant(entry, "encodedBodySize", fetchTiming?.EncodedBodySize ?? 0);
-        AddTimingConstant(entry, "decodedBodySize", fetchTiming?.DecodedBodySize ?? 0);
+        AddTimingConstant(realm, entry, "transferSize", fetchTiming?.TransferSize ?? 0);
+        AddTimingConstant(realm, entry, "encodedBodySize", fetchTiming?.EncodedBodySize ?? 0);
+        AddTimingConstant(realm, entry, "decodedBodySize", fetchTiming?.DecodedBodySize ?? 0);
 
-        entry.FastAddValue("toJSON",
-            new DomFunction((in _) => entry, "toJSON", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(entry, "toJSON", realm.NewMethod("toJSON", (in _) => entry, 0));
 
         return entry;
     }
 
-    private static JSValue EntriesByType(JSObject navigation, in Arguments a)
+    private static JsValue EntriesByType(JsValue navigation, in JsCall call)
     {
-        string type = a.Length > 0 ? a[0].ToString() : string.Empty;
+        // ToJsString rather than the handle's rendering: getEntriesByType(obj) coerces its argument,
+        // and an object's own toString is what decides which type was asked for.
+        string type = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         return string.Equals(type, "navigation", StringComparison.Ordinal)
-            ? new JSArray([navigation])
-            : new JSArray();
+            ? call.Realm.NewArray([navigation])
+            : call.Realm.NewArray();
     }
 
-    private static JSValue EntriesByName(JSObject navigation, string pageUrl, in Arguments a)
+    private static JsValue EntriesByName(JsValue navigation, string pageUrl, in JsCall call)
     {
-        if (a.Length == 0)
-            return new JSArray();
+        if (call.Length == 0)
+            return call.Realm.NewArray();
 
         // The second argument narrows by entry type; a caller that passes one that is not
         // "navigation" is asking for entries this timeline has none of.
-        if (a.Length > 1 && a[1] is not JSUndefined && !string.Equals(a[1].ToString(), "navigation", StringComparison.Ordinal))
-            return new JSArray();
+        if (call.Length > 1 && !call[1].IsUndefined &&
+            !string.Equals(call.Realm.ToJsString(call[1]), "navigation", StringComparison.Ordinal))
+            return call.Realm.NewArray();
 
-        return string.Equals(a[0].ToString(), pageUrl, StringComparison.Ordinal)
-            ? new JSArray([navigation])
-            : new JSArray();
+        return string.Equals(call.Realm.ToJsString(call[0]), pageUrl, StringComparison.Ordinal)
+            ? call.Realm.NewArray([navigation])
+            : call.Realm.NewArray();
     }
 
     /// <summary>A live timing mark: an accessor so the entry reports the value at read time.</summary>
-    private static void AddTimingAccessor(JSObject entry, string name, Func<double> read)
-        => entry.FastAddProperty(name,
-            new DomFunction((in _) => new JSNumber(read()), $"get {name}"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+    /// <remarks>
+    /// The getter is a bare delegate: the realm mints the accessor function, names it
+    /// <c>get {name}</c> and makes it non-constructable — the three things the bridge's own function
+    /// wrapper did at this call site before. A <see langword="null"/> setter is still how read-only
+    /// is spelled, and these marks are read-only.
+    /// </remarks>
+    private static void AddTimingAccessor(IJsRealm realm, JsValue entry, string name, Func<double> read)
+        => realm.DefineAccessor(entry, name, (in _) => JsValue.Number(read()), null);
 
     /// <summary>A mark whose value cannot change for this document.</summary>
-    private static void AddTimingConstant(JSObject entry, string name, double value)
-        => entry.FastAddValue(name, new JSNumber(value), JSPropertyAttributes.EnumerableConfigurableValue);
+    private static void AddTimingConstant(IJsRealm realm, JsValue entry, string name, double value)
+        => realm.DefineValue(entry, name, JsValue.Number(value));
 }

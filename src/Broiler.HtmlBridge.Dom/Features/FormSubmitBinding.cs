@@ -1,11 +1,8 @@
 using System.Linq;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.HtmlBridge.Logging;
+
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -22,38 +19,64 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// a second time here is how the two would drift.
 /// </para>
 /// The listener store and the submission handover are the
-/// <see cref="IFormSubmitHost"/> contract; the no-op function factory, the listener invoker and the
-/// render logger are the bridge's static helpers, called directly. Was the bridge's
-/// <c>JsJsObjectsSubmit125Core</c>.
+/// <see cref="IFormSubmitHost"/> contract; the listener invoker and the render logger are the
+/// bridge's static helpers, called directly. Was the bridge's <c>JsJsObjectsSubmit125Core</c>.
 /// </summary>
 internal static class FormSubmitBinding
 {
-    public static JSValue Submit(IFormSubmitHost host, DomElement element, JSObject? obj, in Arguments a)
+    /// <summary>
+    /// <c>submit()</c> on an element wrapper. A no-op on anything that is not a <c>&lt;form&gt;</c>,
+    /// which is what it has always been.
+    /// </summary>
+    /// <param name="host">The listener store and the submission handover.</param>
+    /// <param name="element">The element the member was installed for.</param>
+    /// <param name="target">
+    /// That element's wrapper — the synthetic event's <c>target</c>, so a listener reading
+    /// <c>event.target</c> gets the same object the page holds.
+    /// </param>
+    /// <param name="call">The call frame, for the realm the event and its methods are built in.</param>
+    public static JsValue Submit(IFormSubmitHost host, DomElement element, JsValue target, in JsCall call)
     {
         if (string.Equals(element.TagName, "form", StringComparison.OrdinalIgnoreCase))
         {
+            var realm = call.Realm;
+
             // Fire submit event
-            var submitEvt = new JSObject();
-            submitEvt.FastAddValue("type", new JSString("submit"), JSPropertyAttributes.EnumerableConfigurableValue);
-            submitEvt.FastAddValue("target", obj, JSPropertyAttributes.EnumerableConfigurableValue);
-            submitEvt.FastAddValue("bubbles", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-            submitEvt.FastAddValue("cancelable", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
+            var submitEvt = realm.NewObject();
+            realm.DefineValue(submitEvt, "type", JsValue.String("submit"));
+            realm.DefineValue(submitEvt, "target", target);
+            realm.DefineValue(submitEvt, "bubbles", JsValue.True);
+            realm.DefineValue(submitEvt, "cancelable", JsValue.True);
             var prevented = false;
-            submitEvt.FastAddValue("defaultPrevented", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue PreventDefault(in Arguments _)
+            realm.DefineValue(submitEvt, "defaultPrevented", JsValue.False);
+            JsValue PreventDefault(in JsCall _)
             {
                 prevented = true;
-                submitEvt[(KeyString)"defaultPrevented"] = JSBoolean.True;
-                return JSUndefined.Value;
+                realm.SetProperty(submitEvt, "defaultPrevented", JsValue.True);
+                return JsValue.Undefined;
             }
 
-            submitEvt.FastAddValue("preventDefault", new DomFunction(PreventDefault, "preventDefault", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            submitEvt.FastAddValue("stopPropagation", DomBridge.UndefinedFunction("stopPropagation", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(submitEvt, "preventDefault", realm.NewMethod("preventDefault", PreventDefault, 0));
+
+            // stopPropagation is minted as a *constructor* only because it always has been: it came
+            // from the bridge's UndefinedFunction helper, which builds a plain engine function — one
+            // that carries a prototype object and so passes the engine's constructor test — rather
+            // than the non-constructable shape WebIDL gives an operation. Correcting that is a
+            // behaviour change and belongs with the helper's other callers.
+            realm.DefineValue(submitEvt, "stopPropagation",
+                realm.NewConstructor("stopPropagation", static (in _) => JsValue.Undefined, 0));
+
             if (host.GetEventListeners(element).TryGetValue("submit", out var submitListeners))
             {
+                // The listener invoker is still engine-typed bridge code, and deliberately reached
+                // rather than replaced: InvokeEventListener is the one place a listener turn is
+                // bracketed for JsEntryTrace, resolves the handleEvent form of a listener object, and
+                // swallows a listener's exception into a warning. Re-firing through the realm here
+                // would quietly drop all three, so the event crosses the migration seam once instead.
+                var engineEvent = Runtime.JsInterop.ToEngineObject(submitEvt);
                 foreach (var registration in submitListeners.ToList())
                 {
-                    DomBridge.InvokeEventListener(registration.Listener, submitEvt, "DomBridge.submit");
+                    DomBridge.InvokeEventListener(registration.Listener, engineEvent, "DomBridge.submit");
                 }
             }
 
@@ -70,6 +93,6 @@ internal static class FormSubmitBinding
             }
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 }

@@ -151,7 +151,12 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     /// <c>ReadableStream</c>, <c>ProgressEvent</c> and <c>FileReader</c>, plus the seam that mints a
     /// stream over bytes for <c>blob.stream()</c> and a fetch body.
     /// </summary>
-    private readonly Dom.Features.StreamsBinding _streams = new();
+    /// <remarks>
+    /// Built in the constructor rather than initialised in place because it now takes the bridge's
+    /// JSEAL realm accessor — a function, since the realm is adopted at Attach and this field exists
+    /// before that.
+    /// </remarks>
+    private readonly Dom.Features.StreamsBinding _streams;
     private readonly Dom.Features.SubDocumentBinding _subDocuments;
     // Phase 3 (P3.17): the nested-browsing-context `window` (sub-window) object — its
     // document/location/scroll/getComputedStyle surface and the sub-window-scoped helpers — lives in
@@ -272,6 +277,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         _fetch = new Dom.Features.FetchBinding(this, _resources);
         _attributes = new Dom.Features.AttributesBinding(this);
         _blobs = new Dom.Features.BlobBinding();
+        _streams = new Dom.Features.StreamsBinding(() => Realm);
         _subDocuments = new Dom.Features.SubDocumentBinding(this);
         _subWindows = new Dom.Features.SubWindowBinding(this, _browsingContexts, _eventTargets, _messaging);
         _windowContext = new Dom.Runtime.WindowContextManager(this, _browsingContexts, _eventTargets);

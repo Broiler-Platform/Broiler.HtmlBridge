@@ -1,8 +1,10 @@
 using System.Runtime.CompilerServices;
 
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.BuiltIns.Array;
 using Broiler.JavaScript.BuiltIns.Boolean;
+using Broiler.JavaScript.BuiltIns.Null;
 using Broiler.JavaScript.BuiltIns.Number;
 using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
@@ -231,18 +233,18 @@ public sealed partial class DomBridge
     /// </summary>
     private void InstallElementTreeMembers(JSObject target, Dom.Features.ElementSource element)
     {
-        AddPrototypeAccessor(target, "children",
-            (in Arguments a) => Dom.Features.ElementTraversalBinding.GetChildren(this, element(in a, "children"), in a));
+        AddPrototypeAccessor(target, "children", (in Arguments a) => Dom.Runtime.JsInterop.ToEngineObject(
+            Dom.Features.ElementTraversalBinding.GetChildren(this, element(in a, "children"))));
         AddPrototypeAccessor(target, "childElementCount", (in Arguments a) =>
             new JSNumber(ChildElements(element(in a, "childElementCount")).Count(c => !IsText(c))));
-        AddPrototypeAccessor(target, "firstElementChild",
-            (in Arguments a) => Dom.Features.ElementTraversalBinding.GetFirstElementChild(this, element(in a, "firstElementChild"), in a));
-        AddPrototypeAccessor(target, "lastElementChild",
-            (in Arguments a) => Dom.Features.ElementTraversalBinding.GetLastElementChild(this, element(in a, "lastElementChild"), in a));
-        AddPrototypeAccessor(target, "nextElementSibling",
-            (in Arguments a) => Dom.Features.ElementTraversalBinding.GetNextElementSibling(this, element(in a, "nextElementSibling"), in a));
-        AddPrototypeAccessor(target, "previousElementSibling",
-            (in Arguments a) => Dom.Features.ElementTraversalBinding.GetPreviousElementSibling(this, element(in a, "previousElementSibling"), in a));
+        AddPrototypeAccessor(target, "firstElementChild", (in Arguments a) => ObjectOrNull(
+            Dom.Features.ElementTraversalBinding.GetFirstElementChild(this, element(in a, "firstElementChild"))));
+        AddPrototypeAccessor(target, "lastElementChild", (in Arguments a) => ObjectOrNull(
+            Dom.Features.ElementTraversalBinding.GetLastElementChild(this, element(in a, "lastElementChild"))));
+        AddPrototypeAccessor(target, "nextElementSibling", (in Arguments a) => ObjectOrNull(
+            Dom.Features.ElementTraversalBinding.GetNextElementSibling(this, element(in a, "nextElementSibling"))));
+        AddPrototypeAccessor(target, "previousElementSibling", (in Arguments a) => ObjectOrNull(
+            Dom.Features.ElementTraversalBinding.GetPreviousElementSibling(this, element(in a, "previousElementSibling"))));
 
         AddPrototypeMethod(target, "append", 0,
             (in Arguments a) => Dom.Features.TreeMutationBinding.Append(this, element(in a, "append"), in a));
@@ -267,19 +269,47 @@ public sealed partial class DomBridge
     /// <summary>The selector and collection lookups scoped to an element.</summary>
     private void InstallElementSelectionMembers(JSObject target, Dom.Features.ElementSource element)
     {
-        AddPrototypeMethod(target, "querySelector", 1,
-            (in Arguments a) => Dom.Features.SelectorsBinding.QuerySelector(this, element(in a, "querySelector"), in a));
-        AddPrototypeMethod(target, "querySelectorAll", 1,
-            (in Arguments a) => Dom.Features.SelectorsBinding.QuerySelectorAll(this, element(in a, "querySelectorAll"), in a));
-        AddPrototypeMethod(target, "matches", 1,
-            (in Arguments a) => Dom.Features.SelectorsBinding.Matches(this, element(in a, "matches"), in a));
-        AddPrototypeMethod(target, "closest", 1,
-            (in Arguments a) => Dom.Features.SelectorsBinding.Closest(this, element(in a, "closest"), in a));
-        AddPrototypeMethod(target, "getElementsByTagName", 1,
-            (in Arguments a) => Dom.Features.SelectorsBinding.GetElementsByTagName(this, element(in a, "getElementsByTagName"), in a));
-        AddPrototypeMethod(target, "getElementsByClassName", 1,
-            (in Arguments a) => Dom.Features.SelectorsBinding.GetElementsByClassName(this, element(in a, "getElementsByClassName"), in a));
+        AddPrototypeMethod(target, "querySelector", 1, (in Arguments a) => ObjectOrNull(
+            Dom.Features.SelectorsBinding.QuerySelector(this, element(in a, "querySelector"), StringArgument(in a))));
+        AddPrototypeMethod(target, "querySelectorAll", 1, (in Arguments a) => Dom.Runtime.JsInterop.ToEngineObject(
+            Dom.Features.SelectorsBinding.QuerySelectorAll(this, element(in a, "querySelectorAll"), StringArgument(in a))));
+        AddPrototypeMethod(target, "matches", 1, (in Arguments a) =>
+            Dom.Features.SelectorsBinding.Matches(this, element(in a, "matches"), StringArgument(in a)).AsBoolean
+                ? JSBoolean.True
+                : JSBoolean.False);
+        AddPrototypeMethod(target, "closest", 1, (in Arguments a) => ObjectOrNull(
+            Dom.Features.SelectorsBinding.Closest(this, element(in a, "closest"), StringArgument(in a))));
+        AddPrototypeMethod(target, "getElementsByTagName", 1, (in Arguments a) => Dom.Runtime.JsInterop.ToEngineObject(
+            Dom.Features.SelectorsBinding.GetElementsByTagName(this, element(in a, "getElementsByTagName"), StringArgument(in a))));
+        AddPrototypeMethod(target, "getElementsByClassName", 1, (in Arguments a) => Dom.Runtime.JsInterop.ToEngineObject(
+            Dom.Features.SelectorsBinding.GetElementsByClassName(this, element(in a, "getElementsByClassName"), StringArgument(in a))));
     }
+
+    /// <summary>
+    /// Argument zero as a string — the ECMAScript coercion, which may run a <c>toString</c> the page
+    /// wrote — or the empty string when nothing was passed.
+    /// </summary>
+    /// <remarks>
+    /// The selector and collection members read their argument here rather than inside the migrated
+    /// <see cref="Dom.Features.SelectorsBinding"/>, because this registration site still runs on an
+    /// engine call frame and the module no longer knows one. It is the same read on the same value it
+    /// always was, and it moves inside the module — as <c>call.Realm.ToJsString(call[0])</c> — when
+    /// this file migrates in its turn.
+    /// </remarks>
+    private static string StringArgument(in Arguments a) => a.Length > 0 ? a[0].ToString() : string.Empty;
+
+    /// <summary>
+    /// The engine value behind a handle produced by a migrated member that answers an object or
+    /// JavaScript <c>null</c>.
+    /// </summary>
+    /// <remarks>
+    /// The seam (<c>Runtime/JsInterop.cs</c>) is a cast, not a conversion: a handle either carries the
+    /// engine's own object or it carries no reference at all. For these members — a wrapper, a
+    /// collection, or nothing found — "no reference" is exactly <c>null</c>, so the engine's own
+    /// <c>null</c> is what a caller must see.
+    /// </remarks>
+    private static JSValue ObjectOrNull(JsValue value) =>
+        Dom.Runtime.JsInterop.ToEngineValue(value) ?? JSNull.Value;
 
     /// <summary>
     /// <c>tagName</c>'s value: upper-cased for an HTML element, verbatim otherwise, which is the rule

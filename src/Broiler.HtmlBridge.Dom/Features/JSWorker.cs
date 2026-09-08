@@ -271,10 +271,10 @@ internal sealed class JSWorker
         }, "addEventListener", 2);
 
         context["setTimeout"] = new JSFunction((in a) => new JSNumber(
-            _timers.Add(a.Length > 0 ? a[0] as JSFunction : null, DelayOf(a), repeating: false)), "setTimeout", 2);
+            _timers.Add(CallbackOf(in a), DelayOf(a), repeating: false)), "setTimeout", 2);
 
         context["setInterval"] = new JSFunction((in a) => new JSNumber(
-            _timers.Add(a.Length > 0 ? a[0] as JSFunction : null, DelayOf(a), repeating: true)), "setInterval", 2);
+            _timers.Add(CallbackOf(in a), DelayOf(a), repeating: true)), "setInterval", 2);
 
         // One id space, and clearTimeout/clearInterval interchangeable, per the HTML spec — the same
         // contract the page's loop keeps.
@@ -345,6 +345,19 @@ internal sealed class JSWorker
 
         context["console"] = console;
     }
+
+    /// <summary>
+    /// The callback argument of a timer call as the work to run when it comes due, or
+    /// <see langword="null"/> when argument zero is not a function.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="WorkerTimers"/> schedules deadlines and no longer names an engine type, so the call
+    /// into JavaScript is made here, on the side that still owns the worker's context — the same
+    /// receiver (<c>undefined</c>) and empty argument list the scheduler used to pass itself. A null
+    /// answer is what keeps <c>setTimeout("string")</c> handing back a clearable id that never fires.
+    /// </remarks>
+    private static Action? CallbackOf(in Arguments a) =>
+        a.Length > 0 && a[0] is JSFunction fn ? () => fn.InvokeFunction(new Arguments(JSUndefined.Value)) : null;
 
     /// <summary>The delay argument of a timer call, defaulting to 0 when absent or not a number.</summary>
     private static double DelayOf(in Arguments a) =>

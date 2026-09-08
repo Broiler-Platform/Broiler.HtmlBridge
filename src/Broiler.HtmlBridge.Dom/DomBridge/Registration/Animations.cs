@@ -98,29 +98,30 @@ public sealed partial class DomBridge
 
     private JSObject BuildAnimationObject(DomElement element)
     {
-        var animation = new JSObject();
         // The animation-object currentTime/ready.then surface is the co-located AnimationObjectBinding
-        // feature module (Phase 3). currentTime reads/writes the element's per-bridge animation timeline;
-        // resolve it once here (stable CWT identity for this element/bridge) and hand it to the callbacks.
+        // feature module (Phase 3), now written against JSEAL — so the object, its accessor pair and the
+        // two ready-promise methods are minted by the realm (which names the accessors "get/set
+        // currentTime" and makes every function non-constructable, as DomFunction did here) and handed
+        // back to this still-engine-typed caller through the JsInterop seam. currentTime reads/writes
+        // the element's per-bridge animation timeline; resolve it once here (stable CWT identity for
+        // this element/bridge) and hand it to the callbacks.
+        var realm = Realm;
+        var animation = realm.NewObject();
         var animationState = AnimationStateFor(element);
-        animation.FastAddProperty(
+        realm.DefineAccessor(
+            animation,
             "currentTime",
-            new DomFunction((in _) => Dom.Features.AnimationObjectBinding.GetCurrentTime(animationState, in _), "get currentTime"),
-            new DomFunction((in a) => Dom.Features.AnimationObjectBinding.SetCurrentTime(animationState, in a), "set currentTime"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+            (in c) => Dom.Features.AnimationObjectBinding.GetCurrentTime(animationState, in c),
+            (in c) => Dom.Features.AnimationObjectBinding.SetCurrentTime(animationState, in c));
 
-        var ready = new JSObject();
-        ready.FastAddValue(
-            "then",
-            new DomFunction((in a) => Dom.Features.AnimationObjectBinding.Then(ready, in a), "then", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        ready.FastAddValue(
-            "catch",
-            new DomFunction((in _) => ready, "catch", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        var ready = realm.NewObject();
+        realm.DefineValue(ready, "then",
+            realm.NewMethod("then", (in c) => Dom.Features.AnimationObjectBinding.Then(ready, in c), 1));
+        realm.DefineValue(ready, "catch",
+            realm.NewMethod("catch", (in _) => ready, 1));
 
-        animation.FastAddValue("ready", ready, JSPropertyAttributes.EnumerableConfigurableValue);
-        return animation;
+        realm.DefineValue(animation, "ready", ready);
+        return JsInterop.ToEngineObject(animation);
     }
 
 }

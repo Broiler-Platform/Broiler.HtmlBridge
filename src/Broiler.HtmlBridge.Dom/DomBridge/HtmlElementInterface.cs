@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
@@ -147,13 +148,35 @@ public sealed partial class DomBridge
             var eventName = name;
             var member = "on" + eventName;
 
+            // EventHandlerReflectorBinding is migrated, so the pair is minted by the realm and the
+            // seam unwraps each handle for the engine-typed target installed on here. Minting them
+            // through the realm rather than wrapping a DomFunction around the binding is what gives
+            // the setter a properly tagged argument, and so lets "is it a function" — the whole of
+            // what the setter decides — stay the binding's question.
             target.FastAddProperty(member,
-                new DomFunction((in Arguments a) =>
-                    Dom.Features.EventHandlerReflectorBinding.GetOn(this, element(in a, member), eventName, in a), "get " + member),
-                new DomFunction((in Arguments a) =>
-                    Dom.Features.EventHandlerReflectorBinding.SetOn(this, element(in a, member), eventName, in a), "set " + member),
+                Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("get " + member,
+                    (in call) => Dom.Features.EventHandlerReflectorBinding.GetOn(
+                        this, ElementOf(element, in call, member), eventName, in call))),
+                Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("set " + member,
+                    (in call) => Dom.Features.EventHandlerReflectorBinding.SetOn(
+                        this, ElementOf(element, in call, member), eventName, in call))),
                 JSPropertyAttributes.EnumerableConfigurableProperty);
         }
+    }
+
+    /// <summary>The element a realm-minted member's receiver names.</summary>
+    /// <remarks>
+    /// <see cref="Dom.Features.ElementSource"/> is still engine-shaped — it reads the call's
+    /// <c>Arguments</c> — while a realm-minted member sees a JSEAL call frame. Both sources look at
+    /// the receiver and nothing else (<c>RequireElementReceiver</c> tests <c>a.This</c>; the
+    /// capturing source ignores the frame entirely), so presenting the frame's receiver as a
+    /// receiver-only <c>Arguments</c> asks each of them exactly the question it answers — including
+    /// the <c>TypeError</c> a receiver that is not an element still raises.
+    /// </remarks>
+    private static DomElement ElementOf(Dom.Features.ElementSource element, in JsCall call, string member)
+    {
+        var receiver = new Arguments(Dom.Runtime.JsInterop.ToEngineValue(call.This) ?? JSUndefined.Value);
+        return element(in receiver, member);
     }
 
     /// <summary>The element's one inline style declaration, built on first use.</summary>
@@ -186,13 +209,19 @@ public sealed partial class DomBridge
         if (_datasets.TryGetValue(element, out var cached))
             return cached;
 
-        if (_jsContext is not { } context ||
-            Dom.Features.DatasetBinding.Build(context, element, InvalidateStyleScope) is not { } dataset)
+        // DatasetBinding is migrated: it builds the map through the realm and hands back a handle,
+        // which the seam unwraps so the weak cache and this accessor stay engine-typed with the rest
+        // of the file. The context guard is unchanged in effect — the realm and the context are
+        // adopted together and cleared together — and a realm with no Proxy still answers undefined
+        // rather than a map that would silently drop writes.
+        if (_jsContext is null ||
+            Dom.Features.DatasetBinding.Build(Realm, element, InvalidateStyleScope) is not { IsObject: true } dataset)
         {
             return JSUndefined.Value;
         }
 
-        _datasets.Add(element, dataset);
-        return dataset;
+        var map = Dom.Runtime.JsInterop.ToEngineObject(dataset);
+        _datasets.Add(element, map);
+        return map;
     }
 }

@@ -1,11 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Null;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -13,38 +6,49 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The <c>document</c> element-query methods — <c>getElementById</c>, <c>getElementsByTagName</c>,
 /// <c>getElementsByClassName</c>, <c>querySelector</c>, <c>querySelectorAll</c> — co-located as an
 /// HtmlBridge feature module (Phase 3). Each searches the document tree and returns the matching
-/// element's JS wrapper (or a live-array of wrappers). The document root, element list and wrapper
-/// factory are reached through the narrow <see cref="IDocumentQueryHost"/> contract; sub-tree search
-/// (<c>FindInSubTree</c>) and selector matching (<c>MatchesSelector</c>) are the bridge's neutral
-/// <c>internal static</c> helpers, called directly. Previously the bridge's
-/// <c>JsRegistrationGetElementById006Core</c> etc. in the shared JsFunctionCallbacks/Registration.cs
-/// grab-bag. Hit-testing (<c>elementFromPoint</c>/<c>elementsFromPoint</c>), the structural
-/// accessors (<c>body</c>/<c>head</c>/<c>title</c>) and the live collections
+/// element's JS wrapper (or a live collection of wrappers). The document root, element list, wrapper
+/// factory, selector validation and the collection factories are reached through the narrow
+/// <see cref="IDocumentQueryHost"/> contract; sub-tree search (<c>FindInSubTree</c>) and attribute
+/// reads (<c>TryGetAttribute</c>) are the bridge's neutral <c>internal static</c> helpers, called
+/// directly. Previously the bridge's <c>JsRegistrationGetElementById006Core</c> etc. in the shared
+/// JsFunctionCallbacks/Registration.cs grab-bag. Hit-testing
+/// (<c>elementFromPoint</c>/<c>elementsFromPoint</c>), the structural accessors
+/// (<c>body</c>/<c>head</c>/<c>title</c>) and the live collections
 /// (<c>forms</c>/<c>images</c>/<c>links</c>/<c>styleSheets</c>) are separate concerns, not part of
 /// this slice.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
+/// type. Every argument read goes through the realm's <c>ToString</c> rather than the handle's,
+/// because that is the coercion a page observes: <c>getElementById({toString(){…}})</c> has always
+/// run the object's own <c>toString</c>, and the handle's rendering deliberately does not.
+/// </remarks>
 internal static class DocumentQueryBinding
 {
-    public static JSValue GetElementById(IDocumentQueryHost host, in Arguments a)
+    public static JsValue GetElementById(IDocumentQueryHost host, in JsCall call)
     {
-        var id = a.Length > 0 ? a[0].ToString() : string.Empty;
+        var id = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         var found = DomBridge.FindInSubTree(host.DocumentElement, el => el.Id == id);
-        return found != null ? host.ToJSObject(found) : JSNull.Value;
+        return found != null ? host.ToJsObject(found) : JsValue.Null;
     }
 
     /// <summary>
     /// <c>document.getElementsByTagName(name)</c> — a <b>live</b> <c>HTMLCollection</c> (DOM §4.5).
     /// </summary>
-    public static JSValue GetElementsByTagName(IDocumentQueryHost host, in Arguments a)
+    public static JsValue GetElementsByTagName(IDocumentQueryHost host, in JsCall call)
     {
-        var tag = a.Length > 0 ? a[0].ToString().ToLowerInvariant() : string.Empty;
-        return LiveCollection(host, () =>
+        var tag = call.Length > 0 ? call.Realm.ToJsString(call[0]).ToLowerInvariant() : string.Empty;
+
+        // The realm is read out of the call frame here rather than inside the contents function: the
+        // collection outlives this call, and a ref struct cannot be captured by the closure anyway.
+        var realm = call.Realm;
+        return LiveCollection(host, realm, () =>
         {
-            var results = new List<JSValue>();
+            var results = new List<JsValue>();
             foreach (var el in host.Elements)
             {
                 if (tag == "*" || el.TagName == tag)
-                    results.Add(host.ToJSObject(el));
+                    results.Add(host.ToJsObject(el));
             }
 
             return results;
@@ -58,16 +62,17 @@ internal static class DocumentQueryBinding
     /// class attribute was that literal string, i.e. nothing. <see cref="ClassNameSet"/> holds the
     /// rule so this and the element half of the same method cannot answer differently.
     /// </summary>
-    public static JSValue GetElementsByClassName(IDocumentQueryHost host, in Arguments a)
+    public static JsValue GetElementsByClassName(IDocumentQueryHost host, in JsCall call)
     {
-        var wanted = ClassNameSet.Parse(a.Length > 0 ? a[0].ToString() : string.Empty);
-        return LiveCollection(host, () =>
+        var wanted = ClassNameSet.Parse(call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+        var realm = call.Realm;
+        return LiveCollection(host, realm, () =>
         {
-            var results = new List<JSValue>();
+            var results = new List<JsValue>();
             foreach (var el in host.Elements)
             {
                 if (ClassNameSet.Matches(el, wanted))
-                    results.Add(host.ToJSObject(el));
+                    results.Add(host.ToJsObject(el));
             }
 
             return results;
@@ -91,80 +96,95 @@ internal static class DocumentQueryBinding
     /// <c>["f","gs"]</c> — after looking for a form by id first.
     /// </para>
     /// </remarks>
-    public static JSValue GetElementsByName(IDocumentQueryHost host, in Arguments a)
+    public static JsValue GetElementsByName(IDocumentQueryHost host, in JsCall call)
     {
-        var name = a.Length > 0 ? a[0].ToString() : string.Empty;
+        var name = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+
         // A live NodeList, not an HTMLCollection: HTML §3.1.5 is the one by-name lookup the
         // specification types as a NodeList.
-        return DomCollectionBinding.NodeList(host.JsContext, () =>
+        return host.NodeList(() =>
         {
-            var results = new List<JSValue>();
+            var results = new List<JsValue>();
             foreach (var el in host.Elements)
             {
                 if (DomBridge.TryGetAttribute(el, "name", out var value) && string.Equals(value, name, StringComparison.Ordinal))
-                    results.Add(host.ToJSObject(el));
+                    results.Add(host.ToJsObject(el));
             }
 
             return results;
         });
     }
 
-    public static JSValue QuerySelector(IDocumentQueryHost host, in Arguments a)
+    public static JsValue QuerySelector(IDocumentQueryHost host, in JsCall call)
     {
-        var selector = a.Length > 0 ? a[0].ToString() : string.Empty;
-        DomBridge.ValidateSelector(selector, host.JsContext);
+        var selector = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+        host.ValidateSelector(selector);
         if (DomApiSyntax.CarriesPseudoElement(selector))
-            return JSNull.Value;
+            return JsValue.Null;
 
         foreach (var el in host.Elements)
         {
             if (host.MatchesSelector(el, selector))
-                return host.ToJSObject(el);
+                return host.ToJsObject(el);
         }
 
-        return JSNull.Value;
+        return JsValue.Null;
     }
 
     /// <summary>
     /// <c>document.querySelectorAll(selector)</c> — a <b>static</b> <c>NodeList</c> (DOM §4.2.6),
     /// the one collection the specification defines as a snapshot rather than live.
     /// </summary>
-    public static JSValue QuerySelectorAll(IDocumentQueryHost host, in Arguments a)
+    public static JsValue QuerySelectorAll(IDocumentQueryHost host, in JsCall call)
     {
-        var selector = a.Length > 0 ? a[0].ToString() : string.Empty;
-        DomBridge.ValidateSelector(selector, host.JsContext);
-        var results = new List<JSValue>();
+        var selector = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+        host.ValidateSelector(selector);
+        var results = new List<JsValue>();
         if (!DomApiSyntax.CarriesPseudoElement(selector))
         {
             foreach (var el in host.Elements)
             {
                 if (host.MatchesSelector(el, selector))
-                    results.Add(host.ToJSObject(el));
+                    results.Add(host.ToJsObject(el));
             }
         }
 
-        return DomCollectionBinding.NodeList(host.JsContext, () => results);
+        // The list is computed once and closed over, which is what makes this collection static.
+        return host.NodeList(() => results);
     }
 
     /// <summary>An <c>HTMLCollection</c> over <paramref name="contents"/>, with the named getter
     /// DOM §4.2.10.2 gives one — by <c>id</c>, then by <c>name</c>.</summary>
-    private static JSValue LiveCollection(IDocumentQueryHost host, Func<List<JSValue>> contents) =>
-        DomCollectionBinding.HtmlCollection(host.JsContext, contents, name =>
+    private static JsValue LiveCollection(IDocumentQueryHost host, IJsRealm realm, Func<List<JsValue>> contents) =>
+        host.HtmlCollection(contents, name =>
         {
             if (name.Length == 0)
                 return null;
 
             foreach (var candidate in contents())
             {
-                if (candidate is JSObject wrapper &&
-                    (Named(wrapper, "id", name) || Named(wrapper, "name", name)))
-                    return wrapper;
+                if (candidate.IsObject &&
+                    (Named(realm, candidate, "id", name) || Named(realm, candidate, "name", name)))
+                    return candidate;
             }
 
             return null;
         });
 
-    private static bool Named(JSObject wrapper, string attribute, string name) =>
-        wrapper[(KeyString)attribute] is JSString value &&
-        string.Equals(value.ToString(), name, StringComparison.Ordinal);
+    /// <summary>
+    /// Whether the wrapper's <paramref name="attribute"/> property is the string
+    /// <paramref name="name"/>.
+    /// </summary>
+    /// <remarks>
+    /// The property has to <em>be</em> a string, not be coercible to one — a wrapper whose <c>id</c>
+    /// is absent reads <c>undefined</c> and must not match the name "undefined". That is what the
+    /// engine-typed <c>is JSString</c> test said, and <see cref="JsValue.IsString"/> says it without
+    /// entering the engine. <see cref="JsValue.AsString"/> likewise does not coerce, so reading the
+    /// property of one collection member cannot run a <c>toString</c> the page wrote.
+    /// </remarks>
+    private static bool Named(IJsRealm realm, JsValue wrapper, string attribute, string name)
+    {
+        var value = realm.GetProperty(wrapper, attribute);
+        return value.IsString && string.Equals(value.AsString, name, StringComparison.Ordinal);
+    }
 }

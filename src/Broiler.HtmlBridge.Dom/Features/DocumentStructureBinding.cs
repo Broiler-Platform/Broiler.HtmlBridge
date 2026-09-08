@@ -1,6 +1,4 @@
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.String;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -13,28 +11,35 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// bridge's <c>JsRegistrationGetBody002Core</c>/<c>GetHead003Core</c>/<c>SetTitle005Core</c> (and the
 /// inline title getter) in the shared JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
+/// type: the realm arrives on the call frame, and the wrapper the host hands back is a
+/// <see cref="JsValue"/> over the same engine object it always was.
+/// </remarks>
 internal static class DocumentStructureBinding
 {
-    public static JSValue GetBody(IDocumentStructureHost host, in Arguments a) => FindChild(host, "body");
+    public static JsValue GetBody(IDocumentStructureHost host, in JsCall call) => FindChild(host, "body");
 
-    public static JSValue GetHead(IDocumentStructureHost host, in Arguments a) => FindChild(host, "head");
+    public static JsValue GetHead(IDocumentStructureHost host, in JsCall call) => FindChild(host, "head");
 
-    public static JSValue GetTitle(IDocumentStructureHost host, in Arguments a) => new JSString(host.Title);
+    public static JsValue GetTitle(IDocumentStructureHost host, in JsCall call) => JsValue.String(host.Title);
 
-    public static JSValue SetTitle(IDocumentStructureHost host, in Arguments a)
+    public static JsValue SetTitle(IDocumentStructureHost host, in JsCall call)
     {
-        host.Title = a.Length > 0 ? a[0].ToString() : string.Empty;
-        return JSUndefined.Value;
+        // ToJsString, not the handle's rendering: assigning an object to document.title runs the
+        // object's own toString, which is the coercion a page observes here.
+        host.Title = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+        return JsValue.Undefined;
     }
 
-    private static JSValue FindChild(IDocumentStructureHost host, string tagName)
+    private static JsValue FindChild(IDocumentStructureHost host, string tagName)
     {
         foreach (var child in DomBridge.ChildElements(host.DocumentElement))
         {
             if (string.Equals(child.TagName, tagName, StringComparison.OrdinalIgnoreCase))
-                return host.ToJSObject(child);
+                return host.ToJsObject(child);
         }
 
-        return JSNull.Value;
+        return JsValue.Null;
     }
 }

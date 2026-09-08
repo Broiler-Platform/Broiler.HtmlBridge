@@ -29,8 +29,12 @@ public sealed partial class DomBridge
         window.FastAddValue("localStorage", Dom.Features.WebStorageBinding.BuildStorage(), JSPropertyAttributes.EnumerableConfigurableValue);
         window.FastAddValue("sessionStorage", Dom.Features.WebStorageBinding.BuildStorage(), JSPropertyAttributes.EnumerableConfigurableValue);
 
-        // window.matchMedia(query) — evaluates basic media queries
-        window.FastAddValue("matchMedia", new DomFunction((in a) => Dom.Features.MatchMediaBinding.MatchMedia(this, in a), "matchMedia", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // window.matchMedia(query) — evaluates basic media queries. Migrated to JSEAL: the realm
+        // mints the function with the same name, arity and non-constructable shape DomFunction gave
+        // it, and the binding builds its MediaQueryList through the realm. JsInterop.ToEngineObject
+        // is the half-migrated seam — the handle carries the engine's own function, so this is a
+        // cast and not a conversion.
+        window.FastAddValue("matchMedia", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("matchMedia", (in a) => Dom.Features.MatchMediaBinding.MatchMedia(this, in a), 1)), JSPropertyAttributes.EnumerableConfigurableValue);
 
         // window.location — the URL components here, and the navigation surface (`href`, `hash`,
         // assign, replace, reload, toString) from LocationBinding. The components alone made
@@ -66,12 +70,15 @@ public sealed partial class DomBridge
 
         // window timers / animation frames — thin adapters over the P2.4 BrowserEventLoop, co-located
         // in the TimerBinding feature module (Phase 3).
-        window.FastAddValue("setTimeout", new DomFunction((in a) => Dom.Features.TimerBinding.SetTimeout(_eventLoop, _windowContext, in a), "setTimeout", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("clearTimeout", new DomFunction((in a) => Dom.Features.TimerBinding.ClearTimeout(_eventLoop, in a), "clearTimeout", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("setInterval", new DomFunction((in a) => Dom.Features.TimerBinding.SetInterval(_eventLoop, _windowContext, in a), "setInterval", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("clearInterval", new DomFunction((in a) => Dom.Features.TimerBinding.ClearInterval(_eventLoop, in a), "clearInterval", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("requestAnimationFrame", new DomFunction((in a) => Dom.Features.TimerBinding.RequestAnimationFrame(_eventLoop, _windowContext, in a), "requestAnimationFrame", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("cancelAnimationFrame", new DomFunction((in a) => Dom.Features.TimerBinding.CancelAnimationFrame(_eventLoop, in a), "cancelAnimationFrame", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // Migrated to JSEAL: the realm mints all six with the names and arities they had, and the
+        // binding reads its arguments off the call frame. The event loop they queue into still holds
+        // engine functions, which is the one seam TimerBinding names.
+        window.FastAddValue("setTimeout", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("setTimeout", (in a) => Dom.Features.TimerBinding.SetTimeout(_eventLoop, _windowContext, in a), 2)), JSPropertyAttributes.EnumerableConfigurableValue);
+        window.FastAddValue("clearTimeout", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("clearTimeout", (in a) => Dom.Features.TimerBinding.ClearTimeout(_eventLoop, in a), 1)), JSPropertyAttributes.EnumerableConfigurableValue);
+        window.FastAddValue("setInterval", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("setInterval", (in a) => Dom.Features.TimerBinding.SetInterval(_eventLoop, _windowContext, in a), 2)), JSPropertyAttributes.EnumerableConfigurableValue);
+        window.FastAddValue("clearInterval", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("clearInterval", (in a) => Dom.Features.TimerBinding.ClearInterval(_eventLoop, in a), 1)), JSPropertyAttributes.EnumerableConfigurableValue);
+        window.FastAddValue("requestAnimationFrame", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("requestAnimationFrame", (in a) => Dom.Features.TimerBinding.RequestAnimationFrame(_eventLoop, _windowContext, in a), 1)), JSPropertyAttributes.EnumerableConfigurableValue);
+        window.FastAddValue("cancelAnimationFrame", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("cancelAnimationFrame", (in a) => Dom.Features.TimerBinding.CancelAnimationFrame(_eventLoop, in a), 1)), JSPropertyAttributes.EnumerableConfigurableValue);
 
         // window.alert(msg) — logs to debug output
         window.FastAddValue("alert", new DomFunction(Dom.Features.WindowDocumentMiscBinding.Alert, "alert", 1), JSPropertyAttributes.EnumerableConfigurableValue);
@@ -209,7 +216,8 @@ public sealed partial class DomBridge
         // are two points on one timeline.
         _navigationTiming = new Dom.Features.NavigationTimingState(performanceMonotonicOrigin);
         Dom.Features.NavigationTimingBinding.Install(
-            performanceObj, _pageUrl, _pageProtocol, _navigationTiming, fetchTiming);
+            Realm, Dom.Runtime.JsInterop.FromEngineObject(performanceObj),
+            _pageUrl, _pageProtocol, _navigationTiming, fetchTiming);
 
         // performance.memory — the same MemoryInfo console.memory reports (built with the console in
         // RegisterWindowBasics, which runs first).
@@ -339,11 +347,11 @@ public sealed partial class DomBridge
 
         if (window[(KeyString)"requestIdleCallback"] is JSUndefined)
         {
-            var requestIdle = new DomFunction((in a) => Dom.Features.TimerBinding.RequestIdleCallback(_eventLoop, _windowContext, in a), "requestIdleCallback", 1);
+            var requestIdle = Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("requestIdleCallback", (in a) => Dom.Features.TimerBinding.RequestIdleCallback(_eventLoop, _windowContext, in a), 1));
             window.FastAddValue("requestIdleCallback", requestIdle, JSPropertyAttributes.EnumerableConfigurableValue);
             context["requestIdleCallback"] = requestIdle;
 
-            var cancelIdle = new DomFunction((in a) => Dom.Features.TimerBinding.CancelIdleCallback(_eventLoop, in a), "cancelIdleCallback", 1);
+            var cancelIdle = Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("cancelIdleCallback", (in a) => Dom.Features.TimerBinding.CancelIdleCallback(_eventLoop, in a), 1));
             window.FastAddValue("cancelIdleCallback", cancelIdle, JSPropertyAttributes.EnumerableConfigurableValue);
             context["cancelIdleCallback"] = cancelIdle;
         }
@@ -368,10 +376,11 @@ public sealed partial class DomBridge
         // Who the browser is and what the machine underneath it has — the legacy identity constants
         // §8.9 mandates for every user agent, `webdriver`, and the measured hardware members. Takes
         // the same user-agent string registered above so `appVersion` cannot drift from `userAgent`.
-        Dom.Features.NavigatorIdentityBinding.Install(navigatorObj, Layout.Net.BroilerUserAgent.Value);
+        Dom.Features.NavigatorIdentityBinding.Install(
+            Realm, Dom.Runtime.JsInterop.FromEngineObject(navigatorObj), Layout.Net.BroilerUserAgent.Value);
 
         // sendBeacon(url, data) — queues a fire-and-forget POST via fetch semantics
-        navigatorObj.FastAddValue("sendBeacon", new DomFunction((in a) => Dom.Features.BeaconBinding.Send(window, in a), "sendBeacon", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        navigatorObj.FastAddValue("sendBeacon", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("sendBeacon", (in a) => Dom.Features.BeaconBinding.Send(Dom.Runtime.JsInterop.FromEngineObject(window), in a), 2)), JSPropertyAttributes.EnumerableConfigurableValue);
 
         // What the host machine can do — javaEnabled, plugins/mimeTypes, getGamepads, getBattery,
         // requestMediaKeySystemAccess — and the legacy storage-quota pair, each answering "no" in
@@ -384,7 +393,8 @@ public sealed partial class DomBridge
         // not persisted), permissions (denied, for every capability this engine gates) and
         // userAgentData (derived from the same user-agent string above). connection, mediaDevices
         // and mediaCapabilities stay absent — see NavigatorSurfacesBinding for each decision.
-        Dom.Features.NavigatorSurfacesBinding.Install(navigatorObj, context, Layout.Net.BroilerUserAgent.Value);
+        Dom.Features.NavigatorSurfacesBinding.Install(
+            Realm, Dom.Runtime.JsInterop.FromEngineObject(navigatorObj), Layout.Net.BroilerUserAgent.Value);
 
         window.FastAddValue("navigator", navigatorObj, JSPropertyAttributes.EnumerableConfigurableValue);
 
@@ -492,8 +502,8 @@ public sealed partial class DomBridge
 
         // visualViewport addEventListener / removeEventListener (scroll), co-located in the
         // VisualViewportEventTargetBinding feature module (Phase 3).
-        visualViewport.FastAddValue("addEventListener", new DomFunction((in a) => Dom.Features.VisualViewportEventTargetBinding.AddEventListener(this, in a), "addEventListener", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        visualViewport.FastAddValue("removeEventListener", new DomFunction((in a) => Dom.Features.VisualViewportEventTargetBinding.RemoveEventListener(this, in a), "removeEventListener", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        visualViewport.FastAddValue("addEventListener", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("addEventListener", (in a) => Dom.Features.VisualViewportEventTargetBinding.AddEventListener(this, in a), 2)), JSPropertyAttributes.EnumerableConfigurableValue);
+        visualViewport.FastAddValue("removeEventListener", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("removeEventListener", (in a) => Dom.Features.VisualViewportEventTargetBinding.RemoveEventListener(this, in a), 2)), JSPropertyAttributes.EnumerableConfigurableValue);
 
         window.FastAddValue("visualViewport", visualViewport, JSPropertyAttributes.EnumerableConfigurableValue);
         context["visualViewport"] = visualViewport;

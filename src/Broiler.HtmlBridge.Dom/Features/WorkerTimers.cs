@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Broiler.HtmlBridge.Logging;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -43,10 +41,20 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// only cross-thread interaction a worker has is its inbox and the page's frame-action queue, both of
 /// which are concurrent collections owned elsewhere.
 /// </para>
+/// <para>
+/// <b>A timer's callback is an <see cref="Action"/>, so this scheduler names no JavaScript at all.</b>
+/// It used to hold the engine's function object and invoke it, which coupled a queue of deadlines to
+/// an engine for the sake of one call. What a timer owes its owner is "run this when it is due", and
+/// that is what an <see cref="Action"/> says; the caller — <see cref="JSWorker"/>, which still owns the
+/// worker's realm — supplies a closure that makes the JavaScript call. The one cost is a closure
+/// allocation per registration, which the page's <c>BrowserEventLoop</c> deliberately avoids because a
+/// busy page registers timers constantly; a worker registers a handful, so the trade goes the other way
+/// here.
+/// </para>
 /// </remarks>
 internal sealed class WorkerTimers
 {
-    private readonly record struct Entry(double DeadlineMs, long Seq, JSFunction Fn, double? PeriodMs);
+    private readonly record struct Entry(double DeadlineMs, long Seq, Action Fn, double? PeriodMs);
 
     private readonly Dictionary<int, Entry> _timers = [];
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -57,10 +65,11 @@ internal sealed class WorkerTimers
 
     /// <summary>Registers a timer, returning its id. Repeating when <paramref name="periodMs"/> is set.</summary>
     /// <remarks>
-    /// An id is allocated even for a non-function callback, matching <c>setTimeout("string")</c>'s
-    /// observable behaviour of returning a clearable handle that never fires.
+    /// An id is allocated even for a <see langword="null"/> callback — the caller passes null when the
+    /// first argument was not a function — matching <c>setTimeout("string")</c>'s observable behaviour
+    /// of returning a clearable handle that never fires.
     /// </remarks>
-    public int Add(JSFunction? callback, double delayMs, bool repeating)
+    public int Add(Action? callback, double delayMs, bool repeating)
     {
         var id = ++_idCounter;
         if (callback is null)
@@ -133,7 +142,9 @@ internal sealed class WorkerTimers
 
             try
             {
-                entry.Fn.InvokeFunction(new Arguments(JSUndefined.Value));
+                // The call into JavaScript — receiver and argument list included — is the closure's,
+                // built where the realm is known; from here it is one piece of work coming due.
+                entry.Fn();
             }
             catch (Exception ex)
             {

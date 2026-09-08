@@ -1,7 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge;
@@ -17,32 +14,58 @@ public sealed partial class DomBridge
     // co-located Broiler.HtmlBridge.Dom.Features.TraversalBinding feature module; these thin
     // wrappers keep the historical call sites (createTreeWalker/createNodeIterator/createRange in
     // Registration and sub-document registration) source-compatible.
+    //
+    // The module is migrated to JSEAL and these three are its remaining engine-typed edge: their
+    // caller, DomBridge.SubDocumentHost.cs, implements ISubDocumentHost — another group's file this
+    // round — and still hands JS objects around as engine values. Dom.Runtime.JsInterop is the cast
+    // between the two, not a conversion: the handle carries the engine's own object, so wrapper
+    // identity is unchanged. They lose their engine types when that host contract migrates.
 
-    private JSObject BuildTreeWalker(DomElement root, int whatToShow, JSFunction? filterFn) =>
-        _traversal.BuildTreeWalker(root, whatToShow, filterFn);
+    private Broiler.JavaScript.Runtime.JSObject BuildTreeWalker(DomElement root, int whatToShow, Broiler.JavaScript.BuiltIns.Function.JSFunction? filterFn) =>
+        Dom.Runtime.JsInterop.ToEngineObject(
+            _traversal.BuildTreeWalker(root, whatToShow, ToFilterHandle(filterFn)));
 
-    private JSObject BuildNodeIterator(DomElement root, int whatToShow, JSFunction? filterFn) =>
-        _traversal.BuildNodeIterator(root, whatToShow, filterFn);
+    private Broiler.JavaScript.Runtime.JSObject BuildNodeIterator(DomElement root, int whatToShow, Broiler.JavaScript.BuiltIns.Function.JSFunction? filterFn) =>
+        Dom.Runtime.JsInterop.ToEngineObject(
+            _traversal.BuildNodeIterator(root, whatToShow, ToFilterHandle(filterFn)));
 
-    private JSObject BuildRange(DomNode? documentRoot = null) =>
-        _traversal.BuildRange(documentRoot);
+    private Broiler.JavaScript.Runtime.JSObject BuildRange(DomNode? documentRoot = null) =>
+        Dom.Runtime.JsInterop.ToEngineObject(_traversal.BuildRange(documentRoot));
+
+    /// <summary>
+    /// A <c>NodeFilter</c> callback as a JSEAL handle. No filter is
+    /// <see cref="JsValue.Missing"/>, which is the value the module tests for callability against —
+    /// the same question the null check asked here.
+    /// </summary>
+    private static JsValue ToFilterHandle(Broiler.JavaScript.BuiltIns.Function.JSFunction? filterFn) =>
+        filterFn is null ? JsValue.Missing : Dom.Runtime.JsInterop.FromEngineObject(filterFn);
 
     // Phase 4 items 4/5 (P4.10 follow-up): the bridge's FindCommonAncestor copy was deleted after its
     // promotion to canonical Broiler.Dom.DomNode.CommonAncestorWith landed in the pinned submodule
     // (patches/0002, applied by the maintainer). Call sites use a.CommonAncestorWith(b), which is
     // null-tolerant and returns null for nodes in different trees — matching the deleted helper.
 
-    private JSObject CreateDomRectObject((double Left, double Top, double Width, double Height) rectData)
+    /// <summary>
+    /// A CSSOM-View <c>DOMRect</c>-shaped object over a used-value rectangle, for
+    /// <c>Range.getBoundingClientRect</c> and <c>Range.getClientRects</c>.
+    /// </summary>
+    /// <remarks>
+    /// Eight data properties, enumerable, configurable and writable — the shape this has always
+    /// installed. A real <c>DOMRect</c> carries them on its prototype as accessors; that is a
+    /// separate change from this migration, and making it here would alter what
+    /// <c>Object.getOwnPropertyNames</c> of a rect answers.
+    /// </remarks>
+    private JsValue CreateDomRectObject((double Left, double Top, double Width, double Height) rectData)
     {
-        var rect = new JSObject();
-        rect.FastAddValue("x", new JSNumber(rectData.Left), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("y", new JSNumber(rectData.Top), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("top", new JSNumber(rectData.Top), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("left", new JSNumber(rectData.Left), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("right", new JSNumber(rectData.Left + rectData.Width), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("bottom", new JSNumber(rectData.Top + rectData.Height), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("width", new JSNumber(rectData.Width), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("height", new JSNumber(rectData.Height), JSPropertyAttributes.EnumerableConfigurableValue);
+        var rect = Realm.NewObject();
+        Realm.DefineValue(rect, "x", JsValue.Number(rectData.Left));
+        Realm.DefineValue(rect, "y", JsValue.Number(rectData.Top));
+        Realm.DefineValue(rect, "top", JsValue.Number(rectData.Top));
+        Realm.DefineValue(rect, "left", JsValue.Number(rectData.Left));
+        Realm.DefineValue(rect, "right", JsValue.Number(rectData.Left + rectData.Width));
+        Realm.DefineValue(rect, "bottom", JsValue.Number(rectData.Top + rectData.Height));
+        Realm.DefineValue(rect, "width", JsValue.Number(rectData.Width));
+        Realm.DefineValue(rect, "height", JsValue.Number(rectData.Height));
         return rect;
     }
 

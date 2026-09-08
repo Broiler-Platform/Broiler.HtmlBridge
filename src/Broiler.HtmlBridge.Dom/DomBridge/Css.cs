@@ -1,12 +1,12 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.String;
+// Only the engine's object type is still needed here, for the one member this file has not migrated:
+// BuildComputedStyleObject, whose return type is fixed by the unmigrated IComputedStyleHost /
+// ISubWindowHost contracts and whose body is built by the unmigrated StyleDeclarationBinding. The
+// value-construction usings went with the stylesheet load event, which now builds through JSEAL.
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -771,11 +771,14 @@ public sealed partial class DomBridge
 
         try
         {
-            var evt = new JSObject();
-            evt.FastAddValue("type",
-                new JSString(loaded ? "load" : "error"), JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-            DispatchEventOnElement(element, evt);
+            // The event object is built through the realm (JSEAL); the two members keep the
+            // enumerable/configurable data-property attributes they had, which is what
+            // JsPropertyFlags.Default spells. Dispatch is still engine-typed, so the handle is
+            // unwrapped at that one call through the JsInterop seam.
+            var evt = Realm.NewObject();
+            Realm.DefineValue(evt, "type", JsValue.String(loaded ? "load" : "error"));
+            Realm.DefineValue(evt, "bubbles", JsValue.False);
+            DispatchEventOnElement(element, JsInterop.ToEngineObject(evt));
         }
         catch (Exception ex)
         {

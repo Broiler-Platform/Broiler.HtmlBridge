@@ -355,7 +355,9 @@ public sealed partial class DomBridge
 
         // SVG DOM interfaces — SVGAnimatedLength/Rect stubs, SVGTextContentElement text metrics, the
         // SVGSVGElement animation timeline and the SMIL animation-element no-ops (Phase 3 P3.50:
-        // extracted into the co-located SvgElementBinding feature module).
-        Dom.Features.SvgElementBinding.Install(obj, element, tag);
+        // extracted into the co-located SvgElementBinding feature module). The module is migrated to
+        // JSEAL, so it takes the realm and a handle over this still-engine-typed wrapper —
+        // JsInterop.FromEngineObject is the half-migrated seam, not a conversion.
+        Dom.Features.SvgElementBinding.Install(Realm, Dom.Runtime.JsInterop.FromEngineObject(obj), element, tag);
     }
 }

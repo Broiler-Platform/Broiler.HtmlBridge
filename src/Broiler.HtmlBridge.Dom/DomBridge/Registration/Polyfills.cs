@@ -37,7 +37,9 @@ public sealed partial class DomBridge
         // pure-JS polyfill because supports() has to answer from the CSS engine's own @supports
         // evaluator; answering from the CSSOM instead would claim support for everything, since
         // Broiler's CSSOM stores declarations without validating them.
-        var cssObj = Dom.Features.CssBinding.Build();
+        // Built through the realm (JSEAL) like crypto above; the seam hands the engine object this
+        // still-engine-typed registration needs for the window property and the global.
+        var cssObj = Dom.Runtime.JsInterop.ToEngineObject(Dom.Features.CssBinding.Build(Realm));
         window.FastAddValue("CSS", cssObj, JSPropertyAttributes.EnumerableConfigurableValue);
         context["CSS"] = cssObj;
 

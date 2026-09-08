@@ -1,8 +1,6 @@
 using System.Linq;
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.String;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -18,15 +16,23 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// bridge's <c>JsRegistrationWrite036Core</c>/<c>JsRegistrationWriteln037Core</c> in the shared
 /// JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). <see cref="IDocumentWriteHost"/>
+/// never named an engine type, so the whole of this unit's coupling was the two argument reads and
+/// <c>writeln</c>'s re-entry into <c>write</c>.
+/// </remarks>
 internal static class DocumentWriteBinding
 {
-    public static JSValue Write(IDocumentWriteHost host, in Arguments a)
+    public static JsValue Write(IDocumentWriteHost host, in JsCall call)
     {
         try
         {
-            if (a.Length == 0)
-                return JSUndefined.Value;
-            var fragment = a[0].ToString();
+            if (call.Length == 0)
+                return JsValue.Undefined;
+
+            // ToJsString, not the handle's rendering: document.write of an object has always run the
+            // object's own toString, and what a page writes is what that returns.
+            var fragment = call.Realm.ToJsString(call[0]);
             var fragmentRoot = host.BuildFragment(fragment, "body");
             if (fragmentRoot.ChildNodes.Count > 0)
             {
@@ -70,18 +76,28 @@ internal static class DocumentWriteBinding
                 }
             }
 
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         }
         catch (Exception ex)
         {
             RenderLogger.LogError(LogCategory.JavaScript, "DomBridge.document.write", $"Error in document.write: {ex.Message}", ex);
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         }
     }
 
-    public static JSValue Writeln(JSFunction? writeFn, in Arguments a)
+    /// <summary>
+    /// <c>document.writeln(text)</c> — <c>write</c> with a trailing newline, delegated to the very
+    /// function <c>document.write</c> is, so a page that replaces neither sees one implementation.
+    /// </summary>
+    /// <remarks>
+    /// The receiver of the inner call is the write function itself. That is not what a browser passes
+    /// (it would be the document), and it is what this call site has always passed — <c>write</c>
+    /// reads nothing off <c>this</c>, so the two are indistinguishable to a page, and correcting it
+    /// belongs in its own change.
+    /// </remarks>
+    public static JsValue Writeln(JsValue writeFunction, in JsCall call)
     {
-        var text = a.Length > 0 ? a[0].ToString() + "\n" : "\n";
-        return writeFn.InvokeFunction(new Arguments(writeFn, new JSString(text)));
+        var text = call.Length > 0 ? call.Realm.ToJsString(call[0]) + "\n" : "\n";
+        return call.Realm.Invoke(writeFunction, writeFunction, [JsValue.String(text)]);
     }
 }

@@ -1,5 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -11,7 +11,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 internal interface IDocumentStructureHost
 {
-    JSObject ToJSObject(DomNode node);
+    /// <summary>
+    /// The single JS wrapper identity for <paramref name="node"/>, as a JSEAL handle.
+    /// </summary>
+    /// <remarks>
+    /// The wrapper is still the engine object the bridge's wrapper tables are keyed on — a handle
+    /// carries it rather than copying it — so <c>document.body === document.body</c> is the same
+    /// question it was before this contract changed vocabulary.
+    /// </remarks>
+    JsValue ToJsObject(DomNode node);
+
     DomElement DocumentElement { get; }
     string Title { get; set; }
 }

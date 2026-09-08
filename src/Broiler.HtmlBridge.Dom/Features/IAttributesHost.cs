@@ -1,3 +1,4 @@
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -15,8 +16,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 internal interface IAttributesHost
 {
-    /// <summary>The bridge's JS context, needed to mint the <c>InvalidCharacterError</c> that an
-    /// invalid <c>setAttribute</c> name must throw (DOM §4.9.1).</summary>
+    /// <summary>
+    /// The realm the <c>Attr</c> wrappers are built in. It is what the module's migrated half —
+    /// the <c>Attr</c> object model — creates and reads members through.
+    /// </summary>
+    IJsRealm Realm { get; }
+
+    /// <summary>
+    /// The bridge's JS context. Two consumers keep it: the <c>InvalidCharacterError</c> an invalid
+    /// <c>setAttribute</c> name must throw (DOM §4.9.1), and <see cref="DomCollectionBinding"/>,
+    /// which builds the live <c>NamedNodeMap</c> and is not migrated to JSEAL yet.
+    /// </summary>
     Broiler.JavaScript.Engine.JSContext? JsContext { get; }
 
     /// <summary>Applies a <c>style</c> attribute value to the element's inline style declaration
@@ -35,5 +45,5 @@ internal interface IAttributesHost
     /// <summary>Points a wrapper at a named interface's prototype. Needed here because an attribute
     /// is not a <c>DomNode</c>, so its wrapper is not minted at the choke point that links every
     /// other one.</summary>
-    void LinkToInterface(Broiler.JavaScript.Runtime.JSObject wrapper, string interfaceName);
+    void LinkToInterface(JsValue wrapper, string interfaceName);
 }

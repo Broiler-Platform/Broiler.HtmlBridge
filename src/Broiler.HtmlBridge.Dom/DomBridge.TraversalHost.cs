@@ -1,5 +1,4 @@
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Features;
 using Broiler.Dom;
 
@@ -12,19 +11,26 @@ namespace Broiler.HtmlBridge;
 /// implementation, so none of these seams widen the public <c>DomBridge</c> surface — the module
 /// reaches them only through the interface, never through bridge private fields.
 /// </summary>
+/// <remarks>
+/// This is the half-migrated seam for the traversal slice: the module speaks JSEAL, the rest of the
+/// bridge still holds engine objects, and <see cref="Dom.Runtime.JsInterop"/> is the cast between
+/// them. It is a cast and not a conversion — a JSEAL object handle carries the engine's own object —
+/// so wrapper identity (<c>el === el</c>, and the weak tables keyed on it) is the same question it
+/// was before.
+/// </remarks>
 public sealed partial class DomBridge : ITraversalHost
 {
-    JSContext ITraversalHost.JsContext => _jsContext!;
+    IJsRealm ITraversalHost.Realm => Realm;
 
     DomNode ITraversalHost.DocumentNode => _document;
 
-    JSObject ITraversalHost.ToJSObject(DomNode node) => ToJSObject(node);
+    JsValue ITraversalHost.WrapNode(DomNode node) => Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
 
-    DomNode? ITraversalHost.FindDomNodeByJSObject(JSObject? jsObj) =>
-        jsObj is null ? null : FindDomNodeByJSObject(jsObj);
+    DomNode? ITraversalHost.FindNode(JsValue wrapper) =>
+        wrapper.IsObject ? FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper)) : null;
 
-    DomElement? ITraversalHost.FindDomElementByJSObject(JSObject? jsObj) =>
-        jsObj is null ? null : FindDomElementByJSObject(jsObj);
+    DomElement? ITraversalHost.FindElement(JsValue wrapper) =>
+        wrapper.IsObject ? FindDomElementByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper)) : null;
 
     int ITraversalHost.CompareBoundaryPosition(DomNode docRoot, DomNode containerA, int offsetA, DomNode containerB, int offsetB) =>
         CompareBoundaryPosition(docRoot, containerA, offsetA, containerB, offsetB);
@@ -32,13 +38,13 @@ public sealed partial class DomBridge : ITraversalHost
     IReadOnlyList<(double Left, double Top, double Width, double Height)> ITraversalHost.GetClientRectsForRange(DomRange range) =>
         GetClientRectsForRange(range);
 
-    JSObject ITraversalHost.CreateDomRectObject((double Left, double Top, double Width, double Height) rectData) =>
+    JsValue ITraversalHost.CreateDomRect((double Left, double Top, double Width, double Height) rectData) =>
         CreateDomRectObject(rectData);
 
-    JSObject ITraversalHost.CreateCommentNode(string data)
+    JsValue ITraversalHost.CreateCommentNode(string data)
     {
         var comment = CreateBridgeCommentNode(data);
-        return ToJSObject(comment);
+        return Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(comment));
     }
 
     DomNode ITraversalHost.CreateRangeResultFragment() => CreateBridgeDocumentFragment();
