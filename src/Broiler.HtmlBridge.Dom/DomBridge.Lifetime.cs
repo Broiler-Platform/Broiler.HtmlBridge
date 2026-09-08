@@ -57,7 +57,11 @@ public sealed partial class DomBridge : IDisposable
         _windowJSObject = null;
         _visualViewportJSObject = null;
 
-        // The bridge borrows the JS context; only drop the reference.
+        // The bridge borrows the JS context; only drop the reference. The adopted realm is the same
+        // borrow seen through JSEAL — disposing it releases the adoption, not the context, which is
+        // the host's to dispose (see DomBridge.Realm.cs and IJsRealmAdoption).
+        _realm?.Dispose();
+        _realm = null;
         _jsContext = null;
 
 

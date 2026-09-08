@@ -129,7 +129,7 @@ public sealed partial class DomBridge
     {
         // Node interface constants on document (a Document IS a Node) — types and the
         // DOCUMENT_POSITION_* bits.
-        Dom.Features.NodeConstantsBinding.Install(document);
+        Dom.Features.NodeConstantsBinding.Install(Realm, Dom.Runtime.JsInterop.FromEngineObject(document));
 
         // document.nodeType = DOCUMENT_NODE (9)
         document.FastAddProperty("nodeType", new JSFunction((in _) => new JSNumber(9), "get nodeType"), null, JSPropertyAttributes.EnumerableConfigurableProperty);

@@ -79,16 +79,22 @@ public sealed partial class DomBridge
         // btoa / atob — the WindowOrWorkerGlobalScope base64 pair (HTML §8.3), co-located in the
         // Base64Binding feature module. The window IS the global object, so registering here is
         // what makes the unqualified `atob(…)` a page writes resolve as well.
-        window.FastAddValue("btoa", new DomFunction((in a) => Dom.Features.Base64Binding.Btoa(_jsContext!, in a), "btoa", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("atob", new DomFunction((in a) => Dom.Features.Base64Binding.Atob(_jsContext!, in a), "atob", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        //
+        // Migrated to JSEAL: the realm mints both functions with the same name, arity and
+        // non-constructable shape DomFunction gave them, and the binding raises its
+        // InvalidCharacterError through the realm rather than being handed the JSContext to raise it
+        // against. JsInterop.ToEngineObject is the half-migrated seam — the handle carries the
+        // engine's own function, so this is a cast and not a conversion.
+        window.FastAddValue("btoa", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("btoa", Dom.Features.Base64Binding.Btoa, 1)), JSPropertyAttributes.EnumerableConfigurableValue);
+        window.FastAddValue("atob", Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("atob", Dom.Features.Base64Binding.Atob, 1)), JSPropertyAttributes.EnumerableConfigurableValue);
 
         // console object (shared between window.console and global console)
-        var console = Dom.Features.ConsoleBinding.Build();
+        var console = Dom.Runtime.JsInterop.ToEngineObject(Dom.Features.ConsoleBinding.Build(Realm));
 
         // console.memory — the same MemoryInfo shape performance.memory reports, and in Chrome the
         // same object. Kept as one object here too, so a page that samples both does not have to
         // reconcile two answers taken a moment apart. See PerformanceMemoryBinding.
-        _memoryInfo = Dom.Features.PerformanceMemoryBinding.Build();
+        _memoryInfo = Dom.Runtime.JsInterop.ToEngineObject(Dom.Features.PerformanceMemoryBinding.Build(Realm));
         console.FastAddValue("memory", _memoryInfo, JSPropertyAttributes.EnumerableConfigurableValue);
 
         window.FastAddValue("console", console, JSPropertyAttributes.EnumerableConfigurableValue);
@@ -372,7 +378,7 @@ public sealed partial class DomBridge
         // its interface's own vocabulary rather than throwing. See NavigatorCapabilityBinding and
         // StorageQuotaBinding.
         Dom.Features.NavigatorCapabilityBinding.Install(navigatorObj, context);
-        Dom.Features.StorageQuotaBinding.Install(navigatorObj);
+        Dom.Features.StorageQuotaBinding.Install(Realm, Dom.Runtime.JsInterop.FromEngineObject(navigatorObj));
 
         // The object-valued surfaces that have a truthful answer: storage (zero usage, zero quota,
         // not persisted), permissions (denied, for every capability this engine gates) and
@@ -421,7 +427,7 @@ public sealed partial class DomBridge
         window.FastAddProperty("devicePixelRatio", new DomFunction((in _) => new JSNumber(1), "get devicePixelRatio"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
 
         // The six BarProp objects. See WindowBarPropBinding for why every one reports not-visible.
-        Dom.Features.WindowBarPropBinding.Install(window);
+        Dom.Features.WindowBarPropBinding.Install(Realm, Dom.Runtime.JsInterop.FromEngineObject(window));
 
         // window.offscreenBuffering — a legacy Netscape-era property that survives on the Window
         // interface and is still read by old feature-detection preambles. It has no standard
@@ -471,7 +477,7 @@ public sealed partial class DomBridge
         // screen.orientation — derived from the screen's own shape, so it stays consistent with the
         // width/height above rather than being a second, independent claim. See
         // ScreenOrientationBinding.
-        screenObj.FastAddValue("orientation", Dom.Features.ScreenOrientationBinding.Build(vpWidth, vpHeight), JSPropertyAttributes.EnumerableConfigurableValue);
+        screenObj.FastAddValue("orientation", Dom.Runtime.JsInterop.ToEngineObject(Dom.Features.ScreenOrientationBinding.Build(Realm, vpWidth, vpHeight)), JSPropertyAttributes.EnumerableConfigurableValue);
 
         window.FastAddValue("screen", screenObj, JSPropertyAttributes.EnumerableConfigurableValue);
         context["screen"] = screenObj;

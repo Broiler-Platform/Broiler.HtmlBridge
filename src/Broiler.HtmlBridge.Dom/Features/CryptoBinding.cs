@@ -1,9 +1,5 @@
 using System.Security.Cryptography;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Number;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -16,50 +12,52 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>RegisterSecurityAndConstructorPolyfills</c> and its <c>getRandomValues</c> callback lived in
 /// the shared JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the caller's array is reached
+/// through the realm's ordinary property get and set, which is the same <c>[[Get]]</c>/<c>[[Set]]</c>
+/// path the engine indexer took, so a typed array's element writes still land where they did.
+/// </remarks>
 internal static class CryptoBinding
 {
     /// <summary>Builds a <c>crypto</c> object exposing <c>getRandomValues</c> and
     /// <c>randomUUID</c>. The same object is shared between <c>window.crypto</c> and the global
     /// <c>crypto</c>.</summary>
-    public static JSObject Build()
+    public static JsValue Build(IJsRealm realm)
     {
-        var crypto = new JSObject();
+        var crypto = realm.NewObject();
 
-        crypto.FastAddValue(
-            "getRandomValues",
-            new DomFunction(GetRandomValues, "getRandomValues", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
-        crypto.FastAddValue(
-            "randomUUID",
-            new DomFunction(RandomUuid, "randomUUID", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(crypto, "getRandomValues", realm.NewMethod("getRandomValues", GetRandomValues, 1));
+        realm.DefineValue(crypto, "randomUUID", realm.NewMethod("randomUUID", RandomUuid, 0));
 
         return crypto;
     }
 
     /// <summary>Fills the caller-supplied integer typed array in place with cryptographically
     /// secure random bytes and returns it (per the Web Crypto contract).</summary>
-    private static JSValue GetRandomValues(in Arguments a)
+    private static JsValue GetRandomValues(in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        var arr = a[0];
-        if (arr is JSObject arrObj)
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        var array = call[0];
+        if (array.IsObject)
         {
-            var lengthProp = arrObj[(KeyString)"length"];
-            if (lengthProp != null && !lengthProp.IsUndefined && !lengthProp.IsNull)
+            var lengthProperty = call.Realm.GetProperty(array, "length");
+
+            // A property that is absent, null or undefined leaves the argument untouched; anything
+            // else is coerced the way the engine's own DoubleValue did, so an object or a numeric
+            // string still answers a length.
+            if (!lengthProperty.IsNullish)
             {
-                var len = (int)lengthProp.DoubleValue;
-                var buffer = new byte[len];
+                var length = (int)call.Realm.ToNumber(lengthProperty);
+                var buffer = new byte[length];
                 RandomNumberGenerator.Fill(buffer);
-                for (var i = 0; i < len; i++)
-                    arrObj[(KeyString)i.ToString()] = new JSNumber(buffer[i]);
+                for (var i = 0; i < length; i++)
+                    call.Realm.SetProperty(array, i.ToString(), JsValue.Number(buffer[i]));
             }
         }
 
-        return arr;
+        return array;
     }
 
-    private static JSValue RandomUuid(in Arguments a) => new JSString(Guid.NewGuid().ToString());
+    private static JsValue RandomUuid(in JsCall call) => JsValue.String(Guid.NewGuid().ToString());
 }

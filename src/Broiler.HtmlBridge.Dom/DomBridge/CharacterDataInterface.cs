@@ -147,7 +147,7 @@ public sealed partial class DomBridge
     private void InstallNodeConstantsIfNotInherited(JSObject obj)
     {
         if (!_nodeInterfacePrototypesReady)
-            Dom.Features.NodeConstantsBinding.Install(obj);
+            Dom.Features.NodeConstantsBinding.Install(Realm, Dom.Runtime.JsInterop.FromEngineObject(obj));
     }
 
     /// <summary>The prototype object of a registered interface global, if the realm has one.</summary>

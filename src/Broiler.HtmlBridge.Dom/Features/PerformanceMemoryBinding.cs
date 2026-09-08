@@ -1,6 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -40,21 +38,25 @@ internal static class PerformanceMemoryBinding
     /// that samples memory does so repeatedly — with values it would read the same three numbers
     /// forever and conclude nothing had been allocated.
     /// </summary>
-    public static JSObject Build()
+    /// <remarks>
+    /// Each getter is a bare delegate; the realm mints the accessor function, names it
+    /// <c>get jsHeapSizeLimit</c> and the rest, and makes it non-constructable — what
+    /// <c>DomFunction</c> was asked for by name here before. All three are read-only, which is a
+    /// <see langword="null"/> setter.
+    /// </remarks>
+    /// <param name="realm">The realm the object and its three accessors belong to.</param>
+    public static JsValue Build(IJsRealm realm)
     {
-        var memory = new JSObject();
+        var memory = realm.NewObject();
 
-        memory.FastAddProperty("jsHeapSizeLimit",
-            new DomFunction((in _) => new JSNumber(Sample().Limit), "get jsHeapSizeLimit"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(memory, "jsHeapSizeLimit",
+            static (in _) => JsValue.Number(Sample().Limit), null);
 
-        memory.FastAddProperty("totalJSHeapSize",
-            new DomFunction((in _) => new JSNumber(Sample().Total), "get totalJSHeapSize"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(memory, "totalJSHeapSize",
+            static (in _) => JsValue.Number(Sample().Total), null);
 
-        memory.FastAddProperty("usedJSHeapSize",
-            new DomFunction((in _) => new JSNumber(Sample().Used), "get usedJSHeapSize"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(memory, "usedJSHeapSize",
+            static (in _) => JsValue.Number(Sample().Used), null);
 
         return memory;
     }

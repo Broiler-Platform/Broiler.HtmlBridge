@@ -93,6 +93,7 @@ public sealed partial class DomBridge
     private void RegisterDocumentCore(JSContext context)
     {
         _jsContext = context;
+        _realm = AdoptRealm(context);
 
         // EventTarget.prototype's three methods, routed by receiver
         // (DomBridge.EventTargetInterface.cs). First, because every wrapper registration below asks

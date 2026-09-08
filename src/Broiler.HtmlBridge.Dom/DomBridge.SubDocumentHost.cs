@@ -18,6 +18,8 @@ namespace Broiler.HtmlBridge;
 public sealed partial class DomBridge : ISubDocumentHost
 {
     JSContext ISubDocumentHost.JsContext => _jsContext!;
+
+    Jseal.IJsRealm ISubDocumentHost.Realm => Realm;
     JSObject? ISubDocumentHost.WindowJSObject => _windowJSObject;
 
     JSObject ISubDocumentHost.ToJSObject(DomNode node) => ToJSObject(node);

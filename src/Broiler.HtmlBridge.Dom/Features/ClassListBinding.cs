@@ -1,8 +1,5 @@
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -15,96 +12,103 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// bridge's <c>BuildClassListObject</c> plus its five scattered <c>JsUtilities…025…Core</c>
 /// callbacks.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
+/// type; the realm arrives on the call frame for each operation and as a parameter when the list is
+/// built. The <see cref="DomElement"/> and the callback are still captured by the operation closures
+/// exactly as before — the token-list logic never was engine-coupled.
+/// </remarks>
 internal static class ClassListBinding
 {
     /// <summary>
     /// Builds the JS <c>DOMTokenList</c> exposed as <c>element.classList</c>. Mutating operations
     /// invoke <paramref name="onClassChanged"/> (typically the bridge's style-scope invalidation).
     /// </summary>
-    internal static JSObject Build(DomElement element, Action<DomElement>? onClassChanged)
+    internal static JsValue Build(IJsRealm realm, DomElement element, Action<DomElement>? onClassChanged)
     {
-        var classList = new JSObject();
+        var classList = realm.NewObject();
 
-        classList.FastAddValue("contains",
-            new DomFunction((in a) => Contains(element, in a), "contains", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(classList, "contains",
+            realm.NewMethod("contains", (in call) => Contains(element, in call), 1));
 
-        classList.FastAddValue("add",
-            new DomFunction((in a) => Add(element, onClassChanged, in a), "add"),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(classList, "add",
+            realm.NewMethod("add", (in call) => Add(element, onClassChanged, in call)));
 
-        classList.FastAddValue("remove",
-            new DomFunction((in a) => Remove(element, onClassChanged, in a), "remove"),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(classList, "remove",
+            realm.NewMethod("remove", (in call) => Remove(element, onClassChanged, in call)));
 
-        classList.FastAddValue("toggle",
-            new DomFunction((in a) => Toggle(element, onClassChanged, in a), "toggle", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(classList, "toggle",
+            realm.NewMethod("toggle", (in call) => Toggle(element, onClassChanged, in call), 1));
 
-        classList.FastAddValue("replace",
-            new DomFunction((in a) => Replace(element, onClassChanged, in a), "replace", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(classList, "replace",
+            realm.NewMethod("replace", (in call) => Replace(element, onClassChanged, in call), 2));
 
         return classList;
     }
 
-    private static JSValue Contains(DomElement element, in Arguments a)
+    private static JsValue Contains(DomElement element, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSBoolean.False;
-        return new DomTokenList(element, "class").Contains(a[0].ToString())
-            ? JSBoolean.True
-            : JSBoolean.False;
+        // No argument at all answers false without coercing: there is nothing to convert, and
+        // ToJsString of a missing value is not a question the realm should be asked.
+        if (call.Length == 0)
+            return JsValue.False;
+        return JsValue.Boolean(new DomTokenList(element, "class").Contains(call.Realm.ToJsString(call[0])));
     }
 
-    private static JSValue Add(DomElement element, Action<DomElement>? onClassChanged, in Arguments a)
+    private static JsValue Add(DomElement element, Action<DomElement>? onClassChanged, in JsCall call)
     {
         var tokens = new List<string>();
-        for (var i = 0; i < a.Length; i++)
+        for (var i = 0; i < call.Length; i++)
         {
-            var cls = a[i].ToString();
+            // ToJsString, not the handle's rendering: an object argument must run its own toString,
+            // which is the coercion a page observes here.
+            var cls = call.Realm.ToJsString(call[i]);
             if (!string.IsNullOrEmpty(cls))
                 tokens.Add(cls);
         }
 
         new DomTokenList(element, "class").Add([.. tokens]);
         onClassChanged?.Invoke(element);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue Remove(DomElement element, Action<DomElement>? onClassChanged, in Arguments a)
+    private static JsValue Remove(DomElement element, Action<DomElement>? onClassChanged, in JsCall call)
     {
         var tokens = new List<string>();
-        for (var i = 0; i < a.Length; i++)
+        for (var i = 0; i < call.Length; i++)
         {
-            var cls = a[i].ToString();
+            var cls = call.Realm.ToJsString(call[i]);
             if (!string.IsNullOrEmpty(cls))
                 tokens.Add(cls);
         }
 
         new DomTokenList(element, "class").Remove([.. tokens]);
         onClassChanged?.Invoke(element);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue Toggle(DomElement element, Action<DomElement>? onClassChanged, in Arguments a)
+    private static JsValue Toggle(DomElement element, Action<DomElement>? onClassChanged, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSBoolean.False;
-        var cls = a[0].ToString();
-        bool? force = a.Length >= 2 && a[1] is not JSUndefined ? a[1].BooleanValue : null;
+        if (call.Length == 0)
+            return JsValue.False;
+        var cls = call.Realm.ToJsString(call[0]);
+
+        // toggle(name) and toggle(name, undefined) are the same call: an explicitly passed undefined
+        // leaves the force flag unset, so the token flips. Arity alone is not the test.
+        bool? force = call.Length >= 2 && !call[1].IsUndefined ? call[1].AsBoolean : null;
         var present = new DomTokenList(element, "class").Toggle(cls, force);
         onClassChanged?.Invoke(element);
-        return present ? JSBoolean.True : JSBoolean.False;
+        return JsValue.Boolean(present);
     }
 
-    private static JSValue Replace(DomElement element, Action<DomElement>? onClassChanged, in Arguments a)
+    private static JsValue Replace(DomElement element, Action<DomElement>? onClassChanged, in JsCall call)
     {
-        if (a.Length < 2)
-            return JSBoolean.False;
-        var replaced = new DomTokenList(element, "class").Replace(a[0].ToString(), a[1].ToString());
+        if (call.Length < 2)
+            return JsValue.False;
+        var replaced = new DomTokenList(element, "class")
+            .Replace(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
         if (replaced)
             onClassChanged?.Invoke(element);
-        return replaced ? JSBoolean.True : JSBoolean.False;
+        return JsValue.Boolean(replaced);
     }
 }

@@ -1,6 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -63,10 +61,20 @@ internal static class NodeConstantsBinding
     /// inherit them. <c>Node.prototype</c> carries all eighteen with the same values (see
     /// <c>RegisterNodeConstructor</c>), so a wrapper whose chain reaches it needs none of its own.
     /// </summary>
-    public static void Install(JSObject obj)
+    /// <remarks>
+    /// The flags are <see cref="JsPropertyFlags.Default"/> — enumerable, configurable and writable —
+    /// because that is what these eighteen have always been installed with here, and this migration
+    /// changes no observable property attribute. WebIDL says a constant is enumerable but read-only
+    /// and non-configurable, which <see cref="JsPropertyFlags"/> can express (<c>Enumerable</c> on its
+    /// own); tightening these to it is a behaviour change and belongs in its own commit beside the
+    /// matching change to <c>Node.prototype</c>, so that an instance and the global keep agreeing.
+    /// </remarks>
+    /// <param name="realm">The realm the constants are created and installed in.</param>
+    /// <param name="target">The node-like object to install them on.</param>
+    public static void Install(IJsRealm realm, JsValue target)
     {
         foreach (var (name, value) in Constants)
-            obj.FastAddValue(name, new JSNumber(value), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(target, name, JsValue.Number(value));
     }
 
     /// <summary>The constant names, for dropping the copies a wrapper installed before it had a chain.</summary>

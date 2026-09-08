@@ -1,6 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -46,20 +44,26 @@ internal static class WindowBarPropBinding
     ];
 
     /// <summary>Installs all six <c>BarProp</c> objects on <paramref name="window"/>.</summary>
-    public static void Install(JSObject window)
+    /// <param name="realm">The realm the six objects and their getters belong to.</param>
+    /// <param name="window">The window to install them on.</param>
+    public static void Install(IJsRealm realm, JsValue window)
     {
         foreach (var name in BarNames)
-            window.FastAddValue(name, Build(), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(window, name, Build(realm));
     }
 
     /// <summary>One <c>BarProp</c>. Each member gets its own object, as in a browser.</summary>
-    private static JSObject Build()
+    /// <remarks>
+    /// The getter is a bare delegate rather than a function object the caller builds: the realm mints
+    /// the accessor function itself, names it <c>get visible</c>, and makes it non-constructable — the
+    /// three things <c>DomFunction</c> was doing at this call site before, now the provider's
+    /// business. A <see langword="null"/> setter is still how read-only is spelled.
+    /// </remarks>
+    private static JsValue Build(IJsRealm realm)
     {
-        var bar = new JSObject();
+        var bar = realm.NewObject();
 
-        bar.FastAddProperty("visible",
-            new DomFunction((in _) => JSBoolean.False, "get visible"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(bar, "visible", static (in _) => JsValue.False, null);
 
         return bar;
     }

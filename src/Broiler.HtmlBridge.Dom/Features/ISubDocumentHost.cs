@@ -22,6 +22,21 @@ internal interface ISubDocumentHost
     /// <summary>The bridge's JS context (for name-validation diagnostics).</summary>
     JSContext JsContext { get; }
 
+    /// <summary>
+    /// The bridge's JSEAL realm — the same realm <see cref="JsContext"/> names, seen through the
+    /// engine-neutral contracts.
+    /// </summary>
+    /// <remarks>
+    /// Both are here because this contract straddles the migration: the members above it are still
+    /// spelled in engine types and the ones written against JSEAL need a realm to build on. Adding
+    /// this was cheaper than the alternative it replaced — <c>SubDocumentBinding</c> was reaching
+    /// <c>((DomBridge)_host).Realm</c>, which works (there is one construction site, in the same
+    /// assembly) and defeats the point of a narrow contract: the class documents that it reaches the
+    /// bridge only through explicit seams, and a cast is not one. <see cref="JsContext"/> is what goes
+    /// away when the rest of this interface is migrated.
+    /// </remarks>
+    Jseal.IJsRealm Realm { get; }
+
     /// <summary>The main window JS object, used for the sub-document's <c>defaultView</c>.</summary>
     JSObject? WindowJSObject { get; }
 

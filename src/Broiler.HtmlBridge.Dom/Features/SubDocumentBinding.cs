@@ -225,8 +225,11 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         // Node interface constants — types and the DOCUMENT_POSITION_* bits. On Node.prototype, which
         // this document object reaches through the HTMLDocument link above; it installs its own only
         // when the realm does not carry the interfaces.
+        //
+        // The realm comes off the host contract, beside the JSContext that is still on it — this
+        // interface straddles the migration and carries both for as long as that is true.
         if (!_host.NodeInterfacePrototypesReady)
-            NodeConstantsBinding.Install(doc);
+            NodeConstantsBinding.Install(_host.Realm, Runtime.JsInterop.FromEngineObject(doc));
 
         // document.implementation on sub-documents
         var subImpl = new JSObject();

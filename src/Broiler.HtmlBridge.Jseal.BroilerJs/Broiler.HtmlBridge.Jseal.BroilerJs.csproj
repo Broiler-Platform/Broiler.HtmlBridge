@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Broiler.HtmlBridge.Jseal.BroilerJs</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>The Broiler.JS provider for JSEAL: an IJsEngineProvider and IJsRealm implemented over Broiler.JavaScript's JSContext, so the HTML bridge can bind a document through the engine-neutral contracts without changing which engine actually runs the page.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The realm's job pump and marshalling internals are what a conformance suite has to
+         reach to assert that the provider answers the contract the way the bridge needs. -->
+    <InternalsVisibleTo Include="Broiler.Browser.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The contracts this assembly implements. Everything public here is a JSEAL type. -->
+    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
+
+    <!-- JSContext (the realm and its global), JSEngine (the ambient-realm scope the engine's
+         intrinsic factories read), and Eval. -->
+    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
+
+    <!-- The value types the marshal names: JSFunction, JSArray, JSString, JSNumber, JSBoolean,
+         JSNull, and JSPromise. JSObject/JSValue/KeyString arrive transitively through Runtime
+         and Storage, which this project deliberately does not name: it uses no type from either
+         that BuiltIns does not already put in its own signatures. -->
+    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
+
+    <!-- Broiler.JavaScript.Modules is deliberately ABSENT, unlike Broiler.HtmlBridge.Scripting's
+         reference block which this one is modelled on. A module-bearing realm is what the
+         Modules/DynamicImport capabilities describe, and this provider declares neither by
+         default — see the comment on BroilerJsEngineProvider.Capabilities. Referencing the
+         module assembly to implement a capability that is not asserted would link a module
+         orchestrator into every host that only wanted a document. -->
+  </ItemGroup>
+
+</Project>

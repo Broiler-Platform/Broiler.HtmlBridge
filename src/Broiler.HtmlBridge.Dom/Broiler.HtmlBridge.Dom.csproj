@@ -41,6 +41,15 @@
     <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom.Html\Broiler.Dom.Html.csproj" />
     <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom\Broiler.Dom.csproj" />
     <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />
+    <!--
+      JSEAL: the contracts a migrated binding builds its JavaScript objects through. Contracts only —
+      no engine provider, and deliberately so. This project's engine coupling is what the JSEAL work
+      exists to count down (eng/jseal-budget.json), and it would be a poor trade to remove a
+      Broiler.JS reference from a file and add a reference to the assembly that has one. The realm is
+      obtained from whichever provider the host linked, through JsEngineRegistry; see
+      DomBridge.Realm.cs.
+    -->
+    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
     <ProjectReference Include="..\..\Broiler.HTML\Source\Broiler.HTML.Dom\Broiler.HTML.Dom.csproj" />
     <!-- The canvas 2D context rasterises into a Broiler.Graphics BBitmap and encodes it through the
          media image abstraction, which is what makes getImageData/toDataURL report real pixels. Both

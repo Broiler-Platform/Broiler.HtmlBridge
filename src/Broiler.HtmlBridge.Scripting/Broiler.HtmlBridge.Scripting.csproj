@@ -22,6 +22,16 @@
     <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom\Broiler.Dom.csproj" />
     <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />
     <ProjectReference Include="..\Broiler.HtmlBridge.Dom\Broiler.HtmlBridge.Dom.csproj" />
+    <!--
+      The Broiler.JS JSEAL provider. This project is where it belongs: it is the assembly that builds
+      the JSContext, so it is the one place that already knows which engine is running, and a provider
+      registered anywhere else would be registered after something had already asked for it.
+
+      It does not raise this project's engine coupling — the provider lives under src/, and this
+      project already references Broiler.JavaScript directly. What it does is give Broiler.HtmlBridge.Dom
+      a provider to adopt a realm from without referencing one itself.
+    -->
+    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal.BroilerJs\Broiler.HtmlBridge.Jseal.BroilerJs.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Modules\Broiler.JavaScript.Modules.csproj" />

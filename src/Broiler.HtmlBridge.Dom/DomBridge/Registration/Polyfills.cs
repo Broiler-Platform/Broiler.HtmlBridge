@@ -29,7 +29,7 @@ public sealed partial class DomBridge
     private void RegisterSecurityAndConstructorPolyfills(JSContext context, JSObject window)
     {
         // window.crypto — the getRandomValues/randomUUID subset (Phase 3: co-located CryptoBinding module)
-        var cryptoObj = Dom.Features.CryptoBinding.Build();
+        var cryptoObj = Dom.Runtime.JsInterop.ToEngineObject(Dom.Features.CryptoBinding.Build(Realm));
         window.FastAddValue("crypto", cryptoObj, JSPropertyAttributes.EnumerableConfigurableValue);
         context["crypto"] = cryptoObj;
 

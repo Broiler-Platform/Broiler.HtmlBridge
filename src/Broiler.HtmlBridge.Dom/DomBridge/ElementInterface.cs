@@ -293,5 +293,6 @@ public sealed partial class DomBridge
 
     /// <summary>The element's one <c>DOMTokenList</c>, built on first use.</summary>
     private JSObject ClassListFor(DomElement element) =>
-        _classLists.GetValue(element, key => Dom.Features.ClassListBinding.Build(key, InvalidateStyleScope));
+        _classLists.GetValue(element, key => Dom.Runtime.JsInterop.ToEngineObject(
+            Dom.Features.ClassListBinding.Build(Realm, key, InvalidateStyleScope)));
 }

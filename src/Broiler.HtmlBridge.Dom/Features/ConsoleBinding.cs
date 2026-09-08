@@ -1,6 +1,4 @@
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -20,64 +18,66 @@ internal static class ConsoleBinding
     /// <c>info</c>. The same object is shared between <c>window.console</c> and the global
     /// <c>console</c>.
     /// </summary>
-    public static JSObject Build()
+    /// <param name="realm">The realm the object and its four methods belong to.</param>
+    public static JsValue Build(IJsRealm realm)
     {
-        var console = new JSObject();
+        var console = realm.NewObject();
 
-        console.FastAddValue(
-            "log",
-            new DomFunction(Log, "log"),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
-        console.FastAddValue(
-            "warn",
-            new DomFunction(Warn, "warn"),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
-        console.FastAddValue(
-            "error",
-            new DomFunction(Error, "error"),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
-        console.FastAddValue(
-            "info",
-            new DomFunction(Info, "info"),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(console, "log", realm.NewMethod("log", Log));
+        realm.DefineValue(console, "warn", realm.NewMethod("warn", Warn));
+        realm.DefineValue(console, "error", realm.NewMethod("error", Error));
+        realm.DefineValue(console, "info", realm.NewMethod("info", Info));
 
         return console;
     }
 
-    private static JSValue Log(in Arguments a)
+    private static JsValue Log(in JsCall call)
     {
-        RenderLogger.LogDebug(LogCategory.JavaScript, "console.log", Format(a));
-        return JSUndefined.Value;
+        RenderLogger.LogDebug(LogCategory.JavaScript, "console.log", Format(in call));
+        return JsValue.Undefined;
     }
 
-    private static JSValue Warn(in Arguments a)
+    private static JsValue Warn(in JsCall call)
     {
-        RenderLogger.Log(LogCategory.JavaScript, LogLevel.Warning, "console.warn", Format(a));
-        return JSUndefined.Value;
+        RenderLogger.Log(LogCategory.JavaScript, LogLevel.Warning, "console.warn", Format(in call));
+        return JsValue.Undefined;
     }
 
-    private static JSValue Error(in Arguments a)
+    private static JsValue Error(in JsCall call)
     {
-        RenderLogger.Log(LogCategory.JavaScript, LogLevel.Error, "console.error", Format(a));
-        return JSUndefined.Value;
+        RenderLogger.Log(LogCategory.JavaScript, LogLevel.Error, "console.error", Format(in call));
+        return JsValue.Undefined;
     }
 
-    private static JSValue Info(in Arguments a)
+    private static JsValue Info(in JsCall call)
     {
-        RenderLogger.LogDebug(LogCategory.JavaScript, "console.info", Format(a));
-        return JSUndefined.Value;
+        RenderLogger.LogDebug(LogCategory.JavaScript, "console.info", Format(in call));
+        return JsValue.Undefined;
     }
 
     /// <summary>Joins the call arguments with spaces, rendering a missing/undefined value as
     /// the literal <c>"undefined"</c> — the shared formatting the four sinks used identically.</summary>
-    private static string Format(in Arguments a)
+    /// <remarks>
+    /// The rendering is the realm's <c>ToString</c>, not the handle's: logging an object has always
+    /// shown what the object's own <c>toString</c> says, and a page that gives one a <c>toString</c>
+    /// is entitled to see it in the log line rather than <c>[object]</c>. That does mean a
+    /// <c>console.log</c> can run page script — which was true before this migration too, because the
+    /// engine's own <c>ToString()</c> on a value <em>is</em> that coercion, and this line called it.
+    /// </remarks>
+    private static string Format(in JsCall call)
     {
-        var parts = new List<string>(a.Length);
-        for (var i = 0; i < a.Length; i++)
-            parts.Add(a[i]?.ToString() ?? "undefined");
+        var parts = new List<string>(call.Length);
+        for (var i = 0; i < call.Length; i++)
+        {
+            var argument = call[i];
+
+            // An index past the end answered CLR null before and rendered "undefined"; it is Missing
+            // now, and the same literal is the answer. The loop cannot reach one — it stops at
+            // Length — but the guard is what keeps the coercion off a value that never came from the
+            // engine.
+            parts.Add(argument.IsMissing ? "undefined" : call.Realm.ToJsString(argument));
+        }
+
         return string.Join(" ", parts);
     }
 }

@@ -233,7 +233,7 @@ public sealed partial class DomBridge
 
 
         // The constants are on Node.prototype for every other wrapper; this one inherits nothing.
-        Dom.Features.NodeConstantsBinding.Install(obj);
+        Dom.Features.NodeConstantsBinding.Install(Realm, Dom.Runtime.JsInterop.FromEngineObject(obj));
     }
 
     /// <summary>
