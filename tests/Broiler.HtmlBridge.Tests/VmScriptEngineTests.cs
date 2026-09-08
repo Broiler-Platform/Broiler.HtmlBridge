@@ -127,13 +127,6 @@ public class VmScriptEngineTests
     }
 
     /// <summary>
-    /// <c>eval</c> works, because the engine registers a source provider that compiles what the
-    /// guest hands it. The profile cannot compile a string on its own, so this passing is evidence
-    /// the guest-initiated-load path is wired end to end: the guest asked, the core mediated, this
-    /// composition compiled, the core verified the result and ran it.
-    /// </summary>
-
-    /// <summary>
     /// A DIRECT <c>eval</c> inside a function is refused, and the refusal comes from the profile
     /// rather than from this engine's provider.
     /// </summary>
@@ -335,6 +328,158 @@ public class VmScriptEngineTests
         var engine = Engine(out var document);
 
         Assert.Same(document.MicroTasks, engine.MicroTasks);
+    }
+
+
+    /// <summary>
+    /// The compilation cache: what it must save, and what it must never get wrong.
+    /// </summary>
+    /// <remarks>
+    /// <b>Every case here counts compilations rather than timing them.</b> "The second run compiled
+    /// nothing" is a fact a machine either reproduces or does not; "the second run was faster" is a
+    /// measurement, and a measurement inside a test is a flake waiting for a loaded build agent.
+    /// Each test uses its own cache instance so the shared one cannot make one test's result depend
+    /// on another's having run first.
+    /// </remarks>
+    public class Caching
+    {
+        private static VmScriptEngine Engine(VmCompilationCache cache) =>
+            new(new RecordingEngine()) { Cache = cache };
+
+        private static VmCompilationCache Fresh() => new(maximumEntries: 8, maximumBytes: 1 << 20);
+
+        [Fact]
+        public void TheSameDocumentIsCompiledOnce()
+        {
+            var cache = Fresh();
+            string[] scripts = ["var a = 1;", "var b = a + 1;"];
+
+            Assert.True(Engine(cache).Execute(scripts));
+            Assert.Equal(1, cache.Compilations);
+
+            Assert.True(Engine(cache).Execute(scripts));
+            Assert.Equal(1, cache.Compilations);
+            Assert.Equal(1, cache.Hits);
+        }
+
+        [Fact]
+        public void ADifferentDocumentIsCompiledAgain()
+        {
+            var cache = Fresh();
+
+            Engine(cache).Execute(["var a = 1;"]);
+            Engine(cache).Execute(["var a = 2;"]);
+
+            Assert.Equal(2, cache.Compilations);
+            Assert.Equal(0, cache.Hits);
+        }
+
+        /// <summary>
+        /// Strict mode changes what the compiler emits, so it has to change the key. Serving the
+        /// sloppy artifact to a strict document would run a different program than the one asked
+        /// for — the failure a cache key exists to prevent.
+        /// </summary>
+        [Fact]
+        public void StrictModeIsPartOfTheIdentity()
+        {
+            var cache = Fresh();
+            string[] scripts = ["var a = 1;"];
+
+            Engine(cache).Execute(scripts);
+
+            var strict = Engine(cache);
+            strict.StrictModeEnabled = true;
+            strict.Execute(scripts);
+
+            Assert.Equal(2, cache.Compilations);
+            Assert.Equal(0, cache.Hits);
+        }
+
+        /// <summary>
+        /// And so is the referrer: it is what a relative specifier resolves against, so one text
+        /// under two documents is two programs.
+        /// </summary>
+        [Fact]
+        public void TheDocumentUrlIsPartOfTheIdentity()
+        {
+            var cache = Fresh();
+            string[] scripts = ["var a = 1;"];
+
+            Engine(cache).ExecuteDetailed(scripts, null, "https://example.test/one");
+            Engine(cache).ExecuteDetailed(scripts, null, "https://example.test/two");
+
+            Assert.Equal(2, cache.Compilations);
+            Assert.Equal(0, cache.Hits);
+        }
+
+        /// <summary>A cached document still runs, and still produces its value.</summary>
+        /// <remarks>
+        /// The counter says compilation was skipped; this says the bytes that were served are the
+        /// program. A cache that returned stale or truncated bytes would satisfy the counter and
+        /// fail here.
+        /// </remarks>
+        [Fact]
+        public void ACachedDocumentStillRuns()
+        {
+            var cache = Fresh();
+            string[] scripts = ["print('cached=' + (20 + 22));"];
+
+            Assert.Contains("cached=42", Printed(cache, scripts));
+            Assert.Contains("cached=42", Printed(cache, scripts));
+            Assert.Equal(1, cache.Compilations);
+        }
+
+        /// <summary>A refusal is not stored, so a broken script is not cached as broken.</summary>
+        [Fact]
+        public void ARefusalIsNotCached()
+        {
+            var cache = Fresh();
+            string[] scripts = ["var broken = ;"];
+
+            Assert.False(Engine(cache).Execute(scripts));
+            Assert.False(Engine(cache).Execute(scripts));
+
+            Assert.Equal(0, cache.Hits);
+        }
+
+        /// <summary>The bound is enforced, and the least recently used entry is the one that goes.</summary>
+        [Fact]
+        public void TheCacheIsBounded()
+        {
+            var cache = new VmCompilationCache(maximumEntries: 2, maximumBytes: 1 << 20);
+
+            Engine(cache).Execute(["var a = 1;"]);
+            Engine(cache).Execute(["var b = 2;"]);
+            Engine(cache).Execute(["var a = 1;"]);   // keeps the first entry the most recent
+            Engine(cache).Execute(["var c = 3;"]);   // evicts `b`, the least recently used
+
+            Assert.Equal(3, cache.Compilations);
+            Assert.Equal(1, cache.Hits);
+
+            Engine(cache).Execute(["var a = 1;"]);   // still resident
+            Assert.Equal(2, cache.Hits);
+
+            Engine(cache).Execute(["var b = 2;"]);   // was evicted, so compiles again
+            Assert.Equal(4, cache.Compilations);
+        }
+
+        private static string Printed(VmCompilationCache cache, IReadOnlyList<string> scripts)
+        {
+            var written = new List<string>();
+            void Capture(RenderLogEntry entry) => written.Add(entry.Message);
+
+            RenderLogger.EntryLogged += Capture;
+            try
+            {
+                Engine(cache).Execute(scripts);
+            }
+            finally
+            {
+                RenderLogger.EntryLogged -= Capture;
+            }
+
+            return string.Join("\n", written);
+        }
     }
 
     /// <summary>
