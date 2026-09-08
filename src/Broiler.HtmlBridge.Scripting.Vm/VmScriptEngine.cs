@@ -228,15 +228,24 @@ public sealed class VmScriptEngine : IScriptEngine
         for (var index = 0; index < scripts.Count; index++)
             units.Add(Unit(scripts[index], index));
 
-        // THE ONE-ARGUMENT OVERLOAD, DELIBERATELY, AND IT IS A COMPATIBILITY CHOICE RATHER THAN A
-        // TERSENESS ONE. Broiler.VM also offers an overload taking a JsCompileRequest, which would
-        // let this name the wide surface and the bytecode form explicitly instead of taking them
-        // as defaults -- and that type does not exist at the commit this repository's gitlink
-        // pins. Writing against it would compile here, where the submodule checkout is ahead of
-        // the pin, and fail in CI, which checks out the pin. The default this takes IS the wide
-        // surface in bytecode, at both commits.
-        return JsCompiler.Compile(units);
+        // THE SURFACE AND THE FORM ARE NAMED RATHER THAN DEFAULTED, and that is worth the two
+        // extra arguments: JsCompiler's parameterless request happens to default to exactly this
+        // pair today, so a browser that took the default would keep compiling correctly right up
+        // until Broiler.VM had a reason to change what an unstated request means -- and would then
+        // compile a document's scripts under a different manifest with nothing said about it.
+        // Naming them makes that a compile error in the profile's own vocabulary instead.
+        return JsCompiler.Compile(units, [], WideBytecode);
     }
+
+    /// <summary>What this engine asks the front end for: the wide surface, lowered to bytecode.</summary>
+    /// <remarks>
+    /// The wide surface because a page's scripts are ordinary JavaScript — objects, closures,
+    /// exceptions and a standard library — and the numeric manifest admits none of that. Bytecode
+    /// because the native form is admitted only under the numeric manifest, so it is not a form
+    /// this engine could ask for even if it wanted to.
+    /// </remarks>
+    private static readonly JsCompileRequest WideBytecode =
+        new(JsFeatureManifest.Wide, JsOutputForm.Bytecode);
 
     private JsScriptUnit Unit(string source, int index) =>
         new(EntryPoint(index), source, SliceParseOptions.Script, StrictModeEnabled);
@@ -266,7 +275,7 @@ public sealed class VmScriptEngine : IScriptEngine
 
         for (var index = 0; index < scripts.Count; index++)
         {
-            var alone = JsCompiler.Compile([Unit(scripts[index], index)]);
+            var alone = JsCompiler.Compile([Unit(scripts[index], index)], [], WideBytecode);
 
             if (alone.Succeeded)
                 continue;
