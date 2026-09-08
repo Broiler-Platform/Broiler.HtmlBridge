@@ -1,3 +1,4 @@
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.BuiltIns.Array;
 using Broiler.JavaScript.BuiltIns.Boolean;
 using Broiler.JavaScript.BuiltIns.Function;
@@ -35,8 +36,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// When playback is wired up, this is the one place the answer changes:
 /// <c>Broiler.Playback.MediaPlayer.CanPlayType</c> already answers the same question from a
 /// <c>MediaCodecCatalog</c>, and the catalog is supplied by whichever host composes the engine. Both
-/// methods below then read from that instead of from <see cref="NotSupported"/> — the interface a
+/// methods below then read from that instead of from <see cref="NotSupportedType"/> — the interface a
 /// page sees does not change.
+/// </para>
+/// <para>
+/// <b>The element half is migrated to JSEAL and the global is not, and the split is a caller's.</b>
+/// <see cref="Install"/> is reached from the element-interface hub, which hands it a realm.
+/// <see cref="BuildMediaSource"/> is reached from <c>DomBridge/Registration/Polyfills.cs</c>, which
+/// registers the window's globals against the engine's context and has no realm to give — so it stays
+/// engine-typed until that registration moves, and it is the only reason this file still names an
+/// engine type.
 /// </para>
 /// </remarks>
 internal static class MediaCapabilityBinding
@@ -45,7 +54,7 @@ internal static class MediaCapabilityBinding
     /// <c>canPlayType</c>'s "cannot be rendered" answer. The empty string is the specified value,
     /// not a missing one — the other two are <c>"maybe"</c> and <c>"probably"</c>.
     /// </summary>
-    private static readonly JSString NotSupported = new(string.Empty);
+    private const string NotSupportedType = "";
 
     /// <summary>
     /// Installs the <c>HTMLMediaElement</c> capability member on <paramref name="obj"/>. Called for
@@ -53,16 +62,16 @@ internal static class MediaCapabilityBinding
     /// belongs to that interface, and <c>'canPlayType' in el</c> must not be true of a
     /// <c>&lt;div&gt;</c>.
     /// </summary>
+    /// <param name="realm">The realm the member is minted in.</param>
     /// <param name="obj">The element's JS wrapper.</param>
     /// <param name="tag">The element's lowercased tag name.</param>
-    public static void Install(JSObject obj, string tag)
+    public static void Install(IJsRealm realm, JsValue obj, string tag)
     {
         if (tag is not ("video" or "audio"))
             return;
 
-        obj.FastAddValue("canPlayType",
-            new DomFunction((in _) => NotSupported, "canPlayType", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(obj, "canPlayType",
+            realm.NewMethod("canPlayType", static (in _) => JsValue.String(NotSupportedType), 1));
     }
 
     /// <summary>

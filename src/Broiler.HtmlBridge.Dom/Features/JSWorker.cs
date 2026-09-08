@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Globals;
@@ -20,6 +21,22 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// pumps messages until it is closed or terminated.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <b>This is the one file in the messaging/worker group that JSEAL cannot express, and the gap is
+/// exact.</b> It creates a realm — <c>new JSContext()</c> — on a thread it owns, and it moves values
+/// into that realm with the engine's <c>structuredClone</c>. <see cref="JsCapabilities.WorkerRealms"/>
+/// declares that an engine <em>can</em> do both; no contract offers a way to ask it to. A JSEAL
+/// worker-realm seam would have to say four things, and each of them is a decision rather than a
+/// rename: who creates the second realm and on which thread; how a value is cloned <em>out of</em>
+/// one realm and <em>into</em> another, given that the two clones happen on two threads and the
+/// intermediate must be reachable from neither realm's script; what a host holds between the two
+/// clones, since a <see cref="JsValue"/> handle is only meaningful to the realm that minted it; and
+/// what the worker realm's job queue is driven by, given that a provider's realm scope installs its
+/// own pump as the thread's <c>SynchronizationContext</c> — so a worker realm that were merely
+/// <em>adopted</em> rather than created would leave its promise reactions reporting to whatever pump
+/// its context captured when it was built, which is the defect that shape was written to avoid. Until
+/// that seam exists, this file names the engine, and the rest of the group does not.
+/// </para>
 /// <para>
 /// <b>One thread, one context, for the thread's whole life.</b> That is item #15's rule kept rather
 /// than bent: the context is created on the worker thread, every script and every handler runs on
@@ -43,7 +60,7 @@ internal sealed class JSWorker
 
     private readonly WorkerTimers _timers = new();
 
-    private JSObject? _handle;
+    private JsValue _handle;
     private WorkerBinding? _owner;
     private volatile bool _closed;
 
@@ -60,7 +77,7 @@ internal sealed class JSWorker
     /// handle does not exist until the binding has built it, and the thread must not deliver a
     /// message before there is something to deliver it to.
     /// </summary>
-    public void Attach(JSObject handle, WorkerBinding owner)
+    public void Attach(JsValue handle, WorkerBinding owner)
     {
         _handle = handle;
         _owner = owner;
@@ -249,7 +266,7 @@ internal sealed class JSWorker
 
             var handle = _handle;
             var owner = _owner;
-            if (handle is null || owner is null || _cancel.IsCancellationRequested)
+            if (!handle.IsObject || owner is null || _cancel.IsCancellationRequested)
                 return JSUndefined.Value;
 
             // Onto the page's event loop, not into it: the queue is concurrent, and the page's own
@@ -367,7 +384,7 @@ internal sealed class JSWorker
     {
         var handle = _handle;
         var owner = _owner;
-        if (handle is null || owner is null)
+        if (!handle.IsObject || owner is null)
             return;
 
         _host.QueueFrameAction(() => owner.FireErrorEvent(handle, message));

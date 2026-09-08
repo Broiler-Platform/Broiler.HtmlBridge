@@ -1,20 +1,35 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.JavaScript.Storage;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Conversion of <see cref="DomElement"/> instances to YantraJS
-/// <see cref="JSObject"/> representations, including sub-document
-/// construction and tree-search helpers.
+/// The node-wrapper hub: it turns a <see cref="DomNode"/> into the JavaScript object a page holds for
+/// it, dispatching by node kind and then installing — or, where an interface prototype carries them,
+/// deliberately not installing — that kind's whole member surface.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Two names for one wrapper, and the file says which is which.</b> <see cref="WrapNode"/> is the
+/// JSEAL-vocabulary entry point and <see cref="ToJSObject"/> the engine-typed one; they answer the
+/// same instance, because a JSEAL object handle carries the engine's own object. Wrapper identity
+/// lives in <c>Runtime/JsObjectRegistry.cs</c> and is untouched by either.
+/// </para>
+/// <para>
+/// <b>What is still engine-typed here is pinned from outside, not left behind.</b> A wrapper's
+/// members are installed by a dozen modules — the attribute surface, <c>CharacterDataBinding</c>, the
+/// tree mutations, <c>EventTargetBinding</c>, the form controls, <c>ElementContentBinding</c>, the
+/// element and HTMLElement interface installers, the iframe accessors — and each still takes an
+/// engine argument frame. A member cannot be minted by the realm while the body it would call takes
+/// an <c>Arguments</c>: there is no adapter between the two call frames, only between the two object
+/// types. So each install site here migrates when its callee does, and the ones whose callees already
+/// have — <c>FormSubmitBinding</c>, <c>CanvasBinding</c>, and the handful whose bodies read nothing
+/// but the DOM — are through the realm already.
+/// </para>
+/// </remarks>
 public sealed partial class DomBridge
 {
     private const double DefaultBodyMarginPixels = 8;
@@ -29,6 +44,43 @@ public sealed partial class DomBridge
     /// <summary>Counter for tracking top-layer insertion order via showModal().</summary>
     private int _topLayerCounter;
 
+    /// <summary>
+    /// A node's JS wrapper as a JSEAL handle — the engine-neutral name for what
+    /// <see cref="ToJSObject"/> answers, and the one a migrated binding asks for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It is the same object, not a conversion.</b> A JSEAL object handle carries the engine's own
+    /// <c>JSObject</c>, so a wrapper reached through here and one reached through
+    /// <see cref="ToJSObject"/> are the same instance: <c>el === el</c> holds, and the seven
+    /// <c>ConditionalWeakTable</c>s the bridge keys on wrapper identity — <c>JsObjectRegistry</c>
+    /// first among them — keep answering the question they always asked.
+    /// </para>
+    /// <para>
+    /// <b>Why this delegates to <see cref="ToJSObject"/> rather than the other way round.</b> Building
+    /// a wrapper is not one file's work: the members go on it from twelve modules — the attribute
+    /// surface, the character-data operations, the tree mutations, the event target, the form
+    /// controls, the element and HTMLElement interface installers — and each of those still takes an
+    /// engine argument frame and installs an engine function. A wrapper minted by
+    /// <see cref="IJsRealm.NewObject"/> would be handed straight back to them, so the realm would name
+    /// the object and the engine would still furnish it. The direction inverts, and this method
+    /// becomes the implementation, when those modules land; until then the honest shape is a handle
+    /// over what they build.
+    /// </para>
+    /// </remarks>
+    internal JsValue WrapNode(DomNode node) =>
+        Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
+
+    /// <summary>
+    /// A node's JS wrapper, as the engine object the unmigrated half of the bridge holds.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the engine-typed adapter and it stays one deliberately.</b> It is the most-called
+    /// method in the bridge — 75 files reach for it — so migrating its <em>return type</em> would
+    /// ripple into every one of them at once, which is the change this file-by-file port exists to
+    /// avoid. <see cref="WrapNode"/> is the JSEAL-vocabulary sibling; a migrated caller asks for that
+    /// and everything else keeps asking for this.
+    /// </remarks>
     internal JSObject ToJSObject(DomNode node)
     {
         if (_jsObjects.TryGet(node, out var cached))
@@ -51,6 +103,11 @@ public sealed partial class DomBridge
             : new JSObject();
         _jsObjects.Set(node, obj);
 
+        // The same wrapper, named the way a migrated installer asks for it. Every member below that
+        // the realm mints goes on this handle, and every member the engine still mints goes on `obj`;
+        // they are one object, so the two halves cannot drift apart.
+        var handle = Dom.Runtime.JsInterop.FromEngineObject(obj);
+
         // Point the wrapper at its interface prototype before any member is installed, so
         // constructor.name and Object.getPrototypeOf answer the interface rather than Object.
         // Non-element nodes only — see WrapperPrototypes.cs for why an element's is a separate
@@ -67,7 +124,7 @@ public sealed partial class DomBridge
         {
             // Phase 4 item 1: the doctype is a canonical DomDocumentType (was a #doctype sentinel
             // element). It gets the minimal DocumentType surface, not the full element wrapper.
-            PopulateDocumentTypeJSObject(obj, docType);
+            PopulateDocumentTypeWrapper(handle, docType);
             return obj;
         }
 
@@ -76,15 +133,16 @@ public sealed partial class DomBridge
             // Phase 4 item 1: the fragment is a canonical DomDocumentFragment (was a
             // #document-fragment sentinel element). It gets the DocumentFragment container surface
             // (Node base + ParentNode mixin + child manipulation), not the full element wrapper.
-            PopulateDocumentFragmentJSObject(obj, fragment);
+            PopulateDocumentFragmentWrapper(handle, fragment);
             return obj;
         }
 
         if (node is not DomElement element)
         {
-            PopulateCharacterDataJSObject(obj, node);
+            PopulateCharacterDataWrapper(handle, node);
             return obj;
         }
+
 
         // Element's whole interface — tagName, id/className, the attribute surface, classList,
         // innerHTML/outerHTML, the shadow-host pair, the ParentNode/ChildNode/element-sibling members,
@@ -115,7 +173,7 @@ public sealed partial class DomBridge
         // there, so nothing about them changes; only their location does. A wrapper minted before
         // the realm carried the interfaces inherits nothing and still installs its own.
         if (!_nodeInterfacePrototypesReady)
-            PopulateElementNodeMembersOnInstance(obj, element);
+            PopulateElementNodeMembersOnInstance(handle, element);
 
         // data (read/write) — for text nodes and comment nodes (alias for nodeValue/textContent)
         obj.FastAddProperty("data",
@@ -186,9 +244,9 @@ public sealed partial class DomBridge
         // component script threw. See GetTemplateContent for what this fragment is and is not.
         if (string.Equals(element.TagName, "template", StringComparison.OrdinalIgnoreCase))
         {
-            obj.FastAddProperty("content",
-                new DomFunction((in a) => ToJSObject(GetTemplateContent(element)), "get content"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            // Nothing but a tree read and a wrapper, so the realm mints the accessor: it names it
+            // "get content" and a null setter is how the read-only IDL attribute is spelled.
+            Realm.DefineAccessor(handle, "content", (in _) => WrapNode(GetTemplateContent(element)), null);
         }
 
         // appendChild(child)
@@ -240,30 +298,29 @@ public sealed partial class DomBridge
         // HTMLElement's, hidden and tabIndex, are on its prototype.
         _formControl.Install(obj, element);
 
-        // checkValidity() — form validation (Phase 3 P3.9: FormBinding owns the validity check)
-        obj.FastAddValue("checkValidity",
-            new DomFunction((in a) => _forms.IsElementValid(element) ? JSBoolean.True : JSBoolean.False, "checkValidity", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        // checkValidity() — form validation (Phase 3 P3.9: FormBinding owns the validity check). The
+        // body answers a CLR bool and reads no argument, so nothing about it needed an engine frame.
+        Realm.DefineValue(handle, "checkValidity",
+            Realm.NewMethod("checkValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element))));
 
         // reportValidity() — form validation
-        obj.FastAddValue("reportValidity",
-            new DomFunction((in a) => _forms.IsElementValid(element) ? JSBoolean.True : JSBoolean.False, "reportValidity", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "reportValidity",
+            Realm.NewMethod("reportValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element))));
 
         // submit() — for form elements (Phase 3 P3.61: co-located FormSubmitBinding feature module,
         // reached through IFormSubmitHost; DomBridge.FormSubmitHost.cs).
         // FormSubmitBinding is migrated: the method is minted by the realm — which is what gives its
         // body a call frame to build the synthetic event in — and the seam unwraps the handle for
         // this engine-typed wrapper, and wraps the wrapper as the event's target.
-        obj.FastAddValue("submit",
-            Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("submit",
-                (in call) => Dom.Features.FormSubmitBinding.Submit(
-                    this, element, Dom.Runtime.JsInterop.FromEngineObject(obj), in call), 0)),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "submit",
+            Realm.NewMethod("submit",
+                (in call) => Dom.Features.FormSubmitBinding.Submit(this, element, handle, in call)));
 
         // getContext(contextType) — for <canvas> elements. Phase 3 P3.64: extracted into the co-located
         // CanvasBinding feature module (unblocked once Phase 6/P8.9 dissolved Broiler.HtmlBridge.Rendering).
-        Dom.Features.CanvasBinding.Install(this, obj, element);
+        // CanvasBinding is migrated: the realm mints the canvas members and everything the 2D context
+        // builds, and the seam hands it this wrapper as a handle.
+        Dom.Features.CanvasBinding.Install(Realm, this, handle, element);
 
         // <iframe> browsing-context accessors (contentDocument/contentWindow/getSVGDocument, src/srcdoc
         // read/write, sandbox reflection) — Phase 3 P3.55: extracted into the co-located IframeElementBinding
@@ -287,12 +344,14 @@ public sealed partial class DomBridge
     /// had before they moved to <c>Node.prototype</c>, kept for the one case that cannot use them: a
     /// wrapper minted before the realm carried the interfaces, which inherits from nothing.
     /// </summary>
-    private void PopulateElementNodeMembersOnInstance(JSObject obj, DomElement element)
+    private void PopulateElementNodeMembersOnInstance(JsValue handle, DomElement element)
     {
-        // parentNode (read-only, dynamic)
-        obj.FastAddProperty("parentNode",
-            new DomFunction((in a) => element.ParentNode != null ? ToJSObject(element.ParentNode) : JSNull.Value, "get parentNode"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
+
+        // parentNode (read-only, dynamic) — a tree read and a wrapper, so the realm mints it.
+        Realm.DefineAccessor(handle, "parentNode",
+            (in _) => element.ParentNode != null ? WrapNode(element.ParentNode) : JsValue.Null,
+            null);
 
         obj.FastAddProperty("isConnected",
             new DomFunction((in _) => Dom.Features.NodeAccessorsBinding.GetIsConnected(this, element, in _), "get isConnected"),
@@ -365,9 +424,8 @@ public sealed partial class DomBridge
             null, JSPropertyAttributes.EnumerableConfigurableProperty);
 
         // hasChildNodes()
-        obj.FastAddValue("hasChildNodes",
-            new DomFunction((in a) => element.ChildNodes.Count > 0 ? JSBoolean.True : JSBoolean.False, "hasChildNodes", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "hasChildNodes",
+            Realm.NewMethod("hasChildNodes", (in _) => JsValue.Boolean(element.ChildNodes.Count > 0)));
 
         // contains(otherNode) — returns true if otherNode is a descendant
         obj.FastAddValue("contains",

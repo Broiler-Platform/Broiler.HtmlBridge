@@ -100,9 +100,9 @@
       "note": "Two files: IDomBridgeRuntime.Attach takes a JSContext, and ScriptCompileAhead names the engine's compiler. The first is the seam JSEAL exists to move -- an Attach that takes an IJsRealm is what makes a second engine able to serve a page at all -- so this 3 is the highest-value one in the file despite being the smallest."
     },
     "Broiler.HtmlBridge.Dom": {
-      "engineReferences": 718,
+      "engineReferences": 473,
       "engineProjectRefs": 4,
-      "guestEvalSites": 45,
+      "guestEvalSites": 37,
       "note": "The 250-file migration. 322 source files, four of the engine's assemblies linked, and 55 evaluation sites across 28 files. This number is expected to fall in dozens, not in ones."
     },
     "Broiler.HtmlBridge.Jseal": {

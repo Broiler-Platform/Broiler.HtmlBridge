@@ -1,9 +1,11 @@
+using System;
 using System.Collections.Generic;
 using Broiler.JavaScript.BuiltIns.Array;
 using Broiler.JavaScript.BuiltIns.Array.Typed;
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -32,20 +34,51 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// for same-document messaging: a non-array list, a non-transferable entry, an already-detached
 /// buffer and a duplicate entry are each a <c>DataCloneError</c>.
 /// </para>
+/// <para>
+/// <b>Engine-typed, and it is the transferables that pin it rather than the plumbing.</b> Every
+/// decision here is a statement about <c>ArrayBuffer</c> — is this one, is it detached — and about
+/// the <c>{ transfer: [...] }</c> shape the engine's own <c>structuredClone</c> reads. JSEAL models
+/// none of that. What did move is where the error comes from: the sender's realm is now named as
+/// whichever of the two it is, because the two senders live in <em>different</em> realms and only one
+/// of them has a JSEAL handle on its own. <see cref="WorkerBinding"/> posts from the page, which has
+/// a realm; <see cref="JSWorker"/> posts from a context it created itself on its own thread, which
+/// JSEAL offers no way to build and therefore no way to name.
+/// </para>
 /// </remarks>
 internal static class WorkerTransfer
 {
     /// <summary>
     /// Returns the <c>{ transfer: [...] }</c> options for <c>structuredClone</c>, or
     /// <see cref="JSUndefined.Value"/> when nothing is being transferred. Throws
-    /// <c>DataCloneError</c> for an invalid list.
+    /// <c>DataCloneError</c> for an invalid list. For the page-side sender, which has a realm.
     /// </summary>
-    /// <param name="context">The realm the error is raised in — the sender's.</param>
+    /// <param name="realm">The realm the error is raised in — the sender's.</param>
     /// <param name="transferValue">
     /// The second <c>postMessage</c> argument: the transfer array itself, or an options object
     /// carrying a <c>transfer</c> property (the modern spelling <c>structuredClone</c> uses).
     /// </param>
-    public static JSValue BuildCloneOptions(JSContext context, JSValue? transferValue)
+    public static JSValue BuildCloneOptions(IJsRealm realm, JSValue? transferValue) =>
+        Build(transferValue, message => throw realm.DomError("DataCloneError", message));
+
+    /// <summary>
+    /// The same, for the worker-side sender, whose context it built itself and which therefore has no
+    /// JSEAL realm to raise through.
+    /// </summary>
+    /// <param name="context">The context the error is raised in — the worker's own.</param>
+    /// <param name="transferValue">The second <c>postMessage</c> argument.</param>
+    public static JSValue BuildCloneOptions(JSContext context, JSValue? transferValue) =>
+        Build(transferValue, message => DomBridge.ThrowDOMException(context, message, "DataCloneError"));
+
+    /// <summary>
+    /// The validation itself, with the one thing the two senders disagree about — how a
+    /// <c>DataCloneError</c> is raised — handed in.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="raiseDataCloneError"/> always throws. The <c>return</c> after each call is
+    /// there because the compiler cannot see that through a delegate, and it is why the shape of this
+    /// method is unchanged from when it called <c>ThrowDOMException</c> directly.
+    /// </remarks>
+    private static JSValue Build(JSValue? transferValue, Action<string> raiseDataCloneError)
     {
         if (transferValue is null || transferValue.IsNullOrUndefined)
             return JSUndefined.Value;
@@ -59,7 +92,7 @@ internal static class WorkerTransfer
 
         if (list is null)
         {
-            DomBridge.ThrowDOMException(context, "The transfer list contains a non-transferable value.", "DataCloneError");
+            raiseDataCloneError("The transfer list contains a non-transferable value.");
             return JSUndefined.Value;
         }
 
@@ -70,19 +103,19 @@ internal static class WorkerTransfer
         {
             if (item is not JSArrayBuffer buffer)
             {
-                DomBridge.ThrowDOMException(context, "The transfer list contains a non-transferable value.", "DataCloneError");
+                raiseDataCloneError("The transfer list contains a non-transferable value.");
                 return JSUndefined.Value;
             }
 
             if (buffer.Detached)
             {
-                DomBridge.ThrowDOMException(context, "The transfer list contains a detached ArrayBuffer.", "DataCloneError");
+                raiseDataCloneError("The transfer list contains a detached ArrayBuffer.");
                 return JSUndefined.Value;
             }
 
             if (!seen.Add(buffer))
             {
-                DomBridge.ThrowDOMException(context, "The transfer list contains duplicate transferable values.", "DataCloneError");
+                raiseDataCloneError("The transfer list contains duplicate transferable values.");
                 return JSUndefined.Value;
             }
 

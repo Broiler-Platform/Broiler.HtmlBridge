@@ -1,7 +1,7 @@
 using System;
 using Broiler.HtmlBridge.Dom.Features;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -14,22 +14,36 @@ namespace Broiler.HtmlBridge;
 /// the window-context switch, top-window dispatch and frame-action queueing — see
 /// <c>DomBridge.WindowContext.cs</c>), pending a future <c>BrowsingContextManager</c>.
 /// </summary>
+/// <remarks>
+/// This file is the engine-typed half of the seam and it no longer names an engine type to be it: the
+/// contract speaks in <see cref="JsValue"/> handles, and a handle over an object carries the engine's
+/// own object, so <see cref="JsInterop"/> carries one across in either direction without converting
+/// it. A window that does not exist yet crosses as JavaScript <c>null</c> rather than a CLR one — the
+/// module asks <c>IsObject</c> where it used to ask for null, which is the same question and one the
+/// compiler cannot silently drop.
+/// </remarks>
 public sealed partial class DomBridge : IMessagingHost
 {
-    JSObject? IMessagingHost.WindowJSObject => _windowJSObject;
+    IJsRealm IMessagingHost.Realm => Realm;
+
+    JsValue IMessagingHost.WindowObject =>
+        _windowJSObject is { } window ? JsInterop.FromEngineObject(window) : JsValue.Null;
 
     string IMessagingHost.PageOrigin => _pageOrigin;
 
-    JSContext? IMessagingHost.JsContext => _jsContext;
+    JsValue IMessagingHost.ResolveCurrentWindow() =>
+        ResolveCurrentWindow() is { } window ? JsInterop.FromEngineObject(window) : JsValue.Null;
 
-    JSObject? IMessagingHost.ResolveCurrentWindow() => ResolveCurrentWindow();
+    JsValue IMessagingHost.ResolveOwnerWindow(JsValue target) =>
+        ResolveOwnerWindow(JsInterop.ToEngineObject(target)) is { } window
+            ? JsInterop.FromEngineObject(window)
+            : JsValue.Null;
 
-    JSObject? IMessagingHost.ResolveOwnerWindow(JSObject target) => ResolveOwnerWindow(target);
-
-    void IMessagingHost.RunWithWindowContext(JSObject targetWindow, Action callback) =>
-        RunWithWindowContext(targetWindow, callback);
+    void IMessagingHost.RunWithWindowContext(JsValue targetWindow, Action callback) =>
+        RunWithWindowContext(JsInterop.ToEngineObject(targetWindow), callback);
 
     void IMessagingHost.QueueFrameAction(Action callback) => QueueFrameAction(callback);
 
-    void IMessagingHost.DispatchWindowEvent(JSObject evt) => DispatchWindowEvent(evt);
+    void IMessagingHost.DispatchWindowEvent(JsValue evt) =>
+        DispatchWindowEvent(JsInterop.ToEngineObject(evt));
 }

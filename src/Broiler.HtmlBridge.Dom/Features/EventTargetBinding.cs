@@ -1,11 +1,9 @@
 using System;
 using Broiler.JavaScript.BuiltIns.Null;
 using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Storage;
 using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -17,11 +15,30 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>JsJsObjectsAddEventListener097Core</c>..<c>Blur103Core</c> callbacks. The registration semantics
 /// (option parsing, dedup, match-by-listener+capture) live in <see cref="EventListenerBinding"/> and the
 /// capture→target→bubble engine in <see cref="EventDispatchBinding"/>; this module wires the JS-facing
-/// methods to them, reaching the per-node listener store, the dispatch engine and the window JS object
-/// through <see cref="IEventTargetHost"/>. Node-type/attribute/runtime-state helpers, the radio-group
-/// mutual-exclusion walk (<c>UncheckRadioSiblings</c>) and the no-op function factory
-/// (<c>UndefinedFunction</c>) are the bridge's <c>internal static</c> helpers, called directly.
+/// methods to them, reaching the realm, the per-node listener store, the dispatch engine and the window
+/// JS object through <see cref="IEventTargetHost"/>. Node-type/attribute/runtime-state helpers and the
+/// radio-group mutual-exclusion walk (<c>UncheckRadioSiblings</c>) are the bridge's
+/// <c>internal static</c> helpers, called directly.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>The synthetic events are built through JSEAL; the call frame is not.</b> Every event object this
+/// module mints — the <c>click</c>, the <c>submit</c> a submit button triggers, and the
+/// <c>focus</c>/<c>blur</c> UIEvents — is a <see cref="JsValue"/> assembled on
+/// <see cref="IEventTargetHost.Realm"/>, with the property attributes each member always had. What
+/// has <em>not</em> moved is the entry point: the six operations are installed by
+/// <c>DomBridge/JsObjects.cs</c>, <c>JsObjects.NonElementNodes.cs</c>,
+/// <c>DomBridge/HtmlElementInterface.cs</c> and <c>DomBridge/EventTargetInterface.cs</c>, none of
+/// which this migration round owns, so an argument frame still arrives as an engine one and each
+/// signature here is the adapter that keeps those four call sites compiling.
+/// </para>
+/// <para>
+/// Consequently the two argument reads stay as they were — <c>a[0].ToString()</c> is the observable
+/// ECMAScript coercion of the event-type argument, unchanged — and the built event is cast back to
+/// the engine's object at the one point it is dispatched. The cast costs nothing: a JSEAL handle
+/// carries the engine's own object.
+/// </para>
+/// </remarks>
 internal static class EventTargetBinding
 {
     public static JSValue AddEventListener(IEventTargetHost host, DomNode element, in Arguments a)
@@ -85,19 +102,20 @@ internal static class EventTargetBinding
             }
         }
 
-        var evt = new JSObject();
-        evt.FastAddValue("type", new JSString("click"), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("bubbles", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("cancelable", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("defaultPrevented", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("target", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("currentTarget", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("eventPhase", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("detail", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("stopPropagation", DomBridge.UndefinedFunction("stopPropagation", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("stopImmediatePropagation", DomBridge.UndefinedFunction("stopImmediatePropagation", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("preventDefault", DomBridge.UndefinedFunction("preventDefault", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        host.DispatchEventOnElement(element, evt);
+        var realm = host.Realm;
+        var evt = realm.NewObject();
+        realm.DefineValue(evt, "type", JsValue.String("click"));
+        realm.DefineValue(evt, "bubbles", JsValue.True);
+        realm.DefineValue(evt, "cancelable", JsValue.True);
+        realm.DefineValue(evt, "defaultPrevented", JsValue.False);
+        realm.DefineValue(evt, "target", JsValue.Null);
+        realm.DefineValue(evt, "currentTarget", JsValue.Null);
+        realm.DefineValue(evt, "eventPhase", JsValue.Number(0));
+        realm.DefineValue(evt, "detail", JsValue.Number(0));
+        realm.DefineValue(evt, "stopPropagation", NoOperation(realm, "stopPropagation"));
+        realm.DefineValue(evt, "stopImmediatePropagation", NoOperation(realm, "stopImmediatePropagation"));
+        realm.DefineValue(evt, "preventDefault", NoOperation(realm, "preventDefault"));
+        Dispatch(host, element, evt);
         // Per HTML spec: clicking a submit button triggers form submission
         if (string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase) || string.Equals(element.TagName, "button", StringComparison.OrdinalIgnoreCase))
         {
@@ -115,24 +133,27 @@ internal static class EventTargetBinding
                 if (form != null)
                 {
                     // Dispatch a submit event on the form
-                    var submitEvt = new JSObject();
-                    submitEvt.FastAddValue("type", new JSString("submit"), JSPropertyAttributes.EnumerableConfigurableValue);
-                    submitEvt.FastAddValue("bubbles", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-                    submitEvt.FastAddValue("cancelable", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-                    submitEvt.FastAddValue("defaultPrevented", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-                    submitEvt.FastAddValue("target", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-                    submitEvt.FastAddValue("currentTarget", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-                    submitEvt.FastAddValue("eventPhase", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-                    JSValue JsJsObjectsPreventDefault100(in Arguments __)
-                    {
-                        submitEvt[(KeyString)"defaultPrevented"] = JSBoolean.True;
-                        return JSUndefined.Value;
-                    }
+                    var submitEvt = realm.NewObject();
+                    realm.DefineValue(submitEvt, "type", JsValue.String("submit"));
+                    realm.DefineValue(submitEvt, "bubbles", JsValue.True);
+                    realm.DefineValue(submitEvt, "cancelable", JsValue.True);
+                    realm.DefineValue(submitEvt, "defaultPrevented", JsValue.False);
+                    realm.DefineValue(submitEvt, "target", JsValue.Null);
+                    realm.DefineValue(submitEvt, "currentTarget", JsValue.Null);
+                    realm.DefineValue(submitEvt, "eventPhase", JsValue.Number(0));
 
-                    submitEvt.FastAddValue("preventDefault", new DomFunction(JsJsObjectsPreventDefault100, "preventDefault", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-                    submitEvt.FastAddValue("stopPropagation", DomBridge.UndefinedFunction("stopPropagation", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-                    submitEvt.FastAddValue("stopImmediatePropagation", DomBridge.UndefinedFunction("stopImmediatePropagation", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-                    host.DispatchEventOnElement(form, submitEvt);
+                    // This one really is a WebIDL operation — non-constructable, unlike its three
+                    // no-op siblings; see NoOperation.
+                    realm.DefineValue(submitEvt, "preventDefault",
+                        realm.NewMethod("preventDefault", (in _) =>
+                        {
+                            realm.SetProperty(submitEvt, "defaultPrevented", JsValue.True);
+                            return JsValue.Undefined;
+                        }, 0));
+
+                    realm.DefineValue(submitEvt, "stopPropagation", NoOperation(realm, "stopPropagation"));
+                    realm.DefineValue(submitEvt, "stopImmediatePropagation", NoOperation(realm, "stopImmediatePropagation"));
+                    Dispatch(host, form, submitEvt);
                 }
             }
         }
@@ -148,21 +169,52 @@ internal static class EventTargetBinding
 
     private static JSValue DispatchSyntheticFocusEvent(IEventTargetHost host, DomElement element, string type)
     {
-        var evt = new JSObject();
-        evt.FastAddValue("type", new JSString(type), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("cancelable", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("defaultPrevented", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("target", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("currentTarget", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("srcElement", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("eventPhase", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("isTrusted", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("timeStamp", new JSNumber(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("detail", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("view", host.WindowJSObject ?? JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("relatedTarget", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        host.DispatchEventOnElement(element, evt);
+        var realm = host.Realm;
+        var windowWrapper = host.WindowWrapper;
+        var evt = realm.NewObject();
+        realm.DefineValue(evt, "type", JsValue.String(type));
+        realm.DefineValue(evt, "bubbles", JsValue.False);
+        realm.DefineValue(evt, "cancelable", JsValue.False);
+        realm.DefineValue(evt, "defaultPrevented", JsValue.False);
+        realm.DefineValue(evt, "target", JsValue.Null);
+        realm.DefineValue(evt, "currentTarget", JsValue.Null);
+        realm.DefineValue(evt, "srcElement", JsValue.Null);
+        realm.DefineValue(evt, "eventPhase", JsValue.Number(0));
+        realm.DefineValue(evt, "isTrusted", JsValue.False);
+        realm.DefineValue(evt, "timeStamp", JsValue.Number(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        realm.DefineValue(evt, "detail", JsValue.Number(0));
+        realm.DefineValue(evt, "view", windowWrapper.IsObject ? windowWrapper : JsValue.Null);
+        realm.DefineValue(evt, "relatedTarget", JsValue.Null);
+        Dispatch(host, element, evt);
         return JSUndefined.Value;
     }
+
+    /// <summary>
+    /// One of the three no-op propagation-control methods a synthetic event carries.
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="IJsValues.NewConstructor"/>, not <c>NewMethod</c>, and that is faithfulness
+    /// rather than intent.</b> These were minted by <c>DomBridge.UndefinedFunction</c>, which builds
+    /// a plain <c>JSFunction</c> — so each carries a <c>prototype</c> object and passes the engine's
+    /// constructor test, which WebIDL says an operation must not. <c>NewMethod</c> would be the right
+    /// shape and a behaviour change (<c>evt.stopPropagation.prototype</c> would become
+    /// <c>undefined</c>), so this refactor keeps the quirk and reports it rather than fixing it in
+    /// passing. Note that the <c>submit</c> event's real <c>preventDefault</c> above was already a
+    /// <c>DomFunction</c> and stays non-constructable — the two were inconsistent before this change
+    /// and still are.
+    /// </remarks>
+    private static JsValue NoOperation(IJsRealm realm, string name) =>
+        realm.NewConstructor(name, static (in _) => JsValue.Undefined, 0);
+
+    /// <summary>
+    /// Hands a synthetic event to the propagation engine.
+    /// </summary>
+    /// <remarks>
+    /// The engine-typed seam: <see cref="IEventTargetHost.DispatchEventOnElement"/> still takes the
+    /// engine's object because the page-supplied event of <c>dispatchEvent</c> arrives from an
+    /// unmigrated call frame. <c>ToEngineObject</c> is a cast over the object this handle already
+    /// carries, so the listeners see the same object.
+    /// </remarks>
+    private static void Dispatch(IEventTargetHost host, DomNode target, JsValue evt) =>
+        host.DispatchEventOnElement(target, JsInterop.ToEngineObject(evt));
 }

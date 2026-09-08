@@ -1,4 +1,4 @@
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Features;
 using Broiler.Dom;
 
@@ -12,11 +12,23 @@ namespace Broiler.HtmlBridge;
 /// getComputedStyle surface; the bridge keeps the sub-document builder, resource loading and scroll
 /// geometry it reaches through here.
 /// </summary>
+/// <remarks>
+/// The contract is spelled in JSEAL and the bridge members behind it are not migrated, so this file is
+/// the seam. <see cref="Dom.Runtime.JsInterop"/> is a cast rather than a conversion — a handle carries
+/// the engine's own object — so the window, the sub-document and the computed-style object the module
+/// receives are the instances the bridge's own caches hold.
+/// </remarks>
 public sealed partial class DomBridge : ISubWindowHost
 {
-    JSObject? ISubWindowHost.WindowJSObject => _windowJSObject;
+    IJsRealm ISubWindowHost.Realm => Realm;
 
-    JSObject ISubWindowHost.GetOrCreateSubDocument(DomElement container) => GetOrCreateSubDocument(container);
+    // Missing rather than undefined for "there is no window yet": the module tests it with IsObject
+    // and never hands it to script, which is what the null check it replaces did.
+    JsValue ISubWindowHost.MainWindow =>
+        _windowJSObject is { } window ? Dom.Runtime.JsInterop.FromEngineObject(window) : JsValue.Missing;
+
+    JsValue ISubWindowHost.GetOrCreateSubDocument(DomElement container) =>
+        Dom.Runtime.JsInterop.FromEngineObject(GetOrCreateSubDocument(container));
 
     DomDocument? ISubWindowHost.GetContentDocument(DomElement container) => GetContentDocument(container);
 
@@ -35,16 +47,86 @@ public sealed partial class DomBridge : ISubWindowHost
     void ISubWindowHost.SetElementScroll(DomElement element, double? left, double? top, bool relative, string? behavior) =>
         SetElementScrollOffsetsWithBehavior(element, left, top, relative: relative, clamp: false, behavior: behavior);
 
-    (double? Left, double? Top, string? Behavior) ISubWindowHost.GetScrollArguments(in Arguments args) =>
-        GetScrollArguments(args);
+    /// <summary>
+    /// <c>scroll(x, y)</c> / <c>scroll({ left, top, behavior })</c>, read off a migrated call frame.
+    /// </summary>
+    /// <remarks>
+    /// The same reading the bridge's own <c>GetScrollArguments</c> performs — an options object wins
+    /// over positional coordinates, an absent or nullish member is "leave this axis alone", and a
+    /// blank behaviour is none — over JSEAL values rather than engine ones, because this module's
+    /// callbacks no longer have an engine argument frame to hand over. The coercions are the realm's
+    /// for the same reason they were the engine's there: <c>scrollTo("100", "200")</c> is a page
+    /// passing strings. The two readings become one again when the element-geometry and window-scroll
+    /// contracts migrate their frames.
+    /// </remarks>
+    (double? Left, double? Top, string? Behavior) ISubWindowHost.GetScrollArguments(ReadOnlySpan<JsValue> arguments)
+    {
+        if (arguments.Length == 0)
+            return (null, null, null);
 
-    DomElement? ISubWindowHost.FindDomElementByJSObject(JSObject jsObj) => FindDomElementByJSObject(jsObj);
+        var realm = Realm;
+        if (arguments[0].IsObject)
+        {
+            var options = arguments[0];
+            return (
+                ScrollCoordinateOption(realm, options, "left"),
+                ScrollCoordinateOption(realm, options, "top"),
+                ScrollBehaviorOption(realm, options));
+        }
 
-    JSObject ISubWindowHost.BuildComputedStyleObject(DomElement? element, string? pseudoElement) =>
+        return (
+            realm.ToNumber(arguments[0]),
+            arguments.Length > 1 ? realm.ToNumber(arguments[1]) : null,
+            null);
+    }
+
+    private static double? ScrollCoordinateOption(IJsRealm realm, JsValue options, string propertyName)
+    {
+        var value = realm.GetProperty(options, propertyName);
+        return value.IsNullish ? null : realm.ToNumber(value);
+    }
+
+    private static string? ScrollBehaviorOption(IJsRealm realm, JsValue options)
+    {
+        var value = realm.GetProperty(options, "behavior");
+        if (value.IsNullish)
+            return null;
+
+        var behavior = realm.ToJsString(value);
+        return string.IsNullOrWhiteSpace(behavior) ? null : behavior;
+    }
+
+    // The module only asks this of a handle it has already established is an object, so unwrapping it
+    // cannot fail here.
+    DomElement? ISubWindowHost.FindElement(JsValue wrapper) =>
+        FindDomElementByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper));
+
+    // The computed-style builder is migrated, so this one hands the handle straight through.
+    JsValue ISubWindowHost.BuildComputedStyleObject(DomElement? element, string? pseudoElement) =>
         BuildComputedStyleObject(element, pseudoElement);
 
-    JSValue? ISubWindowHost.GetGlobal(string name) => _jsContext?[name];
+    /// <summary>
+    /// A global of this realm, for the sub-window's mirror list.
+    /// </summary>
+    /// <remarks>
+    /// The read is the same one <c>_jsContext[name]</c> performed — the global object <em>is</em> the
+    /// context under this engine (<see cref="JsCapabilities.GlobalIsVariableScope"/>) — so a name the
+    /// realm does not define answers <c>undefined</c> and is mirrored as such. The <see langword="false"/>
+    /// result means only that there is no realm at all, which is the case the null-conditional it
+    /// replaces was guarding.
+    /// </remarks>
+    bool ISubWindowHost.TryGetGlobal(string name, out JsValue value)
+    {
+        if (_realm is not { } realm)
+        {
+            value = JsValue.Missing;
+            return false;
+        }
 
-    void ISubWindowHost.PublishPendingSubDocumentGlobals(DomElement containerElement, JSObject subWindow) =>
+        value = realm.GetProperty(realm.Global, name);
+        return true;
+    }
+
+    void ISubWindowHost.PublishPendingSubDocumentGlobals(DomElement containerElement, JsValue subWindow) =>
         PublishPendingSubDocumentGlobals(containerElement, subWindow);
 }

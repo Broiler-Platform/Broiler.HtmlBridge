@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
 using Broiler.Dom;
-using Broiler.JavaScript.BuiltIns.Null;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -35,6 +34,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// against Chromium, because the plausible reading (a label is itself a form-associated element, so
 /// use its own position) gives <c>null</c> there and is wrong.
 /// </para>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). Two members are engine-typed
+/// adapters and both are pinned from outside: <see cref="Install(IFormAssociationHost, JSObject,
+/// DomElement, string)"/>, whose caller <c>DomBridge/ElementInterfaces.cs</c> holds the wrapper as an
+/// engine object, and <see cref="LabelsNodeList"/>, whose caller
+/// <c>DomBridge.ElementInternalsHost.cs</c> implements an <c>IElementInternalsHost</c> that still
+/// declares an engine return type. Each forwards through <see cref="Runtime.JsInterop"/> — a cast,
+/// not a conversion — and each disappears when its caller migrates.
+/// </para>
 /// </remarks>
 internal static class FormAssociationBinding
 {
@@ -55,29 +63,34 @@ internal static class FormAssociationBinding
         new(StringComparer.OrdinalIgnoreCase)
         { "button", "fieldset", "input", "label", "object", "output", "select", "textarea", "img" };
 
-    public static void Install(IFormAssociationHost host, JSObject obj, DomElement element, string tag)
+    /// <summary>
+    /// Engine-typed adapter for <c>DomBridge/ElementInterfaces.cs</c>, which still holds the element
+    /// wrapper as an engine object. See the remarks on this class.
+    /// </summary>
+    public static void Install(IFormAssociationHost host, JSObject obj, DomElement element, string tag) =>
+        Install(host, Runtime.JsInterop.FromEngineObject(obj), element, tag);
+
+    public static void Install(IFormAssociationHost host, JsValue obj, DomElement element, string tag)
     {
+        var realm = host.Realm;
+
         if (FormAssociatedTags.Contains(tag))
         {
-            obj.FastAddProperty("form",
-                new DomFunction((in _) => FormOwnerValue(host, element), "get form"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineAccessor(obj, "form", (in _) => FormOwnerValue(host, element), null);
         }
 
         if (LabelableTags.Contains(tag))
         {
-            obj.FastAddProperty("labels",
-                new DomFunction((in _) => LabelsValue(host, element), "get labels"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineAccessor(obj, "labels", (in _) => LabelsValue(host, element), null);
         }
 
         if (string.Equals(tag, "label", StringComparison.OrdinalIgnoreCase))
         {
-            obj.FastAddProperty("control",
-                new DomFunction((in _) => LabeledControl(host, element) is { } control
-                    ? host.ToJSObject(control)
-                    : JSNull.Value, "get control"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineAccessor(obj, "control",
+                (in _) => LabeledControl(host, element) is { } control
+                    ? host.WrapNode(control)
+                    : JsValue.Null,
+                null);
         }
     }
 
@@ -86,15 +99,15 @@ internal static class FormAssociationBinding
     /// owner rather than its own (see the class remarks); for everything else it is the form named
     /// by the <c>form</c> content attribute, or the nearest ancestor <c>&lt;form&gt;</c>.
     /// </summary>
-    private static JSValue FormOwnerValue(IFormAssociationHost host, DomElement element)
+    private static JsValue FormOwnerValue(IFormAssociationHost host, DomElement element)
     {
         var subject = string.Equals(element.TagName, "label", StringComparison.OrdinalIgnoreCase)
             ? LabeledControl(host, element)
             : element;
 
         return subject is not null && FormOwner(host, subject) is { } form
-            ? host.ToJSObject(form)
-            : JSNull.Value;
+            ? host.WrapNode(form)
+            : JsValue.Null;
     }
 
     /// <summary>
@@ -106,18 +119,26 @@ internal static class FormAssociationBinding
         FormOwner(host, element);
 
     /// <summary>
+    /// Engine-typed adapter for <c>DomBridge.ElementInternalsHost.cs</c>: <c>IElementInternalsHost</c>
+    /// is not migrated and its <c>LabelsFor</c> takes an engine value back. See the remarks on this
+    /// class.
+    /// </summary>
+    internal static JSValue LabelsNodeList(IFormAssociationHost host, DomElement element) =>
+        Runtime.JsInterop.ToEngineObject(LabelsList(host, element));
+
+    /// <summary>
     /// A control's live <c>labels</c> <c>NodeList</c>, without the hidden-input <c>null</c> case —
     /// the shape <c>ElementInternals.labels</c> reports, which is always a list.
     /// </summary>
-    internal static JSValue LabelsNodeList(IFormAssociationHost host, DomElement element) =>
-        DomCollectionBinding.NodeList(host.JsContext, () =>
+    internal static JsValue LabelsList(IFormAssociationHost host, DomElement element) =>
+        host.LiveNodeList(() =>
         {
-            var labels = new List<JSValue>();
+            var labels = new List<DomElement>();
             foreach (var candidate in host.Elements)
             {
                 if (string.Equals(candidate.TagName, "label", StringComparison.OrdinalIgnoreCase) &&
                     ReferenceEquals(LabeledControl(host, candidate), element))
-                    labels.Add(host.ToJSObject(candidate));
+                    labels.Add(candidate);
             }
 
             return labels;
@@ -148,16 +169,16 @@ internal static class FormAssociationBinding
     /// <c>control.labels</c> — a <b>live</b> <c>NodeList</c> of the labels associated with this
     /// control, in tree order, or <c>null</c> for a hidden input.
     /// </summary>
-    private static JSValue LabelsValue(IFormAssociationHost host, DomElement element)
+    private static JsValue LabelsValue(IFormAssociationHost host, DomElement element)
     {
         // An input whose type is hidden is not labelable, and the specified answer is null rather
         // than an empty list — a page can tell "this cannot be labelled" from "this is unlabelled".
         if (string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase) &&
             DomBridge.TryGetAttribute(element, "type", out var type) &&
             string.Equals(type, "hidden", StringComparison.OrdinalIgnoreCase))
-            return JSNull.Value;
+            return JsValue.Null;
 
-        return LabelsNodeList(host, element);
+        return LabelsList(host, element);
     }
 
     /// <summary>

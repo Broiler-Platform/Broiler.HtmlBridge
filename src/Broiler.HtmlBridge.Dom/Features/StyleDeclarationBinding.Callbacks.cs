@@ -1,8 +1,11 @@
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.Dom;
 using Broiler.CSS;
+using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
+
+// Engine-typed only for SetInlineStyleCssText's adapter, whose caller — the `el.style = "…"` setter in
+// DomBridge/HtmlElementInterface.cs — is still an engine call frame.
+using Broiler.JavaScript.BuiltIns.String;
+using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -13,24 +16,30 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// getComputedStyle result). Was the numbered <c>JsUtilities…003…023Core</c> / <c>JsCss…001/003Core</c>
 /// callbacks.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's: each callback reads its arguments off the
+/// <see cref="JsCall"/> frame and coerces them through the frame's realm, so a string argument runs the
+/// same ECMAScript <c>ToString</c>/<c>ToNumber</c> a page observed before. A callback that never looked
+/// at its arguments no longer takes a frame at all.
+/// </remarks>
 internal static partial class StyleDeclarationBinding
 {
     // -------- element.style (writable, inline-style store) --------
 
-    private static JSValue InlineGetCssText(IInlineStyleHost host, DomElement element, in Arguments a)
+    private static JsValue InlineGetCssText(IInlineStyleHost host, DomElement element)
     {
         var parts = host.InlineStyle(element).Select(kv => $"{kv.Key}: {kv.Value}");
         var text = string.Join("; ", parts);
-        return new JSString(text.Length > 0 ? text + ";" : text);
+        return JsValue.String(text.Length > 0 ? text + ";" : text);
     }
 
-    private static JSValue InlineSetCssText(IInlineStyleHost host, DomElement element, Action? onMutation, in Arguments a)
+    private static JsValue InlineSetCssText(IInlineStyleHost host, DomElement element, Action? onMutation, in JsCall call)
     {
         host.InlineStyle(element).Clear();
         host.ClearInlineStylePropsSetByJs(element);
-        if (a.Length > 0)
+        if (call.Length > 0)
         {
-            foreach (var kv in DomBridge.ParseStyle(a[0].ToString(), reportDrops: true))
+            foreach (var kv in DomBridge.ParseStyle(call.Realm.ToJsString(call[0]), reportDrops: true))
             {
                 host.InlineStyle(element)[kv.Key] = kv.Value;
                 host.MarkInlineStylePropSetByJs(element, kv.Key);
@@ -38,7 +47,7 @@ internal static partial class StyleDeclarationBinding
         }
 
         onMutation?.Invoke();
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -48,30 +57,44 @@ internal static partial class StyleDeclarationBinding
     /// only acts on a string right-hand side and is otherwise a no-op — a quirk preserved verbatim from the
     /// bridge's original <c>element.style</c> setter, so the clear happens inside the string guard.
     /// </summary>
+    /// <remarks>
+    /// The engine-typed adapter that keeps <c>DomBridge/HtmlElementInterface.cs</c> compiling untouched.
+    /// The <c>is JSString</c> test <em>is</em> the quirk, so it stays where the engine frame is; everything
+    /// downstream of it is the migrated body below.
+    /// </remarks>
     internal static JSValue SetInlineStyleCssText(IInlineStyleHost host, DomElement element, Action? onMutation, in Arguments a)
     {
         if (a.Length > 0 && a[0] is JSString s)
-        {
-            host.InlineStyle(element).Clear();
-            host.ClearInlineStylePropsSetByJs(element);
-            foreach (var kv in DomBridge.ParseStyle(s.ToString(), reportDrops: true))
-            {
-                host.InlineStyle(element)[kv.Key] = kv.Value;
-                host.MarkInlineStylePropSetByJs(element, kv.Key);
-            }
-
-            onMutation?.Invoke();
-        }
+            SetInlineStyleCssText(host, element, onMutation, s.ToString());
 
         return JSUndefined.Value;
     }
 
-    private static JSValue InlineSetProperty(IInlineStyleHost host, DomElement element, Action? onMutation, in Arguments a)
+    /// <summary>
+    /// Replaces the element's inline style with the declarations parsed out of
+    /// <paramref name="cssText"/>. The string-only guard is the caller's; see the adapter above.
+    /// </summary>
+    internal static void SetInlineStyleCssText(IInlineStyleHost host, DomElement element, Action? onMutation, string cssText)
     {
-        if (a.Length >= 2)
+        host.InlineStyle(element).Clear();
+        host.ClearInlineStylePropsSetByJs(element);
+        foreach (var kv in DomBridge.ParseStyle(cssText, reportDrops: true))
         {
-            var prop = a[0].ToString();
-            var value = CssPriority.Apply(a[1].ToString(), a.Length >= 3 ? a[2].ToString() : string.Empty);
+            host.InlineStyle(element)[kv.Key] = kv.Value;
+            host.MarkInlineStylePropSetByJs(element, kv.Key);
+        }
+
+        onMutation?.Invoke();
+    }
+
+    private static JsValue InlineSetProperty(IInlineStyleHost host, DomElement element, Action? onMutation, in JsCall call)
+    {
+        if (call.Length >= 2)
+        {
+            var prop = call.Realm.ToJsString(call[0]);
+            var value = CssPriority.Apply(
+                call.Realm.ToJsString(call[1]),
+                call.Length >= 3 ? call.Realm.ToJsString(call[2]) : string.Empty);
             if (string.IsNullOrEmpty(value))
             {
                 host.InlineStyle(element).Remove(prop);
@@ -87,110 +110,135 @@ internal static partial class StyleDeclarationBinding
             onMutation?.Invoke();
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue InlineGetPropertyValue(IInlineStyleHost host, DomElement element, in Arguments a)
+    private static JsValue InlineGetPropertyValue(IInlineStyleHost host, DomElement element, in JsCall call)
     {
-        if (a.Length > 0)
+        if (call.Length > 0)
         {
-            var prop = a[0].ToString();
+            var prop = call.Realm.ToJsString(call[0]);
             if (TryGetStylePropertyRawValue(host, element, prop, out var val))
-                return new JSString(CssPriority.Strip(val));
+                return JsValue.String(CssPriority.Strip(val));
             // Try camelCase version of kebab-case input
             var camel = CssPropertyNames.ToDomPropertyName(prop);
-            // Check JSObject properties (set via el.style.propertyName = value)
-            var jsVal = a.This?[(KeyString)camel];
-            if (jsVal != null && !jsVal.IsUndefined && !jsVal.IsNull)
+            // Check the declaration object's own properties (set via el.style.propertyName = value)
+            if (TryReadFromReceiver(in call, camel, out var jsVal) ||
+                TryReadFromReceiver(in call, prop, out jsVal))
+            {
                 return jsVal;
-            jsVal = a.This?[(KeyString)prop];
-            if (jsVal != null && !jsVal.IsUndefined && !jsVal.IsNull)
-                return jsVal;
+            }
         }
 
-        return new JSString(string.Empty);
+        return JsValue.String(string.Empty);
     }
 
-    private static JSValue InlineRemoveProperty(IInlineStyleHost host, DomElement element, Action? onMutation, in Arguments a)
+    /// <summary>
+    /// Reads <paramref name="name"/> off the operation's receiver, answering <see langword="false"/> when
+    /// there is no receiver or the read produced nothing usable.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="JsValue.Missing"/> stands where the engine handed back a CLR <see langword="null"/>: a
+    /// call with no receiver at all, which the <c>a.This?[…]</c> this replaces guarded with a null-
+    /// conditional. Undefined and null are rejected as they were, so an absent property falls through to
+    /// the empty string rather than being answered with <c>undefined</c>.
+    /// </remarks>
+    private static bool TryReadFromReceiver(in JsCall call, string name, out JsValue value)
     {
-        if (a.Length > 0)
+        value = JsValue.Missing;
+        if (call.This.IsMissing)
+            return false;
+
+        value = call.Realm.GetProperty(call.This, name);
+        return !value.IsMissing && !value.IsUndefined && !value.IsNull;
+    }
+
+    private static JsValue InlineRemoveProperty(IInlineStyleHost host, DomElement element, Action? onMutation, in JsCall call)
+    {
+        if (call.Length > 0)
         {
-            var prop = a[0].ToString();
+            var prop = call.Realm.ToJsString(call[0]);
             var removed = host.InlineStyle(element).TryGetValue(prop, out var val) ? val : string.Empty;
             host.InlineStyle(element).Remove(prop);
             host.UnmarkInlineStylePropSetByJs(element, prop);
             onMutation?.Invoke();
-            return new JSString(removed);
+            return JsValue.String(removed);
         }
 
-        return new JSString(string.Empty);
+        return JsValue.String(string.Empty);
     }
 
-    private static JSValue InlineGetCssFloat(IInlineStyleHost host, DomElement element, in Arguments a)
+    private static JsValue InlineGetCssFloat(IInlineStyleHost host, DomElement element)
     {
         if (host.InlineStyle(element).TryGetValue("float", out var val))
-            return new JSString(val);
-        return new JSString(string.Empty);
+            return JsValue.String(val);
+        return JsValue.String(string.Empty);
     }
 
-    private static JSValue InlineSetCssFloat(IInlineStyleHost host, DomElement element, Action? onMutation, in Arguments a)
+    private static JsValue InlineSetCssFloat(IInlineStyleHost host, DomElement element, Action? onMutation, in JsCall call)
     {
-        if (a.Length > 0)
+        if (call.Length > 0)
         {
-            var val = a[0].ToString();
+            var val = call.Realm.ToJsString(call[0]);
             if (string.IsNullOrEmpty(val) || DomBridge.IsAcceptableInlineValue("float", val))
                 host.InlineStyle(element)["float"] = val;
         }
         onMutation?.Invoke();
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue InlineItem(IInlineStyleHost host, DomElement element, in Arguments a)
+    private static JsValue InlineItem(IInlineStyleHost host, DomElement element, in JsCall call)
     {
-        if (a.Length > 0 && int.TryParse(a[0].ToString(), out var index))
+        if (call.Length > 0 && int.TryParse(call.Realm.ToJsString(call[0]), out var index))
         {
             var propertyNames = GetStylePropertyNames(host, element);
             if (index >= 0 && index < propertyNames.Count)
-                return new JSString(propertyNames[index]);
+                return JsValue.String(propertyNames[index]);
         }
 
-        return new JSString(string.Empty);
+        return JsValue.String(string.Empty);
     }
 
-    private static JSValue InlineGetPropertyPriority(IInlineStyleHost host, DomElement element, in Arguments a)
+    private static JsValue InlineGetPropertyPriority(IInlineStyleHost host, DomElement element, in JsCall call)
     {
-        if (a.Length > 0 && TryGetStylePropertyRawValue(host, element, a[0].ToString(), out var value))
-            return new JSString(CssPriority.Parse(value));
-        return new JSString(string.Empty);
+        if (call.Length > 0 &&
+            TryGetStylePropertyRawValue(host, element, call.Realm.ToJsString(call[0]), out var value))
+        {
+            return JsValue.String(CssPriority.Parse(value));
+        }
+
+        return JsValue.String(string.Empty);
     }
 
     // -------- rule.style (writable, property map) --------
 
-    private static JSValue RuleGetCssText(Dictionary<string, string> styleMap, in Arguments _)
+    private static JsValue RuleGetCssText(Dictionary<string, string> styleMap)
     {
         var parts = styleMap.Select(kv => $"{kv.Key}: {kv.Value}");
         var text = string.Join("; ", parts);
-        return new JSString(text.Length > 0 ? text + ";" : text);
+        return JsValue.String(text.Length > 0 ? text + ";" : text);
     }
 
-    private static JSValue RuleSetCssText(Dictionary<string, string> styleMap, in Arguments a)
+    private static JsValue RuleSetCssText(Dictionary<string, string> styleMap, in JsCall call)
     {
         styleMap.Clear();
-        if (a.Length > 0)
+        if (call.Length > 0)
         {
-            foreach (var kv in DomBridge.ParseStyle(a[0].ToString()))
+            foreach (var kv in DomBridge.ParseStyle(call.Realm.ToJsString(call[0])))
                 styleMap[kv.Key] = kv.Value;
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue RuleSetProperty(Dictionary<string, string> styleMap, in Arguments a)
+    private static JsValue RuleSetProperty(Dictionary<string, string> styleMap, in JsCall call)
     {
-        if (a.Length >= 2)
+        if (call.Length >= 2)
         {
-            var prop = a[0].ToString();
-            var value = CssPriority.Apply(a[1].ToString(), a.Length >= 3 ? a[2].ToString() : string.Empty);
+            var prop = call.Realm.ToJsString(call[0]);
+            var value = CssPriority.Apply(
+                call.Realm.ToJsString(call[1]),
+                call.Length >= 3 ? call.Realm.ToJsString(call[2]) : string.Empty);
             if (string.IsNullOrEmpty(value))
                 styleMap.Remove(prop);
             else if (DomBridge.IsAcceptableInlineValue(prop, value))
@@ -198,111 +246,114 @@ internal static partial class StyleDeclarationBinding
             // setProperty with an invalid value is a no-op per CSSOM.
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue RuleGetPropertyValue(Dictionary<string, string> styleMap, in Arguments a)
+    private static JsValue RuleGetPropertyValue(Dictionary<string, string> styleMap, in JsCall call)
     {
-        if (a.Length > 0)
+        if (call.Length > 0)
         {
-            var prop = a[0].ToString();
+            var prop = call.Realm.ToJsString(call[0]);
             if (TryGetStylePropertyRawValue(styleMap, prop, out var val))
-                return new JSString(CssPriority.Strip(val));
+                return JsValue.String(CssPriority.Strip(val));
             var camel = CssPropertyNames.ToDomPropertyName(prop);
-            var jsVal = a.This?[(KeyString)camel];
-            if (jsVal != null && !jsVal.IsUndefined && !jsVal.IsNull)
+            if (TryReadFromReceiver(in call, camel, out var jsVal) ||
+                TryReadFromReceiver(in call, prop, out jsVal))
+            {
                 return jsVal;
-            jsVal = a.This?[(KeyString)prop];
-            if (jsVal != null && !jsVal.IsUndefined && !jsVal.IsNull)
-                return jsVal;
+            }
         }
 
-        return new JSString(string.Empty);
+        return JsValue.String(string.Empty);
     }
 
-    private static JSValue RuleRemoveProperty(Dictionary<string, string> styleMap, in Arguments a)
+    private static JsValue RuleRemoveProperty(Dictionary<string, string> styleMap, in JsCall call)
     {
-        if (a.Length > 0)
+        if (call.Length > 0)
         {
-            var prop = a[0].ToString();
+            var prop = call.Realm.ToJsString(call[0]);
             var removed = TryGetStylePropertyRawValue(styleMap, prop, out var val) ? CssPriority.Strip(val) : string.Empty;
             styleMap.Remove(prop);
             styleMap.Remove(ToCssPropertyName(prop));
-            return new JSString(removed);
+            return JsValue.String(removed);
         }
 
-        return new JSString(string.Empty);
+        return JsValue.String(string.Empty);
     }
 
-    private static JSValue RuleGetCssFloat(Dictionary<string, string> styleMap, in Arguments _)
+    private static JsValue RuleGetCssFloat(Dictionary<string, string> styleMap)
     {
         if (styleMap.TryGetValue("float", out var val))
-            return new JSString(val);
-        return new JSString(string.Empty);
+            return JsValue.String(val);
+        return JsValue.String(string.Empty);
     }
 
-    private static JSValue RuleSetCssFloat(Dictionary<string, string> styleMap, in Arguments a)
+    private static JsValue RuleSetCssFloat(Dictionary<string, string> styleMap, in JsCall call)
     {
-        if (a.Length > 0)
+        if (call.Length > 0)
         {
-            var val = a[0].ToString();
+            var val = call.Realm.ToJsString(call[0]);
             if (string.IsNullOrEmpty(val) || DomBridge.IsAcceptableInlineValue("float", val))
                 styleMap["float"] = val;
         }
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue RuleItem(Dictionary<string, string> styleMap, in Arguments a)
+    private static JsValue RuleItem(Dictionary<string, string> styleMap, in JsCall call)
     {
-        if (a.Length > 0 && int.TryParse(a[0].ToString(), out var index))
+        if (call.Length > 0 && int.TryParse(call.Realm.ToJsString(call[0]), out var index))
         {
             var propertyNames = GetStylePropertyNames(styleMap);
             if (index >= 0 && index < propertyNames.Count)
-                return new JSString(propertyNames[index]);
+                return JsValue.String(propertyNames[index]);
         }
 
-        return new JSString(string.Empty);
+        return JsValue.String(string.Empty);
     }
 
-    private static JSValue RuleGetPropertyPriority(Dictionary<string, string> styleMap, in Arguments a)
+    private static JsValue RuleGetPropertyPriority(Dictionary<string, string> styleMap, in JsCall call)
     {
-        if (a.Length > 0 && TryGetStylePropertyRawValue(styleMap, a[0].ToString(), out var value))
-            return new JSString(CssPriority.Parse(value));
-        return new JSString(string.Empty);
+        if (call.Length > 0 &&
+            TryGetStylePropertyRawValue(styleMap, call.Realm.ToJsString(call[0]), out var value))
+        {
+            return JsValue.String(CssPriority.Parse(value));
+        }
+
+        return JsValue.String(string.Empty);
     }
 
     // -------- getComputedStyle (read-only, engine-produced map) --------
 
-    private static JSValue ComputedGetPropertyValue(Dictionary<string, string>? computed, in Arguments a)
+    private static JsValue ComputedGetPropertyValue(Dictionary<string, string> computed, in JsCall call)
     {
-        if (a.Length > 0)
+        if (call.Length > 0)
         {
-            var name = a[0].ToString();
+            var name = call.Realm.ToJsString(call[0]);
             if (computed.TryGetValue(name, out var val))
-                return new JSString(CssPriority.Strip(val));
+                return JsValue.String(CssPriority.Strip(val));
 
             // Try kebab-case conversion for camelCase input
             var kebab = ToCssPropertyName(name);
             if (kebab != name && computed.TryGetValue(kebab, out val))
-                return new JSString(CssPriority.Strip(val));
+                return JsValue.String(CssPriority.Strip(val));
 
             // Try camelCase conversion for kebab-case input
             var camel = CssPropertyNames.ToDomPropertyName(name);
             if (camel != name && computed.TryGetValue(camel, out val))
-                return new JSString(CssPriority.Strip(val));
+                return JsValue.String(CssPriority.Strip(val));
         }
 
-        return new JSString(string.Empty);
+        return JsValue.String(string.Empty);
     }
 
-    private static JSValue ComputedItem(List<string>? propertyNames, in Arguments a)
+    private static JsValue ComputedItem(List<string> propertyNames, in JsCall call)
     {
-        if (a.Length > 0 && int.TryParse(a[0].ToString(), out var index))
+        if (call.Length > 0 && int.TryParse(call.Realm.ToJsString(call[0]), out var index))
         {
             if (index >= 0 && index < propertyNames.Count)
-                return new JSString(propertyNames[index]);
+                return JsValue.String(propertyNames[index]);
         }
 
-        return new JSString(string.Empty);
+        return JsValue.String(string.Empty);
     }
 }

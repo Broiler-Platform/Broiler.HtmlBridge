@@ -10,6 +10,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// algorithm. Listener add/remove semantics themselves are the P3.4 <c>EventListenerBinding</c> module,
 /// called directly.
 /// </summary>
+/// <remarks>
+/// Still engine-typed, and pinned from outside this slice: the listener store's
+/// <c>EventListenerRegistration</c> record lives in the unowned <c>DomBridge/RuntimeStates.cs</c>,
+/// and <c>dispatchEvent</c> is handed the page's own event object by an unmigrated call frame in
+/// <c>DomBridge/Registration/Document.cs</c>. Both move together; neither moves for this slice
+/// alone. See <see cref="DocumentEventTargetBinding"/>.
+/// </remarks>
 internal interface IDocumentEventTargetHost
 {
     DomNode DocumentNode { get; }

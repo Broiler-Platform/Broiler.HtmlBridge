@@ -2,7 +2,6 @@ using System.Runtime.CompilerServices;
 
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
 
@@ -102,8 +101,14 @@ public sealed partial class DomBridge
     /// </summary>
     private void InstallHtmlElementInterface(JSObject target, Dom.Features.ElementSource element)
     {
-        Dom.Features.GlobalAttributeBinding.InstallHtmlElementMembers(this, target, element);
-        Dom.Features.ElementContentBinding.InstallHtmlElementMembers(this, target, element);
+        // Both modules are migrated, so each is handed the realm, a handle over this same object — the
+        // seam is a cast, so their members land on it in this position and the interface keeps the
+        // property order Object.getOwnPropertyNames reports — and the JSEAL source.
+        var handle = Dom.Runtime.JsInterop.FromEngineObject(target);
+        var source = JsSourceOf(element);
+
+        Dom.Features.GlobalAttributeBinding.InstallHtmlElementMembers(this, Realm, handle, source);
+        Dom.Features.ElementContentBinding.InstallHtmlElementMembers(this, Realm, handle, source);
         _formControl.InstallHtmlElementMembers(target, element);
 
         // style — ElementCSSInlineStyle. Assigning a string sets cssText rather than replacing the
@@ -132,7 +137,7 @@ public sealed partial class DomBridge
 
         InstallInlineEventHandlerMembers(target, element);
 
-        Dom.Features.ElementGeometryBinding.InstallHtmlElementMembers(this, target, element);
+        Dom.Features.ElementGeometryBinding.InstallHtmlElementMembers(this, Realm, handle, source);
     }
 
     /// <summary>
@@ -162,21 +167,6 @@ public sealed partial class DomBridge
                         this, ElementOf(element, in call, member), eventName, in call))),
                 JSPropertyAttributes.EnumerableConfigurableProperty);
         }
-    }
-
-    /// <summary>The element a realm-minted member's receiver names.</summary>
-    /// <remarks>
-    /// <see cref="Dom.Features.ElementSource"/> is still engine-shaped — it reads the call's
-    /// <c>Arguments</c> — while a realm-minted member sees a JSEAL call frame. Both sources look at
-    /// the receiver and nothing else (<c>RequireElementReceiver</c> tests <c>a.This</c>; the
-    /// capturing source ignores the frame entirely), so presenting the frame's receiver as a
-    /// receiver-only <c>Arguments</c> asks each of them exactly the question it answers — including
-    /// the <c>TypeError</c> a receiver that is not an element still raises.
-    /// </remarks>
-    private static DomElement ElementOf(Dom.Features.ElementSource element, in JsCall call, string member)
-    {
-        var receiver = new Arguments(Dom.Runtime.JsInterop.ToEngineValue(call.This) ?? JSUndefined.Value);
-        return element(in receiver, member);
     }
 
     /// <summary>The element's one inline style declaration, built on first use.</summary>

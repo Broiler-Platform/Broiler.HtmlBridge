@@ -1,7 +1,5 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -12,82 +10,84 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 internal sealed partial class SubDocumentBinding
 {
-    private JSValue CreateElement(DomNode docRoot, in Arguments a)
+    private JsValue CreateElement(DomNode docRoot, in JsCall call)
     {
-        if (a.Length == 0)
-            throw new JSException("Failed to execute 'createElement': 1 argument required.");
-        var tagName = a[0].ToString();
-        DomBridge.ValidateElementName(tagName, _host.JsContext);
+        if (call.Length == 0)
+        {
+            // A plain Error, not a TypeError: it is what the engine-typed `new JSException(message)`
+            // this replaces constructed, and the arity failure is all it reports.
+            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createElement': 1 argument required.");
+        }
+
+        var tagName = call.Realm.ToJsString(call[0]);
+        _host.ValidateElementName(tagName);
         tagName = DomBridge.AsciiToLower(tagName);
         var el = _host.CreateElement(tagName);
         _host.AdoptDetachedNode(el, docRoot);
-        return _host.ToJSObject(el);
+        return _host.ToJsObject(el);
     }
 
     /// <summary>
     /// <c>document.adoptNode(node)</c> on a sub-document — moves the node itself into this document,
     /// which is what a custom element in the moved subtree hears as <c>adoptedCallback</c>.
     /// </summary>
-    private JSValue AdoptNode(DomNode docRoot, in Arguments a)
+    private JsValue AdoptNode(DomNode docRoot, in JsCall call)
     {
-        if (a.Length == 0 || a[0] is not JSObject source || _host.FindDomNodeByJSObject(source) is not { } node)
-        {
-            DomBridge.ThrowDOMException(_host.JsContext, "adoptNode requires a node to adopt.", "TypeError");
-            return JSUndefined.Value;
-        }
+        if (call.Length == 0 || !call[0].IsObject || _host.FindNode(call[0]) is not { } node)
+            throw call.Realm.DomError("TypeError", "adoptNode requires a node to adopt.");
 
         if (node is DomDocument)
         {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                "Failed to execute 'adoptNode' on 'Document': The node provided is of type '#document', which may not be adopted.",
-                "NotSupportedError");
-            return JSUndefined.Value;
+            throw call.Realm.DomError(
+                "NotSupportedError",
+                "Failed to execute 'adoptNode' on 'Document': The node provided is of type '#document', which may not be adopted.");
         }
 
         _host.AdoptDetachedNode(node, docRoot);
-        return _host.ToJSObject(node);
+        return _host.ToJsObject(node);
     }
 
-    private JSValue CreateTextNode(DomNode docRoot, in Arguments a)
+    private JsValue CreateTextNode(DomNode docRoot, in JsCall call)
     {
-        var text = a.Length > 0 ? a[0].ToString() : string.Empty;
+        var text = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         var el = _host.CreateTextNode(text);
         _host.AdoptDetachedNode(el, docRoot);
-        return _host.ToJSObject(el);
+        return _host.ToJsObject(el);
     }
 
-    private JSValue CreateComment(DomNode docRoot, in Arguments a)
+    private JsValue CreateComment(DomNode docRoot, in JsCall call)
     {
-        var data = a.Length > 0 ? a[0].ToString() : string.Empty;
+        var data = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         var el = _host.CreateComment(data);
         _host.AdoptDetachedNode(el, docRoot);
-        return _host.ToJSObject(el);
+        return _host.ToJsObject(el);
     }
 
-    private JSValue CreateElementNS(DomNode docRoot, in Arguments a)
+    private JsValue CreateElementNS(DomNode docRoot, in JsCall call)
     {
-        var ns = a.Length > 0 && !a[0].IsNull && !a[0].IsUndefined ? a[0].ToString() : null;
-        var localName = a.Length > 1 ? a[1].ToString() : (a.Length > 0 ? a[0].ToString() : "div");
-        DomBridge.ValidateQualifiedName(localName, ns, _host.JsContext);
+        var ns = call.Length > 0 && !call[0].IsNullish ? call.Realm.ToJsString(call[0]) : null;
+        var localName = call.Length > 1
+            ? call.Realm.ToJsString(call[1])
+            : (call.Length > 0 ? call.Realm.ToJsString(call[0]) : "div");
+        _host.ValidateQualifiedName(localName, ns);
         var el = string.IsNullOrEmpty(ns)
             ? _host.CreateElement(localName)
             : _host.CreateElementNS(ns, localName);
         _host.AdoptDetachedNode(el, docRoot);
-        return _host.ToJSObject(el);
+        return _host.ToJsObject(el);
     }
 
-    private static JSValue Open(JSObject? doc, DomNode docRoot)
+    private static JsValue Open(JsValue doc, DomNode docRoot)
     {
         DomBridge.ClearChildren(docRoot);
-        return doc ?? (JSValue)JSNull.Value;
+        return doc.IsObject ? doc : JsValue.Null;
     }
 
-    private JSValue Write(DomNode docRoot, in Arguments a)
+    private JsValue Write(DomNode docRoot, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        var fragment = a[0].ToString();
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        var fragment = call.Realm.ToJsString(call[0]);
         // Parse DOCTYPE if present
         var doctype = _host.ParseDocType(fragment);
         var (parsedDoc, _, _, _) = DomBridge.BuildDocumentTree(fragment);
@@ -121,17 +121,20 @@ internal sealed partial class SubDocumentBinding
             }
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue RemoveChild(DomNode docRoot, in Arguments a)
+    private JsValue RemoveChild(DomNode docRoot, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
-        if (a[0] is not JSObject childObj)
-            return JSNull.Value;
+        if (call.Length == 0)
+            return JsValue.Null;
+        if (!call[0].IsObject)
+            return JsValue.Null;
+        var childObj = call[0];
         foreach (var child in DomBridge.ChildElements(docRoot).ToList())
         {
+            // Wrapper identity, not node identity: the handles compare as the engine objects they
+            // carry, which is the same `==` the JSObject reference test performed.
             if (_host.TryGetNodeWrapper(child, out var cached) && cached == childObj)
             {
                 var idx = DomBridge.ChildIndexOf(docRoot, child);
@@ -153,15 +156,16 @@ internal sealed partial class SubDocumentBinding
         return childObj;
     }
 
-    private JSValue AppendChild(DomNode docRoot, in Arguments a)
+    private JsValue AppendChild(DomNode docRoot, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
-        if (a[0] is not JSObject childObj)
-            return a.Length > 0 ? a[0] : JSNull.Value;
+        if (call.Length == 0)
+            return JsValue.Null;
+        if (!call[0].IsObject)
+            return call[0];
+        var childObj = call[0];
         // Phase 4 item 1: match any DomNode so a canonical DomDocumentType / DomDocumentFragment can be
         // appended to a sub-document root (was `is DomElement`, which skipped them).
-        if (_host.FindDomNodeByJSObject(childObj) is { } child)
+        if (_host.FindNode(childObj) is { } child)
         {
             if (DomBridge.ParentEl(child) != null)
                 child.Remove();
@@ -170,28 +174,28 @@ internal sealed partial class SubDocumentBinding
             return childObj;
         }
 
-        return a[0];
+        return childObj;
     }
 
-    private JSValue Append(DomNode docRoot, in Arguments a)
+    private JsValue Append(DomNode docRoot, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        var nodes = _host.BuildChildNodeArgumentNodes(a);
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        var nodes = _host.BuildChildNodeArgumentNodes(call.Arguments);
         var insertIndex = docRoot.ChildNodes.Count;
         foreach (var node in nodes)
             _host.InsertNodeAt(docRoot, node, insertIndex++);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue Prepend(DomNode docRoot, in Arguments a)
+    private JsValue Prepend(DomNode docRoot, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        var nodes = _host.BuildChildNodeArgumentNodes(a);
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        var nodes = _host.BuildChildNodeArgumentNodes(call.Arguments);
         var insertIndex = 0;
         foreach (var node in nodes)
             _host.InsertNodeAt(docRoot, node, insertIndex++);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 }

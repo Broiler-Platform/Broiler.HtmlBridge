@@ -15,6 +15,27 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="EventTargetRegistry"/> and calls these operations, which replaces the same
 /// registration block that was previously copied across four feature files.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>This module is engine-typed on purpose, and the pin is a type it does not own.</b> A
+/// registration is an <c>EventListenerRegistration</c> — <c>DomBridge/RuntimeStates.cs</c>, outside
+/// the events slice — whose listener field is a Broiler.JS value. Five callers share it:
+/// the element, document and window <c>EventTarget</c>s here, plus the messaging and form-submit
+/// firing paths in files this migration round does not own. Migrating the record for the events
+/// slice alone would break those, and migrating the option arguments alone would only move the
+/// conversion, so the whole registration surface stays as it is until the record moves.
+/// </para>
+/// <para>
+/// <b>Identity survives that move when it comes.</b> The comparisons below are C#
+/// <c>==</c> on the engine's value type, which declares no <c>operator ==</c> — so today they are CLR
+/// reference equality. JSEAL's <c>JsValue ==</c> is ECMAScript strict equality, and for two object
+/// handles (a listener function, or a <c>handleEvent</c> object) strict equality <em>is</em>
+/// reference identity over the same engine instance the handle carries, so <c>removeEventListener</c>
+/// keeps finding exactly the registration <c>addEventListener</c> made. The duplicate check and the
+/// <c>List</c> search reach <c>Equals</c>/<c>GetHashCode</c> rather than the operator, and
+/// <c>JsValue</c> implements both reflexively for that reason.
+/// </para>
+/// </remarks>
 internal static class EventListenerBinding
 {
     /// <summary>

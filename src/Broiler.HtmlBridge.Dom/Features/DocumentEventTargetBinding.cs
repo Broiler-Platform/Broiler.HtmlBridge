@@ -14,6 +14,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// in the shared JsFunctionCallbacks/Registration.cs grab-bag. (The window and visualViewport EventTarget
 /// wiring, which use different listener stores and dispatch paths, are separate concerns.)
 /// </summary>
+/// <remarks>
+/// <b>Engine-typed, pinned at both ends.</b> The three operations are installed by
+/// <c>DomBridge/Registration/Document.cs</c> — a registration hub this migration round owns nobody
+/// on — so an argument frame still arrives as an engine one; and what they do with it is add to or
+/// remove from the shared <c>EventListenerRegistration</c> store, whose record is engine-typed in the
+/// equally unowned <c>DomBridge/RuntimeStates.cs</c>. There is no JSEAL vocabulary left in between
+/// for this module to speak: it is three lines of plumbing between two things that have not moved,
+/// and it moves when either does. The <c>a[0].ToString()</c> below is therefore unchanged — it is the
+/// observable ECMAScript coercion of the event-type argument, as it has always been.
+/// </remarks>
 internal static class DocumentEventTargetBinding
 {
     public static JSValue AddEventListener(IDocumentEventTargetHost host, in Arguments a)

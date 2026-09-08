@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using Broiler.HtmlBridge.Dom.Features;
 using Broiler.HtmlBridge.Logging;
-using Broiler.JavaScript.Engine;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -12,9 +12,21 @@ namespace Broiler.HtmlBridge;
 /// shape as <c>DomBridge.MessagingHost.cs</c>. Explicit interface implementations, so the seams do
 /// not widen the public <c>DomBridge</c> surface.
 /// </summary>
+/// <remarks>
+/// Script resolution is a file-system policy and names no JavaScript type; the only member that used
+/// to was the script context, and it is the realm now.
+/// </remarks>
 public sealed partial class DomBridge : IWorkerHost
 {
-    JSContext? IWorkerHost.JsContext => _jsContext;
+    /// <summary>
+    /// The bridge's realm, or <see langword="null"/> while there is none.
+    /// </summary>
+    /// <remarks>
+    /// The field itself, not the <c>Realm</c> property: that property throws when the bridge is not
+    /// attached, and this seam's whole job is to let a worker ask the question and be told "no"
+    /// without an exception — the worker thread that asks may be racing the bridge's teardown.
+    /// </remarks>
+    IJsRealm? IWorkerHost.Realm => _realm;
 
     /// <summary>
     /// Queued on the page's <c>BrowserEventLoop</c>, whose frame-action store is a

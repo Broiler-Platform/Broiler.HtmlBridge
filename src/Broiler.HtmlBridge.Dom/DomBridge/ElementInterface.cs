@@ -13,6 +13,28 @@ using Broiler.JavaScript.Storage;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
+/// Where a DOM member built by the realm finds the element it operates on — the JSEAL twin of
+/// <see cref="Dom.Features.ElementSource"/>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The two differ in one thing: which call frame they read. A member installed by
+/// <c>FastAddProperty</c> sees the engine's <c>Arguments</c>; one minted by
+/// <see cref="Jseal.IJsValues.NewMethod"/> or <see cref="Jseal.IJsMembers.DefineAccessor"/> sees a
+/// <see cref="JsCall"/>. Both answer the same question — the captured element, or the one the
+/// receiver names — so a migrated feature module takes this and an unmigrated one takes the other,
+/// and <see cref="DomBridge.JsSourceOf"/> makes the second out of the first rather than resolving the
+/// receiver twice in two vocabularies.
+/// </para>
+/// <para>
+/// It is declared here, beside the installer that builds both, rather than next to
+/// <see cref="Dom.Features.ElementSource"/>: that file's delegate is still the one nine unmigrated
+/// modules take, so the pair cannot yet live together under one name.
+/// </para>
+/// </remarks>
+internal delegate DomElement JsElementSource(in JsCall call, string member);
+
+/// <summary>
 /// <c>Element</c> as a real interface: its members on <c>Element.prototype</c>, found through the
 /// receiver, rather than copied onto every element wrapper in the document.
 /// </summary>
@@ -107,6 +129,35 @@ public sealed partial class DomBridge
             $"Failed to execute '{member}' on 'Element': Illegal invocation");
     }
 
+    /// <summary>
+    /// An <see cref="Dom.Features.ElementSource"/> as a <see cref="JsElementSource"/>, for the feature
+    /// modules that are migrated and so see a JSEAL call frame.
+    /// </summary>
+    /// <remarks>
+    /// One resolution rule, asked through whichever frame the member happens to have. Building a
+    /// second receiver-resolving source against <see cref="JsCall"/> would work and is exactly what
+    /// must not happen: the prototype's members and a pre-realm wrapper's are the same members because
+    /// one installer writes them, and two sources answering "which element is this" independently is
+    /// the drift that arrangement exists to prevent.
+    /// </remarks>
+    private static JsElementSource JsSourceOf(Dom.Features.ElementSource element) =>
+        (in JsCall call, string member) => ElementOf(element, in call, member);
+
+    /// <summary>The element a realm-minted member's receiver names.</summary>
+    /// <remarks>
+    /// <see cref="Dom.Features.ElementSource"/> is still engine-shaped — it reads the call's
+    /// <c>Arguments</c> — while a realm-minted member sees a JSEAL call frame. Both sources look at
+    /// the receiver and nothing else (<see cref="RequireElementReceiver"/> tests <c>a.This</c>; the
+    /// capturing source ignores the frame entirely), so presenting the frame's receiver as a
+    /// receiver-only <c>Arguments</c> asks each of them exactly the question it answers — including
+    /// the <c>TypeError</c> a receiver that is not an element still raises.
+    /// </remarks>
+    private static DomElement ElementOf(Dom.Features.ElementSource element, in JsCall call, string member)
+    {
+        var receiver = new Arguments(Dom.Runtime.JsInterop.ToEngineValue(call.This) ?? JSUndefined.Value);
+        return element(in receiver, member);
+    }
+
     /// <summary>The receiver itself, once it is known to be an element wrapper.</summary>
     private JSObject RequireWrapperReceiver(in Arguments a, string member)
     {
@@ -134,7 +185,11 @@ public sealed partial class DomBridge
         InstallElementTreeMembers(target, element);
         InstallElementSelectionMembers(target, element);
 
-        Dom.Features.ElementGeometryBinding.InstallElementMembers(this, target, element);
+        // The geometry module is migrated, so it is handed the realm, a handle over this same object —
+        // the seam is a cast, so the members land on it in this position, which is what keeps
+        // Object.getOwnPropertyNames(el) in the order it has always had — and the JSEAL source.
+        Dom.Features.ElementGeometryBinding.InstallElementMembers(
+            this, Realm, Dom.Runtime.JsInterop.FromEngineObject(target), JsSourceOf(element));
         _dialogs.InstallElementMembers(target, element);
 
         // Animatable.animate() — Web Animations §Animatable, which Element includes.
@@ -154,7 +209,8 @@ public sealed partial class DomBridge
         AddPrototypeAccessor(target, "tagName",
             (in Arguments a) => new JSString(TagNameForScript(element(in a, "tagName"))));
 
-        Dom.Features.GlobalAttributeBinding.InstallElementMembers(this, target, element);
+        Dom.Features.GlobalAttributeBinding.InstallElementMembers(
+            this, Realm, Dom.Runtime.JsInterop.FromEngineObject(target), JsSourceOf(element));
 
         // classList — one DOMTokenList per element, memoized so identity holds (see _classLists).
         AddPrototypeAccessor(target, "classList",
@@ -223,7 +279,8 @@ public sealed partial class DomBridge
     /// <summary>The markup members: <c>innerHTML</c>/<c>outerHTML</c> and the three adjacent inserts.</summary>
     private void InstallElementContentMembers(JSObject target, Dom.Features.ElementSource element)
     {
-        Dom.Features.ElementContentBinding.InstallHtmlSerialization(this, target, element);
+        Dom.Features.ElementContentBinding.InstallHtmlSerialization(
+            this, Realm, Dom.Runtime.JsInterop.FromEngineObject(target), JsSourceOf(element));
         Dom.Features.InsertAdjacentBinding.Install(this, target, element);
     }
 

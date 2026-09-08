@@ -1,10 +1,6 @@
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
+using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -19,54 +15,76 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// bridge form-control handler that delegates its select branch to <see cref="GetValue"/>/
 /// <see cref="SetValue"/>.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): every member is minted by the
+/// realm and every body runs on a <see cref="JsCall"/>, so the migrated half of this file names no
+/// engine type.
+/// </para>
+/// <para>
+/// <b>The one engine-typed member is an adapter, and it is pinned from outside.</b>
+/// <c>DomBridge/ElementInterfaces.cs</c> installs these members onto an engine wrapper it holds and
+/// is not migrated, so <see cref="Install(JSObject, DomElement, string)"/> takes that wrapper and
+/// hands it on through <see cref="Runtime.JsInterop"/> — a cast, not a conversion, because a JSEAL
+/// object handle carries the engine's own object. When that installer migrates, the adapter is
+/// deleted and its caller passes the handle it already has.
+/// </para>
+/// </remarks>
 internal sealed class SelectBinding(ISelectHost host)
 {
     private readonly ISelectHost _host = host;
 
+    /// <summary>
+    /// Engine-typed adapter for <c>DomBridge/ElementInterfaces.cs</c>, which still holds the element
+    /// wrapper as an engine object. See the remarks on this class.
+    /// </summary>
+    internal void Install(JSObject obj, DomElement element, string tag) =>
+        Install(Runtime.JsInterop.FromEngineObject(obj), element, tag);
+
     /// <summary>Installs the select/option interface members on <paramref name="obj"/> for
     /// <paramref name="element"/> according to its <paramref name="tag"/>.</summary>
-    internal void Install(JSObject obj, DomElement element, string tag)
+    internal void Install(JsValue obj, DomElement element, string tag)
     {
+        var realm = _host.Realm;
+
         if (tag == "select")
         {
-            obj.FastAddValue("add",
-                new DomFunction((in a) => Add(element, in a), "add", 2),
-                JSPropertyAttributes.EnumerableConfigurableValue);
-            obj.FastAddProperty("options",
-                new DomFunction((in _) => GetOptions(element), "get options"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
-            obj.FastAddProperty("selectedIndex",
-                new DomFunction((in _) => new JSNumber(GetSelectedIndex(element)), "get selectedIndex"),
-                new DomFunction((in a) => SetSelectedIndexCallback(element, in a), "set selectedIndex"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
-            obj.FastAddProperty("size",
-                new DomFunction((in _) => GetSize(element), "get size"),
-                new DomFunction((in a) => SetSize(element, in a), "set size"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineValue(obj, "add",
+                realm.NewMethod("add", (in call) => Add(element, in call), 2));
+            realm.DefineAccessor(obj, "options",
+                (in call) => GetOptions(call.Realm, element), null);
+            realm.DefineAccessor(obj, "selectedIndex",
+                (in _) => JsValue.Number(GetSelectedIndex(element)),
+                (in call) => SetSelectedIndexCallback(element, in call));
+            realm.DefineAccessor(obj, "size",
+                (in _) => GetSize(element),
+                (in call) => SetSize(element, in call));
         }
 
         if (tag == "option")
         {
-            obj.FastAddProperty("defaultSelected",
-                new DomFunction((in _) => _host.GetOptionDefaultSelected(element) ? JSBoolean.True : JSBoolean.False, "get defaultSelected"),
-                new DomFunction((in a) => SetDefaultSelected(element, in a), "set defaultSelected"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineAccessor(obj, "defaultSelected",
+                (in _) => JsValue.Boolean(_host.GetOptionDefaultSelected(element)),
+                (in call) => SetDefaultSelected(element, in call));
         }
     }
 
     // -------- Callbacks --------
 
-    private JSValue Add(DomElement element, in Arguments a)
+    private JsValue Add(DomElement element, in JsCall call)
     {
-        if (a.Length == 0 || a[0] is not JSObject optObj)
-            return JSUndefined.Value;
-        var optEl = _host.FindDomElementByJSObject(optObj);
+        if (!call[0].IsObject)
+            return JsValue.Undefined;
+        var optEl = _host.FindElement(call[0]);
         if (optEl == null)
-            return JSUndefined.Value;
+            return JsValue.Undefined;
 
+        // IsObject is the whole of the old `a.Length > 1 && !a[1].IsNull && !a[1].IsUndefined &&
+        // a[1] is JSObject`: a missing, null or undefined argument is not an object, so the three
+        // guards collapse into the one question they were all asking.
         DomElement? refEl = null;
-        if (a.Length > 1 && !a[1].IsNull && !a[1].IsUndefined && a[1] is JSObject refObj)
-            refEl = _host.FindDomElementByJSObject(refObj);
+        if (call[1].IsObject)
+            refEl = _host.FindElement(call[1]);
 
         // optEl.Remove() detaches; the insert/append below reattaches in one canonical op. The prior
         // SetParent(optEl, element) appended at the end first, so a ref-node insert then re-moved it.
@@ -81,52 +99,56 @@ internal sealed class SelectBinding(ISelectHost host)
         }
         else
             element.AppendChild(optEl);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue GetOptions(DomElement element)
+    private JsValue GetOptions(IJsRealm realm, DomElement element)
     {
-        var opts = new List<JSValue>();
+        var opts = new List<JsValue>();
         foreach (var c in DomBridge.ChildElements(element))
             if (string.Equals(c.TagName, "option", StringComparison.OrdinalIgnoreCase))
-                opts.Add(_host.ToJSObject(c));
-        var arr = new JSArray(opts);
-        arr.FastAddProperty("length",
-            new DomFunction((in _) => new JSNumber(opts.Count), "get length"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                opts.Add(_host.WrapNode(c));
+
+        // The array's own `length` is replaced by an accessor over the snapshot the array was built
+        // from, exactly as before: the two agree, and the accessor is what the site has always
+        // installed.
+        var arr = realm.NewArray([.. opts]);
+        realm.DefineAccessor(arr, "length", (in _) => JsValue.Number(opts.Count), null);
         return arr;
     }
 
-    private JSValue SetSelectedIndexCallback(DomElement element, in Arguments a)
+    private JsValue SetSelectedIndexCallback(DomElement element, in JsCall call)
     {
-        var index = a.Length == 0 ? -1 : (int)Math.Truncate(a[0].DoubleValue);
+        // ToNumber, not the handle's inline reading: `select.selectedIndex = "2"` is a string a page
+        // may well write, and the ECMAScript coercion is what it observes.
+        var index = call.Length == 0 ? -1 : (int)Math.Truncate(call.Realm.ToNumber(call[0]));
         SetSelectedIndex(element, index);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue GetSize(DomElement element)
+    private static JsValue GetSize(DomElement element)
     {
         if (DomBridge.TryGetAttribute(element, "size", out var rawSize) && int.TryParse(rawSize, out var parsedSize) && parsedSize > 0)
-            return new JSNumber(parsedSize);
-        return new JSNumber(0);
+            return JsValue.Number(parsedSize);
+        return JsValue.Number(0);
     }
 
-    private static JSValue SetSize(DomElement element, in Arguments a)
+    private static JsValue SetSize(DomElement element, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        var size = (int)Math.Truncate(a[0].DoubleValue);
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        var size = (int)Math.Truncate(call.Realm.ToNumber(call[0]));
         if (size > 0)
             DomBridge.SetAttr(element, "size", size.ToString());
         else
             DomBridge.RemoveAttr(element, "size");
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue SetDefaultSelected(DomElement element, in Arguments a)
+    private JsValue SetDefaultSelected(DomElement element, in JsCall call)
     {
-        _host.SetOptionDefaultSelected(element, a.Length > 0 && a[0].BooleanValue);
-        return JSUndefined.Value;
+        _host.SetOptionDefaultSelected(element, call[0].AsBoolean);
+        return JsValue.Undefined;
     }
 
     // -------- Select algorithms (moved out of LayoutMetrics; never used by layout) --------

@@ -1,7 +1,9 @@
 using Broiler.JavaScript.Storage;
 using Broiler.JavaScript.Runtime;
+using Broiler.JavaScript.BuiltIns.Boolean;
 using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.HtmlBridge.Core.Diagnostics;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 
@@ -17,6 +19,19 @@ public sealed partial class DomBridge
     // duplicate-registration check and match-by-listener+capture removal) moved to the Phase 3
     // EventListenerBinding feature module (Broiler.HtmlBridge.Dom.Features).
 
+    /// <summary>
+    /// Calls one registered listener — a function, or an object with a <c>handleEvent</c> — and
+    /// swallows what it throws into a warning, because a listener that fails must not abort the
+    /// dispatch of the ones after it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Still engine-typed, and shared.</b> Four firing paths reach it: element/document dispatch
+    /// (<c>EventDispatchBinding</c>), window dispatch (<c>DomBridge.WindowLoad.cs</c>), form submit
+    /// (<c>Features/FormSubmitBinding.cs</c>) and messaging (<c>Features/MessagingBinding.cs</c>) —
+    /// three of which are outside this migration round. The listener it is handed is an
+    /// <c>EventListenerRegistration</c>'s, engine-typed for the same reason. It migrates when the
+    /// registration record does, and not before, so that all four move together.
+    /// </remarks>
     internal static void InvokeEventListener(JSValue listener, JSObject evt, string logContext)
     {
         // Every DOM listener the page runs passes through here, which makes this the one place a
@@ -75,12 +90,23 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Dispatches a DOM event on the given element with full capture → target → bubble propagation.
-    /// The engine lives in the Phase 3 EventDispatchBinding feature module; this thin delegator keeps
-    /// the historical call sites (element/document dispatchEvent, form submit, XHR/layout-driven
-    /// synthetic events) source-compatible.
+    /// The engine lives in the Phase 3 EventDispatchBinding feature module.
     /// </summary>
+    /// <remarks>
+    /// The module speaks JSEAL now, so this is the engine-typed adapter over it rather than a bare
+    /// delegator: roughly a dozen call sites that have not migrated — form submit, the dialog and
+    /// script-insertion hosts, the window-load sequence, sub-documents, layout-driven scroll events —
+    /// still hold an engine object and none of their files belong to this round. The cast costs
+    /// nothing — a handle carries the engine's own object — and this signature narrows to the
+    /// module's own as those callers move.
+    /// </remarks>
     private JSValue DispatchEventOnElement(DomNode target, JSObject evt) =>
-        _eventDispatch.DispatchEventOnElement(target, evt);
+        // The result is the "not cancelled" boolean the DOM says dispatchEvent answers, so it
+        // re-materialises as one rather than round-tripping: a JSEAL handle carries no engine object
+        // for a primitive, and there is nothing else this call can return.
+        _eventDispatch.DispatchEventOnElement(target, JsInterop.FromEngineObject(evt)).AsBoolean
+            ? JSBoolean.True
+            : JSBoolean.False;
 
     /// <summary>
     /// Compiles all <c>on*</c> HTML attributes (e.g. <c>onclick="code"</c>) on the given

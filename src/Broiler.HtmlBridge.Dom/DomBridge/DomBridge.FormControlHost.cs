@@ -1,5 +1,6 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -8,19 +9,27 @@ namespace Broiler.HtmlBridge;
 // here as named primitives; the <select> value resolution delegates to the SelectBinding the bridge
 // owns, and the radio-sibling walk / style-scope invalidation forward to the existing bridge helpers.
 // Explicit interface members, so these seams do not widen the public DomBridge surface.
+//
+// This is the half-migrated seam for the form-control slice: the module speaks JSEAL, and the one
+// member that produces a JavaScript object — the FileList — is still built by DomCollectionBinding,
+// which is not migrated. So the engine object is minted on this side and crosses through JsInterop,
+// which carries it without converting it; the module never sees an engine type.
 public sealed partial class DomBridge : Dom.Features.IFormControlHost
 {
     /// <summary>One <c>FileList</c> per file input, cached so <c>input.files === input.files</c>. The
     /// contents function stays live over an always-empty list rather than being a fixed one, so a file
     /// selection would need no second shape.</summary>
-    private readonly Dictionary<DomElement, JSValue> _fileLists = [];
+    private readonly Dictionary<DomElement, JsValue> _fileLists = [];
 
-    JSValue Dom.Features.IFormControlHost.GetFileList(DomElement element)
+    IJsRealm Dom.Features.IFormControlHost.Realm => Realm;
+
+    JsValue Dom.Features.IFormControlHost.GetFileList(DomElement element)
     {
         if (_fileLists.TryGetValue(element, out var existing))
             return existing;
 
-        var files = Dom.Features.DomCollectionBinding.FileList(_jsContext, static () => []);
+        var files = JsInterop.FromEngineObject(
+            (Broiler.JavaScript.Runtime.JSObject)Dom.Features.DomCollectionBinding.FileList(_jsContext, static () => []));
         _fileLists[element] = files;
         return files;
     }

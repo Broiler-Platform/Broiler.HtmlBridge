@@ -1,11 +1,5 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 
@@ -16,11 +10,29 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the capture → target → bubble propagation algorithm (DOM Events Level 3), the event object's
 /// propagation-control methods (<c>stopPropagation</c>/<c>stopImmediatePropagation</c>/
 /// <c>preventDefault</c>/<c>cancelBubble</c>/<c>returnValue</c>) and <c>composedPath()</c>. It reads
-/// the listener store and inline-handler map through the narrow <see cref="IEventDispatchHost"/>
+/// the listener store and the inline handler through the narrow <see cref="IEventDispatchHost"/>
 /// contract; listener registration and inline-handler compilation stay in the bridge, and the
 /// shared <c>InvokeEventListener</c> helper (also used by window/submit/messaging firing paths)
 /// stays a bridge static.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the event object is a
+/// <see cref="JsValue"/> handle, its members are installed through the realm with the property
+/// attributes they always had, and its propagation-control methods are realm methods closing over
+/// the same dispatch-local flags they closed over before.
+/// </para>
+/// <para>
+/// <b>One engine-typed strand survives, and it is not this module's to cut.</b> A registered
+/// listener is an <c>EventListenerRegistration</c>, whose listener field is a Broiler.JS value
+/// because the record lives in <c>DomBridge/RuntimeStates.cs</c> and is shared with the window,
+/// form-submit and messaging dispatch paths; it is invoked through <c>DomBridge.InvokeEventListener</c>,
+/// which those same paths share and which is where a listener turn is bracketed for the entry trace.
+/// So the engine's event object is taken once per dispatch — a cast over the object this handle
+/// already carries, not a conversion — and handed to that invoker. When the listener store moves,
+/// both lines go with it.
+/// </para>
+/// </remarks>
 internal sealed class EventDispatchBinding(IEventDispatchHost host)
 {
     private readonly IEventDispatchHost _host = host;
@@ -29,13 +41,21 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
     /// Dispatches a DOM event on the given element with full capture → target → bubble propagation
     /// (DOM Events Level 3).
     /// </summary>
-    internal JSValue DispatchEventOnElement(DomNode target, JSObject evt)
+    internal JsValue DispatchEventOnElement(DomNode target, JsValue evt)
     {
+        var realm = _host.Realm;
         var documentNode = _host.DocumentNode;
-        var documentJSObject = _host.DocumentJSObject;
 
-        var typeVal = evt[(KeyString)"type"];
-        var eventType = typeVal != null && typeVal is JSString ? typeVal.ToString() : "unknown";
+        // The document/window globals are read once per dispatch, as they were: a wrapper that is not
+        // an object is one that has not been installed yet, and the path substitutes JS null for it
+        // exactly where the `?? JSNull.Value` coalesces did.
+        var documentWrapper = _host.DocumentWrapper;
+        var documentValue = documentWrapper.IsObject ? documentWrapper : JsValue.Null;
+
+        var typeVal = realm.GetProperty(evt, "type");
+        // Only a string type names the event; anything else — including an object with a toString —
+        // was "unknown" before and stays "unknown", so no coercion runs here.
+        var eventType = typeVal.IsString ? typeVal.AsString! : "unknown";
 
         // Build the path from the root to the target
         var path = new List<DomNode>();
@@ -51,87 +71,73 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
 
         var stopped = false;
         var immediateStopped = false;
-        var prevented = evt[(KeyString)"defaultPrevented"] is JSValue defaultPreventedValue &&
-                        defaultPreventedValue.BooleanValue;
+        var prevented = realm.GetProperty(evt, "defaultPrevented").AsBoolean;
         var currentListenerPassive = false;
         var legacyCancelBubble = false;
 
+        JsValue WrapPathNode(DomNode pathNode) =>
+            pathNode == documentNode ? documentValue : _host.WrapNode(pathNode);
+
         // Set up event object properties
-        evt[(KeyString)"target"] = target == documentNode
-            ? (documentJSObject ?? JSNull.Value)
-            : _host.ToJSObject(target);
-        evt[(KeyString)"srcElement"] = evt[(KeyString)"target"];
-        evt[(KeyString)"eventPhase"] = new JSNumber(0);
+        realm.SetProperty(evt, "target", WrapPathNode(target));
+        realm.SetProperty(evt, "srcElement", realm.GetProperty(evt, "target"));
+        realm.SetProperty(evt, "eventPhase", JsValue.Number(0));
 
-        evt.FastAddValue("stopPropagation",
-            new DomFunction((in _) => EventStopPropagation(ref legacyCancelBubble, ref stopped, in _), "stopPropagation", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "stopPropagation",
+            realm.NewMethod("stopPropagation", (in _) => EventStopPropagation(ref legacyCancelBubble, ref stopped)));
 
-        evt.FastAddValue("stopImmediatePropagation",
-            new DomFunction((in _) => EventStopImmediatePropagation(ref immediateStopped, ref legacyCancelBubble, ref stopped, in _), "stopImmediatePropagation", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "stopImmediatePropagation",
+            realm.NewMethod("stopImmediatePropagation", (in _) => EventStopImmediatePropagation(ref immediateStopped, ref legacyCancelBubble, ref stopped)));
 
-        evt.FastAddValue("preventDefault",
-            new DomFunction((in _) => EventPreventDefault(currentListenerPassive, evt, ref prevented, in _), "preventDefault", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "preventDefault",
+            realm.NewMethod("preventDefault", (in _) => EventPreventDefault(realm, currentListenerPassive, evt, ref prevented)));
 
-        evt.FastAddProperty(
-            "cancelBubble",
-            new DomFunction((in _) => legacyCancelBubble ? JSBoolean.True : JSBoolean.False, "get cancelBubble"),
-            new DomFunction((in setArgs) => EventSetCancelBubble(ref legacyCancelBubble, ref stopped, in setArgs), "set cancelBubble"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(evt, "cancelBubble",
+            (in _) => JsValue.Boolean(legacyCancelBubble),
+            (in setCall) => EventSetCancelBubble(ref legacyCancelBubble, ref stopped, in setCall));
 
-        evt.FastAddProperty("returnValue",
-            new DomFunction((in _) => prevented ? JSBoolean.False : JSBoolean.True, "get returnValue"),
-            new DomFunction((in setArgs) => EventSetReturnValue(currentListenerPassive, evt, ref prevented, in setArgs), "set returnValue"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(evt, "returnValue",
+            (in _) => JsValue.Boolean(!prevented),
+            (in setCall) => EventSetReturnValue(realm, currentListenerPassive, evt, ref prevented, in setCall));
 
-        evt.FastAddValue("composedPath",
-            new DomFunction((in _) => BuildComposedPathValue(target, path), "composedPath", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(evt, "composedPath",
+            realm.NewMethod("composedPath", (in _) => BuildComposedPathValue(target, path)));
 
         // Phase 1: Capture (root → parent of target)
-        evt[(KeyString)"eventPhase"] = new JSNumber(1);
+        realm.SetProperty(evt, "eventPhase", JsValue.Number(1));
         foreach (var ancestor in path)
         {
             if (stopped) break;
-            evt[(KeyString)"currentTarget"] = ancestor == documentNode
-                ? (documentJSObject ?? JSNull.Value)
-                : _host.ToJSObject(ancestor);
+            realm.SetProperty(evt, "currentTarget", WrapPathNode(ancestor));
             FireListeners(ancestor, eventType, evt, capturePhase: true, ref stopped, ref immediateStopped, ref currentListenerPassive);
         }
 
         // Phase 2: Target — fire capture listeners first, then non-capture listeners.
         if (!stopped)
         {
-            evt[(KeyString)"eventPhase"] = new JSNumber(2);
-            evt[(KeyString)"currentTarget"] = target == documentNode
-                ? (documentJSObject ?? JSNull.Value)
-                : _host.ToJSObject(target);
+            realm.SetProperty(evt, "eventPhase", JsValue.Number(2));
+            realm.SetProperty(evt, "currentTarget", WrapPathNode(target));
             FireListeners(target, eventType, evt, capturePhase: true, ref stopped, ref immediateStopped, ref currentListenerPassive);
             FireListeners(target, eventType, evt, capturePhase: false, ref stopped, ref immediateStopped, ref currentListenerPassive);
         }
 
         // Phase 3: Bubble (parent of target → root) — only if event.bubbles is true
-        var bubblesVal = evt[(KeyString)"bubbles"];
-        var eventBubbles = bubblesVal != null && bubblesVal.BooleanValue;
+        var eventBubbles = realm.GetProperty(evt, "bubbles").AsBoolean;
         if (!stopped && eventBubbles)
         {
-            evt[(KeyString)"eventPhase"] = new JSNumber(3);
+            realm.SetProperty(evt, "eventPhase", JsValue.Number(3));
             for (int i = path.Count - 1; i >= 0; i--)
             {
                 if (stopped) break;
-                evt[(KeyString)"currentTarget"] = path[i] == documentNode
-                    ? (documentJSObject ?? JSNull.Value)
-                    : _host.ToJSObject(path[i]);
+                realm.SetProperty(evt, "currentTarget", WrapPathNode(path[i]));
                 FireListeners(path[i], eventType, evt, capturePhase: false, ref stopped, ref immediateStopped, ref currentListenerPassive);
             }
         }
 
-        evt[(KeyString)"currentTarget"] = JSNull.Value;
-        evt[(KeyString)"eventPhase"] = new JSNumber(0);
+        realm.SetProperty(evt, "currentTarget", JsValue.Null);
+        realm.SetProperty(evt, "eventPhase", JsValue.Number(0));
 
-        return prevented ? JSBoolean.False : JSBoolean.True;
+        return JsValue.Boolean(!prevented);
     }
 
     /// <summary>
@@ -140,7 +146,7 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
     /// When <c>false</c>, only bubble listeners fire.
     /// When <c>null</c> (unused), all listeners fire in registration order plus the inline handler.
     /// </summary>
-    private void FireListeners(DomNode el, string eventType, JSObject evt,
+    private void FireListeners(DomNode el, string eventType, JsValue evt,
         bool? capturePhase, ref bool stopped, ref bool immediateStopped, ref bool currentListenerPassive)
     {
         if (_host.GetEventListeners(el).TryGetValue(eventType, out var listeners))
@@ -152,7 +158,10 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
                 // In target phase (capturePhase == null), fire all listeners.
                 if (capturePhase.HasValue && registration.Capture != capturePhase.Value) continue;
                 currentListenerPassive = registration.Passive;
-                DomBridge.InvokeEventListener(registration.Listener, evt, "DomBridge.dispatchEvent");
+                // The listener and the invoker are both still engine-typed (see the remarks on this
+                // type); JsInterop.ToEngineObject is a cast over the object this handle already
+                // carries, so the listener sees the same event object the page dispatched.
+                DomBridge.InvokeEventListener(registration.Listener, JsInterop.ToEngineObject(evt), "DomBridge.dispatchEvent");
                 currentListenerPassive = false;
 
                 if (registration.Once)
@@ -164,84 +173,89 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         // and during bubble phase on ancestors (like a bubble listener).
         if (!immediateStopped && (capturePhase == null || capturePhase == false))
         {
-            if (_host.GetInlineEventHandlers(el).TryGetValue(eventType, out var inlineHandler) && inlineHandler is JSFunction inlineFn)
+            var inlineHandler = _host.InlineEventHandler(el, eventType);
+            if (inlineHandler.IsObject)
             {
                 // Inline on* handlers behave like regular non-passive listeners.
                 currentListenerPassive = false;
-                try { inlineFn.InvokeFunction(new Arguments(inlineFn, evt)); }
+                // The handler is its own receiver, as it was when the engine was invoked directly.
+                try { _host.Realm.Invoke(inlineHandler, inlineHandler, [evt]); }
                 catch (Exception ex) { RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.dispatchEvent", $"Inline handler error: {ex.Message}", ex); }
             }
         }
     }
 
-    private JSValue BuildComposedPathValue(DomNode target, IReadOnlyList<DomNode> path)
+    private JsValue BuildComposedPathValue(DomNode target, IReadOnlyList<DomNode> path)
     {
+        var realm = _host.Realm;
         var documentNode = _host.DocumentNode;
-        var documentJSObject = _host.DocumentJSObject;
+        var documentWrapper = _host.DocumentWrapper;
 
-        JSValue ToEventPathObject(DomNode node)
-            => node == documentNode ? (documentJSObject ?? JSNull.Value) : _host.ToJSObject(node);
+        JsValue ToEventPathObject(DomNode node)
+            => node == documentNode
+                ? (documentWrapper.IsObject ? documentWrapper : JsValue.Null)
+                : _host.WrapNode(node);
 
-        var values = new List<JSValue> { ToEventPathObject(target) };
+        var values = new List<JsValue> { ToEventPathObject(target) };
 
         for (int i = path.Count - 1; i >= 0; i--)
             values.Add(ToEventPathObject(path[i]));
 
-        if (_host.WindowJSObject != null)
-            values.Add(_host.WindowJSObject);
+        var windowWrapper = _host.WindowWrapper;
+        if (windowWrapper.IsObject)
+            values.Add(windowWrapper);
 
-        return new JSArray([.. values]);
+        return realm.NewArray([.. values]);
     }
 
     // -------- Event object propagation-control methods --------
 
-    private static JSValue EventStopPropagation(ref bool legacyCancelBubble, ref bool stopped, in Arguments _)
+    private static JsValue EventStopPropagation(ref bool legacyCancelBubble, ref bool stopped)
     {
         stopped = true;
         legacyCancelBubble = true;
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue EventStopImmediatePropagation(ref bool immediateStopped, ref bool legacyCancelBubble, ref bool stopped, in Arguments _)
+    private static JsValue EventStopImmediatePropagation(ref bool immediateStopped, ref bool legacyCancelBubble, ref bool stopped)
     {
         stopped = true;
         immediateStopped = true;
         legacyCancelBubble = true;
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue EventPreventDefault(bool currentListenerPassive, JSObject evt, ref bool prevented, in Arguments _)
+    private static JsValue EventPreventDefault(IJsRealm realm, bool currentListenerPassive, JsValue evt, ref bool prevented)
     {
-        var cancelable = evt[(KeyString)"cancelable"];
-        if (!currentListenerPassive && cancelable != null && cancelable.BooleanValue)
+        if (!currentListenerPassive && realm.GetProperty(evt, "cancelable").AsBoolean)
         {
             prevented = true;
-            evt[(KeyString)"defaultPrevented"] = JSBoolean.True;
+            realm.SetProperty(evt, "defaultPrevented", JsValue.True);
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue EventSetCancelBubble(ref bool legacyCancelBubble, ref bool stopped, in Arguments setArgs)
+    private static JsValue EventSetCancelBubble(ref bool legacyCancelBubble, ref bool stopped, in JsCall setCall)
     {
-        if (setArgs.Length > 0 && setArgs[0].BooleanValue)
+        if (setCall.Length > 0 && setCall[0].AsBoolean)
         {
             legacyCancelBubble = true;
             stopped = true;
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue EventSetReturnValue(bool currentListenerPassive, JSObject evt, ref bool prevented, in Arguments setArgs)
+    private static JsValue EventSetReturnValue(IJsRealm realm, bool currentListenerPassive, JsValue evt, ref bool prevented, in JsCall setCall)
     {
-        var cancelable = evt[(KeyString)"cancelable"];
-        if (setArgs.Length > 0 && !setArgs[0].BooleanValue && !currentListenerPassive && cancelable != null && cancelable.BooleanValue)
+        if (setCall.Length > 0 && !setCall[0].AsBoolean && !currentListenerPassive &&
+            realm.GetProperty(evt, "cancelable").AsBoolean)
         {
             prevented = true;
-            evt[(KeyString)"defaultPrevented"] = JSBoolean.True;
+            realm.SetProperty(evt, "defaultPrevented", JsValue.True);
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 }

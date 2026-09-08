@@ -1,5 +1,5 @@
-using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -15,6 +15,21 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The bridge implements it explicitly in <c>DomBridge.ElementGeometryHost.cs</c>, forwarding to the
 /// existing private <c>LayoutMetrics.*</c> methods.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The contract names no engine type — including in its member names, which are references to one just
+/// as a parameter type is. <see cref="WrapNode"/> and <see cref="GetScrollOptions"/> were named after
+/// the engine's object type and its call frame respectively, so both moved when those types did.
+/// </para>
+/// <para>
+/// <b>The two dictionary readers still take the whole call, and that is deliberate.</b>
+/// <see cref="GetScrollIntoViewOptions"/> and <see cref="GetScrollOptions"/> answer from the shape of
+/// what was passed — nothing, a boolean, a scroll-options dictionary, or a pair of coordinates — so the
+/// arity and the kind are the input, not a value the module could read out first. Both are shared word
+/// for word with the window and sub-window scroll surfaces, which is why they stay the bridge's single
+/// implementation rather than being re-derived per element.
+/// </para>
+/// </remarks>
 internal interface IElementGeometryHost
 {
     bool IsViewportElementForMetrics(DomElement element);
@@ -40,9 +55,10 @@ internal interface IElementGeometryHost
 
     (double Left, double Top, double Width, double Height) GetBoundingClientRectForDomElement(DomElement element, bool isRoot);
 
-    (string Block, string Inline, string? Behavior) GetScrollIntoViewOptions(in Arguments args);
+    (string Block, string Inline, string? Behavior) GetScrollIntoViewOptions(in JsCall call);
     void ScrollElementIntoView(DomElement element, string? block = null, string? inline = null, string? behavior = null);
-    (double? Left, double? Top, string? Behavior) GetScrollArguments(in Arguments args);
+    (double? Left, double? Top, string? Behavior) GetScrollOptions(in JsCall call);
 
-    JSObject ToJSObject(DomNode node);
+    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
+    JsValue WrapNode(DomNode node);
 }

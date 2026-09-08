@@ -1,8 +1,6 @@
 using System;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -21,85 +19,116 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>SetType053Core</c>/<c>GetHref056/060Core</c>/<c>SetHref057/061Core</c>/<c>Callback059/063Core</c>
 /// (the byte-identical href get/set pairs are deduplicated here).
 /// </summary>
+/// <remarks>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type.
+/// Two shapes are worth naming because they are the ones a mechanical rewrite gets wrong:
+/// </para>
+/// <list type="bullet">
+/// <item><description>
+/// every setter coerces its argument with <see cref="IJsValues.ToJsString"/> rather than with the
+/// handle's own <c>ToString</c>. These are content-attribute writes taking whatever a page assigned —
+/// <c>img.alt = {toString(){…}}</c> is the ECMAScript coercion and it may run page script, which is
+/// what the engine did before and what the handle deliberately does not do.
+/// </description></item>
+/// <item><description>
+/// the four URL getters no longer take the call frame at all. They never read an argument from it, and
+/// an unread parameter that exists only to satisfy a delegate shape is one more thing tying the module
+/// to how its members happen to be installed.
+/// </description></item>
+/// </list>
+/// </remarks>
 internal static class ElementReflectionBinding
 {
-    public static JSValue SetHtmlFor(DomElement element, in Arguments a)
+    public static JsValue SetHtmlFor(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "for", a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
+        DomBridge.SetAttr(element, "for", StringArgument(in call));
+        return JsValue.Undefined;
     }
 
-    public static JSValue SetHttpEquiv(DomElement element, in Arguments a)
+    public static JsValue SetHttpEquiv(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "http-equiv", a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
+        DomBridge.SetAttr(element, "http-equiv", StringArgument(in call));
+        return JsValue.Undefined;
     }
 
-    public static JSValue SetType(DomElement element, in Arguments a)
+    public static JsValue SetType(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "type", a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
+        DomBridge.SetAttr(element, "type", StringArgument(in call));
+        return JsValue.Undefined;
     }
 
     // <object>.data getter — reflected URL, resolved against the page URL.
-    public static JSValue GetData(IElementReflectionHost host, DomElement element, in Arguments _)
-        => new JSString(ResolveReflectedUrl(host.PageUrl, element, "data"));
+    public static JsValue GetData(IElementReflectionHost host, DomElement element)
+        => JsValue.String(ResolveReflectedUrl(host.PageUrl, element, "data"));
 
     // <a>/<area>/<base>/<link>.href getter — reflected URL, resolved against the page URL.
-    public static JSValue GetHref(IElementReflectionHost host, DomElement element, in Arguments _)
-        => new JSString(ResolveReflectedUrl(host.PageUrl, element, "href"));
+    public static JsValue GetHref(IElementReflectionHost host, DomElement element)
+        => JsValue.String(ResolveReflectedUrl(host.PageUrl, element, "href"));
 
     // <script>/<img>.src getter — reflected URL, resolved against the page URL like href/data.
     // Absolute is what the IDL returns even when the content attribute is relative, which is what a
     // page comparing script.src against a known URL — or handing img.src to a URL parser — expects.
-    public static JSValue GetSrc(IElementReflectionHost host, DomElement element, in Arguments _)
-        => new JSString(ResolveReflectedUrl(host.PageUrl, element, "src"));
+    public static JsValue GetSrc(IElementReflectionHost host, DomElement element)
+        => JsValue.String(ResolveReflectedUrl(host.PageUrl, element, "src"));
 
     // <img>.currentSrc getter — read-only, the URL the element settled on. Srcset candidate selection
     // happens in layout and is not visible from here, so a src is reported as the URL that was chosen
     // and no src at all as the empty string: the two answers `img.currentSrc || img.src` is written
     // against. Never the bare page URL, which is what resolving an absent (or empty) src would give.
-    public static JSValue GetCurrentSrc(IElementReflectionHost host, DomElement element, in Arguments a)
+    public static JsValue GetCurrentSrc(IElementReflectionHost host, DomElement element)
         => DomBridge.TryGetAttribute(element, "src", out var value) && value.Length > 0
-            ? GetSrc(host, element, in a)
-            : new JSString(string.Empty);
+            ? GetSrc(host, element)
+            : JsValue.String(string.Empty);
 
-    public static JSValue SetSrc(DomElement element, in Arguments a)
+    public static JsValue SetSrc(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "src", a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
+        DomBridge.SetAttr(element, "src", StringArgument(in call));
+        return JsValue.Undefined;
     }
 
-    public static JSValue SetHref(DomElement element, in Arguments a)
+    public static JsValue SetHref(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "href", a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
+        DomBridge.SetAttr(element, "href", StringArgument(in call));
+        return JsValue.Undefined;
     }
 
     // Generic reflected-string setter (default empty), used for various named IDL attributes.
-    public static JSValue SetReflectedAttribute(string? name, DomElement element, in Arguments a)
+    public static JsValue SetReflectedAttribute(string? name, DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, name, a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
+        DomBridge.SetAttr(element, name, StringArgument(in call));
+        return JsValue.Undefined;
     }
 
     // Generic reflected-dimension setter (default "0"), used for numeric presentation attributes.
-    public static JSValue SetReflectedDimension(string? name, DomElement element, in Arguments a)
+    public static JsValue SetReflectedDimension(string? name, DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, name, a.Length > 0 ? a[0].ToString() : "0");
-        return JSUndefined.Value;
+        DomBridge.SetAttr(element, name, StringArgument(in call, missing: "0"));
+        return JsValue.Undefined;
     }
 
     // Generic reflected-boolean setter: a boolean content attribute is present or absent, never
     // "false" — writing the string would make the IDL getter read back true.
-    public static JSValue SetReflectedBoolean(string? name, DomElement element, in Arguments a)
+    public static JsValue SetReflectedBoolean(string? name, DomElement element, in JsCall call)
     {
-        if (a.Length > 0 && a[0].BooleanValue)
+        if (call.Length > 0 && call[0].AsBoolean)
             DomBridge.SetAttr(element, name, string.Empty);
         else
             DomBridge.RemoveAttr(element, name!);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
+
+    /// <summary>
+    /// Argument zero as a string — the ECMAScript coercion, which may run a <c>toString</c> the page
+    /// wrote — or <paramref name="missing"/> when the setter was called with no argument at all.
+    /// </summary>
+    /// <remarks>
+    /// The arity test is on the count rather than on the handle, exactly as before: a setter reached
+    /// through <c>Reflect.set</c> with no value is the one call that has no argument zero, and it
+    /// writes the default rather than the string <c>"undefined"</c>.
+    /// </remarks>
+    private static string StringArgument(in JsCall call, string missing = "")
+        => call.Length > 0 ? call.Realm.ToJsString(call[0]) : missing;
 
     private static string ResolveReflectedUrl(string pageUrl, DomElement element, string attribute)
     {

@@ -1,9 +1,6 @@
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
 
 namespace Broiler.HtmlBridge;
 
@@ -86,6 +83,13 @@ public sealed partial class DomBridge
 
         var tag = element.TagName.ToLowerInvariant();
 
+        // A JSEAL handle over the same wrapper, for the members whose module has migrated. The seam is
+        // a cast rather than a conversion (Runtime/JsInterop.cs), so a member installed through the
+        // realm lands on this object in the position it is installed in — which is what keeps
+        // Object.getOwnPropertyNames(el) reporting the order it always has, with the migrated and
+        // unmigrated members interleaved exactly as they are written below.
+        var handle = Dom.Runtime.JsInterop.FromEngineObject(obj);
+
         // HTMLTableElement / HTMLTableSectionElement / HTMLTableRowElement interfaces (Phase 3 P3.5:
         // extracted into the co-located TableBinding feature module).
         _tables.Install(obj, element, tag);
@@ -104,7 +108,7 @@ public sealed partial class DomBridge
         // HTMLMediaElement.canPlayType() on <video>/<audio> — the capability question a media player
         // asks before it commits to a source (Phase 3 co-located MediaCapabilityBinding module,
         // shared with the MediaSource.isTypeSupported that answers it statically).
-        Dom.Features.MediaCapabilityBinding.Install(obj, tag);
+        Dom.Features.MediaCapabilityBinding.Install(Realm, handle, tag);
 
         // Form association (HTML §4.10.2, §4.10.4): a control's `form` owner and `labels`, and a
         // label's `control`. Installed per tag rather than on every wrapper, because their absence
@@ -114,15 +118,17 @@ public sealed partial class DomBridge
         // HTMLLabelElement — htmlFor property (maps to 'for' content attribute)
         if (tag == "label")
         {
-            obj.FastAddProperty("htmlFor", new DomFunction((in _) => TryGetAttribute(element, "for", out var f) ? new JSString(f) : new JSString(string.Empty), "get htmlFor"),
-                new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetHtmlFor(element, in a), "set htmlFor"), JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "htmlFor",
+                (in _) => ReflectedAttribute(element, "for"),
+                (in call) => Dom.Features.ElementReflectionBinding.SetHtmlFor(element, in call));
         }
 
         // HTMLMetaElement — httpEquiv property (maps to 'http-equiv' content attribute)
         if (tag == "meta")
         {
-            obj.FastAddProperty("httpEquiv", new DomFunction((in _) => TryGetAttribute(element, "http-equiv", out var he) ? new JSString(he) : new JSString(string.Empty), "get httpEquiv"),
-                new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetHttpEquiv(element, in a), "set httpEquiv"), JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "httpEquiv",
+                (in _) => ReflectedAttribute(element, "http-equiv"),
+                (in call) => Dom.Features.ElementReflectionBinding.SetHttpEquiv(element, in call));
         }
 
         // HTMLObjectElement — data property with URI resolution + contentDocument + getSVGDocument + type
@@ -131,16 +137,19 @@ public sealed partial class DomBridge
             // data get (reflected URL) + type get/set are in ElementReflectionBinding (P3.49); the data
             // setter, contentDocument getter and getSVGDocument() are sub-document-coupled and live in the
             // ObjectElementBinding feature module (Phase 3 P3.52).
+            // The getter's module has migrated and the setter's has not, so the pair is mixed: the
+            // realm mints the half that is ready and the seam unwraps it for the engine-typed
+            // installation the other half still needs.
             obj.FastAddProperty("data",
-                new DomFunction((in _) => Dom.Features.ElementReflectionBinding.GetData(this, element, in _), "get data"),
+                Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("get data",
+                    (in _) => Dom.Features.ElementReflectionBinding.GetData(this, element))),
                 new DomFunction((in a) => Dom.Features.ObjectElementBinding.SetData(this, element, in a), "set data"),
                 JSPropertyAttributes.EnumerableConfigurableProperty);
 
             // type property (MIME type of the resource)
-            obj.FastAddProperty("type",
-                new DomFunction((in _) => TryGetAttribute(element, "type", out var t) ? new JSString(t) : new JSString(string.Empty), "get type"),
-                new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetType(element, in a), "set type"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "type",
+                (in _) => ReflectedAttribute(element, "type"),
+                (in call) => Dom.Features.ElementReflectionBinding.SetType(element, in call));
 
             // contentDocument for <object> element (with same-origin check)
             // Returns null when the resource fails to load (HTTP 404, file not found, etc.)
@@ -158,10 +167,9 @@ public sealed partial class DomBridge
         // HTMLAnchorElement — href property with URI resolution
         if (tag == "a")
         {
-            obj.FastAddProperty("href",
-                new DomFunction((in _) => Dom.Features.ElementReflectionBinding.GetHref(this, element, in _), "get href"),
-                new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetHref(element, in a), "set href"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "href",
+                (in _) => Dom.Features.ElementReflectionBinding.GetHref(this, element),
+                (in call) => Dom.Features.ElementReflectionBinding.SetHref(element, in call));
         }
 
         // -- Phase 7: HTMLAreaElement properties --
@@ -171,17 +179,15 @@ public sealed partial class DomBridge
             foreach (var attrName in new[] { "shape", "coords", "alt", "target" })
             {
                 var captured = attrName; // capture for closure
-                obj.FastAddProperty(captured,
-                    new DomFunction((in _) => TryGetAttribute(element, captured, out var v) ? new JSString(v) : new JSString(string.Empty), "get " + captured),
-                    new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetReflectedAttribute(captured, element, in a), "set " + captured),
-                    JSPropertyAttributes.EnumerableConfigurableProperty);
+                Realm.DefineAccessor(handle, captured,
+                    (in _) => ReflectedAttribute(element, captured),
+                    (in call) => Dom.Features.ElementReflectionBinding.SetReflectedAttribute(captured, element, in call));
             }
 
             // href — with URI resolution like <a>
-            obj.FastAddProperty("href",
-                new DomFunction((in _) => Dom.Features.ElementReflectionBinding.GetHref(this, element, in _), "get href"),
-                new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetHref(element, in a), "set href"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "href",
+                (in _) => Dom.Features.ElementReflectionBinding.GetHref(this, element),
+                (in call) => Dom.Features.ElementReflectionBinding.SetHref(element, in call));
         }
 
         // HTMLLinkElement / HTMLBaseElement — href is a reflected URL, exactly as on <a>/<area>.
@@ -194,16 +200,15 @@ public sealed partial class DomBridge
             // Writing a live <link>'s href points it at a new sheet, which is a fresh fetch and so a
             // fresh load event (HTML §4.2.4) — the shape UIEvent.load.stylesheet waits on.
             var isLink = tag == "link";
-            obj.FastAddProperty("href",
-                new DomFunction((in _) => Dom.Features.ElementReflectionBinding.GetHref(this, element, in _), "get href"),
-                new DomFunction((in a) =>
+            Realm.DefineAccessor(handle, "href",
+                (in _) => Dom.Features.ElementReflectionBinding.GetHref(this, element),
+                (in call) =>
                 {
-                    var result = Dom.Features.ElementReflectionBinding.SetHref(element, in a);
+                    var result = Dom.Features.ElementReflectionBinding.SetHref(element, in call);
                     if (isLink)
                         FireStylesheetLinkLoad(element);
                     return result;
-                }, "set href"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+                });
         }
 
         // The rest of HTMLLinkElement's plain reflected DOMStrings. `rel` also fires the load event:
@@ -215,16 +220,15 @@ public sealed partial class DomBridge
             {
                 var captured = attrName; // capture for closure
                 var firesLoad = captured == "rel";
-                obj.FastAddProperty(idlName,
-                    new DomFunction((in _) => TryGetAttribute(element, captured, out var v) ? new JSString(v) : new JSString(string.Empty), "get " + idlName),
-                    new DomFunction((in a) =>
+                Realm.DefineAccessor(handle, idlName,
+                    (in _) => ReflectedAttribute(element, captured),
+                    (in call) =>
                     {
-                        var result = Dom.Features.ElementReflectionBinding.SetReflectedAttribute(captured, element, in a);
+                        var result = Dom.Features.ElementReflectionBinding.SetReflectedAttribute(captured, element, in call);
                         if (firesLoad)
                             FireStylesheetLinkLoad(element);
                         return result;
-                    }, "set " + idlName),
-                    JSPropertyAttributes.EnumerableConfigurableProperty);
+                    });
             }
         }
 
@@ -237,37 +241,39 @@ public sealed partial class DomBridge
         // waitForWhichBrowser poll). Exactly the shape of the <link>.href gap fixed above.
         if (tag == "script")
         {
-            obj.FastAddProperty("src",
-                new DomFunction((in _) => Dom.Features.ElementReflectionBinding.GetSrc(this, element, in _), "get src"),
-                new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetSrc(element, in a), "set src"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "src",
+                (in _) => Dom.Features.ElementReflectionBinding.GetSrc(this, element),
+                (in call) => Dom.Features.ElementReflectionBinding.SetSrc(element, in call));
 
             foreach (var (idlName, attrName) in ScriptReflectedAttributes)
             {
                 var captured = attrName; // capture for closure
-                obj.FastAddProperty(idlName,
-                    new DomFunction((in _) => TryGetAttribute(element, captured, out var v) ? new JSString(v) : new JSString(string.Empty), "get " + idlName),
-                    new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetReflectedAttribute(captured, element, in a), "set " + idlName),
-                    JSPropertyAttributes.EnumerableConfigurableProperty);
+                Realm.DefineAccessor(handle, idlName,
+                    (in _) => ReflectedAttribute(element, captured),
+                    (in call) => Dom.Features.ElementReflectionBinding.SetReflectedAttribute(captured, element, in call));
             }
 
             foreach (var (idlName, attrName) in ScriptReflectedBooleans)
             {
                 var captured = attrName; // capture for closure
-                obj.FastAddProperty(idlName,
-                    new DomFunction((in _) => HasAttr(element, captured) ? JSBoolean.True : JSBoolean.False, "get " + idlName),
-                    new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetReflectedBoolean(captured, element, in a), "set " + idlName),
-                    JSPropertyAttributes.EnumerableConfigurableProperty);
+                Realm.DefineAccessor(handle, idlName,
+                    (in _) => JsValue.Boolean(HasAttr(element, captured)),
+                    (in call) => Dom.Features.ElementReflectionBinding.SetReflectedBoolean(captured, element, in call));
             }
 
             // .text is HTMLScriptElement's own name for its child text — the other half of the
             // loader idiom, for an inline script built in JS rather than fetched. textContent is
             // already installed on every element and does the same thing; this aliases it so
             // `s.text = code` is not silently a plain JS property either.
-            obj.FastAddProperty("text",
-                new DomFunction((in _) => GetNodeTextValue(element), "get text"),
-                new DomFunction((in a) => { SetElementTextContent(element, a.Length > 0 ? a[0].ToString() : string.Empty); return JSUndefined.Value; }, "set text"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "text",
+                (in _) => JsValue.String(((Dom.Features.IElementContentHost)this).NodeTextValue(element)),
+                (in call) =>
+                {
+                    // ToJsString, not the handle's own rendering: `s.text = templateObject` runs the
+                    // object's toString, which is what the engine was doing here before.
+                    SetElementTextContent(element, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+                    return JsValue.Undefined;
+                });
         }
 
         // HTMLImageElement — height/width return computed CSS value or HTML attribute (Phase 3 P3.53:
@@ -278,9 +284,12 @@ public sealed partial class DomBridge
             foreach (var dim in new[] { "height", "width" })
             {
                 var dimName = dim;
+                // Mixed, like <object>.data: the used-dimension getter's module has not migrated and
+                // the reflected-dimension setter's has, so the realm mints the half that is ready.
                 obj.FastAddProperty(dimName,
                     new DomFunction((in _) => Dom.Features.ComputedStyleBinding.GetUsedDimension(this, dimName, element, in _), "get " + dimName),
-                    new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetReflectedDimension(dimName, element, in a), "set " + dimName),
+                    Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("set " + dimName,
+                        (in call) => Dom.Features.ElementReflectionBinding.SetReflectedDimension(dimName, element, in call), 1)),
                     JSPropertyAttributes.EnumerableConfigurableProperty);
             }
 
@@ -291,25 +300,22 @@ public sealed partial class DomBridge
             // mw.util.parseImageUrl(), whose first act is url.match(...) — "Cannot get property match
             // of undefined". That throw took MultimediaViewerBootstrap.processThumbs down and, with
             // it, the rest of the single load.php bundle queued behind it.
-            obj.FastAddProperty("src",
-                new DomFunction((in _) => Dom.Features.ElementReflectionBinding.GetSrc(this, element, in _), "get src"),
-                new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetSrc(element, in a), "set src"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "src",
+                (in _) => Dom.Features.ElementReflectionBinding.GetSrc(this, element),
+                (in call) => Dom.Features.ElementReflectionBinding.SetSrc(element, in call));
 
             // .currentSrc — read-only, the URL of the image the element actually settled on. Srcset
             // candidate selection happens down in layout and is not visible from here, so this reports
             // the resolved src, and the empty string when there is no src at all. That is the pair of
             // answers the `img.currentSrc || img.src` idiom is written against (mmv.bootstrap's
             // processThumb reads exactly that, then calls .includes() on the result).
-            obj.FastAddProperty("currentSrc",
-                new DomFunction((in _) => Dom.Features.ElementReflectionBinding.GetCurrentSrc(this, element, in _), "get currentSrc"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "currentSrc",
+                (in _) => Dom.Features.ElementReflectionBinding.GetCurrentSrc(this, element), null);
 
             // .isMap — the one boolean in the interface: present or absent, never the string "false".
-            obj.FastAddProperty("isMap",
-                new DomFunction((in _) => HasAttr(element, "ismap") ? JSBoolean.True : JSBoolean.False, "get isMap"),
-                new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetReflectedBoolean("ismap", element, in a), "set isMap"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "isMap",
+                (in _) => JsValue.Boolean(HasAttr(element, "ismap")),
+                (in call) => Dom.Features.ElementReflectionBinding.SetReflectedBoolean("ismap", element, in call));
 
             // The rest of HTMLImageElement's plain reflected DOMStrings — alt, srcset, sizes, useMap
             // and the enumerated fetch hints. Same gap as .src: reading any of them returned undefined
@@ -318,10 +324,9 @@ public sealed partial class DomBridge
             foreach (var (idlName, attrName) in ImageReflectedAttributes)
             {
                 var captured = attrName; // capture for closure
-                obj.FastAddProperty(idlName,
-                    new DomFunction((in _) => TryGetAttribute(element, captured, out var v) ? new JSString(v) : new JSString(string.Empty), "get " + idlName),
-                    new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetReflectedAttribute(captured, element, in a), "set " + idlName),
-                    JSPropertyAttributes.EnumerableConfigurableProperty);
+                Realm.DefineAccessor(handle, idlName,
+                    (in _) => ReflectedAttribute(element, captured),
+                    (in call) => Dom.Features.ElementReflectionBinding.SetReflectedAttribute(captured, element, in call));
             }
         }
 
@@ -335,11 +340,9 @@ public sealed partial class DomBridge
             foreach (var dim in new[] { "height", "width" })
             {
                 var dimName = dim;
-                obj.FastAddProperty(dimName,
-                    new DomFunction((in _) => new JSString(
-                        TryGetAttribute(element, dimName, out var v) ? v : string.Empty), "get " + dimName),
-                    new DomFunction((in a) => Dom.Features.ElementReflectionBinding.SetReflectedDimension(dimName, element, in a), "set " + dimName),
-                    JSPropertyAttributes.EnumerableConfigurableProperty);
+                Realm.DefineAccessor(handle, dimName,
+                    (in _) => ReflectedAttribute(element, dimName),
+                    (in call) => Dom.Features.ElementReflectionBinding.SetReflectedDimension(dimName, element, in call));
             }
         }
 
@@ -351,13 +354,26 @@ public sealed partial class DomBridge
         // (DomBridge.ElementInterface.cs, with animate()), and HTMLElement's offset* family
         // (DomBridge.HtmlElementInterface.cs). scrollParent is on neither, because it is on no
         // browser's prototype.
-        Dom.Features.ElementGeometryBinding.InstallBridgeMembers(this, obj, element);
+        Dom.Features.ElementGeometryBinding.InstallBridgeMembers(this, Realm, handle, element);
 
         // SVG DOM interfaces — SVGAnimatedLength/Rect stubs, SVGTextContentElement text metrics, the
         // SVGSVGElement animation timeline and the SMIL animation-element no-ops (Phase 3 P3.50:
         // extracted into the co-located SvgElementBinding feature module). The module is migrated to
         // JSEAL, so it takes the realm and a handle over this still-engine-typed wrapper —
         // JsInterop.FromEngineObject is the half-migrated seam, not a conversion.
-        Dom.Features.SvgElementBinding.Install(Realm, Dom.Runtime.JsInterop.FromEngineObject(obj), element, tag);
+        Dom.Features.SvgElementBinding.Install(Realm, handle, element, tag);
     }
+
+    /// <summary>
+    /// A plainly reflected content attribute as its IDL getter answers it: the attribute's value, or
+    /// the empty string when it is absent.
+    /// </summary>
+    /// <remarks>
+    /// The shape these per-tag getters were each written out in, once, now that the realm mints them —
+    /// <see cref="TryGetAttribute"/> is the bridge's engine-neutral scan and the answer was always the
+    /// same two cases. Never JavaScript <c>null</c>: a missing reflected DOMString is <c>""</c>, which
+    /// is why the empty string is spelled out rather than left to <see cref="JsValue.String(string?)"/>.
+    /// </remarks>
+    private static JsValue ReflectedAttribute(Broiler.Dom.DomElement element, string attribute) =>
+        JsValue.String(TryGetAttribute(element, attribute, out var value) ? value : string.Empty);
 }

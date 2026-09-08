@@ -1,5 +1,6 @@
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Features;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge;
@@ -10,12 +11,20 @@ namespace Broiler.HtmlBridge;
 /// feature module consumes (HtmlBridge complexity-reduction roadmap Phase 3). Explicit interface
 /// members, so these seams do not widen the public <c>DomBridge</c> surface.
 /// </summary>
+/// <remarks>
+/// This is the half-migrated seam for the MutationObserver slice: the module speaks JSEAL, the
+/// wrapper cache the bridge keys on is still an engine one, and <see cref="JsInterop"/> is the cast
+/// between them. It is a cast and not a conversion — a JSEAL object handle carries the engine's own
+/// object — so a record's <c>target</c> is the same wrapper instance a page already holds.
+/// </remarks>
 public sealed partial class DomBridge : IMutationObserverHost
 {
-    JSObject IMutationObserverHost.ToJSObject(DomNode node) => ToJSObject(node);
+    IJsRealm IMutationObserverHost.Realm => Realm;
 
-    DomNode? IMutationObserverHost.FindDomNodeByJSObject(JSObject? jsObj) =>
-        jsObj is null ? null : FindDomNodeByJSObject(jsObj);
+    JsValue IMutationObserverHost.WrapNode(DomNode node) => JsInterop.FromEngineObject(ToJSObject(node));
+
+    DomNode? IMutationObserverHost.FindNode(JsValue wrapper) =>
+        wrapper.IsObject ? FindDomNodeByJSObject(JsInterop.ToEngineObject(wrapper)) : null;
 
     // Mutation-observer delivery is driven off canonical DomDocument.Mutated (the observer binding
     // subscribes per observed document). The bridge suppresses delivery while it mutates the live

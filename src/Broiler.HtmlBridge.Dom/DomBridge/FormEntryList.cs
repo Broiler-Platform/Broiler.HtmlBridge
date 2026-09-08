@@ -171,10 +171,20 @@ public sealed partial class DomBridge
     /// Reads a <c>FormData</c>'s entries, or answers <see langword="false"/> for anything else.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Recognised by shape rather than by identity, because this engine's <c>FormData</c> objects are
     /// plain objects carrying the interface's members rather than instances of a registered
     /// interface. Reading through <c>forEach</c> rather than the private entry list keeps this
     /// working for any object that really is one.
+    /// </para>
+    /// <para>
+    /// <b>Still engine-typed, and pinned by its caller.</b> <c>ElementInternalsBinding</c> calls this
+    /// statically with an engine object, so the signature cannot take a realm — and every operation
+    /// below needs one: reading three members, minting the collector, calling <c>forEach</c>, and the
+    /// two <c>ToString</c> coercions that are the observable ones a page's own <c>toString</c> can
+    /// participate in. It migrates with that caller, in one step, rather than growing a realm
+    /// parameter no static site can supply.
+    /// </para>
     /// </remarks>
     internal static bool TryReadFormDataEntries(JSObject candidate, out List<KeyValuePair<string, string>> entries)
     {

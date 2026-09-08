@@ -1,14 +1,8 @@
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Array;
 using Broiler.JavaScript.BuiltIns.Array.Typed;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 using Broiler.Dom;
 using Broiler.Graphics;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Media.Image;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -35,6 +29,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// guarded branch was unreachable. What it cost was accuracy — it read as a live host difference that
 /// did not exist, which is worse than no comment.
 /// </para>
+/// <para>
+/// <b>The JavaScript vocabulary is JSEAL's</b> (<see cref="IJsRealm"/>): objects, accessors, methods,
+/// coercions and errors all come from the realm, which is handed in when the members are installed and
+/// arrives on the call frame for every body afterwards. <b>One line is the exception</b> and it is
+/// named rather than hidden — <see cref="PixelBuffer"/>. JSEAL can mint an object, an array and a
+/// function; it cannot mint an <c>ArrayBuffer</c>, and an <c>ImageData.data</c> that does not share one
+/// with the bytes just read back would have to be copied element by element into a plain array. That
+/// path exists as the fallback below and costs a boxed handle per <em>byte</em> — 24 bytes for each one
+/// — so it is what a realm without <c>Uint8ClampedArray</c> gets and not what every
+/// <c>getImageData</c> pays. The contract gap is real and worth closing; until it is, the seam is one
+/// constructor call wide.
+/// </para>
 /// </remarks>
 internal static class CanvasBinding
 {
@@ -46,7 +52,7 @@ internal static class CanvasBinding
     /// The JS context object a page holds and the C# context that owns its bitmap, kept together so the
     /// element's own <c>toDataURL</c> can reach the pixels the context's drawing calls wrote.
     /// </summary>
-    private sealed record CanvasContext(JSObject JsObject, CanvasRenderingContext2D State);
+    private sealed record CanvasContext(JsValue JsObject, CanvasRenderingContext2D State);
 
     /// <summary>
     /// Installs the <c>HTMLCanvasElement</c> members on <paramref name="obj"/>. Called for every
@@ -57,25 +63,27 @@ internal static class CanvasBinding
     /// wrong, and <c>width</c>/<c>height</c> could not have been staged that way at all: they would
     /// have shadowed the reflected dimensions every other element has.
     /// </summary>
-    public static void Install(ICanvasHost host, JSObject obj, DomElement element)
+    /// <param name="realm">The realm the installed members and everything they build belong to.</param>
+    /// <param name="host">The bridge, for the window the pixel APIs read their constructor off.</param>
+    /// <param name="obj">The element's JS wrapper.</param>
+    /// <param name="element">The element the members read.</param>
+    public static void Install(IJsRealm realm, ICanvasHost host, JsValue obj, DomElement element)
     {
         if (!string.Equals(element.TagName, "canvas", StringComparison.OrdinalIgnoreCase))
             return;
 
-        obj.FastAddValue("getContext",
-            new DomFunction((in a) => GetContext(host, obj, element, in a), "getContext", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(obj, "getContext",
+            realm.NewMethod("getContext", (in call) => GetContext(host, obj, element, in call), 1));
 
-        obj.FastAddValue("toDataURL",
-            new DomFunction((in a) => ElementToDataUrl(host, obj, element, in a), "toDataURL", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(obj, "toDataURL",
+            realm.NewMethod("toDataURL", (in call) => ElementToDataUrl(host, obj, element, in call), 2));
 
         // width/height are unsigned longs reflecting the content attributes, and assigning either
         // resets the bitmap. Without these the canvas kept whatever size it had when getContext was
         // first called, so a page that sized its canvas afterwards — or cleared it with the standard
         // `canvas.width = canvas.width` — drew into a bitmap of the wrong size and never cleared.
-        InstallDimension(obj, element, "width", DefaultWidth);
-        InstallDimension(obj, element, "height", DefaultHeight);
+        InstallDimension(realm, obj, element, "width", DefaultWidth);
+        InstallDimension(realm, obj, element, "height", DefaultHeight);
     }
 
     private const int DefaultWidth = 300;
@@ -84,12 +92,13 @@ internal static class CanvasBinding
     /// <summary>Largest rectangle <c>getImageData</c>/<c>createImageData</c> will allocate, in pixels.</summary>
     private const long MaxImageDataPixels = 64L * 1024 * 1024;
 
-    private static void InstallDimension(JSObject obj, DomElement element, string name, int fallback)
+    private static void InstallDimension(IJsRealm realm, JsValue obj, DomElement element, string name, int fallback)
     {
-        obj.FastAddProperty(name,
-            new DomFunction((in _) => new JSNumber(Dimension(element, name, fallback)), "get " + name),
-            new DomFunction((in a) => SetDimension(element, name, in a), "set " + name),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        // The realm mints both accessor functions and names them "get width"/"set width" itself, which
+        // is what the two hand-built native accessors at this site were doing.
+        realm.DefineAccessor(obj, name,
+            (in _) => JsValue.Number(Dimension(element, name, fallback)),
+            (in call) => SetDimension(element, name, in call));
     }
 
     private static int Dimension(DomElement element, string name, int fallback) =>
@@ -99,14 +108,14 @@ internal static class CanvasBinding
             ? parsed
             : fallback;
 
-    private static JSValue SetDimension(DomElement element, string name, in Arguments a)
+    private static JsValue SetDimension(DomElement element, string name, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
+        if (call.Length == 0)
+            return JsValue.Undefined;
 
         // A value that is not a valid non-negative integer reverts to the default, per the reflection
         // rules for an unsigned long — it does not leave the previous value in place.
-        int value = ToInt(a[0]);
+        int value = ToInt(call.Realm, call[0]);
         if (value < 0)
             value = name == "width" ? DefaultWidth : DefaultHeight;
         DomBridge.SetAttr(element, name, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -118,28 +127,29 @@ internal static class CanvasBinding
                 Dimension(element, "height", DefaultHeight));
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     // getContext(contextType) — returns the 2D context for a <canvas>, else null (only "2d" is supported).
-    private static JSValue GetContext(ICanvasHost host, JSObject canvasObject, DomElement element, in Arguments a)
+    private static JsValue GetContext(ICanvasHost host, JsValue canvasObject, DomElement element, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
+        if (call.Length == 0)
+            return JsValue.Null;
         // Any context type other than "2d" is one this engine does not implement, and null is what the
-        // spec says to answer for an unsupported type.
-        if (!string.Equals(a[0].ToString(), "2d", StringComparison.OrdinalIgnoreCase))
-            return JSNull.Value;
+        // spec says to answer for an unsupported type. ToJsString, not the handle's rendering: an
+        // object argument must run its own toString, which is the coercion a page observes here.
+        if (!string.Equals(call.Realm.ToJsString(call[0]), "2d", StringComparison.OrdinalIgnoreCase))
+            return JsValue.Null;
 
-        return GetOrCreateContext(host, canvasObject, element).JsObject;
+        return GetOrCreateContext(call.Realm, host, canvasObject, element).JsObject;
     }
 
-    private static CanvasContext GetOrCreateContext(ICanvasHost host, JSObject canvasObject, DomElement element)
+    private static CanvasContext GetOrCreateContext(IJsRealm realm, ICanvasHost host, JsValue canvasObject, DomElement element)
     {
         if (Contexts.TryGetValue(element, out var existing))
             return existing;
 
-        var created = BuildCanvas2DContext(host, canvasObject, element);
+        var created = BuildCanvas2DContext(realm, host, canvasObject, element);
         // GetValue rather than Add: two lookups racing on the same element must agree on one context,
         // because the loser's bitmap is the one a page would silently keep drawing into.
         return Contexts.GetValue(element, _ => created);
@@ -150,111 +160,103 @@ internal static class CanvasBinding
     /// asked for a context still has a bitmap to serialize (a transparent one), which is why this does
     /// not require <c>getContext</c> to have been called first.
     /// </summary>
-    private static JSValue ElementToDataUrl(ICanvasHost host, JSObject canvasObject, DomElement element, in Arguments a) =>
-        ToDataUrl(GetOrCreateContext(host, canvasObject, element).State, in a);
+    private static JsValue ElementToDataUrl(ICanvasHost host, JsValue canvasObject, DomElement element, in JsCall call) =>
+        ToDataUrl(GetOrCreateContext(call.Realm, host, canvasObject, element).State, in call);
 
     /// <summary>
     /// Builds the Canvas 2D rendering context: the drawing-state properties, the drawing methods that
     /// now rasterise into the context's bitmap, and the pixel APIs that read it back.
     /// </summary>
-    private static CanvasContext BuildCanvas2DContext(ICanvasHost host, JSObject canvasObject, DomElement canvas)
+    private static CanvasContext BuildCanvas2DContext(IJsRealm realm, ICanvasHost host, JsValue canvasObject, DomElement canvas)
     {
-        var ctx = new JSObject();
+        var ctx = realm.NewObject();
         var context2d = new CanvasRenderingContext2D(
             Dimension(canvas, "width", DefaultWidth),
             Dimension(canvas, "height", DefaultHeight));
 
         // fillStyle (get/set)
-        ctx.FastAddProperty("fillStyle",
-            new DomFunction((in _) => new JSString(context2d.FillStyle), "get fillStyle"),
-            new DomFunction((in a) => SetFillStyle(context2d, in a), "set fillStyle"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(ctx, "fillStyle",
+            (in _) => JsValue.String(context2d.FillStyle),
+            (in call) => SetFillStyle(context2d, in call));
 
         // strokeStyle (get/set)
-        ctx.FastAddProperty("strokeStyle",
-            new DomFunction((in _) => new JSString(context2d.StrokeStyle), "get strokeStyle"),
-            new DomFunction((in a) => SetStrokeStyle(context2d, in a), "set strokeStyle"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(ctx, "strokeStyle",
+            (in _) => JsValue.String(context2d.StrokeStyle),
+            (in call) => SetStrokeStyle(context2d, in call));
 
         // lineWidth (get/set)
-        ctx.FastAddProperty("lineWidth",
-            new DomFunction((in _) => new JSNumber(context2d.LineWidth), "get lineWidth"),
-            new DomFunction((in a) => SetLineWidth(context2d, in a), "set lineWidth"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(ctx, "lineWidth",
+            (in _) => JsValue.Number(context2d.LineWidth),
+            (in call) => SetLineWidth(context2d, in call));
 
         // font (get/set)
-        ctx.FastAddProperty("font",
-            new DomFunction((in _) => new JSString(context2d.Font), "get font"),
-            new DomFunction((in a) => SetFont(context2d, in a), "set font"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(ctx, "font",
+            (in _) => JsValue.String(context2d.Font),
+            (in call) => SetFont(context2d, in call));
 
         // textAlign (get/set)
-        ctx.FastAddProperty("textAlign",
-            new DomFunction((in _) => new JSString(context2d.TextAlign), "get textAlign"),
-            new DomFunction((in a) => SetTextAlign(context2d, in a), "set textAlign"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(ctx, "textAlign",
+            (in _) => JsValue.String(context2d.TextAlign),
+            (in call) => SetTextAlign(context2d, in call));
 
         // globalAlpha (get/set)
-        ctx.FastAddProperty("globalAlpha",
-            new DomFunction((in _) => new JSNumber(context2d.GlobalAlpha), "get globalAlpha"),
-            new DomFunction((in a) => SetGlobalAlpha(context2d, in a), "set globalAlpha"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(ctx, "globalAlpha",
+            (in _) => JsValue.Number(context2d.GlobalAlpha),
+            (in call) => SetGlobalAlpha(context2d, in call));
 
         // globalCompositeOperation (get/set) — a real accessor rather than the plain own property an
         // extensible object grew on assignment, so an operator the rasteriser cannot honour is rejected
         // at the setter (the spec's "ignore an invalid value") instead of round-tripping as if it had
         // been applied.
-        ctx.FastAddProperty("globalCompositeOperation",
-            new DomFunction((in _) => new JSString(context2d.GlobalCompositeOperation), "get globalCompositeOperation"),
-            new DomFunction((in a) => SetGlobalCompositeOperation(context2d, in a), "set globalCompositeOperation"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(ctx, "globalCompositeOperation",
+            (in _) => JsValue.String(context2d.GlobalCompositeOperation),
+            (in call) => SetGlobalCompositeOperation(context2d, in call));
 
         // canvas — the element that owns this context. Was a fresh empty object, so ctx.canvas.width did
-        // not answer and ctx.canvas === theCanvas was false.
-        ctx.FastAddProperty("canvas",
-            new DomFunction((in _) => canvasObject, "get canvas"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        // not answer and ctx.canvas === theCanvas was false. A null setter is how a read-only IDL
+        // attribute is spelled.
+        realm.DefineAccessor(ctx, "canvas", (in _) => canvasObject, null);
 
         // Drawing methods
-        ctx.FastAddValue("fillRect", new DomFunction((in a) => FillRect(context2d, in a), "fillRect", 4), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "fillRect", realm.NewMethod("fillRect", (in call) => FillRect(context2d, in call), 4));
 
-        ctx.FastAddValue("strokeRect", new DomFunction((in a) => StrokeRect(context2d, in a), "strokeRect", 4), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "strokeRect", realm.NewMethod("strokeRect", (in call) => StrokeRect(context2d, in call), 4));
 
-        ctx.FastAddValue("clearRect", new DomFunction((in a) => ClearRect(context2d, in a), "clearRect", 4), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "clearRect", realm.NewMethod("clearRect", (in call) => ClearRect(context2d, in call), 4));
 
-        ctx.FastAddValue("beginPath", new DomFunction((in _) => BeginPath(context2d, in _), "beginPath", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "beginPath", realm.NewMethod("beginPath", (in call) => BeginPath(context2d, in call)));
 
-        ctx.FastAddValue("moveTo", new DomFunction((in a) => MoveTo(context2d, in a), "moveTo", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "moveTo", realm.NewMethod("moveTo", (in call) => MoveTo(context2d, in call), 2));
 
-        ctx.FastAddValue("lineTo", new DomFunction((in a) => LineTo(context2d, in a), "lineTo", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "lineTo", realm.NewMethod("lineTo", (in call) => LineTo(context2d, in call), 2));
 
-        ctx.FastAddValue("arc", new DomFunction((in a) => Arc(context2d, in a), "arc", 5), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "arc", realm.NewMethod("arc", (in call) => Arc(context2d, in call), 5));
 
-        ctx.FastAddValue("rect", new DomFunction((in a) => Rect(context2d, in a), "rect", 4), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "rect", realm.NewMethod("rect", (in call) => Rect(context2d, in call), 4));
 
-        ctx.FastAddValue("closePath", new DomFunction((in _) => ClosePath(context2d, in _), "closePath", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "closePath", realm.NewMethod("closePath", (in call) => ClosePath(context2d, in call)));
 
-        ctx.FastAddValue("fill", new DomFunction((in _) => Fill(context2d, in _), "fill", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "fill", realm.NewMethod("fill", (in call) => Fill(context2d, in call)));
 
-        ctx.FastAddValue("stroke", new DomFunction((in _) => Stroke(context2d, in _), "stroke", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "stroke", realm.NewMethod("stroke", (in call) => Stroke(context2d, in call)));
 
-        ctx.FastAddValue("fillText", new DomFunction((in a) => FillText(context2d, in a), "fillText", 3), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "fillText", realm.NewMethod("fillText", (in call) => FillText(context2d, in call), 3));
 
-        ctx.FastAddValue("strokeText", new DomFunction((in a) => StrokeText(context2d, in a), "strokeText", 3), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "strokeText", realm.NewMethod("strokeText", (in call) => StrokeText(context2d, in call), 3));
 
-        ctx.FastAddValue("save", new DomFunction((in _) => Save(context2d, in _), "save", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "save", realm.NewMethod("save", (in call) => Save(context2d, in call)));
 
-        ctx.FastAddValue("restore", new DomFunction((in _) => Restore(context2d, in _), "restore", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "restore", realm.NewMethod("restore", (in call) => Restore(context2d, in call)));
 
         // measureText(text) — returns { width: ... }
-        ctx.FastAddValue("measureText", new DomFunction((in a) => MeasureText(context2d, in a), "measureText", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "measureText", realm.NewMethod("measureText", (in call) => MeasureText(context2d, in call), 1));
 
         // Pixel access
-        ctx.FastAddValue("getImageData", new DomFunction((in a) => GetImageData(context2d, host, in a), "getImageData", 4), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "getImageData", realm.NewMethod("getImageData", (in call) => GetImageData(context2d, host, in call), 4));
 
-        ctx.FastAddValue("putImageData", new DomFunction((in a) => PutImageData(context2d, in a), "putImageData", 3), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "putImageData", realm.NewMethod("putImageData", (in call) => PutImageData(context2d, in call), 3));
 
-        ctx.FastAddValue("createImageData", new DomFunction((in a) => CreateImageData(host, in a), "createImageData", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ctx, "createImageData", realm.NewMethod("createImageData", (in call) => CreateImageData(host, in call), 2));
 
         // No toDataURL here: HTML puts it on HTMLCanvasElement only, and a page reaches it from a context
         // through ctx.canvas. Adding it to the context would be a name feature detection could trip on.
@@ -263,253 +265,270 @@ internal static class CanvasBinding
 
     // ---- drawing-state setters --------------------------------------------------------------------
 
-    private static JSValue SetFillStyle(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue SetFillStyle(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length > 0)
-            context2d.FillStyle = a[0].ToString();
-        return JSUndefined.Value;
+        if (call.Length > 0)
+            context2d.FillStyle = call.Realm.ToJsString(call[0]);
+        return JsValue.Undefined;
     }
 
-    private static JSValue SetStrokeStyle(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue SetStrokeStyle(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length > 0)
-            context2d.StrokeStyle = a[0].ToString();
-        return JSUndefined.Value;
+        if (call.Length > 0)
+            context2d.StrokeStyle = call.Realm.ToJsString(call[0]);
+        return JsValue.Undefined;
     }
 
-    private static JSValue SetLineWidth(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue SetLineWidth(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length > 0 && a[0] is JSNumber n)
-            context2d.LineWidth = (float)n.DoubleValue;
-        return JSUndefined.Value;
+        // A type test, not a coercion: only an actual JS number moves the pen width, so `ctx.lineWidth
+        // = "4"` is ignored exactly as it was before.
+        if (call.Length > 0 && call[0].IsNumber)
+            context2d.LineWidth = (float)call[0].AsNumber;
+        return JsValue.Undefined;
     }
 
-    private static JSValue SetFont(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue SetFont(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length > 0)
-            context2d.Font = a[0].ToString();
-        return JSUndefined.Value;
+        if (call.Length > 0)
+            context2d.Font = call.Realm.ToJsString(call[0]);
+        return JsValue.Undefined;
     }
 
-    private static JSValue SetTextAlign(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue SetTextAlign(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        var value = a[0].ToString();
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        var value = call.Realm.ToJsString(call[0]);
         if (value is "start" or "end" or "left" or "right" or "center")
             context2d.TextAlign = value;
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue SetGlobalAlpha(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue SetGlobalAlpha(CanvasRenderingContext2D context2d, in JsCall call)
     {
         // Out-of-range and non-finite values are ignored rather than clamped (HTML §canvas): the state
-        // keeps its previous value.
-        if (a.Length > 0 && a[0] is JSNumber n && n.DoubleValue is >= 0 and <= 1)
-            context2d.GlobalAlpha = (float)n.DoubleValue;
-        return JSUndefined.Value;
+        // keeps its previous value. As with lineWidth this is a type test rather than a coercion.
+        if (call.Length > 0 && call[0].IsNumber && call[0].AsNumber is >= 0 and <= 1)
+            context2d.GlobalAlpha = (float)call[0].AsNumber;
+        return JsValue.Undefined;
     }
 
-    private static JSValue SetGlobalCompositeOperation(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue SetGlobalCompositeOperation(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length > 0 && CanvasRenderingContext2D.IsSupportedCompositeOperation(a[0].ToString()))
-            context2d.GlobalCompositeOperation = a[0].ToString();
-        return JSUndefined.Value;
+        // Coerced twice, as it always was: an object argument whose toString answers differently on the
+        // second call sets a value the check did not approve, and reproducing that is what "preserve the
+        // behaviour" means here.
+        if (call.Length > 0 && CanvasRenderingContext2D.IsSupportedCompositeOperation(call.Realm.ToJsString(call[0])))
+            context2d.GlobalCompositeOperation = call.Realm.ToJsString(call[0]);
+        return JsValue.Undefined;
     }
 
     // ---- drawing ----------------------------------------------------------------------------------
 
-    private static JSValue FillRect(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue FillRect(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length >= 4)
-            context2d.FillRect((float)a[0].DoubleValue, (float)a[1].DoubleValue, (float)a[2].DoubleValue, (float)a[3].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length >= 4)
+            context2d.FillRect(Coordinate(call, 0), Coordinate(call, 1), Coordinate(call, 2), Coordinate(call, 3));
+        return JsValue.Undefined;
     }
 
-    private static JSValue StrokeRect(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue StrokeRect(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length >= 4)
-            context2d.StrokeRect((float)a[0].DoubleValue, (float)a[1].DoubleValue, (float)a[2].DoubleValue, (float)a[3].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length >= 4)
+            context2d.StrokeRect(Coordinate(call, 0), Coordinate(call, 1), Coordinate(call, 2), Coordinate(call, 3));
+        return JsValue.Undefined;
     }
 
-    private static JSValue ClearRect(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue ClearRect(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length >= 4)
-            context2d.ClearRect((float)a[0].DoubleValue, (float)a[1].DoubleValue, (float)a[2].DoubleValue, (float)a[3].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length >= 4)
+            context2d.ClearRect(Coordinate(call, 0), Coordinate(call, 1), Coordinate(call, 2), Coordinate(call, 3));
+        return JsValue.Undefined;
     }
 
-    private static JSValue BeginPath(CanvasRenderingContext2D context2d, in Arguments _)
+    private static JsValue BeginPath(CanvasRenderingContext2D context2d, in JsCall _)
     {
         context2d.BeginPath();
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue MoveTo(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue MoveTo(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length >= 2)
-            context2d.MoveTo((float)a[0].DoubleValue, (float)a[1].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length >= 2)
+            context2d.MoveTo(Coordinate(call, 0), Coordinate(call, 1));
+        return JsValue.Undefined;
     }
 
-    private static JSValue LineTo(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue LineTo(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length >= 2)
-            context2d.LineTo((float)a[0].DoubleValue, (float)a[1].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length >= 2)
+            context2d.LineTo(Coordinate(call, 0), Coordinate(call, 1));
+        return JsValue.Undefined;
     }
 
-    private static JSValue Arc(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue Arc(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length >= 5)
-            context2d.Arc((float)a[0].DoubleValue, (float)a[1].DoubleValue, (float)a[2].DoubleValue, (float)a[3].DoubleValue, (float)a[4].DoubleValue);
-        return JSUndefined.Value;
-    }
-
-    private static JSValue Rect(CanvasRenderingContext2D context2d, in Arguments a)
-    {
-        if (a.Length >= 4)
+        if (call.Length >= 5)
         {
-            float x = (float)a[0].DoubleValue, y = (float)a[1].DoubleValue;
-            float w = (float)a[2].DoubleValue, h = (float)a[3].DoubleValue;
+            context2d.Arc(
+                Coordinate(call, 0), Coordinate(call, 1), Coordinate(call, 2),
+                Coordinate(call, 3), Coordinate(call, 4));
+        }
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Rect(CanvasRenderingContext2D context2d, in JsCall call)
+    {
+        if (call.Length >= 4)
+        {
+            float x = Coordinate(call, 0), y = Coordinate(call, 1);
+            float w = Coordinate(call, 2), h = Coordinate(call, 3);
             context2d.MoveTo(x, y);
             context2d.LineTo(x + w, y);
             context2d.LineTo(x + w, y + h);
             context2d.LineTo(x, y + h);
             context2d.ClosePath();
         }
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue ClosePath(CanvasRenderingContext2D context2d, in Arguments _)
+    private static JsValue ClosePath(CanvasRenderingContext2D context2d, in JsCall _)
     {
         context2d.ClosePath();
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue Fill(CanvasRenderingContext2D context2d, in Arguments _)
+    private static JsValue Fill(CanvasRenderingContext2D context2d, in JsCall _)
     {
         context2d.Fill();
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue Stroke(CanvasRenderingContext2D context2d, in Arguments _)
+    private static JsValue Stroke(CanvasRenderingContext2D context2d, in JsCall _)
     {
         context2d.Stroke();
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue FillText(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue FillText(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length >= 3)
-            context2d.FillText(a[0].ToString(), (float)a[1].DoubleValue, (float)a[2].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length >= 3)
+            context2d.FillText(call.Realm.ToJsString(call[0]), Coordinate(call, 1), Coordinate(call, 2));
+        return JsValue.Undefined;
     }
 
-    private static JSValue StrokeText(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue StrokeText(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length >= 3)
-            context2d.StrokeText(a[0].ToString(), (float)a[1].DoubleValue, (float)a[2].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length >= 3)
+            context2d.StrokeText(call.Realm.ToJsString(call[0]), Coordinate(call, 1), Coordinate(call, 2));
+        return JsValue.Undefined;
     }
 
-    private static JSValue Save(CanvasRenderingContext2D context2d, in Arguments _)
+    private static JsValue Save(CanvasRenderingContext2D context2d, in JsCall _)
     {
         context2d.Save();
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue Restore(CanvasRenderingContext2D context2d, in Arguments _)
+    private static JsValue Restore(CanvasRenderingContext2D context2d, in JsCall _)
     {
         context2d.Restore();
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue MeasureText(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue MeasureText(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        var text = a.Length > 0 ? a[0].ToString() : string.Empty;
-        var result = new JSObject();
-        result.FastAddValue("width", new JSNumber(context2d.MeasureTextWidth(text)), JSPropertyAttributes.EnumerableConfigurableValue);
+        var text = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+        var result = call.Realm.NewObject();
+        call.Realm.DefineValue(result, "width", JsValue.Number(context2d.MeasureTextWidth(text)));
         return result;
     }
 
+    /// <summary>
+    /// A drawing coordinate: the ECMAScript <c>ToNumber</c> of the argument, because every one of these
+    /// is a place a page may legitimately hand a string (<c>ctx.fillRect(x, y, "100", "50")</c>).
+    /// </summary>
+    private static float Coordinate(in JsCall call, int index) => (float)call.Realm.ToNumber(call[index]);
+
     // ---- pixel access -----------------------------------------------------------------------------
 
-    private static JSValue GetImageData(CanvasRenderingContext2D context2d, ICanvasHost host, in Arguments a)
+    private static JsValue GetImageData(CanvasRenderingContext2D context2d, ICanvasHost host, in JsCall call)
     {
-        if (a.Length < 4)
-            throw new JSException(
+        if (call.Length < 4)
+            throw call.Realm.Error(JsErrorKind.Error,
                 "Failed to execute 'getImageData' on 'CanvasRenderingContext2D': 4 arguments required.");
 
-        int sx = ToInt(a[0]), sy = ToInt(a[1]);
-        int width = ToInt(a[2]), height = ToInt(a[3]);
+        int sx = ToInt(call.Realm, call[0]), sy = ToInt(call.Realm, call[1]);
+        int width = ToInt(call.Realm, call[2]), height = ToInt(call.Realm, call[3]);
         // Negative extents address the rectangle in the other direction rather than being an error.
         if (width < 0) { sx += width; width = -width; }
         if (height < 0) { sy += height; height = -height; }
         if (width == 0 || height == 0)
-            throw new JSException(
+            throw call.Realm.Error(JsErrorKind.Error,
                 "Failed to execute 'getImageData' on 'CanvasRenderingContext2D': the source rectangle is empty.");
         // The rectangle is not clipped to the canvas — out-of-bounds pixels read as transparent black —
         // so its size is bounded by the argument alone and a page can name one no allocation could hold.
         if ((long)width * height > MaxImageDataPixels)
-            throw new JSException(
+            throw call.Realm.Error(JsErrorKind.Error,
                 "Failed to execute 'getImageData' on 'CanvasRenderingContext2D': the source rectangle is too large.");
 
         byte[] pixels = context2d.GetImageData(sx, sy, width, height);
-        return BuildImageData(host, pixels, width, height);
+        return BuildImageData(call.Realm, host, pixels, width, height);
     }
 
-    private static JSValue PutImageData(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue PutImageData(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (a.Length < 3)
-            throw new JSException(
+        if (call.Length < 3)
+            throw call.Realm.Error(JsErrorKind.Error,
                 "Failed to execute 'putImageData' on 'CanvasRenderingContext2D': 3 arguments required.");
-        if (a[0] is not JSObject imageData)
-            throw new JSException(
+        if (!call[0].IsObject)
+            throw call.Realm.Error(JsErrorKind.Error,
                 "Failed to execute 'putImageData' on 'CanvasRenderingContext2D': parameter 1 is not of type 'ImageData'.");
 
-        int width = ToInt(imageData[(KeyString)"width"]);
-        int height = ToInt(imageData[(KeyString)"height"]);
+        var imageData = call[0];
+        int width = ToInt(call.Realm, call.Realm.GetProperty(imageData, "width"));
+        int height = ToInt(call.Realm, call.Realm.GetProperty(imageData, "height"));
         if (width <= 0 || height <= 0)
-            return JSUndefined.Value;
+            return JsValue.Undefined;
 
-        byte[] pixels = ReadPixelBytes(imageData[(KeyString)"data"], width, height);
-        context2d.PutImageData(pixels, width, height, ToInt(a[1]), ToInt(a[2]));
-        return JSUndefined.Value;
+        byte[] pixels = ReadPixelBytes(call.Realm, call.Realm.GetProperty(imageData, "data"), width, height);
+        context2d.PutImageData(pixels, width, height, ToInt(call.Realm, call[1]), ToInt(call.Realm, call[2]));
+        return JsValue.Undefined;
     }
 
     // No context parameter: createImageData yields transparent black of the requested size and reads
     // nothing from the canvas it was called on.
-    private static JSValue CreateImageData(ICanvasHost host, in Arguments a)
+    private static JsValue CreateImageData(ICanvasHost host, in JsCall call)
     {
         int width, height;
-        if (a.Length >= 2)
+        if (call.Length >= 2)
         {
             // Magnitude, not Math.Abs: the sign is ignored here, and Math.Abs(int.MinValue) throws.
-            width = Magnitude(ToInt(a[0]));
-            height = Magnitude(ToInt(a[1]));
+            width = Magnitude(ToInt(call.Realm, call[0]));
+            height = Magnitude(ToInt(call.Realm, call[1]));
         }
-        else if (a.Length == 1 && a[0] is JSObject source)
+        else if (call.Length == 1 && call[0].IsObject)
         {
             // createImageData(imagedata) — same dimensions, but transparent black rather than a copy.
-            width = ToInt(source[(KeyString)"width"]);
-            height = ToInt(source[(KeyString)"height"]);
+            var source = call[0];
+            width = ToInt(call.Realm, call.Realm.GetProperty(source, "width"));
+            height = ToInt(call.Realm, call.Realm.GetProperty(source, "height"));
         }
         else
         {
-            throw new JSException(
+            throw call.Realm.Error(JsErrorKind.Error,
                 "Failed to execute 'createImageData' on 'CanvasRenderingContext2D': 2 arguments required.");
         }
 
         if (width == 0 || height == 0)
-            throw new JSException(
+            throw call.Realm.Error(JsErrorKind.Error,
                 "Failed to execute 'createImageData' on 'CanvasRenderingContext2D': the source dimensions are zero.");
         if ((long)width * height > MaxImageDataPixels)
-            throw new JSException(
+            throw call.Realm.Error(JsErrorKind.Error,
                 "Failed to execute 'createImageData' on 'CanvasRenderingContext2D': the dimensions are too large.");
 
-        return BuildImageData(host, new byte[(long)width * height * 4], width, height);
+        return BuildImageData(call.Realm, host, new byte[(long)width * height * 4], width, height);
     }
 
     private static int Magnitude(int value) => value == int.MinValue ? int.MaxValue : Math.Abs(value);
@@ -520,22 +539,23 @@ internal static class CanvasBinding
     /// real typed array; a realm without one falls back to a plain array, which keeps indexing working
     /// where the alternative would be no <c>ImageData</c> at all.
     /// </summary>
-    private static JSObject BuildImageData(ICanvasHost host, byte[] pixels, int width, int height)
+    private static JsValue BuildImageData(IJsRealm realm, ICanvasHost host, byte[] pixels, int width, int height)
     {
-        var imageData = new JSObject();
-        imageData.FastAddValue("width", new JSNumber(width), JSPropertyAttributes.EnumerableConfigurableValue);
-        imageData.FastAddValue("height", new JSNumber(height), JSPropertyAttributes.EnumerableConfigurableValue);
-        imageData.FastAddValue("data", BuildPixelArray(host, pixels), JSPropertyAttributes.EnumerableConfigurableValue);
+        var imageData = realm.NewObject();
+        realm.DefineValue(imageData, "width", JsValue.Number(width));
+        realm.DefineValue(imageData, "height", JsValue.Number(height));
+        realm.DefineValue(imageData, "data", BuildPixelArray(realm, host, pixels));
         return imageData;
     }
 
-    private static JSValue BuildPixelArray(ICanvasHost host, byte[] pixels)
+    private static JsValue BuildPixelArray(IJsRealm realm, ICanvasHost host, byte[] pixels)
     {
-        if (host.WindowJSObject?[(KeyString)"Uint8ClampedArray"] is JSFunction clampedArrayCtor)
+        var window = host.Window;
+        if (window.IsObject && realm.GetProperty(window, "Uint8ClampedArray") is { IsFunction: true } clampedArrayCtor)
         {
             try
             {
-                return clampedArrayCtor.CreateInstance(new Arguments(JSUndefined.Value, new JSArrayBuffer(pixels)));
+                return realm.Construct(clampedArrayCtor, [PixelBuffer(pixels)]);
             }
             catch
             {
@@ -543,28 +563,47 @@ internal static class CanvasBinding
             }
         }
 
-        var values = new JSValue[pixels.Length];
+        var values = new JsValue[pixels.Length];
         for (int i = 0; i < pixels.Length; i++)
-            values[i] = new JSNumber(pixels[i]);
-        return new JSArray(values);
+            values[i] = JsValue.Number(pixels[i]);
+        return realm.NewArray(values);
     }
+
+    /// <summary>
+    /// The one engine-typed line in this module: an <c>ArrayBuffer</c> over the bytes just read back,
+    /// for <c>Uint8ClampedArray</c> to view.
+    /// </summary>
+    /// <remarks>
+    /// JSEAL has no way to mint an <c>ArrayBuffer</c> — <see cref="IJsValues"/> offers an object, an
+    /// array, a function and an exotic, and a buffer is none of those — so this is not a substitution
+    /// that was missed but a contract gap, and it is worth stating rather than working around. The
+    /// available workaround is the plain-array fallback below, which allocates a 24-byte handle for
+    /// every <em>byte</em> of the readback: a 1000×1000 <c>getImageData</c> would cost 96 MB instead of
+    /// 4. So the buffer stays, and the seam is exactly one constructor call wide. <c>JsInterop</c>
+    /// carries the object across without converting it.
+    /// </remarks>
+    private static JsValue PixelBuffer(byte[] pixels) =>
+        Runtime.JsInterop.FromEngineObject(new JSArrayBuffer(pixels));
 
     /// <summary>
     /// Reads an <c>ImageData.data</c> back into bytes, whichever of the two shapes
     /// <see cref="BuildPixelArray"/> produced — and equally an <c>ImageData</c> the page built itself.
     /// </summary>
-    private static byte[] ReadPixelBytes(JSValue? data, int width, int height)
+    private static byte[] ReadPixelBytes(IJsRealm realm, JsValue data, int width, int height)
     {
         var pixels = new byte[(long)width * height * 4];
-        if (data is not JSObject source)
+        if (!data.IsObject)
             return pixels;
 
         for (uint i = 0; i < pixels.Length; i++)
         {
-            var value = source.GetValue(i, source, throwError: false);
-            if (value is null || value.IsUndefined)
+            var value = realm.GetIndex(data, i);
+            if (value.IsMissing || value.IsUndefined)
                 continue;
-            pixels[i] = (byte)Math.Clamp((int)Math.Round(value.DoubleValue), 0, 255);
+            // A typed array answers numbers, which need no engine entry; anything else is a page-built
+            // ImageData whose elements go through the ECMAScript coercion, as they did before.
+            double number = value.IsNumber ? value.AsNumber : realm.ToNumber(value);
+            pixels[i] = (byte)Math.Clamp((int)Math.Round(number), 0, 255);
         }
 
         return pixels;
@@ -577,18 +616,20 @@ internal static class CanvasBinding
     /// error: HTML requires falling back to <c>image/png</c>, and the returned URL names the type that
     /// was actually produced — which is exactly how a feature detector tells the difference.
     /// </summary>
-    private static JSValue ToDataUrl(CanvasRenderingContext2D context2d, in Arguments a)
+    private static JsValue ToDataUrl(CanvasRenderingContext2D context2d, in JsCall call)
     {
         // "data:," is the spec's answer for a canvas with no pixels to serialize.
         if (!context2d.HasBitmap || !BImageCodecs.IsRegistered)
-            return new JSString("data:,");
+            return JsValue.String("data:,");
 
-        string requested = a.Length > 0 && !a[0].IsUndefined ? a[0].ToString() : "image/png";
+        string requested = call.Length > 0 && !call[0].IsUndefined
+            ? call.Realm.ToJsString(call[0])
+            : "image/png";
         (ImageEncodeFormat format, string mediaType) = ResolveEncodeFormat(requested);
 
         int quality = 92;
-        if (a.Length > 1 && a[1] is JSNumber q && q.DoubleValue is >= 0 and <= 1)
-            quality = (int)Math.Round(q.DoubleValue * 100);
+        if (call.Length > 1 && call[1].IsNumber && call[1].AsNumber is >= 0 and <= 1)
+            quality = (int)Math.Round(call[1].AsNumber * 100);
 
         byte[] encoded;
         try
@@ -599,12 +640,12 @@ internal static class CanvasBinding
         {
             // An encoder that cannot produce this bitmap leaves the canvas unserializable rather than
             // taking the page's script down with it.
-            return new JSString("data:,");
+            return JsValue.String("data:,");
         }
 
         return encoded.Length == 0
-            ? new JSString("data:,")
-            : new JSString($"data:{mediaType};base64,{Convert.ToBase64String(encoded)}");
+            ? JsValue.String("data:,")
+            : JsValue.String($"data:{mediaType};base64,{Convert.ToBase64String(encoded)}");
     }
 
     private static (ImageEncodeFormat Format, string MediaType) ResolveEncodeFormat(string requested) =>
@@ -616,9 +657,18 @@ internal static class CanvasBinding
             _ => (ImageEncodeFormat.Png, "image/png"),
         };
 
-    private static int ToInt(JSValue? value)
+    /// <summary>
+    /// An integer argument, truncated the way the canvas APIs take one. <c>Missing</c> is zero without
+    /// entering the engine — the CLR null the argument frame used to answer past the end took the same
+    /// branch, and <c>ToNumber</c> of a value that was never supplied is not a question the realm
+    /// should be asked.
+    /// </summary>
+    private static int ToInt(IJsRealm realm, JsValue value)
     {
-        double number = value?.DoubleValue ?? 0;
+        if (value.IsMissing)
+            return 0;
+
+        double number = realm.ToNumber(value);
         if (double.IsNaN(number) || double.IsInfinity(number))
             return 0;
         return (int)Math.Clamp(Math.Truncate(number), int.MinValue, int.MaxValue);

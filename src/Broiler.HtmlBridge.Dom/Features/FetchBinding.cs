@@ -1,19 +1,8 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Promise;
 using System.Text;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Array.Typed;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Json;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.BuiltIns.Function;
+
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Internal.Scripting;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -23,48 +12,109 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// its <c>Headers</c>/<c>Request</c>/<c>Response</c>/<c>FormData</c>/<c>Blob</c>/<c>AbortController</c>
 /// helper objects, the <c>Response</c> static factories and the <c>XMLHttpRequest</c> polyfill. Host
 /// I/O goes through the injected Phase 2 <see cref="ResourceLoader"/> — the "no feature callback
-/// constructs an <c>HttpClient</c>" seam Phase 7 builds on — and the only other bridge coupling (the
-/// page URL used to resolve <c>Response.redirect</c> relative URLs) is reached through the narrow
-/// <see cref="IFetchHost"/> contract. The non-networking registrations that historically lived in this
-/// method (<c>MessageChannel</c>, <c>getComputedStyle</c>) were moved back to the window-globals
-/// registration site.
+/// constructs an <c>HttpClient</c>" seam Phase 7 builds on — and the other bridge couplings (the page
+/// URL used to resolve <c>Response.redirect</c> relative URLs, the realm, and the blob/stream objects
+/// other modules own) are reached through the narrow <see cref="IFetchHost"/> contract. The
+/// non-networking registrations that historically lived in this method (<c>MessageChannel</c>,
+/// <c>getComputedStyle</c>) were moved back to the window-globals registration site.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). Two things here cannot be said in
+/// it and are named as such where they occur: an <c>ArrayBuffer</c>, which
+/// <see cref="IJsValues"/> has no member for (the same line <c>StreamsBinding</c> records), and the
+/// engine handle the still-unmigrated registration site takes back from
+/// <see cref="Install(Broiler.JavaScript.Engine.JSContext, Broiler.JavaScript.Runtime.JSObject)"/>.
+/// </para>
+/// <para>
+/// <b>Every member of these objects is installed as a constructable function, and that is preserved
+/// rather than fixed.</b> The surface was built with <c>JSFunction</c> throughout — not the bridge's
+/// <c>DomFunction</c> — so <c>headers.get.prototype</c> is an object and <c>new headers.get()</c>
+/// does not throw, where a browser's <c>Headers.prototype.get</c> is not constructable. That is a
+/// pre-existing deviation, and <see cref="IJsValues.NewConstructor"/> is the faithful spelling of it;
+/// migrating it to <see cref="IJsValues.NewMethod"/> would have been a behaviour change smuggled into
+/// a refactor.
+/// </para>
+/// </remarks>
 internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resources)
 {
     private readonly IFetchHost _host = host;
     private readonly ResourceLoader _resources = resources;
 
-    private delegate string? JsPropertyStringGetter(JSObject obj, params string[] names);
+    /// <summary>
+    /// The realm's own <c>JSON.parse</c> and <c>JSON.stringify</c>, read once when the surface is
+    /// installed.
+    /// </summary>
+    /// <remarks>
+    /// The two were the engine's <c>JSJSON</c> statics, which are the intrinsics and cannot be
+    /// reached through the page's <c>globalThis.JSON</c>. Reading them at registration — before a
+    /// page's first script runs — is what keeps that true through a contract that has no JSON
+    /// member: a page that later replaces <c>JSON</c> changes what its own code sees and not what a
+    /// <c>response.json()</c> does, exactly as before.
+    /// </remarks>
+    private JsValue _jsonParse;
 
-    private delegate IEnumerable<(string Key, string Value)> ObjectStringEntriesEnumerator(JSObject obj);
+    private JsValue _jsonStringify;
 
-    private delegate (int status, string statusText, string url, string type, bool redirected, Dictionary<string, string> headers) ResponseInitParser(JSValue? initValue);
+    private delegate string? JsPropertyStringGetter(JsValue obj, params string[] names);
 
-    private delegate JSValue ResponseFactory(string body, int statusCode, string statusText,
+    private delegate IEnumerable<(string Key, string Value)> ObjectStringEntriesEnumerator(JsValue obj);
+
+    private delegate (int status, string statusText, string url, string type, bool redirected, Dictionary<string, string> headers) ResponseInitParser(JsValue initValue);
+
+    private delegate JsValue ResponseFactory(string body, int statusCode, string statusText,
         string responseUrl, string type, bool redirected, Dictionary<string, string> headers);
 
+    /// <summary>
+    /// The engine-typed entry point the registration site still calls, forwarding to the migrated
+    /// <see cref="Install(IJsRealm, JsValue)"/>.
+    /// </summary>
+    /// <remarks>
+    /// <c>DomBridge/Registration/Registration.cs</c> hands the context and the window object over and
+    /// takes the <c>fetch</c> function back as an engine value, which it passes on to
+    /// <c>RegisterWindowGlobals</c>; both files are unmigrated, so the conversion lives here rather
+    /// than changing a signature two files that are not this module's would have to follow. Nothing
+    /// reads <paramref name="context"/> — the surface is installed into the realm the host holds,
+    /// which is that same context adopted.
+    /// </remarks>
+    internal Broiler.JavaScript.BuiltIns.Function.JSFunction Install(
+        Broiler.JavaScript.Engine.JSContext context,
+        Broiler.JavaScript.Runtime.JSObject window) =>
+        (Broiler.JavaScript.BuiltIns.Function.JSFunction)JsInterop.ToEngineObject(
+            Install(_host.Realm, JsInterop.FromEngineObject(window)));
+
     /// <summary>Installs <c>fetch</c>/<c>Headers</c>/<c>Request</c>/<c>Response</c>/<c>FormData</c> and
-    /// <c>XMLHttpRequest</c> on <paramref name="window"/>/<paramref name="context"/>, returning the
+    /// <c>XMLHttpRequest</c> on <paramref name="window"/> and the realm's global, returning the
     /// <c>fetch</c> function so the caller can register it among the window globals.</summary>
-    internal JSFunction Install(JSContext context, JSObject window)
+    internal JsValue Install(IJsRealm realm, JsValue window)
     {
-        static IEnumerable<(string Key, string Value)> EnumerateObjectStringEntries(JSObject obj)
+        var json = realm.GetProperty(realm.Global, "JSON");
+        _jsonParse = realm.GetProperty(json, "parse");
+        _jsonStringify = realm.GetProperty(json, "stringify");
+
+        IEnumerable<(string Key, string Value)> EnumerateObjectStringEntries(JsValue obj)
         {
-            foreach (var (key, value) in obj.Entries)
+            foreach (var key in realm.OwnPropertyNames(obj))
             {
-                if (string.IsNullOrEmpty(key) || key[0] == '_' || value is JSFunction || value.IsUndefined || value.IsNull)
+                var value = realm.GetProperty(obj, key);
+                if (string.IsNullOrEmpty(key) || key[0] == '_' || value.IsFunction || value.IsUndefined || value.IsNull)
                     continue;
 
-                yield return (key, value.ToString());
+                // The realm's ToString, not the handle's: this is the observable ECMAScript coercion
+                // the engine's own ToString() performed here, and a header value that is an object
+                // with a toString is entitled to it.
+                yield return (key, realm.ToJsString(value));
             }
         }
-        static string? TryGetJsPropertyString(JSObject obj, params string[] names)
+        string? TryGetJsPropertyString(JsValue obj, params string[] names)
         {
             foreach (var name in names)
             {
-                var value = obj[(KeyString)name];
-                if (value != null && !value.IsUndefined && !value.IsNull)
-                    return value.ToString();
+                // IsNullish is the three tests this made before it coerced — absent (the engine's
+                // indexer answered a CLR null, which is Missing here), undefined, and null.
+                var value = realm.GetProperty(obj, name);
+                if (!value.IsNullish)
+                    return realm.ToJsString(value);
             }
 
             return null;
@@ -84,17 +134,43 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         /// <c>.json()</c> over a malformed body, say — threw synchronously out of <c>.then</c> instead
         /// of rejecting the promise.
         /// <para>
-        /// A real <see cref="JSPromise"/> fixes all of it at once, and the engine's microtask queue is
-        /// pumped in a capture (a plain <c>Promise.resolve().then(...)</c> callback runs), so settling
-        /// through the real machinery still delivers the callback. The executor constructor also turns a
-        /// throwing <paramref name="resolver"/> into a rejection, which is the conforming outcome.
+        /// A real promise fixes all of it at once, and the engine's microtask queue is pumped in a
+        /// capture (a plain <c>Promise.resolve().then(...)</c> callback runs), so settling through the
+        /// real machinery still delivers the callback.
+        /// </para>
+        /// <para>
+        /// The realm hands back the two settle functions rather than running an executor, so the
+        /// promise is settled here instead of inside a callback that only happened to run
+        /// synchronously — the difference <see cref="IJsJobs.NewPromise"/> exists to remove. The
+        /// executor's <c>try</c> came with that shape and is written out: a throwing
+        /// <paramref name="resolver"/> rejects, which is the conforming outcome and what the JSON
+        /// body readers rest on.
         /// </para>
         /// </remarks>
-        static JSObject CreateThenable(Func<JSValue> resolver)
-            => new JSPromise((resolve, reject) => resolve(resolver()));
-        static JSObject CreateHeadersObject(JSValue? initValue = null)
+        JsValue CreateThenable(Func<JsValue> resolver)
         {
-            var headersObject = new JSObject();
+            var promise = realm.NewPromise(out var resolve, out var reject);
+
+            try
+            {
+                resolve(resolver());
+            }
+            catch (JsEngineException ex) when (!ex.Thrown.IsMissing)
+            {
+                // Something the page threw — a toJSON, a getter — reaches the rejection as the value
+                // it threw rather than as a description of it.
+                reject(ex.Thrown);
+            }
+            catch (Exception ex)
+            {
+                reject(ErrorValue(realm, ex.Message));
+            }
+
+            return promise;
+        }
+        JsValue CreateHeadersObject(JsValue initValue = default)
+        {
+            var headersObject = realm.NewObject();
             var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var originalNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -104,8 +180,8 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
                     currentValue = string.Empty;
 
                 var originalName = originalNames.TryGetValue(name, out var storedName) ? storedName : name;
-                headersObject[(KeyString)originalName] = new JSString(currentValue);
-                headersObject[(KeyString)name.ToLowerInvariant()] = new JSString(currentValue);
+                realm.SetProperty(headersObject, originalName, JsValue.String(currentValue));
+                realm.SetProperty(headersObject, name.ToLowerInvariant(), JsValue.String(currentValue));
             }
 
             void SetHeader(string name, string value)
@@ -126,84 +202,77 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
                 SyncHeader(name);
             }
 
-            if (initValue is JSObject initObject)
+            if (initValue.IsObject)
             {
-                foreach (var (key, value) in EnumerateObjectStringEntries(initObject))
+                foreach (var (key, value) in EnumerateObjectStringEntries(initValue))
                     AppendHeader(key, value);
             }
-            JSValue JsRegistrationGet078(in Arguments a)
+            JsValue JsRegistrationGet078(in JsCall call)
             {
-                if (a.Length == 0)
-                    return JSNull.Value;
-                var name = a[0].ToString();
-                return values.TryGetValue(name, out var currentValue) ? new JSString(currentValue) : JSNull.Value;
+                if (call.Length == 0)
+                    return JsValue.Null;
+                var name = call.Realm.ToJsString(call[0]);
+                return values.TryGetValue(name, out var currentValue) ? JsValue.String(currentValue) : JsValue.Null;
             }
 
-            headersObject.FastAddValue("get", new JSFunction(JsRegistrationGet078, "get", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationHas079(in Arguments a)
+            realm.DefineValue(headersObject, "get", realm.NewConstructor("get", JsRegistrationGet078, 1));
+            JsValue JsRegistrationHas079(in JsCall call)
             {
-                if (a.Length == 0)
-                    return JSBoolean.False;
-                return values.ContainsKey(a[0].ToString()) ? JSBoolean.True : JSBoolean.False;
+                if (call.Length == 0)
+                    return JsValue.False;
+                return JsValue.Boolean(values.ContainsKey(call.Realm.ToJsString(call[0])));
             }
-            headersObject.FastAddValue("has", new JSFunction(JsRegistrationHas079, "has", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationSet080(in Arguments a)
+            realm.DefineValue(headersObject, "has", realm.NewConstructor("has", JsRegistrationHas079, 1));
+            JsValue JsRegistrationSet080(in JsCall call)
             {
-                if (a.Length >= 2)
-                    SetHeader(a[0].ToString(), a[1].ToString());
-                return JSUndefined.Value;
+                if (call.Length >= 2)
+                    SetHeader(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+                return JsValue.Undefined;
             }
-            headersObject.FastAddValue("set", new JSFunction(JsRegistrationSet080, "set", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationAppend081(in Arguments a)
+            realm.DefineValue(headersObject, "set", realm.NewConstructor("set", JsRegistrationSet080, 2));
+            JsValue JsRegistrationAppend081(in JsCall call)
             {
-                if (a.Length >= 2)
-                    AppendHeader(a[0].ToString(), a[1].ToString());
-                return JSUndefined.Value;
+                if (call.Length >= 2)
+                    AppendHeader(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+                return JsValue.Undefined;
             }
-            headersObject.FastAddValue("append", new JSFunction(JsRegistrationAppend081, "append", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationDelete082(in Arguments a)
+            realm.DefineValue(headersObject, "append", realm.NewConstructor("append", JsRegistrationAppend081, 2));
+            JsValue JsRegistrationDelete082(in JsCall call)
             {
-                if (a.Length > 0)
+                if (call.Length > 0)
                 {
-                    var name = a[0].ToString();
+                    var name = call.Realm.ToJsString(call[0]);
                     values.Remove(name);
                     originalNames.Remove(name);
-                    headersObject[(KeyString)name] = JSUndefined.Value;
-                    headersObject[(KeyString)name.ToLowerInvariant()] = JSUndefined.Value;
+                    realm.SetProperty(headersObject, name, JsValue.Undefined);
+                    realm.SetProperty(headersObject, name.ToLowerInvariant(), JsValue.Undefined);
                 }
 
-                return JSUndefined.Value;
+                return JsValue.Undefined;
             }
-            headersObject.FastAddValue("delete", new JSFunction(JsRegistrationDelete082, "delete", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationForEach083(in Arguments a)
+            realm.DefineValue(headersObject, "delete", realm.NewConstructor("delete", JsRegistrationDelete082, 1));
+            JsValue JsRegistrationForEach083(in JsCall call)
             {
-                if (a.Length > 0 && a[0] is JSFunction cb)
+                if (call.Length > 0 && call[0].IsFunction)
                 {
+                    var callback = call[0];
                     foreach (var header in values)
                     {
                         var name = originalNames.TryGetValue(header.Key, out var originalName) ? originalName : header.Key;
-                        cb.InvokeFunction(new Arguments(cb, new JSString(header.Value), new JSString(name), headersObject));
+
+                        // The receiver stays the callback itself, as it was: `new Arguments(cb, …)`
+                        // passed the function as `this`, which is not what the specification says and
+                        // is not this migration's to change.
+                        realm.Invoke(callback, callback,
+                            [JsValue.String(header.Value), JsValue.String(name), headersObject]);
                     }
                 }
 
-                return JSUndefined.Value;
+                return JsValue.Undefined;
             }
-            headersObject.FastAddValue("forEach", new JSFunction(JsRegistrationForEach083, "forEach", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(headersObject, "forEach", realm.NewConstructor("forEach", JsRegistrationForEach083, 1));
 
             return headersObject;
-        }
-        static JSValue ParseJsonText(string jsonText)
-            => JSJSON.Parse(new Arguments(JSUndefined.Value, new JSString(jsonText)));
-        static JSValue ParseResponseJsonText(string jsonText)
-        {
-            try
-            {
-                return ParseJsonText(jsonText);
-            }
-            catch (Exception ex)
-            {
-                throw new JSException($"Failed to parse response body as JSON: {ex.Message}");
-            }
         }
         static string DecodeFormComponent(string value)
             => Uri.UnescapeDataString(value.Replace("+", " "));
@@ -235,13 +304,13 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
 
             return builder.ToString();
         }
-        // Not static: a FormData built from a <form> reads that form's entry list through the host,
-        // which is what `new FormData(form)` means. It used to enumerate the wrapper's own string
-        // properties instead, so it produced the element object's members — tagName, innerHTML and
-        // the rest — rather than the form's fields.
-        JSObject CreateFormDataObject(JSValue? initValue = null)
+        // A FormData built from a <form> reads that form's entry list through the host, which is what
+        // `new FormData(form)` means. It used to enumerate the wrapper's own string properties
+        // instead, so it produced the element object's members — tagName, innerHTML and the rest —
+        // rather than the form's fields.
+        JsValue CreateFormDataObject(JsValue initValue = default)
         {
-            var formDataObject = new JSObject();
+            var formDataObject = realm.NewObject();
             var entries = new List<KeyValuePair<string, string>>();
 
             void AppendEntry(string name, string value)
@@ -271,24 +340,24 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
                     entries.Add(new KeyValuePair<string, string>(name, value));
             }
 
-            if (initValue != null && !initValue.IsUndefined && !initValue.IsNull)
+            if (!initValue.IsNullish)
             {
-                if (initValue is JSObject initObject)
+                if (initValue.IsObject)
                 {
-                    if (_host.FormEntriesFor(initObject) is { } formEntries)
+                    if (_host.FormEntriesFor(initValue) is { } formEntries)
                     {
                         foreach (var entry in formEntries)
                             AppendEntry(entry.Key, entry.Value);
                     }
                     else
                     {
-                        foreach (var (key, value) in EnumerateObjectStringEntries(initObject))
+                        foreach (var (key, value) in EnumerateObjectStringEntries(initValue))
                             AppendEntry(key, value);
                     }
                 }
                 else
                 {
-                    var initText = initValue.ToString();
+                    var initText = realm.ToJsString(initValue);
                     if (!string.IsNullOrEmpty(initText))
                     {
                         foreach (var segment in initText.Split('&', StringSplitOptions.RemoveEmptyEntries))
@@ -301,82 +370,91 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
                     }
                 }
             }
-            JSValue JsRegistrationAppend084(in Arguments a)
+            JsValue JsRegistrationAppend084(in JsCall call)
             {
-                if (a.Length >= 2)
-                    AppendEntry(a[0].ToString(), a[1].ToString());
-                return JSUndefined.Value;
+                if (call.Length >= 2)
+                    AppendEntry(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+                return JsValue.Undefined;
             }
 
-            formDataObject.FastAddValue("append", new JSFunction(JsRegistrationAppend084, "append", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationDelete085(in Arguments a)
+            realm.DefineValue(formDataObject, "append", realm.NewConstructor("append", JsRegistrationAppend084, 2));
+            JsValue JsRegistrationDelete085(in JsCall call)
             {
-                if (a.Length > 0)
+                if (call.Length > 0)
                 {
-                    var name = a[0].ToString();
+                    var name = call.Realm.ToJsString(call[0]);
                     entries.RemoveAll(entry => string.Equals(entry.Key, name, StringComparison.Ordinal));
                 }
 
-                return JSUndefined.Value;
+                return JsValue.Undefined;
             }
-            formDataObject.FastAddValue("delete", new JSFunction(JsRegistrationDelete085, "delete", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationForEach086(in Arguments a)
+            realm.DefineValue(formDataObject, "delete", realm.NewConstructor("delete", JsRegistrationDelete085, 1));
+            JsValue JsRegistrationForEach086(in JsCall call)
             {
-                if (a.Length > 0 && a[0] is JSFunction cb)
+                if (call.Length > 0 && call[0].IsFunction)
                 {
+                    var callback = call[0];
                     foreach (var entry in entries)
-                        cb.InvokeFunction(new Arguments(cb, new JSString(entry.Value), new JSString(entry.Key), formDataObject));
+                    {
+                        realm.Invoke(callback, callback,
+                            [JsValue.String(entry.Value), JsValue.String(entry.Key), formDataObject]);
+                    }
                 }
 
-                return JSUndefined.Value;
+                return JsValue.Undefined;
             }
-            formDataObject.FastAddValue("forEach", new JSFunction(JsRegistrationForEach086, "forEach", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationGet087(in Arguments a)
+            realm.DefineValue(formDataObject, "forEach", realm.NewConstructor("forEach", JsRegistrationForEach086, 1));
+            JsValue JsRegistrationGet087(in JsCall call)
             {
-                if (a.Length == 0)
-                    return JSNull.Value;
-                var name = a[0].ToString();
+                if (call.Length == 0)
+                    return JsValue.Null;
+                var name = call.Realm.ToJsString(call[0]);
                 foreach (var entry in entries)
                 {
                     if (string.Equals(entry.Key, name, StringComparison.Ordinal))
-                        return new JSString(entry.Value);
+                        return JsValue.String(entry.Value);
                 }
 
-                return JSNull.Value;
+                return JsValue.Null;
             }
-            formDataObject.FastAddValue("get", new JSFunction(JsRegistrationGet087, "get", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationGetAll088(in Arguments a)
+            realm.DefineValue(formDataObject, "get", realm.NewConstructor("get", JsRegistrationGet087, 1));
+            JsValue JsRegistrationGetAll088(in JsCall call)
             {
-                var result = new JSArray();
-                if (a.Length == 0)
-                    return result;
-                var name = a[0].ToString();
+                if (call.Length == 0)
+                    return call.Realm.NewArray();
+                var name = call.Realm.ToJsString(call[0]);
+                var result = new List<JsValue>();
                 foreach (var entry in entries)
                 {
                     if (string.Equals(entry.Key, name, StringComparison.Ordinal))
-                        result.Add(new JSString(entry.Value));
+                        result.Add(JsValue.String(entry.Value));
                 }
 
-                return result;
+                return call.Realm.NewArray([.. result]);
             }
-            formDataObject.FastAddValue("getAll", new JSFunction(JsRegistrationGetAll088, "getAll", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationHas089(in Arguments a)
+            realm.DefineValue(formDataObject, "getAll", realm.NewConstructor("getAll", JsRegistrationGetAll088, 1));
+            JsValue JsRegistrationHas089(in JsCall call)
             {
-                if (a.Length == 0)
-                    return JSBoolean.False;
-                var name = a[0].ToString();
-                return entries.Any(entry => string.Equals(entry.Key, name, StringComparison.Ordinal)) ? JSBoolean.True : JSBoolean.False;
+                if (call.Length == 0)
+                    return JsValue.False;
+                var name = call.Realm.ToJsString(call[0]);
+                return JsValue.Boolean(entries.Any(entry => string.Equals(entry.Key, name, StringComparison.Ordinal)));
             }
-            formDataObject.FastAddValue("has", new JSFunction(JsRegistrationHas089, "has", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationSet090(in Arguments a)
+            realm.DefineValue(formDataObject, "has", realm.NewConstructor("has", JsRegistrationHas089, 1));
+            JsValue JsRegistrationSet090(in JsCall call)
             {
-                if (a.Length >= 2)
-                    SetEntry(a[0].ToString(), a[1].ToString());
-                return JSUndefined.Value;
+                if (call.Length >= 2)
+                    SetEntry(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+                return JsValue.Undefined;
             }
-            formDataObject.FastAddValue("set", new JSFunction(JsRegistrationSet090, "set", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-            formDataObject.FastAddValue("toString", new JSFunction((in _) => new JSString(string.Join("&", entries.Select(static entry => $"{EncodeFormComponent(entry.Key)}={EncodeFormComponent(entry.Value)}"))),
-                "toString", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(formDataObject, "set", realm.NewConstructor("set", JsRegistrationSet090, 2));
+            realm.DefineValue(
+                formDataObject,
+                "toString",
+                realm.NewConstructor(
+                    "toString",
+                    (in _) => JsValue.String(string.Join("&", entries.Select(static entry => $"{EncodeFormComponent(entry.Key)}={EncodeFormComponent(entry.Value)}"))),
+                    0));
 
             return formDataObject;
         }
@@ -384,7 +462,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         // nothing else, so `(await response.blob()) instanceof Blob` was false, `constructor.name`
         // was "Object" and there was no `slice` — a shape-only stub that was invisible only because
         // the interface it was imitating did not exist either.
-        JSValue CreateBlobBody(string bodyText, JSObject headersObject) =>
+        JsValue CreateBlobBody(string bodyText, JsValue headersObject) =>
             _host.CreateBlob(
                 Encoding.UTF8.GetBytes(bodyText),
                 TryGetJsPropertyString(headersObject, "content-type", "Content-Type") ?? string.Empty);
@@ -392,27 +470,27 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         // stream sets the first time it is read or cancelled; locked is the stream's own answer, so
         // a getReader() that has not read yet still blocks text()/json()/clone() — which is what a
         // browser does and what a page holding a reader expects.
-        bool IsBodyUnavailable(JSObject owner)
-            => (owner[(KeyString)"bodyUsed"]?.BooleanValue ?? false)
-               || (owner[(KeyString)"body"] is JSObject bodyStream && _host.IsStreamLocked(bodyStream));
+        bool IsBodyUnavailable(JsValue owner)
+            => realm.GetProperty(owner, "bodyUsed").AsBoolean
+               || _host.IsStreamLocked(realm.GetProperty(owner, "body"));
         // A real ReadableStream over the body's bytes, the same interface a page's own
         // `new ReadableStream` and `blob.stream()` produce. What stood here before was a shape-only
         // object: a getReader whose reader had read/cancel/releaseLock and nothing else — no
         // `closed`, no `tee`, no `cancel` on the stream, and no async iteration, so
         // `for await (const chunk of response.body)` threw on a body that was there.
-        JSValue CreateReadableStreamBody(JSObject owner, string bodyText) =>
+        JsValue CreateReadableStreamBody(JsValue owner, string bodyText) =>
             // bodyUsed is the Body mixin's "disturbed" flag, and it is the stream being read that
             // sets it — reported from the underlying source, so the stream a page holds is an
             // ordinary one with no own properties of its own.
-            _host.StreamOverTextObserved(bodyText, () => owner[(KeyString)"bodyUsed"] = JSBoolean.True);
+            _host.StreamOverTextObserved(bodyText, () => realm.SetProperty(owner, "bodyUsed", JsValue.True));
 
-        JSObject CreateRequestObject(JSValue inputValue, JSValue? initValue = null)
+        JsValue CreateRequestObject(JsValue inputValue, JsValue initValue = default)
         {
             string url;
             string method;
             string? body;
-            JSObject headersObject;
-            JSValue signalValue = JSUndefined.Value;
+            JsValue headersObject;
+            var signalValue = JsValue.Undefined;
             string mode = "cors";
             string credentials = "same-origin";
             string cache = "default";
@@ -420,194 +498,200 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
             string referrer = "about:client";
             string integrity = string.Empty;
 
-            if (inputValue is JSObject inputObject && !string.IsNullOrEmpty(TryGetJsPropertyString(inputObject, "url", "href")))
+            if (inputValue.IsObject && !string.IsNullOrEmpty(TryGetJsPropertyString(inputValue, "url", "href")))
             {
-                url = TryGetJsPropertyString(inputObject, "url", "href") ?? string.Empty;
-                method = (TryGetJsPropertyString(inputObject, "method") ?? "GET").ToUpperInvariant();
-                body = TryGetJsPropertyString(inputObject, "_bodyInit", "body");
-                headersObject = inputObject[(KeyString)"headers"] is JSObject inputHeaders
+                url = TryGetJsPropertyString(inputValue, "url", "href") ?? string.Empty;
+                method = (TryGetJsPropertyString(inputValue, "method") ?? "GET").ToUpperInvariant();
+                body = TryGetJsPropertyString(inputValue, "_bodyInit", "body");
+                var inputHeaders = realm.GetProperty(inputValue, "headers");
+                headersObject = inputHeaders.IsObject
                     ? CreateHeadersObject(inputHeaders)
                     : CreateHeadersObject();
-                signalValue = inputObject[(KeyString)"signal"] ?? JSUndefined.Value;
-                mode = TryGetJsPropertyString(inputObject, "mode") ?? mode;
-                credentials = TryGetJsPropertyString(inputObject, "credentials") ?? credentials;
-                cache = TryGetJsPropertyString(inputObject, "cache") ?? cache;
-                redirect = TryGetJsPropertyString(inputObject, "redirect") ?? redirect;
-                referrer = TryGetJsPropertyString(inputObject, "referrer") ?? referrer;
-                integrity = TryGetJsPropertyString(inputObject, "integrity") ?? integrity;
+                var inputSignal = realm.GetProperty(inputValue, "signal");
+                // The engine's indexer answered a CLR null for an absent property, which the old
+                // `?? JSUndefined.Value` turned into undefined; Missing is that same absence.
+                signalValue = inputSignal.IsMissing ? JsValue.Undefined : inputSignal;
+                mode = TryGetJsPropertyString(inputValue, "mode") ?? mode;
+                credentials = TryGetJsPropertyString(inputValue, "credentials") ?? credentials;
+                cache = TryGetJsPropertyString(inputValue, "cache") ?? cache;
+                redirect = TryGetJsPropertyString(inputValue, "redirect") ?? redirect;
+                referrer = TryGetJsPropertyString(inputValue, "referrer") ?? referrer;
+                integrity = TryGetJsPropertyString(inputValue, "integrity") ?? integrity;
             }
             else
             {
-                url = inputValue.ToString();
+                url = realm.ToJsString(inputValue);
                 method = "GET";
                 body = null;
                 headersObject = CreateHeadersObject();
             }
 
-            if (initValue is JSObject initObject)
+            if (initValue.IsObject)
             {
-                method = (TryGetJsPropertyString(initObject, "method") ?? method).ToUpperInvariant();
-                if (TryGetJsPropertyString(initObject, "body") is string initBody)
+                method = (TryGetJsPropertyString(initValue, "method") ?? method).ToUpperInvariant();
+                if (TryGetJsPropertyString(initValue, "body") is string initBody)
                     body = initBody;
-                if (initObject[(KeyString)"headers"] is JSObject initHeaders)
+                var initHeaders = realm.GetProperty(initValue, "headers");
+                if (initHeaders.IsObject)
                     headersObject = CreateHeadersObject(initHeaders);
-                if (initObject[(KeyString)"signal"] is { } initSignal && !initSignal.IsUndefined && !initSignal.IsNull)
+                var initSignal = realm.GetProperty(initValue, "signal");
+                if (!initSignal.IsNullish)
                     signalValue = initSignal;
-                mode = TryGetJsPropertyString(initObject, "mode") ?? mode;
-                credentials = TryGetJsPropertyString(initObject, "credentials") ?? credentials;
-                cache = TryGetJsPropertyString(initObject, "cache") ?? cache;
-                redirect = TryGetJsPropertyString(initObject, "redirect") ?? redirect;
-                referrer = TryGetJsPropertyString(initObject, "referrer") ?? referrer;
-                integrity = TryGetJsPropertyString(initObject, "integrity") ?? integrity;
+                mode = TryGetJsPropertyString(initValue, "mode") ?? mode;
+                credentials = TryGetJsPropertyString(initValue, "credentials") ?? credentials;
+                cache = TryGetJsPropertyString(initValue, "cache") ?? cache;
+                redirect = TryGetJsPropertyString(initValue, "redirect") ?? redirect;
+                referrer = TryGetJsPropertyString(initValue, "referrer") ?? referrer;
+                integrity = TryGetJsPropertyString(initValue, "integrity") ?? integrity;
             }
 
-            var requestObject = new JSObject();
-            requestObject[(KeyString)"url"] = new JSString(url);
-            requestObject[(KeyString)"method"] = new JSString(method);
-            requestObject[(KeyString)"headers"] = headersObject;
-            requestObject[(KeyString)"bodyUsed"] = JSBoolean.False;
-            requestObject[(KeyString)"_bodyInit"] = body == null ? JSNull.Value : new JSString(body);
-            requestObject[(KeyString)"body"] = body == null ? JSNull.Value : CreateReadableStreamBody(requestObject, body);
-            requestObject[(KeyString)"signal"] = signalValue;
-            requestObject[(KeyString)"mode"] = new JSString(mode);
-            requestObject[(KeyString)"credentials"] = new JSString(credentials);
-            requestObject[(KeyString)"cache"] = new JSString(cache);
-            requestObject[(KeyString)"redirect"] = new JSString(redirect);
-            requestObject[(KeyString)"referrer"] = new JSString(referrer);
-            requestObject[(KeyString)"integrity"] = new JSString(integrity);
-            JSValue JsRegistrationClone098(in Arguments _)
+            var requestObject = realm.NewObject();
+            realm.SetProperty(requestObject, "url", JsValue.String(url));
+            realm.SetProperty(requestObject, "method", JsValue.String(method));
+            realm.SetProperty(requestObject, "headers", headersObject);
+            realm.SetProperty(requestObject, "bodyUsed", JsValue.False);
+            realm.SetProperty(requestObject, "_bodyInit", body == null ? JsValue.Null : JsValue.String(body));
+            realm.SetProperty(requestObject, "body", body == null ? JsValue.Null : CreateReadableStreamBody(requestObject, body));
+            realm.SetProperty(requestObject, "signal", signalValue);
+            realm.SetProperty(requestObject, "mode", JsValue.String(mode));
+            realm.SetProperty(requestObject, "credentials", JsValue.String(credentials));
+            realm.SetProperty(requestObject, "cache", JsValue.String(cache));
+            realm.SetProperty(requestObject, "redirect", JsValue.String(redirect));
+            realm.SetProperty(requestObject, "referrer", JsValue.String(referrer));
+            realm.SetProperty(requestObject, "integrity", JsValue.String(integrity));
+            JsValue JsRegistrationClone098(in JsCall call)
             {
                 if (IsBodyUnavailable(requestObject))
-                    throw new JSException("Failed to execute 'clone' on 'Request': body is already used.");
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'clone' on 'Request': body is already used.");
                 return CreateRequestObject(requestObject);
             }
-            requestObject.FastAddValue("clone", new JSFunction(JsRegistrationClone098, "clone", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationText099(in Arguments _)
+            realm.DefineValue(requestObject, "clone", realm.NewConstructor("clone", JsRegistrationClone098, 0));
+            JsValue JsRegistrationText099(in JsCall call)
             {
                 if (IsBodyUnavailable(requestObject))
-                    throw new JSException("Failed to execute body reader on 'Request': body is already used.");
-                requestObject[(KeyString)"bodyUsed"] = JSBoolean.True;
-                return CreateThenable(() => body == null ? new JSString(string.Empty) : new JSString(body));
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
+                realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
+                return CreateThenable(() => body == null ? JsValue.String(string.Empty) : JsValue.String(body));
             }
-            requestObject.FastAddValue("text", new JSFunction(JsRegistrationText099, "text", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationJson100(in Arguments _)
+            realm.DefineValue(requestObject, "text", realm.NewConstructor("text", JsRegistrationText099, 0));
+            JsValue JsRegistrationJson100(in JsCall call)
             {
                 if (IsBodyUnavailable(requestObject))
-                    throw new JSException("Failed to execute body reader on 'Request': body is already used.");
-                requestObject[(KeyString)"bodyUsed"] = JSBoolean.True;
-                return CreateThenable(() => ParseJsonText(body ?? string.Empty));
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
+                realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
+                return CreateThenable(() => ParseJsonText(realm, body ?? string.Empty));
             }
-            requestObject.FastAddValue("json", new JSFunction(JsRegistrationJson100, "json", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationArrayBuffer101(in Arguments _)
+            realm.DefineValue(requestObject, "json", realm.NewConstructor("json", JsRegistrationJson100, 0));
+            JsValue JsRegistrationArrayBuffer101(in JsCall call)
             {
                 if (IsBodyUnavailable(requestObject))
-                    throw new JSException("Failed to execute body reader on 'Request': body is already used.");
-                requestObject[(KeyString)"bodyUsed"] = JSBoolean.True;
-                return CreateThenable(() => new JSArrayBuffer(Encoding.UTF8.GetBytes(body ?? string.Empty)));
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
+                realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
+                return CreateThenable(() => ToArrayBuffer(Encoding.UTF8.GetBytes(body ?? string.Empty)));
             }
-            requestObject.FastAddValue("arrayBuffer", new JSFunction(JsRegistrationArrayBuffer101, "arrayBuffer", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationBlob102(in Arguments _)
+            realm.DefineValue(requestObject, "arrayBuffer", realm.NewConstructor("arrayBuffer", JsRegistrationArrayBuffer101, 0));
+            JsValue JsRegistrationBlob102(in JsCall call)
             {
                 if (IsBodyUnavailable(requestObject))
-                    throw new JSException("Failed to execute body reader on 'Request': body is already used.");
-                requestObject[(KeyString)"bodyUsed"] = JSBoolean.True;
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
+                realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
                 return CreateThenable(() => CreateBlobBody(body ?? string.Empty, headersObject));
             }
-            requestObject.FastAddValue("blob", new JSFunction(JsRegistrationBlob102, "blob", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationFormData103(in Arguments _)
+            realm.DefineValue(requestObject, "blob", realm.NewConstructor("blob", JsRegistrationBlob102, 0));
+            JsValue JsRegistrationFormData103(in JsCall call)
             {
                 if (IsBodyUnavailable(requestObject))
-                    throw new JSException("Failed to execute body reader on 'Request': body is already used.");
-                requestObject[(KeyString)"bodyUsed"] = JSBoolean.True;
-                return CreateThenable(() => CreateFormDataObject(new JSString(body ?? string.Empty)));
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
+                realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
+                return CreateThenable(() => CreateFormDataObject(JsValue.String(body ?? string.Empty)));
             }
-            requestObject.FastAddValue("formData", new JSFunction(JsRegistrationFormData103, "formData", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(requestObject, "formData", realm.NewConstructor("formData", JsRegistrationFormData103, 0));
 
             return requestObject;
         }
-        JSValue CreateResponse(string body, int statusCode, string statusText, string responseUrl, string type, bool redirected, Dictionary<string, string> headers)
+        JsValue CreateResponse(string body, int statusCode, string statusText, string responseUrl, string type, bool redirected, Dictionary<string, string> headers)
         {
-            var responseHeaders = new JSObject();
+            var responseHeaders = realm.NewObject();
             foreach (var header in headers)
-                responseHeaders[(KeyString)header.Key] = new JSString(header.Value);
+                realm.SetProperty(responseHeaders, header.Key, JsValue.String(header.Value));
 
             var headersObject = CreateHeadersObject(responseHeaders);
-            var responseObject = new JSObject();
-            responseObject[(KeyString)"ok"] = statusCode >= 200 && statusCode < 300 ? JSBoolean.True : JSBoolean.False;
-            responseObject[(KeyString)"status"] = new JSNumber(statusCode);
-            responseObject[(KeyString)"statusText"] = new JSString(statusText);
-            responseObject[(KeyString)"url"] = new JSString(responseUrl);
-            responseObject[(KeyString)"redirected"] = redirected ? JSBoolean.True : JSBoolean.False;
-            responseObject[(KeyString)"type"] = new JSString(type);
-            responseObject[(KeyString)"bodyUsed"] = JSBoolean.False;
-            responseObject[(KeyString)"headers"] = headersObject;
-            responseObject[(KeyString)"_bodyText"] = new JSString(body);
-            responseObject[(KeyString)"body"] = CreateReadableStreamBody(responseObject, body);
-            JSValue JsRegistrationText104(in Arguments _)
+            var responseObject = realm.NewObject();
+            realm.SetProperty(responseObject, "ok", JsValue.Boolean(statusCode >= 200 && statusCode < 300));
+            realm.SetProperty(responseObject, "status", JsValue.Number(statusCode));
+            realm.SetProperty(responseObject, "statusText", JsValue.String(statusText));
+            realm.SetProperty(responseObject, "url", JsValue.String(responseUrl));
+            realm.SetProperty(responseObject, "redirected", JsValue.Boolean(redirected));
+            realm.SetProperty(responseObject, "type", JsValue.String(type));
+            realm.SetProperty(responseObject, "bodyUsed", JsValue.False);
+            realm.SetProperty(responseObject, "headers", headersObject);
+            realm.SetProperty(responseObject, "_bodyText", JsValue.String(body));
+            realm.SetProperty(responseObject, "body", CreateReadableStreamBody(responseObject, body));
+            JsValue JsRegistrationText104(in JsCall call)
             {
                 if (IsBodyUnavailable(responseObject))
-                    throw new JSException("Failed to execute body reader on 'Response': body is already used.");
-                responseObject[(KeyString)"bodyUsed"] = JSBoolean.True;
-                return CreateThenable(() => new JSString(body));
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
+                realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
+                return CreateThenable(() => JsValue.String(body));
             }
-            responseObject.FastAddValue("text", new JSFunction(JsRegistrationText104, "text", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationJson105(in Arguments _)
+            realm.DefineValue(responseObject, "text", realm.NewConstructor("text", JsRegistrationText104, 0));
+            JsValue JsRegistrationJson105(in JsCall call)
             {
                 if (IsBodyUnavailable(responseObject))
-                    throw new JSException("Failed to execute body reader on 'Response': body is already used.");
-                responseObject[(KeyString)"bodyUsed"] = JSBoolean.True;
-                return CreateThenable(() => ParseResponseJsonText(body));
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
+                realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
+                return CreateThenable(() => ParseResponseJsonText(realm, body));
             }
-            responseObject.FastAddValue("json", new JSFunction(JsRegistrationJson105, "json", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationArrayBuffer106(in Arguments _)
+            realm.DefineValue(responseObject, "json", realm.NewConstructor("json", JsRegistrationJson105, 0));
+            JsValue JsRegistrationArrayBuffer106(in JsCall call)
             {
                 if (IsBodyUnavailable(responseObject))
-                    throw new JSException("Failed to execute body reader on 'Response': body is already used.");
-                responseObject[(KeyString)"bodyUsed"] = JSBoolean.True;
-                return CreateThenable(() => new JSArrayBuffer(Encoding.UTF8.GetBytes(body)));
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
+                realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
+                return CreateThenable(() => ToArrayBuffer(Encoding.UTF8.GetBytes(body)));
             }
-            responseObject.FastAddValue("arrayBuffer", new JSFunction(JsRegistrationArrayBuffer106, "arrayBuffer", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationBlob107(in Arguments _)
+            realm.DefineValue(responseObject, "arrayBuffer", realm.NewConstructor("arrayBuffer", JsRegistrationArrayBuffer106, 0));
+            JsValue JsRegistrationBlob107(in JsCall call)
             {
                 if (IsBodyUnavailable(responseObject))
-                    throw new JSException("Failed to execute body reader on 'Response': body is already used.");
-                responseObject[(KeyString)"bodyUsed"] = JSBoolean.True;
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
+                realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
                 return CreateThenable(() => CreateBlobBody(body, headersObject));
             }
-            responseObject.FastAddValue("blob", new JSFunction(JsRegistrationBlob107, "blob", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationFormData108(in Arguments _)
+            realm.DefineValue(responseObject, "blob", realm.NewConstructor("blob", JsRegistrationBlob107, 0));
+            JsValue JsRegistrationFormData108(in JsCall call)
             {
                 if (IsBodyUnavailable(responseObject))
-                    throw new JSException("Failed to execute body reader on 'Response': body is already used.");
-                responseObject[(KeyString)"bodyUsed"] = JSBoolean.True;
-                return CreateThenable(() => CreateFormDataObject(new JSString(body)));
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
+                realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
+                return CreateThenable(() => CreateFormDataObject(JsValue.String(body)));
             }
-            responseObject.FastAddValue("formData", new JSFunction(JsRegistrationFormData108, "formData", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            JSValue JsRegistrationClone109(in Arguments _)
+            realm.DefineValue(responseObject, "formData", realm.NewConstructor("formData", JsRegistrationFormData108, 0));
+            JsValue JsRegistrationClone109(in JsCall call)
             {
                 if (IsBodyUnavailable(responseObject))
-                    throw new JSException("Failed to execute 'clone' on 'Response': body is already used.");
+                    throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'clone' on 'Response': body is already used.");
                 return CreateResponse(body, statusCode, statusText, responseUrl, type, redirected, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase));
             }
-            responseObject.FastAddValue("clone", new JSFunction(JsRegistrationClone109, "clone", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(responseObject, "clone", realm.NewConstructor("clone", JsRegistrationClone109, 0));
 
             return responseObject;
         }
-        static JSValue CreateAbortErrorValue(JSValue signalValue)
+        JsValue CreateAbortErrorValue(JsValue signalValue)
         {
-            if (signalValue is JSObject signalObject)
+            if (signalValue.IsObject)
             {
-                var reason = signalObject[(KeyString)"reason"];
-                if (reason != null && !reason.IsUndefined && !reason.IsNull)
+                var reason = realm.GetProperty(signalValue, "reason");
+                if (!reason.IsNullish)
                     return reason;
             }
 
-            var error = new JSObject();
-            error[(KeyString)"name"] = new JSString("AbortError");
-            error[(KeyString)"message"] = new JSString("The operation was aborted.");
+            var error = realm.NewObject();
+            realm.SetProperty(error, "name", JsValue.String("AbortError"));
+            realm.SetProperty(error, "message", JsValue.String("The operation was aborted."));
             return error;
         }
-        (int status, string statusText, string url, string type, bool redirected, Dictionary<string, string> headers) ParseResponseInit(JSValue? initValue)
+        (int status, string statusText, string url, string type, bool redirected, Dictionary<string, string> headers) ParseResponseInit(JsValue initValue)
         {
             var status = 200;
             var statusText = string.Empty;
@@ -616,16 +700,17 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
             var redirected = false;
             var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            if (initValue is JSObject initObject)
+            if (initValue.IsObject)
             {
-                if (TryGetJsPropertyString(initObject, "status") is string statusValue && int.TryParse(statusValue, out var parsedStatus))
+                if (TryGetJsPropertyString(initValue, "status") is string statusValue && int.TryParse(statusValue, out var parsedStatus))
                     status = parsedStatus;
-                statusText = TryGetJsPropertyString(initObject, "statusText") ?? string.Empty;
-                url = TryGetJsPropertyString(initObject, "url") ?? string.Empty;
-                type = TryGetJsPropertyString(initObject, "type") ?? "basic";
-                redirected = string.Equals(TryGetJsPropertyString(initObject, "redirected"), "true", StringComparison.OrdinalIgnoreCase);
+                statusText = TryGetJsPropertyString(initValue, "statusText") ?? string.Empty;
+                url = TryGetJsPropertyString(initValue, "url") ?? string.Empty;
+                type = TryGetJsPropertyString(initValue, "type") ?? "basic";
+                redirected = string.Equals(TryGetJsPropertyString(initValue, "redirected"), "true", StringComparison.OrdinalIgnoreCase);
 
-                if (initObject[(KeyString)"headers"] is JSObject initHeaders)
+                var initHeaders = realm.GetProperty(initValue, "headers");
+                if (initHeaders.IsObject)
                 {
                     foreach (var (key, value) in EnumerateObjectStringEntries(initHeaders))
                         headers[key] = value;
@@ -637,36 +722,116 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         string ResolveResponseRedirectUrl(string redirectUrl)
         {
             if (string.IsNullOrWhiteSpace(redirectUrl))
-                throw new JSException("Failed to execute 'redirect' on 'Response': Invalid URL");
+                throw realm.Error(JsErrorKind.Error, "Failed to execute 'redirect' on 'Response': Invalid URL");
 
             // fetch adopts the one shared resolver (Phase 7 item 4) — absolute stays, relative resolves
             // against the page URL; an unresolvable URL is the spec's "Invalid URL" TypeError.
             return (UrlResolver.Resolve(redirectUrl, _host.PageUrl)
-                    ?? throw new JSException("Failed to execute 'redirect' on 'Response': Invalid URL"))
+                    ?? throw realm.Error(JsErrorKind.Error, "Failed to execute 'redirect' on 'Response': Invalid URL"))
                 .AbsoluteUri;
         }
-        var formDataCtor = new JSFunction((in a) => CreateFormDataObject(a.Length > 0 ? a[0] : null), "FormData", 1);
-        var headersCtor = new JSFunction((in a) => CreateHeadersObject(a.Length > 0 ? a[0] : null), "Headers", 1);
-        var requestCtor = new JSFunction((in a) => CreateRequestObject(a.Length > 0 ? a[0] : JSUndefined.Value, a.Length > 1 ? a[1] : null), "Request", 2);
-        var responseCtor = new JSFunction((in a) => JsRegistrationResponse113Core(ParseResponseInit, CreateResponse, in a), "Response", 2);
-        responseCtor.FastAddValue("json", new JSFunction((in a) => JsRegistrationJson114Core(ParseResponseInit, CreateResponse, in a), "json", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        responseCtor.FastAddValue("error", new JSFunction((in _) => CreateResponse(string.Empty, 0, string.Empty, string.Empty, "error", false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)),
-            "error", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        responseCtor.FastAddValue("redirect", new JSFunction((in a) => JsRegistrationRedirect116Core(ResolveResponseRedirectUrl, CreateResponse, in a), "redirect", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("FormData", formDataCtor, JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("Headers", headersCtor, JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("Request", requestCtor, JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("Response", responseCtor, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["FormData"] = formDataCtor;
-        context["Headers"] = headersCtor;
-        context["Request"] = requestCtor;
-        context["Response"] = responseCtor;
+        var formDataCtor = realm.NewConstructor("FormData", (in call) => CreateFormDataObject(call[0]), 1);
+        var headersCtor = realm.NewConstructor("Headers", (in call) => CreateHeadersObject(call[0]), 1);
+        var requestCtor = realm.NewConstructor(
+            "Request",
+            // The first argument keeps its `undefined` default and the second its "not supplied" one:
+            // an input that was never passed is coerced to the string "undefined" for the URL, while
+            // an init that was never passed must not be read as an object.
+            (in call) => CreateRequestObject(call.Length > 0 ? call[0] : JsValue.Undefined, call[1]),
+            2);
+        var responseCtor = realm.NewConstructor("Response", (in call) => JsRegistrationResponse113Core(ParseResponseInit, CreateResponse, in call), 2);
+        realm.DefineValue(responseCtor, "json", realm.NewConstructor("json", (in call) => JsRegistrationJson114Core(ParseResponseInit, CreateResponse, in call), 2));
+        realm.DefineValue(
+            responseCtor,
+            "error",
+            realm.NewConstructor(
+                "error",
+                (in _) => CreateResponse(string.Empty, 0, string.Empty, string.Empty, "error", false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)),
+                0));
+        realm.DefineValue(responseCtor, "redirect", realm.NewConstructor("redirect", (in call) => JsRegistrationRedirect116Core(ResolveResponseRedirectUrl, CreateResponse, in call), 2));
+        realm.DefineValue(window, "FormData", formDataCtor);
+        realm.DefineValue(window, "Headers", headersCtor);
+        realm.DefineValue(window, "Request", requestCtor);
+        realm.DefineValue(window, "Response", responseCtor);
+        realm.SetProperty(realm.Global, "FormData", formDataCtor);
+        realm.SetProperty(realm.Global, "Headers", headersCtor);
+        realm.SetProperty(realm.Global, "Request", requestCtor);
+        realm.SetProperty(realm.Global, "Response", responseCtor);
         // fetch(url, options) — polyfill backed by the injected ResourceLoader
-        var fetchFn = new JSFunction((in a) => JsRegistrationFetch120Core(TryGetJsPropertyString, EnumerateObjectStringEntries, CreateAbortErrorValue, CreateResponse, in a), "fetch", 1);
-        window.FastAddValue("fetch", fetchFn, JSPropertyAttributes.EnumerableConfigurableValue);
+        var fetchFn = realm.NewConstructor("fetch", (in call) => JsRegistrationFetch120Core(TryGetJsPropertyString, EnumerateObjectStringEntries, CreateAbortErrorValue, CreateResponse, in call), 1);
+        realm.DefineValue(window, "fetch", fetchFn);
         // XMLHttpRequest — basic polyfill backed by fetch/the ResourceLoader
-        RegisterXMLHttpRequest(context);
+        RegisterXMLHttpRequest(realm);
         return fetchFn;
     }
 
+    /// <summary>The realm's <c>JSON.parse</c> over <paramref name="jsonText"/>, called with no receiver.</summary>
+    private JsValue ParseJsonText(IJsRealm realm, string jsonText) =>
+        realm.Invoke(_jsonParse, JsValue.Undefined, [JsValue.String(jsonText)]);
+
+    /// <summary>
+    /// The same, reporting a malformed body as the message <c>response.json()</c> has always
+    /// rejected with rather than as the parser's own.
+    /// </summary>
+    private JsValue ParseResponseJsonText(IJsRealm realm, string jsonText)
+    {
+        try
+        {
+            return ParseJsonText(realm, jsonText);
+        }
+        catch (Exception ex)
+        {
+            throw realm.Error(JsErrorKind.Error, $"Failed to parse response body as JSON: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The realm's <c>JSON.stringify</c>, rendered the way the engine's host-side <c>Stringify</c>
+    /// helper this replaced rendered it.
+    /// </summary>
+    /// <remarks>
+    /// The helper wrote a string for every input: <c>undefined</c>, <c>null</c> and a non-finite
+    /// number became the literal <c>null</c>, and a function became the empty string. The JavaScript
+    /// operation instead answers <c>undefined</c> for the first and the last, so the two arms below
+    /// are what keeps <c>Response.json(undefined)</c> a body of <c>"null"</c> — the string it was
+    /// before — rather than the string <c>"undefined"</c>.
+    /// </remarks>
+    private string StringifyJson(IJsRealm realm, JsValue value)
+    {
+        var stringified = realm.Invoke(_jsonStringify, JsValue.Undefined, [value]);
+        if (stringified.IsString)
+            return stringified.AsString!;
+
+        return value.IsFunction ? string.Empty : "null";
+    }
+
+    /// <summary>
+    /// An <c>Error</c> to reject with, for a host failure that carries no JavaScript value of its own.
+    /// </summary>
+    /// <remarks>
+    /// The promise executor used to do this itself — it caught anything the resolver threw and
+    /// rejected with an error built from it. <see cref="IJsCalls.Error"/> hands back an exception to
+    /// throw rather than a value to reject with, so the value is constructed here through the realm's
+    /// own <c>Error</c>, which is what the engine's helper did too.
+    /// </remarks>
+    private static JsValue ErrorValue(IJsRealm realm, string message)
+    {
+        var error = realm.GetProperty(realm.Global, "Error");
+        return error.IsFunction
+            ? realm.Construct(error, [JsValue.String(message)])
+            : JsValue.String(message);
+    }
+
+    /// <summary>
+    /// <paramref name="bytes"/> as an <c>ArrayBuffer</c>, for the two <c>arrayBuffer()</c> readers.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the one line JSEAL cannot express</b>, and <c>StreamsBinding</c> records the same
+    /// one: <see cref="IJsValues"/> mints objects, arrays and functions, and has no ArrayBuffer or
+    /// typed-array member and no capability flag for one. Until the contract grows one, the buffer is
+    /// built with the engine's own type and handed across as a handle. The bytes are the caller's
+    /// own array, exactly as before — the readers each encode a fresh one — so nothing copies here.
+    /// </remarks>
+    private static JsValue ToArrayBuffer(byte[] bytes) =>
+        JsInterop.FromEngineObject(new Broiler.JavaScript.BuiltIns.Array.Typed.JSArrayBuffer(bytes));
 }

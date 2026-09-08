@@ -1,5 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -9,17 +9,26 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// per-element form-control state they read/write — the input's dirty IDL <c>value</c> and <c>checked</c>
 /// state — lives on the bridge's <c>ElementRuntimeState.FormControl</c>. It is exposed here as named
 /// primitives (the P3.7 pattern) so the module never touches the runtime-state object, together with the
-/// <c>&lt;select&gt;</c> value resolution (owned by <see cref="SelectBinding"/>), the radio-group
-/// mutual-exclusion walk, and style-scope invalidation for the reflected boolean setters. Neutral
-/// attribute reflection uses the assembly's static <c>DomBridge</c> helpers directly.
+/// realm, the <c>&lt;select&gt;</c> value resolution (owned by <see cref="SelectBinding"/>), the
+/// radio-group mutual-exclusion walk, and style-scope invalidation for the reflected boolean setters.
+/// Neutral attribute reflection uses the assembly's static <c>DomBridge</c> helpers directly.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
+/// type. The <c>FileList</c> is still built by <see cref="DomCollectionBinding"/>, which is not
+/// migrated; that stays on the bridge's side of the seam, which is why this contract asks for the
+/// finished list rather than for the pieces to build one from.
+/// </remarks>
 internal interface IFormControlHost
 {
+    /// <summary>The realm the reflectors are installed in and their bodies run against.</summary>
+    IJsRealm Realm { get; }
+
     /// <summary>
     /// The file input's <c>FileList</c> — one object per element, so <c>input.files ===
     /// input.files</c> holds as it does in a browser. Always empty: there is no file selection.
     /// </summary>
-    JSValue GetFileList(DomElement element);
+    JsValue GetFileList(DomElement element);
 
     /// <summary>The input's dirty IDL <c>value</c> (set via the property, not the attribute), if any.</summary>
     bool TryGetFormControlValue(DomElement element, out string value);

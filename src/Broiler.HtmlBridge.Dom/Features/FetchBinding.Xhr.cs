@@ -1,15 +1,23 @@
-using Broiler.JavaScript.Engine;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
 internal sealed partial class FetchBinding
 {
     /// <summary>
-    /// Registers a basic <c>XMLHttpRequest</c> constructor on the context.
+    /// Registers a basic <c>XMLHttpRequest</c> constructor on the realm's global.
     /// Supports <c>open</c>, <c>send</c>, <c>setRequestHeader</c>,
     /// <c>onreadystatechange</c>, <c>readyState</c>, <c>status</c>, and <c>responseText</c>.
     /// </summary>
-    private static void RegisterXMLHttpRequest(JSContext context) => context.Eval(@"
+    /// <remarks>
+    /// The source is this repository's own, not the page's, so it goes through
+    /// <see cref="IJsSource.EvaluateHostScript"/> — the half of the source contract that is exempt
+    /// from the page's content policy — and the label is what a stack frame raised inside the
+    /// polyfill reports as its location. The declarations are top-level on purpose: <c>window</c>
+    /// <em>is</em> the global here, so <c>function XMLHttpRequest</c> is what publishes the
+    /// constructor, exactly as it did through the context's own <c>Eval</c>.
+    /// </remarks>
+    private static void RegisterXMLHttpRequest(IJsRealm realm) => realm.EvaluateHostScript(@"
                 function XMLHttpRequest() {
                     this.readyState = 0;
                     this.status = 0;
@@ -431,6 +439,6 @@ internal sealed partial class FetchBinding
                         handleRequestError();
                     }
                 };
-            ");
+            ", "polyfill:xmlhttprequest");
 
 }

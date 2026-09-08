@@ -1,17 +1,11 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Internal.Scripting;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Json;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Promise;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -23,34 +17,34 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 internal sealed partial class FetchBinding
 {
-    private JSValue JsRegistrationResponse113Core(ResponseInitParser parseResponseInit, ResponseFactory createResponse, in Arguments a)
+    private JsValue JsRegistrationResponse113Core(ResponseInitParser parseResponseInit, ResponseFactory createResponse, in JsCall call)
     {
-        var body = a.Length > 0 && !a[0].IsUndefined && !a[0].IsNull ? a[0].ToString() : string.Empty;
-        var (status, statusText, url, type, redirected, headers) = parseResponseInit(a.Length > 1 ? a[1] : null);
+        var body = call.Length > 0 && !call[0].IsNullish ? call.Realm.ToJsString(call[0]) : string.Empty;
+        var (status, statusText, url, type, redirected, headers) = parseResponseInit(call[1]);
         return createResponse(body, status, statusText, url, type, redirected, headers);
     }
 
 
-    private JSValue JsRegistrationJson114Core(ResponseInitParser parseResponseInit, ResponseFactory createResponse, in Arguments a)
+    private JsValue JsRegistrationJson114Core(ResponseInitParser parseResponseInit, ResponseFactory createResponse, in JsCall call)
     {
-        var jsonBody = JSJSON.Stringify(a.Length > 0 ? a[0] : JSNull.Value);
-        var (status, statusText, url, type, redirected, headers) = parseResponseInit(a.Length > 1 ? a[1] : null);
+        var jsonBody = StringifyJson(call.Realm, call.Length > 0 ? call[0] : JsValue.Null);
+        var (status, statusText, url, type, redirected, headers) = parseResponseInit(call[1]);
         if (!headers.ContainsKey("Content-Type"))
             headers["Content-Type"] = "application/json";
         return createResponse(jsonBody, status, statusText, url, type, redirected, headers);
     }
 
 
-    private JSValue JsRegistrationRedirect116Core(Func<string, string> resolveResponseRedirectUrl, ResponseFactory createResponse, in Arguments a)
+    private JsValue JsRegistrationRedirect116Core(Func<string, string> resolveResponseRedirectUrl, ResponseFactory createResponse, in JsCall call)
     {
-        if (a.Length == 0)
-            throw new JSException("Failed to execute 'redirect' on 'Response': 1 argument required.");
+        if (call.Length == 0)
+            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'redirect' on 'Response': 1 argument required.");
         var status = 302;
-        if (a.Length > 1 && int.TryParse(a[1].ToString(), out var parsedStatus))
+        if (call.Length > 1 && int.TryParse(call.Realm.ToJsString(call[1]), out var parsedStatus))
             status = parsedStatus;
         if (status is not (301 or 302 or 303 or 307 or 308))
-            throw new JSException("Failed to execute 'redirect' on 'Response': Invalid status code");
-        var resolvedUrl = resolveResponseRedirectUrl(a[0].ToString());
+            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'redirect' on 'Response': Invalid status code");
+        var resolvedUrl = resolveResponseRedirectUrl(call.Realm.ToJsString(call[0]));
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["Location"] = resolvedUrl
@@ -59,14 +53,17 @@ internal sealed partial class FetchBinding
     }
 
 
-    private JSValue JsRegistrationFetch120Core(JsPropertyStringGetter tryGetJsPropertyString, ObjectStringEntriesEnumerator enumerateObjectStringEntries, Func<JSValue, JSValue> createAbortErrorValue, ResponseFactory createResponse, in Arguments a)
+    private JsValue JsRegistrationFetch120Core(JsPropertyStringGetter tryGetJsPropertyString, ObjectStringEntriesEnumerator enumerateObjectStringEntries, Func<JsValue, JsValue> createAbortErrorValue, ResponseFactory createResponse, in JsCall call)
     {
-        if (a.Length == 0)
-            throw new JSException("Failed to execute 'fetch': 1 argument required.");
-        var requestedUrl = a[0].ToString();
-        if (a[0] is JSObject requestInput)
+        var realm = call.Realm;
+
+        if (call.Length == 0)
+            throw realm.Error(JsErrorKind.Error, "Failed to execute 'fetch': 1 argument required.");
+        var requestedUrl = realm.ToJsString(call[0]);
+        var input = call[0];
+        if (input.IsObject)
         {
-            requestedUrl = tryGetJsPropertyString(requestInput, "url", "href") ?? requestedUrl;
+            requestedUrl = tryGetJsPropertyString(input, "url", "href") ?? requestedUrl;
         }
 
         // §5.4 of Fetch: the input is parsed against the entry settings object's base URL. This is
@@ -80,32 +77,37 @@ internal sealed partial class FetchBinding
         var resolvedUri = UrlResolver.Resolve(requestedUrl, _host.PageUrl);
         var fetchUrl = resolvedUri?.AbsoluteUri ?? requestedUrl;
 
-        JSValue responseObj = new JSObject();
+        var responseObj = realm.NewObject();
         // Parse options (method, headers, body)
         var method = "GET";
         string? requestBody = null;
         var requestHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        JSValue signalValue = JSUndefined.Value;
-        if (a[0] is JSObject requestObject)
+        var signalValue = JsValue.Undefined;
+        if (input.IsObject)
         {
-            method = (tryGetJsPropertyString(requestObject, "method") ?? method).ToUpperInvariant();
-            requestBody = tryGetJsPropertyString(requestObject, "_bodyInit", "body");
-            if (requestObject[(KeyString)"signal"] is { } requestSignal && !requestSignal.IsUndefined && !requestSignal.IsNull)
+            method = (tryGetJsPropertyString(input, "method") ?? method).ToUpperInvariant();
+            requestBody = tryGetJsPropertyString(input, "_bodyInit", "body");
+            var requestSignal = realm.GetProperty(input, "signal");
+            if (!requestSignal.IsNullish)
                 signalValue = requestSignal;
-            if (requestObject[(KeyString)"headers"] is JSObject requestHeadersObject)
+            var requestHeadersObject = realm.GetProperty(input, "headers");
+            if (requestHeadersObject.IsObject)
             {
                 foreach (var (key, value) in enumerateObjectStringEntries(requestHeadersObject))
                     requestHeaders[key] = value;
             }
         }
 
-        if (a.Length > 1 && a[1] is JSObject opts)
+        if (call.Length > 1 && call[1].IsObject)
         {
+            var opts = call[1];
             method = (tryGetJsPropertyString(opts, "method") ?? method).ToUpperInvariant();
             requestBody = tryGetJsPropertyString(opts, "body") ?? requestBody;
-            if (opts[(KeyString)"signal"] is { } optionsSignal && !optionsSignal.IsUndefined && !optionsSignal.IsNull)
+            var optionsSignal = realm.GetProperty(opts, "signal");
+            if (!optionsSignal.IsNullish)
                 signalValue = optionsSignal;
-            if (opts[(KeyString)"headers"] is JSObject optionsHeadersObject)
+            var optionsHeadersObject = realm.GetProperty(opts, "headers");
+            if (optionsHeadersObject.IsObject)
             {
                 foreach (var (key, value) in enumerateObjectStringEntries(optionsHeadersObject))
                     requestHeaders[key] = value;
@@ -113,8 +115,8 @@ internal sealed partial class FetchBinding
         }
 
         var rejected = false;
-        var rejectedValue = JSUndefined.Value;
-        if (signalValue is JSObject signalObject && signalObject[(KeyString)"aborted"].BooleanValue)
+        var rejectedValue = JsValue.Undefined;
+        if (signalValue.IsObject && realm.GetProperty(signalValue, "aborted").AsBoolean)
         {
             rejected = true;
             rejectedValue = createAbortErrorValue(signalValue);
@@ -135,9 +137,12 @@ internal sealed partial class FetchBinding
                 // for this binding's error model, which reports every failed fetch as an error
                 // Response rather than throwing. Throwing here would abort the whole calling script,
                 // which for a relative URL is a far worse outcome than one failed request.
+                //
+                // The error is built rather than thrown: it is the JavaScript Error the log line has
+                // always carried, and asking the realm for one is how a host makes one now.
                 RenderLogger.LogError(LogCategory.JavaScript, "DomBridge.fetch",
                     $"Fetch error: '{requestedUrl}' is not an absolute URL and does not resolve against the page URL '{_host.PageUrl}'.",
-                    new JSException("Failed to parse URL"));
+                    realm.Error(JsErrorKind.Error, "Failed to parse URL"));
                 attempt.Failed($"'{requestedUrl}' does not resolve against the page URL");
                 responseObj = createResponse(string.Empty, 0, "Invalid URL", requestedUrl, "error", false,
                     new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
@@ -213,16 +218,18 @@ internal sealed partial class FetchBinding
         // and logged rather than rejecting the derived promise, so an error inside a handler vanished.
         // The object was also not `instanceof Promise`, which feature-detecting code checks.
         //
-        // A real JSPromise gets all of that from the engine. The capture pumps the microtask queue (a
+        // A real promise gets all of that from the engine. The capture pumps the microtask queue (a
         // plain `Promise.resolve().then(...)` callback runs), so settling through the real machinery
-        // still delivers the callbacks.
-        return new JSPromise((resolve, reject) =>
-        {
-            if (rejected)
-                reject(rejectedValue);
-            else
-                resolve(responseObj);
-        });
+        // still delivers the callbacks. The realm hands back the settle functions rather than running
+        // an executor, so the two arms below are reached directly instead of through a callback that
+        // only happened to run synchronously — see IJsJobs.NewPromise.
+        var promise = realm.NewPromise(out var resolve, out var reject);
+        if (rejected)
+            reject(rejectedValue);
+        else
+            resolve(responseObj);
+
+        return promise;
     }
 
     /// <summary>

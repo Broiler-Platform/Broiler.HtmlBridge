@@ -1,14 +1,6 @@
 using System.Text;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Engine;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -31,17 +23,39 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the assembly's neutral static <c>DomBridge</c> tree/selector helpers.
 /// </para>
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): objects and functions are minted
+/// through the realm, an argument frame arrives as a <see cref="JsCall"/>, and every argument read goes
+/// through the realm's <c>ToString</c>/<c>ToNumber</c> rather than the handle's, because that is the
+/// coercion a page observes — <c>getElementById({toString(){…}})</c> has always run the object's own
+/// <c>toString</c> here, and the handle's rendering deliberately does not.
+/// </remarks>
 internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 {
     private readonly ISubDocumentHost _host = host;
 
     /// <summary>
+    /// <see cref="Build"/> as an engine object, for the two callers that still hold one: the bridge's
+    /// own sub-document cache (<c>DomBridge/SubDocuments.cs</c>, which hands the object to
+    /// <c>BrowsingContextManager</c>) and <c>DomBridge.DocumentLevelFactoryHost.cs</c>, another
+    /// group's file this round.
+    /// </summary>
+    /// <remarks>
+    /// It is a cast and not a conversion — the handle carries the engine's own object — so the
+    /// document object the caches hold is the one this module built. It goes when those two callers
+    /// migrate.
+    /// </remarks>
+    internal JavaScript.Runtime.JSObject BuildDocument(DomNode docRoot) =>
+        Runtime.JsInterop.ToEngineObject(Build(docRoot));
+
+    /// <summary>
     /// Builds the JS <c>document</c> object for the sub-document rooted at <paramref name="docRoot"/> and
     /// registers it as that root's wrapper identity. Was <c>DomBridge.BuildSubDocument</c>.
     /// </summary>
-    internal JSObject BuildDocument(DomNode docRoot)
+    internal JsValue Build(DomNode docRoot)
     {
-        var doc = new JSObject();
+        var realm = _host.Realm;
+        var doc = realm.NewObject();
         _host.RegisterDocumentWrapper(docRoot, doc);
 
         // A frame's document is a document like any other, so it reports HTMLDocument too. Built
@@ -52,238 +66,188 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         // collections are the main document's, over this root's sub-tree.
         var collections = new SubDocumentCollectionHost(_host, docRoot);
 
-        doc.FastAddProperty("documentElement",
-            new DomFunction((in _) => DomBridge.GetDocumentElement(docRoot) is { } de ? _host.ToJSObject(de) : JSNull.Value, "get documentElement"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "documentElement",
+            (in _) => DomBridge.GetDocumentElement(docRoot) is { } de ? _host.ToJsObject(de) : JsValue.Null,
+            null);
 
-        doc.FastAddProperty("scrollingElement",
-            new DomFunction((in _) => DomBridge.GetDocumentElement(docRoot) is { } se ? _host.ToJSObject(se) : JSNull.Value, "get scrollingElement"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "scrollingElement",
+            (in _) => DomBridge.GetDocumentElement(docRoot) is { } se ? _host.ToJsObject(se) : JsValue.Null,
+            null);
 
         // body
-        doc.FastAddProperty("body",
-            new DomFunction((in _) => GetBody(docRoot), "get body"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "body", (in _) => GetBody(docRoot), null);
 
         // head
-        doc.FastAddProperty("head",
-            new DomFunction((in _) => GetHead(docRoot), "get head"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "head", (in _) => GetHead(docRoot), null);
 
         // title (dynamic getter from <title> element in <head>)
-        doc.FastAddProperty("title",
-            new DomFunction((in _) => GetTitle(docRoot), "get title"),
-            new DomFunction((in a) => SetTitle(docRoot, in a), "set title"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "title",
+            (in _) => GetTitle(docRoot),
+            (in call) => SetTitle(docRoot, in call));
 
         // forms/images/links/anchors/scripts/embeds/plugins/styleSheets — the document collection
         // family, built by the shared binding rather than by this module's own snapshot builders.
-        RegisterCollections(doc, collections, _host.JsContext);
+        RegisterCollections(realm, doc, collections);
 
         // doctype/dir/designMode — the three document metadata accessors that came with that family.
-        RegisterMetadata(doc, docRoot);
+        RegisterMetadata(realm, doc, docRoot);
 
         // childNodes
-        doc.FastAddProperty("childNodes",
-            new DomFunction((in _) => GetChildNodes(docRoot), "get childNodes"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "childNodes", (in _) => GetChildNodes(docRoot), null);
 
         // firstChild
-        doc.FastAddProperty("firstChild",
-            new DomFunction((in _) => docRoot.ChildNodes.Count > 0 ? _host.ToJSObject(DomBridge.ChildAt(docRoot, 0)) : JSNull.Value, "get firstChild"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "firstChild",
+            (in _) => docRoot.ChildNodes.Count > 0 ? _host.ToJsObject(DomBridge.ChildAt(docRoot, 0)) : JsValue.Null,
+            null);
 
         // lastChild
-        doc.FastAddProperty("lastChild",
-            new DomFunction((in _) => docRoot.ChildNodes.Count > 0 ? _host.ToJSObject(DomBridge.ChildAt(docRoot, ^1)) : JSNull.Value, "get lastChild"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "lastChild",
+            (in _) => docRoot.ChildNodes.Count > 0 ? _host.ToJsObject(DomBridge.ChildAt(docRoot, ^1)) : JsValue.Null,
+            null);
 
         // hasChildNodes()
-        doc.FastAddValue("hasChildNodes",
-            new DomFunction((in _) => docRoot.ChildNodes.Count > 0 ? JSBoolean.True : JSBoolean.False, "hasChildNodes", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "hasChildNodes",
+            realm.NewMethod("hasChildNodes", (in _) => JsValue.Boolean(docRoot.ChildNodes.Count > 0), 0));
 
         // nodeType = DOCUMENT_NODE (9)
-        doc.FastAddProperty("nodeType",
-            new DomFunction((in _) => new JSNumber(9), "get nodeType"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "nodeType", (in _) => JsValue.Number(9), null);
 
         // nodeName = "#document"
-        doc.FastAddProperty("nodeName",
-            new DomFunction((in _) => new JSString("#document"), "get nodeName"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "nodeName", (in _) => JsValue.String("#document"), null);
 
         // localName = null for document
-        doc.FastAddProperty("localName",
-            DomBridge.NullFunction("get localName"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "localName", (in _) => JsValue.Null, null);
 
         // getElementById(id)
-        doc.FastAddValue("getElementById",
-            new DomFunction((in a) => GetElementById(docRoot, in a), "getElementById", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "getElementById",
+            realm.NewMethod("getElementById", (in call) => GetElementById(docRoot, in call), 1));
 
         // getElementsByTagName(tag)
-        doc.FastAddValue("getElementsByTagName",
-            new DomFunction((in a) => GetElementsByTagName(docRoot, in a), "getElementsByTagName", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "getElementsByTagName",
+            realm.NewMethod("getElementsByTagName", (in call) => GetElementsByTagName(docRoot, in call), 1));
 
         // getElementsByClassName(names) / getElementsByName(name) — the two collection lookups a
         // frame's document was missing while the main document had them. A script in a frame is a
         // script like any other: absent, these read as undefined rather than as missing methods, so
         // calling one threw and took the frame's whole <script> with it.
-        doc.FastAddValue("getElementsByClassName",
-            new DomFunction((in a) => GetElementsByClassName(docRoot, in a), "getElementsByClassName", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "getElementsByClassName",
+            realm.NewMethod("getElementsByClassName", (in call) => GetElementsByClassName(docRoot, in call), 1));
 
-        doc.FastAddValue("getElementsByName",
-            new DomFunction((in a) => GetElementsByName(docRoot, in a), "getElementsByName", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "getElementsByName",
+            realm.NewMethod("getElementsByName", (in call) => GetElementsByName(docRoot, in call), 1));
 
         // createElement(tag)
-        doc.FastAddValue("createElement",
-            new DomFunction((in a) => CreateElement(docRoot, in a), "createElement", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "createElement",
+            realm.NewMethod("createElement", (in call) => CreateElement(docRoot, in call), 1));
 
         // createTextNode(text)
-        doc.FastAddValue("createTextNode",
-            new DomFunction((in a) => CreateTextNode(docRoot, in a), "createTextNode", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "createTextNode",
+            realm.NewMethod("createTextNode", (in call) => CreateTextNode(docRoot, in call), 1));
 
         // createComment(data)
-        doc.FastAddValue("createComment",
-            new DomFunction((in a) => CreateComment(docRoot, in a), "createComment", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "createComment",
+            realm.NewMethod("createComment", (in call) => CreateComment(docRoot, in call), 1));
 
         // createElementNS(ns, localName)
-        doc.FastAddValue("createElementNS",
-            new DomFunction((in a) => CreateElementNS(docRoot, in a), "createElementNS", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "createElementNS",
+            realm.NewMethod("createElementNS", (in call) => CreateElementNS(docRoot, in call), 2));
 
         // adoptNode(node) — the one document method that moves a node between documents rather than
         // copying it. A frame's document needs it as much as the page's: the interesting direction is
         // adopting *into* this document, which is exactly what the page's own adoptNode cannot do.
-        doc.FastAddValue("adoptNode",
-            new DomFunction((in a) => AdoptNode(docRoot, in a), "adoptNode", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "adoptNode",
+            realm.NewMethod("adoptNode", (in call) => AdoptNode(docRoot, in call), 1));
 
         // createEvent(type)
-        doc.FastAddValue("createEvent",
-            new DomFunction((in a) => CreateEvent(in a), "createEvent", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "createEvent",
+            realm.NewMethod("createEvent", (in call) => CreateEvent(in call), 1));
 
         // querySelector / querySelectorAll
-        doc.FastAddValue("querySelector",
-            new DomFunction((in a) => QuerySelector(docRoot, in a), "querySelector", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "querySelector",
+            realm.NewMethod("querySelector", (in call) => QuerySelector(docRoot, in call), 1));
 
-        doc.FastAddValue("querySelectorAll",
-            new DomFunction((in a) => QuerySelectorAll(docRoot, in a), "querySelectorAll", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "querySelectorAll",
+            realm.NewMethod("querySelectorAll", (in call) => QuerySelectorAll(docRoot, in call), 1));
 
-        doc.FastAddValue("elementFromPoint",
-            new DomFunction((in a) => ElementFromPoint(docRoot, in a), "elementFromPoint", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "elementFromPoint",
+            realm.NewMethod("elementFromPoint", (in call) => ElementFromPoint(docRoot, in call), 2));
 
-        doc.FastAddValue("elementsFromPoint",
-            new DomFunction((in a) => ElementsFromPoint(docRoot, in a), "elementsFromPoint", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "elementsFromPoint",
+            realm.NewMethod("elementsFromPoint", (in call) => ElementsFromPoint(docRoot, in call), 2));
 
         // document.open()
-        doc.FastAddValue("open",
-            new DomFunction((in _) => Open(doc, docRoot), "open", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "open",
+            realm.NewMethod("open", (in _) => Open(doc, docRoot), 0));
 
-        // document.close()
-        doc.FastAddValue("close",
-            DomBridge.UndefinedFunction("close", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        // document.close() — a no-op, and constructable, as the shared `UndefinedFunction` helper it
+        // was built by mints them (`new JSFunction`, not a DomFunction).
+        realm.DefineValue(doc, "close",
+            realm.NewConstructor("close", (in _) => JsValue.Undefined, 0));
 
         // document.write(html)
-        doc.FastAddValue("write",
-            new DomFunction((in a) => Write(docRoot, in a), "write", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "write",
+            realm.NewMethod("write", (in call) => Write(docRoot, in call), 1));
 
         // removeChild on document
-        doc.FastAddValue("removeChild",
-            new DomFunction((in a) => RemoveChild(docRoot, in a), "removeChild", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "removeChild",
+            realm.NewMethod("removeChild", (in call) => RemoveChild(docRoot, in call), 1));
 
         // appendChild on document
-        doc.FastAddValue("appendChild",
-            new DomFunction((in a) => AppendChild(docRoot, in a), "appendChild", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "appendChild",
+            realm.NewMethod("appendChild", (in call) => AppendChild(docRoot, in call), 1));
 
-        doc.FastAddValue("append",
-            new DomFunction((in a) => Append(docRoot, in a), "append", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "append",
+            realm.NewMethod("append", (in call) => Append(docRoot, in call), 0));
 
-        doc.FastAddValue("prepend",
-            new DomFunction((in a) => Prepend(docRoot, in a), "prepend", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "prepend",
+            realm.NewMethod("prepend", (in call) => Prepend(docRoot, in call), 0));
 
         // Node interface constants — types and the DOCUMENT_POSITION_* bits. On Node.prototype, which
         // this document object reaches through the HTMLDocument link above; it installs its own only
         // when the realm does not carry the interfaces.
-        //
-        // The realm comes off the host contract, beside the JSContext that is still on it — this
-        // interface straddles the migration and carries both for as long as that is true.
         if (!_host.NodeInterfacePrototypesReady)
-            NodeConstantsBinding.Install(_host.Realm, Runtime.JsInterop.FromEngineObject(doc));
+            NodeConstantsBinding.Install(realm, doc);
 
         // document.implementation on sub-documents
-        var subImpl = new JSObject();
-        subImpl.FastAddValue("hasFeature",
-            DomBridge.TrueFunction("hasFeature", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        subImpl.FastAddValue("createDocumentType",
-            new DomFunction((in a) => CreateDocumentType(in a), "createDocumentType", 3),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        subImpl.FastAddValue("createDocument",
-            new DomFunction((in a) => CreateDocument(in a), "createDocument", 3),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        subImpl.FastAddValue("createHTMLDocument",
-            new DomFunction((in a) => CreateHTMLDocument(in a), "createHTMLDocument", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        doc.FastAddValue("implementation",
-            subImpl, JSPropertyAttributes.EnumerableConfigurableValue);
+        var subImpl = realm.NewObject();
+        realm.DefineValue(subImpl, "hasFeature",
+            realm.NewConstructor("hasFeature", (in _) => JsValue.True, 2));
+        realm.DefineValue(subImpl, "createDocumentType",
+            realm.NewMethod("createDocumentType", (in call) => CreateDocumentType(in call), 3));
+        realm.DefineValue(subImpl, "createDocument",
+            realm.NewMethod("createDocument", (in call) => CreateDocument(in call), 3));
+        realm.DefineValue(subImpl, "createHTMLDocument",
+            realm.NewMethod("createHTMLDocument", (in call) => CreateHTMLDocument(in call), 1));
+        realm.DefineValue(doc, "implementation", subImpl);
 
         // defaultView — return the main window object so getComputedStyle is accessible
-        if (_host.WindowJSObject != null)
-        {
-            doc.FastAddValue("defaultView",
-                _host.WindowJSObject, JSPropertyAttributes.EnumerableConfigurableValue);
-        }
+        if (_host.MainWindow is { IsObject: true } mainWindow)
+            realm.DefineValue(doc, "defaultView", mainWindow);
 
         // createTreeWalker(root, whatToShow, filter)
-        doc.FastAddValue("createTreeWalker",
-            new DomFunction((in a) => CreateTreeWalker(in a), "createTreeWalker", 3),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "createTreeWalker",
+            realm.NewMethod("createTreeWalker", (in call) => CreateTreeWalker(in call), 3));
 
         // createNodeIterator(root, whatToShow, filter)
-        doc.FastAddValue("createNodeIterator",
-            new DomFunction((in a) => CreateNodeIterator(in a), "createNodeIterator", 3),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "createNodeIterator",
+            realm.NewMethod("createNodeIterator", (in call) => CreateNodeIterator(in call), 3));
 
         // startViewTransition() — CSS View Transitions, scoped to this nested browsing context.
         // Absent here, a page driving a transition inside its <iframe> through contentDocument hit a
         // TypeError that aborted the rest of its script, so the main frame's own transition never ran
         // either (WPT css-view-transitions/iframe-and-main-frame-transition-*).
-        doc.FastAddValue("startViewTransition",
-            new DomFunction((in a) => _host.StartViewTransition(docRoot, in a), "startViewTransition", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "startViewTransition",
+            realm.NewMethod("startViewTransition", (in call) => _host.StartViewTransition(docRoot, call[0]), 1));
 
         // createRange()
-        doc.FastAddValue("createRange",
-            new DomFunction((in _) => _host.BuildRange(docRoot), "createRange", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "createRange",
+            realm.NewMethod("createRange", (in _) => _host.BuildRange(docRoot), 0));
 
         // getSelection() — this document's own selection, distinct from the containing page's. The
         // method exists on every document, but only one being displayed has a selection to report, so
         // a createDocument/createHTMLDocument result answers null; the host draws that line.
-        doc.FastAddValue("getSelection",
-            new DomFunction((in _) => _host.GetSelection(docRoot), "getSelection", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(doc, "getSelection",
+            realm.NewMethod("getSelection", (in _) => _host.GetSelection(docRoot), 0));
 
         return doc;
     }
@@ -305,31 +269,32 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     /// prototypes from are registered once during attach, so an eager build during attach — while an
     /// <c>&lt;iframe&gt;</c>'s content document is being wired — would capture no prototype at all.
     /// </remarks>
-    private static void RegisterCollections(
-        JSObject doc, IDocumentCollectionHost collections, JSContext? context)
+    private void RegisterCollections(IJsRealm realm, JsValue doc, IDocumentCollectionHost collections)
     {
-        Live("forms", DocumentCollectionBinding.Forms);
-        Live("images", DocumentCollectionBinding.Images);
-        Live("links", DocumentCollectionBinding.Links);
-        Live("anchors", DocumentCollectionBinding.Anchors);
-        Live("scripts", DocumentCollectionBinding.Scripts);
-        Live("styleSheets", DocumentCollectionBinding.StyleSheets);
+        Live("forms", DocumentCollectionKind.Forms);
+        Live("images", DocumentCollectionKind.Images);
+        Live("links", DocumentCollectionKind.Links);
+        Live("anchors", DocumentCollectionKind.Anchors);
+        Live("scripts", DocumentCollectionKind.Scripts);
+        Live("styleSheets", DocumentCollectionKind.StyleSheets);
 
-        JSValue? embeds = null;
-        JSValue Embeds() => embeds ??= DocumentCollectionBinding.Embeds(collections, context);
+        // Missing, not undefined, as the "not built yet" mark: a builder that answered undefined would
+        // then be re-asked on every read, and the two names below have to answer one object.
+        var embeds = JsValue.Missing;
+        JsValue Embeds() =>
+            embeds.IsMissing ? embeds = _host.DocumentCollection(collections, DocumentCollectionKind.Embeds) : embeds;
         Getter("embeds", Embeds);
         Getter("plugins", Embeds);
 
-        void Live(string name, Func<IDocumentCollectionHost, JSContext?, JSValue> build)
+        void Live(string name, DocumentCollectionKind kind)
         {
-            JSValue? collection = null;
-            Getter(name, () => collection ??= build(collections, context));
+            var collection = JsValue.Missing;
+            Getter(name, () =>
+                collection.IsMissing ? collection = _host.DocumentCollection(collections, kind) : collection);
         }
 
-        void Getter(string name, Func<JSValue> read) =>
-            doc.FastAddProperty(
-                name, new DomFunction((in _) => read(), $"get {name}"), null,
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+        void Getter(string name, Func<JsValue> read) =>
+            realm.DefineAccessor(doc, name, (in _) => read(), null);
     }
 
     /// <summary>
@@ -344,42 +309,41 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     /// gives it. <c>designMode</c> is per-document state (HTML §3.2.7), so each sub-document carries
     /// its own rather than sharing the containing document's.
     /// </remarks>
-    private void RegisterMetadata(JSObject doc, DomNode docRoot)
+    private void RegisterMetadata(IJsRealm realm, JsValue doc, DomNode docRoot)
     {
-        doc.FastAddProperty(
-            "doctype",
-            new DomFunction((in _) => DocumentTypeNode(docRoot) is { } doctype ? _host.ToJSObject(doctype) : JSNull.Value, "get doctype"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(doc, "doctype",
+            (in _) => DocumentTypeNode(docRoot) is { } doctype ? _host.ToJsObject(doctype) : JsValue.Null,
+            null);
 
         // HTML §3.2.6: the getter is limited to only known values — the canonical lower-case keyword
         // or the empty string — while the setter writes the assigned text through unchanged.
-        doc.FastAddProperty(
-            "dir",
-            new DomFunction((in _) => new JSString(DocumentDirection(docRoot)), "get dir"),
-            new DomFunction((in a) =>
+        realm.DefineAccessor(doc, "dir",
+            (in _) => JsValue.String(DocumentDirection(docRoot)),
+            (in call) =>
             {
                 if (DomBridge.GetDocumentElement(docRoot) is { } documentElement)
-                    DomBridge.SetAttr(documentElement, "dir", a.Length > 0 ? a[0].ToString() : string.Empty);
-                return JSUndefined.Value;
-            }, "set dir"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+                {
+                    DomBridge.SetAttr(documentElement, "dir",
+                        call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+                }
+
+                return JsValue.Undefined;
+            });
 
         // HTML §3.2.7: an enumerated document state rather than an attribute. Anything but "on"/"off"
         // (ASCII case-insensitively) is ignored rather than stored.
         var designMode = "off";
-        doc.FastAddProperty(
-            "designMode",
-            new DomFunction((in _) => new JSString(designMode), "get designMode"),
-            new DomFunction((in a) =>
+        realm.DefineAccessor(doc, "designMode",
+            (in _) => JsValue.String(designMode),
+            (in call) =>
             {
-                var requested = a.Length > 0 ? a[0].ToString() : string.Empty;
+                var requested = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
                 if (string.Equals(requested, "on", StringComparison.OrdinalIgnoreCase))
                     designMode = "on";
                 else if (string.Equals(requested, "off", StringComparison.OrdinalIgnoreCase))
                     designMode = "off";
-                return JSUndefined.Value;
-            }, "set designMode"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+                return JsValue.Undefined;
+            });
     }
 
     /// <summary>This sub-document's <see cref="DomDocumentType"/> child, or <see langword="null"/>.</summary>
@@ -407,39 +371,39 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
     // -------- read-only document getters --------
 
-    private JSValue GetBody(DomNode docRoot)
+    private JsValue GetBody(DomNode docRoot)
     {
         var htmlEl = DomBridge.GetDocumentElement(docRoot);
         if (htmlEl == null)
-            return JSNull.Value;
+            return JsValue.Null;
         foreach (var child in DomBridge.ChildElements(htmlEl))
         {
             if (string.Equals(child.TagName, "body", StringComparison.OrdinalIgnoreCase))
-                return _host.ToJSObject(child);
+                return _host.ToJsObject(child);
         }
 
-        return JSNull.Value;
+        return JsValue.Null;
     }
 
-    private JSValue GetHead(DomNode docRoot)
+    private JsValue GetHead(DomNode docRoot)
     {
         var htmlEl = DomBridge.GetDocumentElement(docRoot);
         if (htmlEl == null)
-            return JSNull.Value;
+            return JsValue.Null;
         foreach (var child in DomBridge.ChildElements(htmlEl))
         {
             if (string.Equals(child.TagName, "head", StringComparison.OrdinalIgnoreCase))
-                return _host.ToJSObject(child);
+                return _host.ToJsObject(child);
         }
 
-        return JSNull.Value;
+        return JsValue.Null;
     }
 
-    private JSValue GetTitle(DomNode docRoot)
+    private static JsValue GetTitle(DomNode docRoot)
     {
         var htmlEl = DomBridge.GetDocumentElement(docRoot);
         if (htmlEl == null)
-            return new JSString(string.Empty);
+            return JsValue.String(string.Empty);
         var head = DomBridge.ChildElements(htmlEl).FirstOrDefault(c => string.Equals(c.TagName, "head", StringComparison.OrdinalIgnoreCase));
         if (head != null)
         {
@@ -448,27 +412,27 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
             {
                 var sb = new StringBuilder();
                 DomBridge.CollectTextContent(titleEl, sb);
-                return new JSString(sb.ToString());
+                return JsValue.String(sb.ToString());
             }
         }
 
-        return new JSString(string.Empty);
+        return JsValue.String(string.Empty);
     }
 
-    private JSValue SetTitle(DomNode docRoot, in Arguments a)
+    private JsValue SetTitle(DomNode docRoot, in JsCall call)
     {
         var htmlEl = DomBridge.GetDocumentElement(docRoot);
         if (htmlEl == null)
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         var head = DomBridge.ChildElements(htmlEl).FirstOrDefault(c => string.Equals(c.TagName, "head", StringComparison.OrdinalIgnoreCase));
         if (head != null)
         {
             var titleEl = DomBridge.ChildElements(head).FirstOrDefault(c => string.Equals(c.TagName, "title", StringComparison.OrdinalIgnoreCase));
             if (titleEl != null)
-                _host.SetElementTextContent(titleEl, a.Length > 0 ? a[0].ToString() : string.Empty);
+                _host.SetElementTextContent(titleEl, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -481,29 +445,29 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     /// drop it. That matches the sub-document's <c>firstChild</c> (the raw first child) and the main
     /// document's <c>childNodes</c>.
     /// </remarks>
-    private JSValue GetChildNodes(DomNode docRoot) =>
-        DomCollectionBinding.NodeList(_host.JsContext, () =>
+    private JsValue GetChildNodes(DomNode docRoot) =>
+        _host.NodeList(() =>
         {
-            var children = new List<JSValue>();
+            var children = new List<JsValue>();
             foreach (var child in docRoot.ChildNodes)
-                children.Add(_host.ToJSObject(child));
+                children.Add(_host.ToJsObject(child));
             return children;
         });
 
-    private JSValue GetElementById(DomNode docRoot, in Arguments a)
+    private JsValue GetElementById(DomNode docRoot, in JsCall call)
     {
-        var id = a.Length > 0 ? a[0].ToString() : string.Empty;
+        var id = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         var found = DomBridge.FindInSubTree(docRoot, el => el.Id == id);
-        return found != null ? _host.ToJSObject(found) : JSNull.Value;
+        return found != null ? _host.ToJsObject(found) : JsValue.Null;
     }
 
     /// <summary>
     /// <c>getElementsByTagName(name)</c> on a frame's document — a <b>live</b> <c>HTMLCollection</c>
     /// (DOM §4.5), as the containing document's is.
     /// </summary>
-    private JSValue GetElementsByTagName(DomNode docRoot, in Arguments a)
+    private JsValue GetElementsByTagName(DomNode docRoot, in JsCall call)
     {
-        var tagName = a.Length > 0 ? a[0].ToString() : string.Empty;
+        var tagName = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         return LiveCollection(
             docRoot,
             el => tagName == "*" || string.Equals(el.TagName, tagName, StringComparison.OrdinalIgnoreCase));
@@ -514,9 +478,9 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     /// (DOM §4.5). It reuses <see cref="ClassNameSet"/>, the rule the main document and the
     /// element-scoped search already share, so all three surfaces answer a class query the same way.
     /// </summary>
-    private JSValue GetElementsByClassName(DomNode docRoot, in Arguments a)
+    private JsValue GetElementsByClassName(DomNode docRoot, in JsCall call)
     {
-        var wanted = ClassNameSet.Parse(a.Length > 0 ? a[0].ToString() : string.Empty);
+        var wanted = ClassNameSet.Parse(call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         return LiveCollection(docRoot, el => wanted.Length > 0 && ClassNameSet.Matches(el, wanted));
     }
 
@@ -526,25 +490,24 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     /// <c>NodeList</c>, the one by-name lookup the specification types as a NodeList rather than an
     /// <c>HTMLCollection</c>.
     /// </summary>
-    private JSValue GetElementsByName(DomNode docRoot, in Arguments a)
+    private JsValue GetElementsByName(DomNode docRoot, in JsCall call)
     {
-        var name = a.Length > 0 ? a[0].ToString() : string.Empty;
-        return DomCollectionBinding.NodeList(
-            _host.JsContext,
+        var name = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+        return _host.NodeList(
             () => Wrappers(
                 docRoot,
                 el => DomBridge.TryGetAttribute(el, "name", out var value) && string.Equals(value, name, StringComparison.Ordinal)));
     }
 
-    private JSValue QuerySelector(DomNode docRoot, in Arguments a)
+    private JsValue QuerySelector(DomNode docRoot, in JsCall call)
     {
-        var selector = a.Length > 0 ? a[0].ToString() : string.Empty;
-        DomBridge.ValidateSelector(selector, _host.JsContext);
+        var selector = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+        _host.ValidateSelector(selector);
         if (DomApiSyntax.CarriesPseudoElement(selector))
-            return JSNull.Value;
+            return JsValue.Null;
 
         var found = DomBridge.FindInSubTree(docRoot, el => _host.MatchesSelector(el, selector));
-        return found != null ? _host.ToJSObject(found) : JSNull.Value;
+        return found != null ? _host.ToJsObject(found) : JsValue.Null;
     }
 
     /// <summary>
@@ -552,14 +515,14 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     /// (DOM §4.2.6), the one collection the specification defines as a snapshot rather than live. The
     /// members are resolved once, here, and the list closes over that result.
     /// </summary>
-    private JSValue QuerySelectorAll(DomNode docRoot, in Arguments a)
+    private JsValue QuerySelectorAll(DomNode docRoot, in JsCall call)
     {
-        var selector = a.Length > 0 ? a[0].ToString() : string.Empty;
-        DomBridge.ValidateSelector(selector, _host.JsContext);
+        var selector = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+        _host.ValidateSelector(selector);
         var results = DomApiSyntax.CarriesPseudoElement(selector)
             ? []
             : Wrappers(docRoot, el => _host.MatchesSelector(el, selector));
-        return DomCollectionBinding.NodeList(_host.JsContext, () => results);
+        return _host.NodeList(() => results);
     }
 
     /// <summary>
@@ -567,9 +530,8 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     /// <paramref name="predicate"/>, with the named getter DOM §4.2.10.2 gives one — by <c>id</c>,
     /// then by <c>name</c>, taking the first member in tree order that answers to either.
     /// </summary>
-    private JSValue LiveCollection(DomNode docRoot, Func<DomElement, bool> predicate) =>
-        DomCollectionBinding.HtmlCollection(
-            _host.JsContext,
+    private JsValue LiveCollection(DomNode docRoot, Func<DomElement, bool> predicate) =>
+        _host.HtmlCollection(
             () => Wrappers(docRoot, predicate),
             name =>
             {
@@ -580,7 +542,7 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
                 {
                     if ((DomBridge.TryGetAttribute(element, "id", out var id) && id == name) ||
                         (DomBridge.TryGetAttribute(element, "name", out var named) && named == name))
-                        return _host.ToJSObject(element);
+                        return _host.ToJsObject(element);
                 }
 
                 return null;
@@ -601,23 +563,40 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     }
 
     /// <summary><see cref="Members"/>, as JS wrappers.</summary>
-    private List<JSValue> Wrappers(DomNode docRoot, Func<DomElement, bool> predicate)
+    private List<JsValue> Wrappers(DomNode docRoot, Func<DomElement, bool> predicate)
     {
-        var wrappers = new List<JSValue>();
+        var wrappers = new List<JsValue>();
         foreach (var member in Members(docRoot, predicate))
-            wrappers.Add(_host.ToJSObject(member));
+            wrappers.Add(_host.ToJsObject(member));
         return wrappers;
     }
 
-    private JSValue ElementFromPoint(DomNode docRoot, in Arguments a)
+    private JsValue ElementFromPoint(DomNode docRoot, in JsCall call)
     {
-        var hit = _host.HitTestDocumentPoint(docRoot, DomBridge.GetCoordinateArgument(a, 0), DomBridge.GetCoordinateArgument(a, 1)).FirstOrDefault();
-        return hit != null ? _host.ToJSObject(hit) : JSNull.Value;
+        var hit = _host.HitTestDocumentPoint(docRoot, Coordinate(in call, 0), Coordinate(in call, 1)).FirstOrDefault();
+        return hit != null ? _host.ToJsObject(hit) : JsValue.Null;
     }
 
-    private JSValue ElementsFromPoint(DomNode docRoot, in Arguments a)
+    private JsValue ElementsFromPoint(DomNode docRoot, in JsCall call)
     {
-        var hits = _host.HitTestDocumentPoint(docRoot, DomBridge.GetCoordinateArgument(a, 0), DomBridge.GetCoordinateArgument(a, 1));
-        return new JSArray(hits.Select(_host.ToJSObject).ToArray());
+        var hits = _host.HitTestDocumentPoint(docRoot, Coordinate(in call, 0), Coordinate(in call, 1));
+        var wrappers = new JsValue[hits.Count];
+        for (var i = 0; i < hits.Count; i++)
+            wrappers[i] = _host.ToJsObject(hits[i]);
+        return call.Realm.NewArray(wrappers);
     }
+
+    /// <summary>
+    /// A hit-testing coordinate argument: absent, <c>null</c> or <c>undefined</c> is
+    /// <see cref="double.NaN"/> — which the hit test rejects as not finite — and anything else is
+    /// coerced.
+    /// </summary>
+    /// <remarks>
+    /// The realm's <c>ToNumber</c>, not the handle's <c>AsNumber</c>: <c>elementFromPoint("10", "20")</c>
+    /// is a page passing strings, and the engine's own numeric view of an argument — which the shared
+    /// <c>GetCoordinateArgument</c> this replaces read directly — is that coercion. It is spelled here
+    /// rather than on the host because it reads nothing but the call frame.
+    /// </remarks>
+    private static double Coordinate(in JsCall call, int index) =>
+        call.Length > index && !call[index].IsNullish ? call.Realm.ToNumber(call[index]) : double.NaN;
 }

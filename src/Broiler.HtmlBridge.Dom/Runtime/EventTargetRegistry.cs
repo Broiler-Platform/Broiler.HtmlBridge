@@ -14,11 +14,26 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <c>ElementRuntimeState</c> table onto an instance-scoped store.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Node listeners use a <see cref="ConditionalWeakTable{TKey,TValue}"/> so a detached node's listeners
 /// are collected with the node (matching the prior ElementRuntimeState semantics) while staying scoped
 /// to this document rather than a static table. The dispatch algorithms (building the JS event object,
 /// walking the tree, invoking listeners) stay in the bridge and read/write listeners through here.
 /// Instance-scoped to the owning bridge/document; <see cref="Clear"/> runs on re-parse and disposal.
+/// </para>
+/// <para>
+/// <b>Still engine-typed, and every one of its keys is pinned by a file outside the events slice.</b>
+/// The listener lists hold <c>EventListenerRegistration</c>, whose listener field is a Broiler.JS
+/// value and whose declaration is in <c>DomBridge/RuntimeStates.cs</c>. The generic-target and
+/// owner-window maps are keyed on the engine's own object because <c>MessagingBinding</c>,
+/// <c>SubWindowBinding</c> and <c>WindowContextManager</c> put message ports and sub-windows in them,
+/// and the visual-viewport list holds engine functions for <c>LayoutMetrics.Scrolling</c> and the
+/// visual-viewport host. None of those five files belongs to this round, so this registry keeps the
+/// shape they compile against. When it does move, the keys become <c>JsValue</c> without changing
+/// what they answer: a handle carries the engine's own object, and <c>JsValue</c> implements
+/// <c>Equals</c>/<c>GetHashCode</c> reflexively precisely so a dictionary and a <c>List.Contains</c>
+/// keep finding what was put in them.
+/// </para>
 /// </remarks>
 internal sealed class EventTargetRegistry
 {

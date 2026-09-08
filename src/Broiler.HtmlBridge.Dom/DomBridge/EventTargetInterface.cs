@@ -44,6 +44,18 @@ namespace Broiler.HtmlBridge;
 /// <c>length</c> of each is Web IDL's — <c>2</c>, <c>2</c>, <c>1</c>, measured against Chromium —
 /// where the copies advertised <c>3</c>, <c>3</c>, <c>1</c>.
 /// </para>
+/// <para>
+/// <b>This routing table is the one part of the events slice JSEAL cannot express yet, and the
+/// reason is the fallback.</b> Everything here is engine-typed because everything here is about the
+/// engine's own <c>EventTarget</c>: it reads the prototype the realm built
+/// (<c>PrototypeOfInterface</c>), keeps the three functions the engine installed so a receiver this
+/// bridge does not own — <c>new EventTarget()</c>, an <c>AbortSignal</c> — still reaches them, and
+/// forwards the original argument frame to one of them unchanged. JSEAL has no way to say "the
+/// function that was there before I replaced it, called with exactly these arguments and this
+/// receiver", and inventing one for this file would be a contract shaped by a single call site.
+/// The receiver resolution is engine-typed for the same reason: the node-wrapper registry and the
+/// window wrapper field are the bridge's own tables, in files this round does not own.
+/// </para>
 /// </remarks>
 public sealed partial class DomBridge
 {

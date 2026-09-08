@@ -1,10 +1,7 @@
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Promise;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
+using Broiler.JavaScript.Runtime;
+using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -17,6 +14,24 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// narrow <see cref="IDialogHost"/> contract; the backdrop/top-layer <em>rendering</em> stays in the
 /// bridge's anchor resolver.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the members are minted by the realm
+/// and their bodies run on a <see cref="JsCall"/>, so the migrated half of this file names no engine
+/// type.
+/// </para>
+/// <para>
+/// <b>Two members stay engine-typed, and both are pinned from outside.</b>
+/// <see cref="Install(JSObject, DomElement, string, bool)"/> is called by
+/// <c>DomBridge/ElementInterfaces.cs</c> with an engine wrapper, and
+/// <see cref="InstallElementMembers"/> by <c>DomBridge/ElementInterface.cs</c> with an
+/// <see cref="ElementSource"/> — a delegate whose parameter <em>is</em> the engine's argument frame,
+/// so a JSEAL callback has nothing to hand it. <see cref="ExitFullscreen"/> is the third: its caller
+/// is <c>DomBridge/Registration/Document.cs</c>, which takes an engine value back. Each forwards
+/// through <see cref="Runtime.JsInterop"/>, which carries an object across without converting it, and
+/// each disappears when its caller migrates.
+/// </para>
+/// </remarks>
 internal sealed class DialogBinding(IDialogHost host)
 {
     private readonly IDialogHost _host = host;
@@ -26,61 +41,77 @@ internal sealed class DialogBinding(IDialogHost host)
     /// <c>Element.prototype</c>, since the Fullscreen API extends <c>Element</c> rather than any tag
     /// (Chromium has both there too).
     /// </summary>
+    /// <remarks>
+    /// Engine-typed because <see cref="ElementSource"/> is: the receiver-resolving source reads the
+    /// call's <c>this</c> out of the engine's own argument frame, so the member it serves has to be
+    /// installed with that frame. Only the wrapping is engine-typed — the operation itself is
+    /// <see cref="RequestFullscreen"/>, which speaks JSEAL.
+    /// </remarks>
     internal void InstallElementMembers(JSObject target, ElementSource element)
     {
         target.FastAddValue("requestFullscreen",
-            new DomFunction((in a) => RequestFullscreen(element(in a, "requestFullscreen")), "requestFullscreen", 0),
+            new DomFunction(
+                (in a) => Runtime.JsInterop.ToEngineObject(RequestFullscreen(element(in a, "requestFullscreen"))),
+                "requestFullscreen", 0),
             JSPropertyAttributes.EnumerableConfigurableValue);
         target.FastAddValue("webkitRequestFullscreen",
-            new DomFunction((in a) => RequestFullscreen(element(in a, "webkitRequestFullscreen")), "webkitRequestFullscreen", 0),
+            new DomFunction(
+                (in a) => Runtime.JsInterop.ToEngineObject(RequestFullscreen(element(in a, "webkitRequestFullscreen"))),
+                "webkitRequestFullscreen", 0),
             JSPropertyAttributes.EnumerableConfigurableValue);
     }
+
+    /// <summary>
+    /// Engine-typed adapter for <c>DomBridge/ElementInterfaces.cs</c>, which still holds the element
+    /// wrapper as an engine object. See the remarks on this class.
+    /// </summary>
+    internal void Install(JSObject obj, DomElement element, string tag, bool hasPopover) =>
+        Install(Runtime.JsInterop.FromEngineObject(obj), element, tag, hasPopover);
 
     /// <summary>
     /// Installs the dialog/details interface members and the popover methods on
     /// <paramref name="obj"/> for <paramref name="element"/> (by <paramref name="tag"/> for
     /// dialog/details; by <paramref name="hasPopover"/> for the tag-agnostic popover API).
     /// </summary>
-    internal void Install(JSObject obj, DomElement element, string tag, bool hasPopover)
+    internal void Install(JsValue obj, DomElement element, string tag, bool hasPopover)
     {
+        var realm = _host.Realm;
+
         if (tag == "details")
         {
-            obj.FastAddProperty("open",
-                new DomFunction((in _) => _host.HasOpenAttribute(element) ? JSBoolean.True : JSBoolean.False, "get open"),
-                new DomFunction((in a) => SetOpenState(element, in a), "set open"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineAccessor(obj, "open",
+                (in _) => JsValue.Boolean(_host.HasOpenAttribute(element)),
+                (in call) => SetOpenState(element, in call));
         }
 
         if (tag == "dialog")
         {
-            obj.FastAddValue("showModal", new DomFunction((in _) => ShowModal(element), "showModal", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            obj.FastAddValue("show", new DomFunction((in _) => Show(element), "show", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            obj.FastAddValue("close", new DomFunction((in a) => Close(element, in a), "close", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-            obj.FastAddProperty("open",
-                new DomFunction((in _) => _host.HasOpenAttribute(element) ? JSBoolean.True : JSBoolean.False, "get open"),
-                new DomFunction((in a) => SetOpenState(element, in a), "set open"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
-            obj.FastAddProperty("returnValue",
-                new DomFunction((in _) => new JSString(_host.GetReturnValue(element)), "get returnValue"),
-                new DomFunction((in a) => SetReturnValue(element, in a), "set returnValue"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineValue(obj, "showModal", realm.NewMethod("showModal", (in _) => ShowModal(element), 0));
+            realm.DefineValue(obj, "show", realm.NewMethod("show", (in _) => Show(element), 0));
+            realm.DefineValue(obj, "close", realm.NewMethod("close", (in call) => Close(element, in call), 1));
+            realm.DefineAccessor(obj, "open",
+                (in _) => JsValue.Boolean(_host.HasOpenAttribute(element)),
+                (in call) => SetOpenState(element, in call));
+            realm.DefineAccessor(obj, "returnValue",
+                (in _) => JsValue.String(_host.GetReturnValue(element)),
+                (in call) => SetReturnValue(element, in call));
         }
 
         // Popover API (HTML §popover) — showPopover()/hidePopover() are exposed on any element
         // carrying the global `popover` attribute, not tied to a tag.
         if (hasPopover)
         {
-            obj.FastAddValue("showPopover", new DomFunction((in _) => ShowPopover(element), "showPopover", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            obj.FastAddValue("hidePopover", new DomFunction((in _) => HidePopover(element), "hidePopover", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(obj, "showPopover", realm.NewMethod("showPopover", (in _) => ShowPopover(element), 0));
+            realm.DefineValue(obj, "hidePopover", realm.NewMethod("hidePopover", (in _) => HidePopover(element), 0));
         }
     }
 
     // details.open = value / dialog.open = value — reflect the boolean open attribute.
-    private JSValue SetOpenState(DomElement element, in Arguments a)
+    private JsValue SetOpenState(DomElement element, in JsCall call)
     {
-        _host.SetOpenAttribute(element, a.Length > 0 && a[0].BooleanValue);
+        _host.SetOpenAttribute(element, call[0].AsBoolean);
         _host.InvalidateStyleScope(element);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -88,7 +119,18 @@ internal sealed class DialogBinding(IDialogHost host)
     /// synchronously here — there is no compositor step to wait on — so the promise exists only so
     /// that <c>requestFullscreen().then(…)</c> works.
     /// </summary>
-    private static JSValue ResolvedPromise() => Task.CompletedTask.ToPromise();
+    /// <remarks>
+    /// The realm hands back the promise and its two settling functions rather than taking an executor
+    /// (see <see cref="IJsJobs.NewPromise"/>), so resolving it is a call rather than a completed
+    /// <c>Task</c> handed to the engine's own adapter. The observable result is the same object a page
+    /// saw before: a promise that is already fulfilled with <c>undefined</c>.
+    /// </remarks>
+    private JsValue ResolvedPromise()
+    {
+        var promise = _host.Realm.NewPromise(out var resolve, out _);
+        resolve(JsValue.Undefined);
+        return promise;
+    }
 
     /// <summary>
     /// Fullscreen §<c>requestFullscreen()</c>: promotes the element into the top layer, where the
@@ -103,7 +145,7 @@ internal sealed class DialogBinding(IDialogHost host)
     /// the reftests exercise, and <see cref="IDialogHost.GetFullscreenElement"/> resolves ties by
     /// top-layer order, so the most recent request wins.
     /// </remarks>
-    internal JSValue RequestFullscreen(DomElement element)
+    internal JsValue RequestFullscreen(DomElement element)
     {
         _host.SetFullscreen(element, true);
         _host.AssignNextTopLayerOrder(element);
@@ -113,10 +155,17 @@ internal sealed class DialogBinding(IDialogHost host)
     }
 
     /// <summary>
+    /// Engine-typed adapter for <c>DomBridge/Registration/Document.cs</c>, which installs
+    /// <c>document.exitFullscreen</c> with an engine function and so takes an engine value back. See
+    /// the remarks on this class.
+    /// </summary>
+    internal JSObject ExitFullscreen() => Runtime.JsInterop.ToEngineObject(ExitFullscreenCore());
+
+    /// <summary>
     /// Fullscreen §<c>exitFullscreen()</c>: takes the document's fullscreen element back out of the
     /// top layer and fires <c>fullscreenchange</c> at it. A no-op when nothing is fullscreen.
     /// </summary>
-    internal JSValue ExitFullscreen()
+    internal JsValue ExitFullscreenCore()
     {
         if (_host.GetFullscreenElement() is not { } element)
             return ResolvedPromise();
@@ -127,33 +176,33 @@ internal sealed class DialogBinding(IDialogHost host)
         return ResolvedPromise();
     }
 
-    private JSValue ShowModal(DomElement element)
+    private JsValue ShowModal(DomElement element)
     {
         _host.SetOpenAttribute(element, true);
         _host.SetDialogModal(element, true);
         _host.AssignNextTopLayerOrder(element);
         _host.InvalidateStyleScope(element);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue Show(DomElement element)
+    private JsValue Show(DomElement element)
     {
         _host.SetOpenAttribute(element, true);
         _host.InvalidateStyleScope(element);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     // showPopover() promotes the element to the top layer (so its ::backdrop renders), modeled with
     // the same runtime flag + top-layer order the modal-dialog path uses.
-    private JSValue ShowPopover(DomElement element)
+    private JsValue ShowPopover(DomElement element)
     {
         _host.SetPopoverOpen(element, true);
         _host.AssignNextTopLayerOrder(element);
         _host.InvalidateStyleScope(element);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue HidePopover(DomElement element)
+    private JsValue HidePopover(DomElement element)
     {
         // CSS Position §overlay: hiding a popover whose `overlay` is transitioned with
         // `transition-behavior: allow-discrete` keeps it in the top layer for the duration of the
@@ -164,10 +213,10 @@ internal sealed class DialogBinding(IDialogHost host)
         else
             _host.SetPopoverOpen(element, false);
         _host.InvalidateStyleScope(element);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue Close(DomElement element, in Arguments a)
+    private JsValue Close(DomElement element, in JsCall call)
     {
         // CSS Position §overlay: closing a dialog whose `overlay` is transitioned with
         // `transition-behavior: allow-discrete` keeps it in the top layer for the transition's
@@ -185,15 +234,17 @@ internal sealed class DialogBinding(IDialogHost host)
             _host.SetOpenAttribute(element, false);
         if (!_host.DialogKeepsOverlayOnClose(element))
             _host.SetDialogModal(element, false);
-        if (a.Length > 0)
-            _host.SetReturnValue(element, a[0].ToString());
+        if (call.Length > 0)
+            // ToJsString, not the handle's rendering: `close(obj)` stores what the object's own
+            // toString answers, which is the coercion a page observes on `dialog.returnValue`.
+            _host.SetReturnValue(element, call.Realm.ToJsString(call[0]));
         _host.InvalidateStyleScope(element);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue SetReturnValue(DomElement element, in Arguments a)
+    private JsValue SetReturnValue(DomElement element, in JsCall call)
     {
-        _host.SetReturnValue(element, a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
+        _host.SetReturnValue(element, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+        return JsValue.Undefined;
     }
 }

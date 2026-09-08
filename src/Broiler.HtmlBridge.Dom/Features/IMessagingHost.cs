@@ -1,6 +1,5 @@
 using System;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -15,10 +14,24 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// through these named seams, exposed as explicit interface members on <see cref="DomBridge"/> so the
 /// public surface is unchanged.
 /// </summary>
+/// <remarks>
+/// The vocabulary is JSEAL's: a window, a port and an event are <see cref="JsValue"/> handles, and
+/// the realm replaces the former <c>JsContext</c> seam. That seam existed for exactly two purposes —
+/// raising a <c>DataCloneError</c>, which <see cref="IJsCalls.DomError"/> now owns, and structured-
+/// cloning a message payload, which nothing in JSEAL covers and which is therefore the one thing
+/// <see cref="MessagingBinding"/> still does in the engine's own vocabulary.
+/// </remarks>
 internal interface IMessagingHost
 {
-    /// <summary>The top-level window JS wrapper (<c>null</c> before attach).</summary>
-    JSObject? WindowJSObject { get; }
+    /// <summary>
+    /// The realm the messaging objects are built in, and through which this module raises a
+    /// <c>DOMException</c>. Never null while a document is attached; the messaging APIs are only
+    /// reachable from an attached document.
+    /// </summary>
+    IJsRealm Realm { get; }
+
+    /// <summary>The top-level window wrapper (<see cref="JsValue.Null"/> before attach).</summary>
+    JsValue WindowObject { get; }
 
     /// <summary>
     /// The document's own origin, as parsed from the page URL at attach.
@@ -33,21 +46,21 @@ internal interface IMessagingHost
     /// </summary>
     string PageOrigin { get; }
 
-    /// <summary>The active JS execution context (<c>null</c> before attach), used to raise
-    /// <c>DataCloneError</c> and to structured-clone message payloads.</summary>
-    JSContext? JsContext { get; }
+    /// <summary>
+    /// Resolves the window currently driving script execution (honouring the active sub-window
+    /// override), canonicalised to the owning browsing context. Not an object when there is none.
+    /// </summary>
+    JsValue ResolveCurrentWindow();
 
-    /// <summary>Resolves the window currently driving script execution (honouring the active
-    /// sub-window override), canonicalised to the owning browsing context.</summary>
-    JSObject? ResolveCurrentWindow();
-
-    /// <summary>Resolves the window that owns <paramref name="target"/> (a message port or generic
-    /// event target), falling back to the current window.</summary>
-    JSObject? ResolveOwnerWindow(JSObject target);
+    /// <summary>
+    /// Resolves the window that owns <paramref name="target"/> (a message port or generic event
+    /// target), falling back to the current window. Not an object when there is none.
+    /// </summary>
+    JsValue ResolveOwnerWindow(JsValue target);
 
     /// <summary>Runs <paramref name="callback"/> with the global window/document/location/parent
     /// bindings temporarily switched to <paramref name="targetWindow"/>'s browsing context.</summary>
-    void RunWithWindowContext(JSObject targetWindow, Action callback);
+    void RunWithWindowContext(JsValue targetWindow, Action callback);
 
     /// <summary>Queues <paramref name="callback"/> as an internal frame action on the event loop
     /// (message delivery is asynchronous, per the HTML messaging model).</summary>
@@ -55,5 +68,5 @@ internal interface IMessagingHost
 
     /// <summary>Dispatches <paramref name="evt"/> at the top-level window (the fast path when a
     /// posted message targets the main window itself).</summary>
-    void DispatchWindowEvent(JSObject evt);
+    void DispatchWindowEvent(JsValue evt);
 }
