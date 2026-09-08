@@ -820,6 +820,41 @@ public class VmScriptEngineTests
                 Assert.Equal(1, second.Compilations);
             }
 
+            /// <summary>
+            /// Clearing a cache that was never written is safe — which is the likeliest press of
+            /// the button.
+            /// </summary>
+            /// <remarks>
+            /// The store is off by default, so most of the time the directory does not exist. A
+            /// user who opens the command and confirms it must get "cleared", not an exception.
+            /// </remarks>
+            [Fact]
+            public void ClearingWhatWasNeverWrittenIsSafe()
+            {
+                var absent = Path.Combine(_directory, "never-written");
+
+                Assert.False(Directory.Exists(absent));
+
+                new VmArtifactStore(absent, 1 << 20).Clear();   // must not throw
+
+                Assert.False(Directory.Exists(absent));
+            }
+
+            /// <summary>
+            /// The default location is under local application data, beside the browser's own
+            /// folder — pinned because the command deletes whatever is there.
+            /// </summary>
+            [Fact]
+            public void TheDefaultDirectoryIsUnderLocalApplicationData()
+            {
+                var expected = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Broiler",
+                    "vm-code-cache");
+
+                Assert.Equal(expected, VmArtifactStore.DefaultDirectory);
+            }
+
             /// <summary>An unwritable directory degrades to no cache at all, not to an error.</summary>
             [Fact]
             public void AnUnusableDirectoryIsNotAFailure()
