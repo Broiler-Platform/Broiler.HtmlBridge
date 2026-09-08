@@ -10,13 +10,13 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>IT CACHES BYTES AND NOT HANDLES, AND THAT IS THE CONTRACT RATHER THAN A CHOICE.</b>
-/// Broiler.VM settled at VM-0 that bytes are the only input from which a verified artifact may be
-/// produced — the round trip is mandatory even when the compiler that produced them is in the same
-/// process and inside the same trust boundary. So every use still goes through
-/// <c>runtime.Verify</c>, under that operation's own allowance, and what is saved here is
-/// compilation and nothing else. A cache that skipped verification would not be a faster host, it
-/// would be a different and weaker one.
+/// <b>IT CACHES BYTES AND RE-VERIFIES ON EVERY LOAD, WHICH IS WHAT THE CONTRACT SAYS TO DO.</b>
+/// ADR 0010's consequences put it directly: release 1 gives a browser no code cache, the persisted
+/// envelope is approved as contract and not as a release feature with no envelope member exposed,
+/// and "a host that needs it caches source-to-artifact bytes itself and re-verifies on every load,
+/// which is the contract's intended behaviour rather than a workaround". So this is that host doing
+/// that. Every use still goes through <c>runtime.Verify</c> under its own allowance, and what is
+/// saved is the lowering and nothing else.
 /// </para>
 /// <para>
 /// <b>A cache that serves the wrong program is worse than no cache</b>, so the key covers every
@@ -44,7 +44,21 @@ namespace Broiler.HtmlBridge;
 /// </remarks>
 internal sealed class VmCompilationCache
 {
-    /// <summary>The cache the engine uses, shared so two pages running one library compile it once.</summary>
+    /// <summary>The cache the engine uses, shared across the engines a process creates.</summary>
+    /// <remarks>
+    /// <b>WHAT ACTUALLY HITS IS THE SAME DOCUMENT AGAIN, AND NOTHING WIDER.</b> The key is a digest
+    /// over the whole ordered unit list including each unit's referrer, so a library shared by two
+    /// pages is not separately keyed — it is one unit inside a whole-document digest — and two
+    /// documents have two referrers and never collide. A hit is a reload, a back or forward, or any
+    /// return to a URL already visited in this process with the same scripts.
+    /// <para>
+    /// That is narrower than "compile every library once", and it is the shape the engine's own
+    /// design forces: a document's scripts are compiled into ONE artifact so they share one realm,
+    /// and splitting them per script to widen this cache would change what the page runs. Shared
+    /// across engines rather than held per engine because <c>BrowserApp</c> builds a new engine per
+    /// navigation — a per-engine cache would never hit at all.
+    /// </para>
+    /// </remarks>
     internal static VmCompilationCache Shared { get; } = new(MaximumEntries, MaximumBytes);
 
     private const int MaximumEntries = 64;
