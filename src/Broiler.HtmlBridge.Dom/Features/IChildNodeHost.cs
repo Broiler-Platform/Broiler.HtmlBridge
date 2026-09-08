@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -14,11 +13,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>internal static</c> helpers, called directly.
 /// </summary>
 /// <remarks>
-/// The argument builder is declared twice because the mixin's installers do not share a call frame:
-/// two of the three mint through the realm and read a <see cref="JsCall"/>, while
-/// <c>DomBridge/ElementInterface.cs</c> still hands over the engine's own <c>Arguments</c>. Both
-/// overloads are one reading — the bridge forwards them to a single implementation — and the engine
-/// one goes when that last installer moves.
+/// The argument builder is declared once. It was briefly a pair, because the mixin's three installers
+/// did not share a call frame — two minted through the realm and read a <see cref="JsCall"/> while
+/// <c>DomBridge/ElementInterface.cs</c> handed over the engine's own argument frame — and both
+/// overloads forwarded into one reading. That installer has migrated, so the engine overload is gone
+/// and every caller reads the span below.
 /// </remarks>
 internal interface IChildNodeHost
 {
@@ -28,11 +27,6 @@ internal interface IChildNodeHost
     /// else is coerced to a string and minted as a text node.
     /// </summary>
     List<DomNode> BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments);
-
-    /// <inheritdoc cref="BuildChildNodeArgumentNodes(System.ReadOnlySpan{JsValue})" />
-    /// <remarks>The same reading over an engine argument frame, for the installer that has not
-    /// migrated.</remarks>
-    List<DomNode> BuildChildNodeArgumentNodes(in Arguments arguments);
 
     void InsertNodeAt(DomNode parent, DomNode node, int index);
     void InvalidateStyleScope(DomElement anchor);

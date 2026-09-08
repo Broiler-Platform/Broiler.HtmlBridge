@@ -27,22 +27,29 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Still engine-typed, and shared.</b> Four firing paths reach it: element/document dispatch
-    /// (<c>EventDispatchBinding</c>), window dispatch (<c>DomBridge.WindowLoad.cs</c>), form submit
-    /// (<c>Features/FormSubmitBinding.cs</c>) and messaging (<c>Features/MessagingBinding.cs</c>) —
-    /// three of which are outside this migration round. The listener it is handed is an
-    /// <c>EventListenerRegistration</c>'s, engine-typed because that record is declared in the
-    /// equally unowned <c>DomBridge/RuntimeStates.cs</c>. It migrates when the registration record
-    /// does, and not before, so that all four move together.
+    /// <b>Still engine-typed, and the pin is not in this file.</b> Four firing paths reach it:
+    /// element/document dispatch (<c>EventDispatchBinding</c>), window dispatch
+    /// (<c>DomBridge.WindowLoad.cs</c>), form submit (<c>Features/FormSubmitBinding.cs</c>) and
+    /// messaging (<c>Features/MessagingBinding.cs</c>). All four hand over an
+    /// <c>EventListenerRegistration</c>'s listener field, which is a Broiler.JS value because that
+    /// record is declared in <c>DomBridge/RuntimeStates.cs</c> — a file no migration round has owned
+    /// yet. Narrowing the first parameter alone changes nothing: the three unowned firing paths would
+    /// still compile, because they only forward the field, and the field would still be the engine's.
+    /// So it migrates in the step that retypes the record, and not before.
     /// </para>
     /// <para>
-    /// <b>There is a second reason to move it deliberately rather than in passing.</b> The call below
-    /// enters the engine directly, taking the thread exactly as it finds it. A listener can be
-    /// invoked from a thread-pool thread — the messaging path routes one into its owner window
-    /// explicitly for that reason — and <c>IJsCalls.Invoke</c> would additionally install the realm's
-    /// context and job pump as ambient state for the duration of the call. That is almost certainly
-    /// the right thing and it is not the same thing, so it belongs in the commit that moves the
-    /// registration record and can be reasoned about across all four paths at once.
+    /// <b>There is a second reason to move it deliberately rather than in passing, and it has since
+    /// been measured.</b> The call below enters the engine directly, taking the thread exactly as it
+    /// finds it. A listener can be invoked from a thread-pool thread — the messaging path routes one
+    /// into its owner window explicitly for that reason. <c>IJsCalls.Invoke</c> would bracket the
+    /// call in the provider's realm scope, and for <em>this</em> realm that is one difference and not
+    /// two: the bridge adopts the host's engine context rather than owning one, and the provider
+    /// deliberately leaves an adopted realm's synchronization context alone, so no job pump is
+    /// installed. What is installed is the engine's current-context slot — thread-static plus
+    /// async-local — for the duration of the listener, which on a pool thread that has none is a
+    /// change from "whatever the thread was carrying" to "this document's context". That is almost
+    /// certainly the right thing and it is still not the same thing, so it belongs in the commit that
+    /// moves the registration record and can be reasoned about across all four paths at once.
     /// </para>
     /// </remarks>
     internal static void InvokeEventListener(JSValue listener, JSObject evt, string logContext)

@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
-using Broiler.JavaScript.Engine;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -53,10 +51,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </description></item>
 /// </list>
 /// <para>
-/// <b>One engine-typed adapter is left and it is named honestly.</b>
-/// <c>DomBridge.RegisterDOMException</c> (DomBridge/Utilities.NameValidation.cs, not this round's to
-/// change) takes the engine's context, so <see cref="WorkerContext"/> reaches it through
-/// <see cref="JsInterop"/>. It is one line, and it is the whole of the engine left in this file.
+/// <b>No engine type is named here at all.</b> The last one was an adapter that reached
+/// <c>DomBridge.RegisterDOMException</c> through the worker realm's own script context; that
+/// installer takes an <see cref="IJsRealm"/> now and is handed this worker's realm directly, which is
+/// also the more honest call — the constructor belongs to the realm it is installed in, and a worker
+/// has its own on its own thread.
 /// </para>
 /// <para>
 /// <b>One thread, one realm, for the thread's whole life.</b> That is item #15's rule kept rather
@@ -311,7 +310,7 @@ internal sealed class JSWorker
     {
         // A real DOMException, so a worker catching a NetworkError or DataCloneError finds a .name
         // and .code to branch on rather than the bare string the fallback produces.
-        DomBridge.RegisterDOMException(WorkerContext(realm));
+        DomBridge.RegisterDOMException(realm);
 
         var global = realm.Global;
 
@@ -373,24 +372,6 @@ internal sealed class JSWorker
 
         realm.SetProperty(global, "console", console);
     }
-
-    /// <summary>
-    /// The worker realm's engine context, for the one bridge operation that still takes one.
-    /// </summary>
-    /// <remarks>
-    /// <b>The adapter this file is left with, and what pins it.</b>
-    /// <c>DomBridge.RegisterDOMException</c> installs the <c>DOMException</c> constructor by
-    /// evaluating a script in a <c>JSContext</c>, and it lives in a file this round does not own; a
-    /// realm has no way to say "the engine object you are built on". Under this engine the realm's
-    /// global <em>is</em> the context, so the cast is the same assertion <see cref="JsInterop"/>
-    /// makes everywhere else — that the realm is a Broiler.JS realm — and it fails loudly rather than
-    /// quietly if it ever stops being true.
-    /// </remarks>
-    private static JSContext WorkerContext(IJsRealm realm) =>
-        JsInterop.ToEngineObject(realm.Global) as JSContext
-        ?? throw new InvalidOperationException(
-            "A worker realm's global is not a Broiler.JS script context, so the DOMException " +
-            "constructor cannot be installed in it.");
 
     /// <summary>
     /// <c>postMessage</c> inside the worker: clone here, on this thread and in this realm, then hand

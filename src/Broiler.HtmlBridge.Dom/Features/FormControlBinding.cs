@@ -1,11 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-// Engine-typed only for the two adapters this file still has: the wrapper DomBridge/JsObjects.cs
-// hands over, and the HTMLElement prototype installer whose members read the engine's argument frame.
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -22,31 +16,29 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>) for everything installed on an
-/// element wrapper: the members are minted by the realm and their bodies run on a
-/// <see cref="JsCall"/>.
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>) throughout: every member is minted by
+/// the realm and every body runs on a <see cref="JsCall"/>, so this file names no engine type.
 /// </para>
 /// <para>
-/// <b>The two <c>HTMLElement</c> members are the exception, and the reason is
-/// <see cref="ElementSource"/>.</b> <c>hidden</c> and <c>tabIndex</c> go on
-/// <c>HTMLElement.prototype</c>, so they serve every element and have to resolve the receiver on each
-/// call — which they do through a delegate whose parameter <em>is</em> the engine's argument frame. A
-/// JSEAL callback has no such frame to hand it, so <see cref="InstallHtmlElementMembers"/> stays
-/// engine-typed until <c>DomBridge/HtmlElementInterface.cs</c> and the delegate migrate together. Only
-/// the wrapping is: each body immediately calls the same CLR-typed operation the realm-minted members
-/// call, so the two spellings cannot drift apart.
+/// <b>The two <c>HTMLElement</c> members were the last thing here that did not.</b> <c>hidden</c> and
+/// <c>tabIndex</c> go on <c>HTMLElement.prototype</c>, so they serve every element and have to resolve
+/// the receiver on each call — through a delegate whose parameter used to be the engine's own argument
+/// frame, which is what kept <see cref="InstallHtmlElementMembers"/> engine-typed. That delegate is
+/// one JSEAL declaration now (<see cref="JsElementSource"/>) and
+/// <c>DomBridge/HtmlElementInterface.cs</c> installs against it, so the pair is minted by the realm
+/// with the same attributes and in the same position. Each body still does nothing but read its
+/// argument and call the shared CLR-typed operation, so the two spellings cannot drift apart.
+/// </para>
+/// <para>
+/// The <c>tabIndex</c> setter's coercion moved with the frame and is the same ECMAScript operation on
+/// the same value: the engine's <c>DoubleValue</c> is <c>ToNumber</c>, and so is
+/// <see cref="IJsRealm.ToNumber"/> — which matters, because <c>el.tabIndex = "3"</c> is a string a
+/// page really does assign.
 /// </para>
 /// </remarks>
 internal sealed class FormControlBinding(IFormControlHost host)
 {
     private readonly IFormControlHost _host = host;
-
-    /// <summary>
-    /// Engine-typed adapter for <c>DomBridge/JsObjects.cs</c>, which still holds the element wrapper
-    /// as an engine object. See the remarks on this class.
-    /// </summary>
-    internal void Install(JSObject obj, DomElement element) =>
-        Install(Runtime.JsInterop.FromEngineObject(obj), element);
 
     /// <summary>Installs the form-control IDL reflector members on <paramref name="obj"/> for <paramref name="element"/>.</summary>
     internal void Install(JsValue obj, DomElement element)
@@ -116,31 +108,31 @@ internal sealed class FormControlBinding(IFormControlHost host)
     /// while the reflectors above stay per-instance until each control interface has one.
     /// </summary>
     /// <remarks>
-    /// Engine-typed because <see cref="ElementSource"/> is; see the remarks on this class. Both
-    /// bodies do nothing but read their argument and call the shared operation.
+    /// Both bodies do nothing but read their argument and call the shared operation; see the remarks
+    /// on this class for the coercion that read performs.
     /// </remarks>
-    internal void InstallHtmlElementMembers(JSObject target, ElementSource element)
+    internal void InstallHtmlElementMembers(JsValue target, JsElementSource element)
     {
+        var realm = _host.Realm;
+
         // hidden (read/write) — global reflected boolean attribute.
-        target.FastAddProperty("hidden",
-            new DomFunction((in a) => DomBridge.HasAttr(element(in a, "hidden"), "hidden") ? JSBoolean.True : JSBoolean.False, "get hidden"),
-            new DomFunction((in a) =>
+        realm.DefineAccessor(target, "hidden",
+            (in call) => JsValue.Boolean(DomBridge.HasAttr(element(in call, "hidden"), "hidden")),
+            (in call) =>
             {
-                SetHidden(element(in a, "hidden"), a.Length > 0 && a[0].BooleanValue);
-                return JSUndefined.Value;
-            }, "set hidden"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+                SetHidden(element(in call, "hidden"), call.Length > 0 && call[0].AsBoolean);
+                return JsValue.Undefined;
+            });
 
         // tabIndex (read/write) — global reflected numeric attribute.
-        target.FastAddProperty("tabIndex",
-            new DomFunction((in a) => new JSNumber(GetTabIndex(element(in a, "tabIndex"))), "get tabIndex"),
-            new DomFunction((in a) =>
+        realm.DefineAccessor(target, "tabIndex",
+            (in call) => JsValue.Number(GetTabIndex(element(in call, "tabIndex"))),
+            (in call) =>
             {
-                if (a.Length > 0)
-                    SetTabIndex(element(in a, "tabIndex"), a[0].DoubleValue);
-                return JSUndefined.Value;
-            }, "set tabIndex"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+                if (call.Length > 0)
+                    SetTabIndex(element(in call, "tabIndex"), call.Realm.ToNumber(call[0]));
+                return JsValue.Undefined;
+            });
     }
 
     private JsValue GetFiles(DomElement element) =>
@@ -316,8 +308,8 @@ internal sealed class FormControlBinding(IFormControlHost host)
     }
 
     /// <summary>
-    /// <c>hidden</c>'s write half, CLR-typed so that the engine-typed prototype installer above holds
-    /// nothing but the argument read — and so that it needs no rewriting when that installer migrates.
+    /// <c>hidden</c>'s write half, CLR-typed so that the prototype installer above holds nothing but
+    /// the argument read — which is what let that installer migrate without this being rewritten.
     /// </summary>
     private void SetHidden(DomElement element, bool hidden)
     {
@@ -340,8 +332,8 @@ internal sealed class FormControlBinding(IFormControlHost host)
 
     /// <summary>
     /// <c>tabIndex</c>'s write half. It takes the already-coerced number rather than the argument, so
-    /// that the coercion stays where the argument is — the engine's <c>DoubleValue</c> today, the
-    /// realm's <c>ToNumber</c> when the installer migrates; both are the same ECMAScript operation.
+    /// that the coercion stays where the argument is — the realm's <c>ToNumber</c> now, the engine's
+    /// <c>DoubleValue</c> before the installer migrated; both are the same ECMAScript operation.
     /// </summary>
     private static void SetTabIndex(DomElement element, double tabIndex) =>
         DomBridge.SetAttr(element, "tabindex", ((int)Math.Truncate(tabIndex)).ToString());

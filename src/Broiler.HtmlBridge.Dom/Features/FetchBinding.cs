@@ -20,11 +20,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). Two things here cannot be said in
-/// it and are named as such where they occur: an <c>ArrayBuffer</c>, which
-/// <see cref="IJsValues"/> has no member for (the same line <c>StreamsBinding</c> records), and the
-/// engine handle the still-unmigrated registration site takes back from
-/// <see cref="Install(Broiler.JavaScript.Engine.JSContext, Broiler.JavaScript.Runtime.JSObject)"/>.
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). One thing here cannot be said in
+/// it and is named as such where it occurs: an <c>ArrayBuffer</c>, which <see cref="IJsValues"/> has
+/// no member for — the same line <c>StreamsBinding</c> and <c>BlobBinding</c> record.
 /// </para>
 /// <para>
 /// <b>Every member of these objects is installed as a constructable function, and that is preserved
@@ -64,24 +62,6 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
 
     private delegate JsValue ResponseFactory(string body, int statusCode, string statusText,
         string responseUrl, string type, bool redirected, Dictionary<string, string> headers);
-
-    /// <summary>
-    /// The engine-typed entry point the registration site still calls, forwarding to the migrated
-    /// <see cref="Install(IJsRealm, JsValue)"/>.
-    /// </summary>
-    /// <remarks>
-    /// <c>DomBridge/Registration/Registration.cs</c> hands the context and the window object over and
-    /// takes the <c>fetch</c> function back as an engine value, which it passes on to
-    /// <c>RegisterWindowGlobals</c>; both files are unmigrated, so the conversion lives here rather
-    /// than changing a signature two files that are not this module's would have to follow. Nothing
-    /// reads <paramref name="context"/> — the surface is installed into the realm the host holds,
-    /// which is that same context adopted.
-    /// </remarks>
-    internal Broiler.JavaScript.BuiltIns.Function.JSFunction Install(
-        Broiler.JavaScript.Engine.JSContext context,
-        Broiler.JavaScript.Runtime.JSObject window) =>
-        (Broiler.JavaScript.BuiltIns.Function.JSFunction)JsInterop.ToEngineObject(
-            Install(_host.Realm, JsInterop.FromEngineObject(window)));
 
     /// <summary>Installs <c>fetch</c>/<c>Headers</c>/<c>Request</c>/<c>Response</c>/<c>FormData</c> and
     /// <c>XMLHttpRequest</c> on <paramref name="window"/> and the realm's global, returning the

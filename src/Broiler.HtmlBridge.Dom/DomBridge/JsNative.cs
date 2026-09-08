@@ -1,43 +1,22 @@
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.Runtime;
-
 namespace Broiler.HtmlBridge;
 
-/// <summary>
-/// The two constant-answer native functions the bridge still mints as the engine's own.
-/// </summary>
-/// <remarks>
-/// <para>
-/// <b>These are adapters, and what pins them is named.</b> Two unmigrated feature modules build a
-/// member out of one of these factories rather than out of <c>IJsValues.NewMethod</c>:
-/// <c>Features/NavigatorCapabilityBinding.cs</c> (<c>plugins</c>/<c>mimeTypes</c>
-/// <c>item</c>/<c>namedItem</c>/<c>refresh</c>) and <c>Features/NotificationBinding.cs</c>
-/// (<c>notification.close</c>). Both are other groups' files, so the factories stay until they mint
-/// their no-ops through a realm.
-/// </para>
-/// <para>
-/// They are <see cref="JSFunction"/> rather than the non-constructable <c>DomFunction</c>, and that
-/// difference is observable — <c>navigator.plugins.item.prototype</c> is an object and
-/// <c>new navigator.plugins.item()</c> does not throw. It is preserved rather than corrected here:
-/// straightening it is a behaviour change and belongs with whoever migrates those call sites.
-/// </para>
-/// <para>
-/// The <c>TrueFunction</c> and <c>ZeroFunction</c> factories that stood beside these two were
-/// deleted: their last call sites went when SvgElementBinding and the SMIL no-ops moved to the
-/// realm, and nothing in the repository named either.
-/// </para>
-/// </remarks>
+// The two constant-answer native function factories — UndefinedFunction and NullFunction — are gone
+// from here, and so are the TrueFunction and ZeroFunction that stood beside them.
+//
+// WHY THEY WERE HERE, AND WHY THEY ARE NOT. A DOM member that answers a constant and reads nothing
+// still needs a function object, and before the realm could mint one these four built it as the
+// engine's own. They were constructable engine functions rather than the bridge's non-constructable
+// DOM callable, which is
+// observable — navigator.plugins.item.prototype was an object and `new navigator.plugins.item()` did
+// not throw — and each module that migrated recorded at its own call site that it was deliberately
+// keeping or deliberately correcting that difference: see Features/NavigatorCapabilityBinding.cs,
+// Features/ScreenOrientationBinding.cs, Features/SubDocumentBinding.cs, Features/SvgElementBinding.cs
+// and Features/TableBinding.cs, each of which says which it chose and why.
+//
+// The last of those call sites went with the last of those modules. Nothing in the repository names
+// either factory now, so what is left is dead private code: there is no name for a page to reach and
+// no member for Object.getOwnPropertyNames to see, and removing it changes no observable behaviour.
+// The file stays as this note because five migrated modules point at it for the history.
 public sealed partial class DomBridge
 {
-    private static readonly JSFunctionDelegate ReturnUndefinedDelegate = ReturnUndefined;
-    private static readonly JSFunctionDelegate ReturnNullDelegate = ReturnNull;
-
-    internal static JSFunction UndefinedFunction(string name, int length = 0) => new(ReturnUndefinedDelegate, name, length);
-
-    internal static JSFunction NullFunction(string name, int length = 0) => new(ReturnNullDelegate, name, length);
-
-    private static JSValue ReturnUndefined(in Arguments _) => JSUndefined.Value;
-
-    private static JSValue ReturnNull(in Arguments _) => JSNull.Value;
 }

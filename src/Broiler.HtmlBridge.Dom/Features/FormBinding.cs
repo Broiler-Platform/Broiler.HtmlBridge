@@ -1,7 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -27,25 +25,27 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// property-lookup override each object repeated for itself.
 /// </para>
 /// <para>
-/// <b>The form wrapper's own object is still engine-typed, and that is pinned from outside.</b>
-/// <c>DomBridge/JsObjects.cs</c> decides a wrapper's type when it mints it — <c>new
-/// FormElementJSObject(…)</c> — and installs every other member on the same object, so the wrapper
-/// cannot become <c>realm.NewExotic(…)</c> until that site migrates. Until then
-/// <see cref="FormElementJSObject"/> is the adapter: a subclass whose one override defers to the same
-/// handler the collection uses, in the same order the realm would consult it. The collection has no
-/// such caller — this module builds it — so it is a real exotic already.
+/// <b>Both objects are real exotics now.</b> The wrapper's type is decided where it is minted, and
+/// <c>DomBridge/JsObjects.cs</c> minted a form-specific engine-object subclass declared here, whose
+/// one lookup override deferred to this same handler with the realm's ordering written out by hand.
+/// That hub mints through the realm now, so the wrapper is
+/// <c>realm.NewExotic(new FormNamedControls(form, host, missingIsNull: false))</c> and the subclass is
+/// gone; the ordering rule is stated once, in <see cref="IJsExotic"/>, rather than restated by a class
+/// that could have restated it differently.
+/// </para>
+/// <para>
+/// The realm consults a handler at more entry points than that subclass overrode, which is visible in
+/// two places and in a browser's favour both times: <c>'q' in form</c> and
+/// <c>Object.getOwnPropertyDescriptor(form, 'q')</c> now answer for a control the form carries, where
+/// the subclass answered only a plain read. Nothing is <em>enumerated</em> that was not before —
+/// <see cref="FormNamedControls.SupportedNames"/> is deliberately empty and
+/// <see cref="FormNamedControls.IndexedLength"/> zero — so <c>Object.keys(form)</c>, <c>for…in</c> and
+/// a spread see exactly what they saw.
 /// </para>
 /// </remarks>
 internal sealed class FormBinding(IFormHost host)
 {
     private readonly IFormHost _host = host;
-
-    /// <summary>
-    /// Engine-typed adapter for <c>DomBridge/ElementInterfaces.cs</c>, which still holds the element
-    /// wrapper as an engine object. See the remarks on this class.
-    /// </summary>
-    internal void Install(JSObject obj, DomElement element, string tag) =>
-        Install(Runtime.JsInterop.FromEngineObject(obj), element, tag);
 
     /// <summary>Installs the <c>HTMLFormElement</c> members on <paramref name="obj"/> when
     /// <paramref name="element"/> is a <c>&lt;form&gt;</c>.</summary>
@@ -205,6 +205,16 @@ internal sealed class FormBinding(IFormHost host)
 /// change.
 /// </para>
 /// <para>
+/// <b>Why the form asks this at all.</b> <c>form.elements</c> already offered named access and the
+/// form itself did not, so <c>form.q</c> was <see langword="undefined"/> — the spelling pages actually
+/// use, and undefined does not announce itself: google.com's homepage hands the result straight to its
+/// search-box component (<c>var r=hp_SKb(),u=r.q</c>), which stores it and later reads <c>F.value</c>,
+/// throwing <c>Cannot get property value of undefined</c> from a component far from the lookup that
+/// failed. Named access stays a fallback and not an override — <c>form.action</c> is the action
+/// attribute even when a control is named <c>action</c>, and <c>form.submit</c> the method even when a
+/// control is named <c>submit</c> — which is the ordering rule above, applied to the form.
+/// </para>
+/// <para>
 /// <b>No indices and no supported names, deliberately.</b> The collection installs its indices as
 /// ordinary properties, a snapshot, exactly as it always has (see
 /// <c>FormBinding.BuildElementsCollection</c>); and neither object enumerated its controls' names
@@ -239,56 +249,4 @@ internal sealed class FormNamedControls(DomElement form, IFormHost host, bool mi
 
     /// <inheritdoc />
     public uint IndexedLength => 0;
-}
-
-/// <summary>
-/// The JS wrapper for a <c>&lt;form&gt;</c>: an ordinary element object that additionally resolves an
-/// unknown property name to the control carrying that name — <c>HTMLFormElement</c>'s named getter
-/// (HTML §4.10.3).
-/// </summary>
-/// <remarks>
-/// <para>
-/// <c>form.elements</c> already offered named access, but the form itself did not, so <c>form.q</c>
-/// was <see langword="undefined"/>. That is the spelling pages actually use, and undefined does not
-/// announce itself: google.com's homepage hands the result straight to its search-box component —
-/// <c>var r=hp_SKb(),u=r.q</c> — which stores it and later reads <c>F.value</c>, throwing
-/// <c>Cannot get property value of undefined</c> from a component far from the lookup that failed.
-/// </para>
-/// <para>
-/// Named access is a fallback and not an override: WebIDL consults named properties only when the
-/// object and its prototype chain do not already answer, so <c>form.action</c> stays the action
-/// attribute even when a control is named <c>action</c>, and <c>form.submit</c> stays the method even
-/// when a control is named <c>submit</c>. A name nothing carries is left undefined rather than null,
-/// since an absent named property is an absent property.
-/// </para>
-/// <para>
-/// <b>This class is an adapter, and it is meant to be deleted.</b> The lookup it performs is
-/// <see cref="FormNamedControls"/>, an <see cref="IJsExotic"/>; what is engine-typed here is only
-/// <em>where</em> the handler is consulted from. <c>DomBridge/JsObjects.cs</c> mints the form's
-/// wrapper with <c>new</c> and installs every other <c>HTMLFormElement</c> member on the object it
-/// gets back, so the wrapper's type is fixed by an unmigrated site; when that site migrates the
-/// wrapper becomes <c>realm.NewExotic(new FormNamedControls(form, host, missingIsNull: false))</c>
-/// and this subclass goes away. The order below is the order the realm applies, written out: base
-/// lookup, then the handler, then the base again with the caller's <c>throwError</c> so a genuine
-/// miss fails the way an ordinary miss on this object would.
-/// </para>
-/// </remarks>
-internal sealed class FormElementJSObject : JSObject
-{
-    private readonly FormNamedControls _named;
-
-    internal FormElementJSObject(DomElement form, IFormHost host) =>
-        _named = new FormNamedControls(form, host, missingIsNull: false);
-
-    /// <inheritdoc />
-    protected override JSValue GetValue(KeyString key, JSValue receiver, bool throwError = true)
-    {
-        var result = base.GetValue(key, receiver, false);
-        if (result != null && !result.IsUndefined)
-            return result;
-
-        return _named.TryGetNamed(key.Value.ToString(), out var control)
-            ? Runtime.JsInterop.ToEngineObject(control)
-            : base.GetValue(key, receiver, throwError);
-    }
 }

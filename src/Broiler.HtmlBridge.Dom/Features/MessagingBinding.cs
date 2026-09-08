@@ -42,13 +42,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <list type="bullet">
 /// <item><description>
 /// <b>listener <em>registration</em> in the generic <c>EventTarget</c> dispatch</b> — not the dispatch
-/// itself, which now builds and stamps the event through the realm. What is left is the stores:
-/// <see cref="EventTargetRegistry"/> keys its listener and owner maps on the engine's objects,
-/// <c>EventListenerRegistration.Listener</c> and <c>EventListenerBinding</c>'s two operations take
-/// engine values, and <c>DomBridge.InvokeEventListener</c> takes one. A listener, and an
-/// <c>addEventListener</c> options argument, are routinely primitives — <c>addEventListener(t, f,
-/// true)</c> — so this edge has the same handle-carries-no-primitive problem as the clone. It moves
-/// when those four do, rather than one call deeper.
+/// itself, which builds and stamps the event through the realm, and no longer the store either:
+/// <see cref="EventTargetRegistry"/> keys its listener and owner maps on <see cref="JsValue"/> now,
+/// so a port and a sub-window go in as handles. What is left is one record and what reads it.
+/// <c>EventListenerRegistration.Listener</c> is a Broiler.JS value, declared in
+/// <c>DomBridge/RuntimeStates.cs</c>; <c>EventListenerBinding</c>'s two operations are written
+/// against it, and <c>DomBridge.InvokeEventListener</c> takes one. That record is outside this
+/// round's files and is shared with the element, document, window and form-submit paths, so
+/// <see cref="AddEventListener"/>/<see cref="RemoveEventListener"/> keep their engine argument frame:
+/// a listener, and an <c>addEventListener</c> options argument, are routinely primitives —
+/// <c>addEventListener(t, f, true)</c> — which the engine frame carries and a handle-to-engine
+/// conversion re-materialises, losing the identity <c>removeEventListener</c> matches on. The frame
+/// goes when the record does, in the same step.
 /// </description></item>
 /// </list>
 /// </remarks>
@@ -67,42 +72,57 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     // ==================== Generic EventTarget dispatch ====================
     // Installed on message ports and on sub-windows (the two non-node event targets).
     //
-    // THE EVENT IS THE REALM'S; THE LISTENER STORE IS STILL THE ENGINE'S. See the third bullet in
-    // this class's remarks. Everything this section does to an event object — reading its type,
-    // stamping target/currentTarget/eventPhase, installing stopPropagation/preventDefault/
-    // composedPath and the two legacy accessors — goes through IJsRealm. Registration does not:
-    // the listener map, the owner-window map, a registration's listener and the bridge's listener
-    // invoker are all declared in the engine's vocabulary, and the values they carry include
-    // primitives that a JSEAL handle cannot hold. That half migrates when those four files do.
+    // THE EVENT, THE TARGET AND THE STORE ARE THE REALM'S; A REGISTRATION IS STILL THE ENGINE'S. See
+    // the bullet in this class's remarks. Everything this section does to an event object — reading
+    // its type, stamping target/currentTarget/eventPhase, installing stopPropagation/preventDefault/
+    // composedPath and the two legacy accessors — goes through IJsRealm, and so do the listener and
+    // owner-window maps it files a target in. What does not is one record: a registration's listener
+    // is a Broiler.JS value (DomBridge/RuntimeStates.cs), which is what EventListenerBinding's two
+    // operations and the bridge's listener invoker are written against. Neither that record nor the
+    // four other firing paths that share it belong to this round.
 
     /// <summary>Installs <c>addEventListener</c>/<c>removeEventListener</c>/<c>dispatchEvent</c> on a
     /// generic event target (a message port or a sub-window).</summary>
     /// <remarks>
-    /// The engine-typed parameter is an adapter pinned by <see cref="SubWindowBinding"/> and by
-    /// <see cref="CreateMessagePort"/>'s own engine-typed installation; the handle over it is minted
-    /// once here and is what the migrated operation closes over. The first two operations keep their
-    /// engine argument frame because their listener and options arguments may be primitives; the
-    /// third does not, and is installed through the realm <em>in its original position</em>, because
-    /// property order is what <c>Object.getOwnPropertyNames</c> reports.
+    /// <para>
+    /// The target is a handle now that both callers hold one — <see cref="SubWindowBinding"/> and
+    /// <see cref="CreateMessagePort"/> — and it is what the listener store is keyed on and what the
+    /// three operations close over. The engine object is unwrapped once here, for the two
+    /// installations that still need one; that is a cast over the object the handle already carries,
+    /// so the members land on the same target either way.
+    /// </para>
+    /// <para>
+    /// <b>The first two operations keep their engine argument frame, and it is not their own pin.</b>
+    /// They hand their listener and options arguments straight to <see cref="EventListenerBinding"/>,
+    /// whose two operations take engine values because <c>EventListenerRegistration.Listener</c> is
+    /// one — and that record is declared in <c>DomBridge/RuntimeStates.cs</c>, outside this round.
+    /// Both arguments are routinely primitives (<c>addEventListener(t, f, true)</c>), which the engine
+    /// frame carries and a re-materialising conversion would not: forwarding a primitive listener
+    /// through one would mint a fresh engine value per call and break the identity
+    /// <c>removeEventListener</c> matches on. So this pair moves with the record, in one step, rather
+    /// than acquiring that fault here. <c>dispatchEvent</c> has no such argument and is installed
+    /// through the realm <em>in its original position</em>, because property order is what
+    /// <c>Object.getOwnPropertyNames</c> reports.
+    /// </para>
     /// </remarks>
-    internal void InstallEventTargetApi(JSObject target, string logContext)
+    internal void InstallEventTargetApi(JsValue target, string logContext)
     {
-        var handle = JsInterop.FromEngineObject(target);
         var realm = _host.Realm;
+        var engineTarget = JsInterop.ToEngineObject(target);
 
-        target.FastAddValue("addEventListener",
+        engineTarget.FastAddValue("addEventListener",
             new DomFunction((in a) => AddEventListener(target, in a), "addEventListener", 3),
             JSPropertyAttributes.EnumerableConfigurableValue);
 
-        target.FastAddValue("removeEventListener",
+        engineTarget.FastAddValue("removeEventListener",
             new DomFunction((in a) => RemoveEventListener(target, in a), "removeEventListener", 3),
             JSPropertyAttributes.EnumerableConfigurableValue);
 
-        realm.DefineValue(handle, "dispatchEvent",
-            realm.NewMethod("dispatchEvent", (in call) => DispatchEvent(handle, logContext, in call), 1));
+        realm.DefineValue(target, "dispatchEvent",
+            realm.NewMethod("dispatchEvent", (in call) => DispatchEvent(target, logContext, in call), 1));
     }
 
-    private JSValue AddEventListener(JSObject target, in Arguments a)
+    private JSValue AddEventListener(JsValue target, in Arguments a)
     {
         if (a.Length < 2)
             return JSUndefined.Value;
@@ -112,7 +132,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
         return JSUndefined.Value;
     }
 
-    private JSValue RemoveEventListener(JSObject target, in Arguments a)
+    private JSValue RemoveEventListener(JsValue target, in Arguments a)
     {
         if (a.Length < 2)
             return JSUndefined.Value;
@@ -136,7 +156,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
         return DispatchEventTarget(target, call[0], logContext);
     }
 
-    private List<EventListenerRegistration> GetOrCreateEventTargetListeners(JSObject target, string type)
+    private List<EventListenerRegistration> GetOrCreateEventTargetListeners(JsValue target, string type)
     {
         var listenersByType = _eventTargets.TargetListenersForAdd(target);
 
@@ -209,12 +229,12 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
 
         InvokeEventTargetHandler(target, eventType, evt, logContext);
 
-        // The listener store and the invoker are the engine's — see the note at the head of this
-        // section. A handle carries the engine's own object, so unwrapping it is a cast rather than a
-        // conversion, and the registration's listener is never named here because the work is handed
-        // over as an Action instead.
+        // The store is keyed on handles now, so the target goes in as it stands. The invoker is still
+        // the engine's — see the note at the head of this section — so the event is unwrapped once,
+        // which is a cast rather than a conversion; the registration's listener is never named here
+        // because the work is handed over as an Action instead.
         var engineEvent = JsInterop.ToEngineObject(evt);
-        if (_eventTargets.TryGetTargetListeners(JsInterop.ToEngineObject(target), out var listenersByType) &&
+        if (_eventTargets.TryGetTargetListeners(target, out var listenersByType) &&
             listenersByType.TryGetValue(eventType, out var listeners))
         {
             foreach (var registration in listeners.ToList())
@@ -502,7 +522,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     private void CommitTransferredPorts(IEnumerable<JsValue> transferredPorts, JsValue targetWindow)
     {
         foreach (var port in transferredPorts)
-            _eventTargets.SetOwnerWindow(JsInterop.ToEngineObject(port), JsInterop.ToEngineObject(targetWindow));
+            _eventTargets.SetOwnerWindow(port, targetWindow);
     }
 
     private bool ShouldDeliverWindowMessage(JsValue targetWindow, JsValue sourceWindow, string targetOrigin)
@@ -662,10 +682,9 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     {
         var realm = _host.Realm;
         var port = realm.NewObject();
-        var portObject = JsInterop.ToEngineObject(port);
         var effectiveOwner = FirstObject(ownerWindow, _host.WindowObject, _host.ResolveCurrentWindow(), port);
-        _eventTargets.SetOwnerWindow(portObject, JsInterop.ToEngineObject(effectiveOwner));
-        InstallEventTargetApi(portObject, "DomBridge.messagePort.dispatchEvent");
+        _eventTargets.SetOwnerWindow(port, effectiveOwner);
+        InstallEventTargetApi(port, "DomBridge.messagePort.dispatchEvent");
         JsValue onMessageHandler = JsValue.Null;
 
         // A NewMethod because the member was built non-constructable, and in this position because

@@ -33,6 +33,12 @@ public sealed partial class DomBridge
     private void RegisterSecurityAndConstructorPolyfills(JsValue window)
     {
         var realm = Realm;
+
+        // The script context is still read below, and by exactly one line: the Range interface
+        // registration in Features/TraversalBinding.cs takes one and is not this group's to change.
+        // Everything else on this pass is handed `realm` — which matters beyond tidiness, because a
+        // module handed the context adopted it into a realm of its own, and a second realm over one
+        // context carries a second job queue that nothing drains.
         var context = _jsContext!;
 
         // window.crypto — the getRandomValues/randomUUID subset (Phase 3: co-located CryptoBinding module)
@@ -49,14 +55,14 @@ public sealed partial class DomBridge
         realm.SetProperty(realm.Global, "CSS", cssObj);
 
         // DOMException constructor
-        RegisterDOMException(context);
+        RegisterDOMException(realm);
 
         // Node constructor with type constants
-        RegisterNodeConstructor(context);
+        RegisterNodeConstructor(realm);
 
         // Element/HTMLElement/HTMLUnknownElement/… interface globals. After Node, whose
         // @@hasInstance it installs.
-        RegisterDomInterfaceConstructors(context);
+        RegisterDomInterfaceConstructors(realm);
 
         // The Node/CharacterData/Text members a text or comment node exposes, onto those interface
         // prototypes. After the constructors above, which is what there is a prototype to install on,
@@ -76,7 +82,7 @@ public sealed partial class DomBridge
         RegisterHtmlElementInterface();
 
         // SVGLength interface constants
-        RegisterSVGLength(context);
+        RegisterSVGLength(realm);
 
         // AbstractRange/Range — the one DOM interface here whose members really live on its
         // prototype, so it has to be registered before the first document.createRange() can link a
@@ -85,17 +91,17 @@ public sealed partial class DomBridge
 
         // Blob/File, and the URL.createObjectURL pair they need. After the content-rendering
         // polyfills, which is where the URL constructor these attach to comes from.
-        _blobs.RegisterInterfaces(context);
+        _blobs.RegisterInterfaces(realm);
 
         // ReadableStream (with its default reader and controller), ProgressEvent and FileReader,
         // plus blob.stream(). After blobs, because the stream reads a blob's bytes and the stream
         // member goes onto Blob.prototype.
-        _streams.Register(context, _blobs);
+        _streams.Register(_blobs);
 
         // ElementInternals/ValidityState/CustomStateSet — the objects a form-associated custom
         // element's attachInternals() hands back. Registered here rather than with the custom-element
         // pass because they are ordinary interface globals a page can name and feature-detect.
-        ElementInternals.RegisterInterfaces(context);
+        ElementInternals.RegisterInterfaces();
 
         // Storage interface global — the name a page tests before it touches an area.
         RegisterStorageConstructor();

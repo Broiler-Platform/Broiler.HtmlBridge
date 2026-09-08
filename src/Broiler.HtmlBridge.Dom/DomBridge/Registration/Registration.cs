@@ -1,17 +1,24 @@
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
-// Engine-typed for two reasons, and only two:
+// Engine-typed for three reasons, and only three:
 //
 //   * RegisterDocument takes the script context the host hands Attach and swaps its code cache for
 //     the process-shared one. That is a Broiler.JS optimisation with no JSEAL vocabulary — there is
-//     no "compile once per process" member on the realm contract — and the call site in DomBridge.cs
-//     is not owned this round either way.
+//     no "compile once per process" member on the realm contract — so this is the floor rather than
+//     a step not yet taken.
 //   * AdoptRealm (DomBridge.Realm.cs) takes that same context to produce the realm, so the context
 //     has to reach it.
+//   * The three wrapper-root fields (_documentJSObject, _windowJSObject, _visualViewportJSObject)
+//     are engine-typed, DictionaryCodeCache is the engine's own cache type, and
+//     RegisterCustomElements (DomBridge/Registration/CustomElements.cs) takes the window as an
+//     engine object. The fields and that hub are read by files outside this migration group, so the
+//     two ToEngineObject calls below stay until those readers ask with a handle.
 //
-// The adapters that used to be a third reason are gone; see the note at the foot of this file.
-// Everything the hubs install is built through the realm.
+// The adapters that used to be a fourth reason are gone; see the note at the foot of this file.
+// Everything the hubs install is built through the realm, and every module they register is handed
+// that realm rather than the context — which is not only tidier: a module handed the context adopted
+// it, and a second realm over one context has a job queue of its own that no event loop drains.
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
 
@@ -161,7 +168,7 @@ public sealed partial class DomBridge
 
         var windowBasicsScope = Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowBasics);
         var console = RegisterWindowBasics(document, window);
-        var fetchFn = Dom.Runtime.JsInterop.FromEngineObject(_fetch.Install(context, windowObject));
+        var fetchFn = _fetch.Install(realm, window);
         // MessageChannel (messaging) and getComputedStyle (CSSOM) historically lived inside the fetch
         // registration; they are registered here alongside the other window globals now that the fetch
         // networking surface is an isolated feature module.
@@ -225,7 +232,7 @@ public sealed partial class DomBridge
         // Worker (multithreading item #18). Registered after the window globals so the constructor
         // lands on a fully-built window, and before the global mirror below so it is reachable
         // unqualified the way page scripts spell it.
-        _workers?.Register(context, windowObject);
+        _workers?.Register(realm, window);
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowMirror))
             MirrorWindowMembersOntoGlobal(realm, window);
     }

@@ -1,6 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -22,24 +21,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// engine type.
 /// </para>
 /// <para>
-/// <b>The one engine-typed member is an adapter, and it is pinned from outside.</b>
-/// <c>DomBridge/ElementInterfaces.cs</c> installs these members onto an engine wrapper it holds and
-/// is not migrated, so <see cref="Install(JSObject, DomElement, string)"/> takes that wrapper and
-/// hands it on through <see cref="Runtime.JsInterop"/> — a cast, not a conversion, because a JSEAL
-/// object handle carries the engine's own object. When that installer migrates, the adapter is
-/// deleted and its caller passes the handle it already has.
+/// The file carried one engine-typed adapter until this round, and it was pinned by its caller rather
+/// than by anything here: <c>DomBridge/ElementInterfaces.cs</c> installed these members onto an engine
+/// wrapper it held, so <c>Install</c> took that wrapper and handed it on through
+/// <see cref="Runtime.JsInterop"/>. That file passes the handle it already has, so there is one
+/// installer again.
 /// </para>
 /// </remarks>
 internal sealed class SelectBinding(ISelectHost host)
 {
     private readonly ISelectHost _host = host;
-
-    /// <summary>
-    /// Engine-typed adapter for <c>DomBridge/ElementInterfaces.cs</c>, which still holds the element
-    /// wrapper as an engine object. See the remarks on this class.
-    /// </summary>
-    internal void Install(JSObject obj, DomElement element, string tag) =>
-        Install(Runtime.JsInterop.FromEngineObject(obj), element, tag);
 
     /// <summary>Installs the select/option interface members on <paramref name="obj"/> for
     /// <paramref name="element"/> according to its <paramref name="tag"/>.</summary>

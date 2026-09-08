@@ -17,13 +17,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>This module is engine-typed on purpose, and the pin is a type it does not own.</b> A
-/// registration is an <c>EventListenerRegistration</c> — <c>DomBridge/RuntimeStates.cs</c>, outside
-/// the events slice — whose listener field is a Broiler.JS value. Five callers share it:
-/// the element, document and window <c>EventTarget</c>s here, plus the messaging and form-submit
-/// firing paths in files this migration round does not own. Migrating the record for the events
-/// slice alone would break those, and migrating the option arguments alone would only move the
-/// conversion, so the whole registration surface stays as it is until the record moves.
+/// <b>This module is engine-typed on purpose, and the pin is a one-line declaration it does not
+/// own.</b> A registration is an <c>EventListenerRegistration</c>, declared in
+/// <c>DomBridge/RuntimeStates.cs</c>, whose listener field is a Broiler.JS value. Everything below
+/// follows from that field: it is what the two operations put into the list and what they compare
+/// when removing, so the record's type is this module's type. Changing it takes three files, and the
+/// events slice does not contain them — the record itself, plus the two host implementations that
+/// hand these operations engine values today (<c>DomBridge/DomBridge.DocumentEventTargetHost.cs</c>
+/// and <c>DomBridge/DomBridge.WindowEventTargetHost.cs</c>, whose shared <c>ToEngineListenerValue</c>
+/// exists for no other reason and dies with it). Migrating the option arguments alone would only move
+/// the conversion, so the whole registration surface stays as it is until those three move together.
 /// </para>
 /// <para>
 /// <b>Identity survives that move when it comes — read, not assumed.</b> The comparisons below are
@@ -37,7 +40,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// operator: <c>JsValue.Equals</c> takes the same reference arm, and <c>GetHashCode</c> answers
 /// <c>RuntimeHelpers.GetHashCode(Reference)</c> for it, so both are reflexive for an object and a
 /// registration can be found in the list it was put into. The one documented divergence between the
-/// two is NaN, which no listener can be.
+/// two is NaN, which no listener can be. <c>Runtime/EventTargetRegistry.cs</c> has since re-keyed its
+/// two object maps on that pair, so the reading is a shipped one rather than a prediction.
+/// </para>
+/// <para>
+/// <b>And the move fixes something rather than merely relocating it.</b> A handle carries a primitive
+/// by value where the engine's value type carries an instance, so the re-materialisation the host
+/// implementations perform today — a fresh engine string or boolean per call — makes
+/// <c>removeEventListener(t, "handler")</c> unable to find what <c>addEventListener(t, "handler")</c>
+/// registered. WebIDL does not admit that listener shape at all and nothing in the bridge dispatches
+/// one, which is why it is a reported quirk rather than a live bug; <c>JsValue</c> compares a string
+/// and a boolean by value, so it simply stops being possible.
 /// </para>
 /// </remarks>
 internal static class EventListenerBinding

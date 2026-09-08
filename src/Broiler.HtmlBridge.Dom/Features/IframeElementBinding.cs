@@ -15,12 +15,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>GetSVGDocument137Core</c>/<c>SetSrc139Core</c>/<c>SetSrcdoc141Core</c>.
 /// </summary>
 /// <remarks>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so the installer and every accessor
-/// body name no engine type. The one engine-typed member is the adapter at the foot of this file: the
-/// element-wrapper hub that installs these members (<c>DomBridge/JsObjects.cs</c>) has not migrated and
-/// still holds the wrapper as an engine object, so the handle is minted there. It is a cast rather than
-/// a conversion — the members are installed on the wrapper the hub built — and it goes when that hub
-/// moves.
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>) throughout, installer and accessor
+/// bodies alike, so this file names no engine type. It carried one engine-typed adapter until this
+/// round: the element-wrapper hub that installs these members (<c>DomBridge/JsObjects.cs</c>) held the
+/// wrapper as an engine object and the handle was minted here. That hub mints the wrapper through the
+/// realm now and passes the handle, so the adapter is gone.
 /// </remarks>
 internal static class IframeElementBinding
 {
@@ -92,13 +91,4 @@ internal static class IframeElementBinding
         host.FireSubDocumentOnload(element);
         return JsValue.Undefined;
     }
-
-    // -------- engine-typed adapter (see the remarks on this class) --------
-
-    /// <summary>
-    /// <see cref="Install(IIframeElementHost, JsValue, DomElement)"/> as the unmigrated element-wrapper
-    /// hub calls it, holding the wrapper as an engine object.
-    /// </summary>
-    public static void Install(IIframeElementHost host, JavaScript.Runtime.JSObject obj, DomElement element)
-        => Install(host, Runtime.JsInterop.FromEngineObject(obj), element);
 }

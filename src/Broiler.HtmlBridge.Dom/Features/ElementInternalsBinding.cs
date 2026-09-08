@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Engine;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -51,14 +50,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <b>The JavaScript vocabulary is JSEAL's</b> (<see cref="IJsRealm"/>). The two JavaScript assets
 /// this module installs are source this repository authored and ships, so they run through
 /// <see cref="IJsSource.EvaluateHostScript"/> rather than the guest-source entry point — a page's
-/// Content-Security-Policy has no say over them. One member stays engine-typed, and it is pinned
-/// by a file this migration round does not own: <see cref="RegisterInterfaces"/>, whose caller
-/// <c>DomBridge/Registration/Polyfills.cs</c> still holds a script context and passes it. Nothing
-/// here reads it — the module reaches the same realm through its host — and the parameter goes when
-/// that call site migrates. The one remaining engine call is
-/// <c>DomBridge.TryReadFormDataEntries</c>, which is another group's file and reads a
-/// <c>FormData</c> through its own members; the handle crosses to it through
-/// <see cref="Runtime.JsInterop"/>, a cast rather than a conversion.
+/// Content-Security-Policy has no say over them. No engine type is named anywhere in this file: the
+/// script context <see cref="RegisterInterfaces"/> used to be handed is gone (the module always
+/// reached its realm through its host and never read it), and <c>DomBridge.TryReadFormDataEntries</c>
+/// now takes a realm and a handle.
 /// </para>
 /// </remarks>
 internal sealed class ElementInternalsBinding(IElementInternalsHost host)
@@ -131,15 +126,13 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
 
     /// <summary>
     /// Registers <c>ElementInternals</c>, <c>ValidityState</c> and <c>CustomStateSet</c>, and installs
-    /// their members. Runs once per context, with the other interface constructors.
+    /// their members. Runs once per realm, with the other interface constructors.
     /// </summary>
-    /// <param name="context">
-    /// The engine context the unmigrated caller (<c>DomBridge/Registration/Polyfills.cs</c>) still
-    /// holds. Nothing here reads it: this module reaches the same realm through
-    /// <see cref="IElementInternalsHost.Realm"/>. The parameter stays only so that call site needs no
-    /// edit while it is another group's file, and goes when it is migrated.
-    /// </param>
-    internal void RegisterInterfaces(JSContext context)
+    /// <remarks>
+    /// It takes nothing: the realm this installs into is the host's, which is the same realm the
+    /// registration hub is building when it calls this.
+    /// </remarks>
+    internal void RegisterInterfaces()
     {
         var realm = _host.Realm;
 
@@ -374,11 +367,11 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
         if (value.IsNullish)
             return JsValue.Undefined;
 
-        // FormData is recognised by shape, through members the reader reaches on the engine object —
-        // that reader is another group's file and still takes one, so the handle is unwrapped for
-        // exactly this call, after the object test the engine-typed pattern match used to perform.
+        // FormData is recognised by shape, through the members the reader reaches on the object.
+        // The object test stays ahead of the call: it is what the engine-typed pattern match
+        // performed, and a primitive carries none of those members anyway.
         if (value.IsObject &&
-            DomBridge.TryReadFormDataEntries(Runtime.JsInterop.ToEngineObject(value), out var entries))
+            DomBridge.TryReadFormDataEntries(call.Realm, value, out var entries))
         {
             state.SubmissionEntries = entries;
             return JsValue.Undefined;

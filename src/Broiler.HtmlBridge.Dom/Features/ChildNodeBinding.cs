@@ -1,5 +1,3 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
@@ -16,22 +14,19 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Each operation has two entry points and one body, because its three installers do not share a
-/// call frame.</b> The mixin is installed on <c>Node</c>'s side of the tree by
-/// <c>DomBridge/CharacterDataInterface.cs</c> and <c>DomBridge/JsObjects.NonElementNodes.cs</c>, which
-/// mint through the realm and so arrive on a <see cref="JsCall"/>, and on <c>Element.prototype</c> by
-/// <c>DomBridge/ElementInterface.cs</c>, which still hands over the engine's <c>Arguments</c>. There is
-/// no adapter between two call frames — only between two object types — so the frame is read at the
-/// entry point and everything after it is shared: the <c>…Core</c> helpers below take the resolved node
-/// list and are the only place the DOM steps are written.
+/// <b>One entry point per operation again, now that all three installers share a call frame.</b> The
+/// mixin is installed on <c>Node</c>'s side of the tree by <c>DomBridge/CharacterDataInterface.cs</c>
+/// and <c>DomBridge/JsObjects.NonElementNodes.cs</c>, and on <c>Element.prototype</c> by
+/// <c>DomBridge/ElementInterface.cs</c>; all three mint through the realm, so every one of them
+/// arrives on a <see cref="JsCall"/>. The <c>…Core</c> helpers below stay the only place the DOM steps
+/// are written.
 /// </para>
 /// <para>
-/// That is the opposite trade from the one this file used to make, and it flipped when two of the three
-/// installers migrated: with a single engine-framed body the two migrated installers could not reach it
-/// at all, whereas a duplicated <em>entry point</em> is four lines that the compiler keeps honest
-/// against the shared body. The engine pair, the <c>Arguments</c> argument builder on
-/// <see cref="IChildNodeHost"/> and this file's engine <c>using</c>s all go when
-/// <c>ElementInterface.cs</c> moves.
+/// The file briefly carried a second, engine-framed entry point per operation, because
+/// <c>ElementInterface.cs</c> installed these four with the engine's own argument frame and there is
+/// no adapter between two call frames — only between two object types. That installer has migrated, so
+/// the duplicate entry points, the engine-framed argument builder on <see cref="IChildNodeHost"/>
+/// and this file's engine <c>using</c>s are gone with it.
 /// </para>
 /// </remarks>
 internal static class ChildNodeBinding
@@ -134,47 +129,5 @@ internal static class ChildNodeBinding
         host.NotifyChildRemoved(parent, element, replacementIndex);
         foreach (var node in nodes)
             host.InsertNodeAt(parent, node, replacementIndex++);
-    }
-
-    // -------- The engine-framed entry points, pinned by DomBridge/ElementInterface.cs --------
-
-    /// <inheritdoc cref="Remove(IChildNodeHost, DomNode, in JsCall)" />
-    public static JSValue Remove(IChildNodeHost host, DomNode element, in Arguments _)
-    {
-        RemoveCore(host, element);
-        return JSUndefined.Value;
-    }
-
-    /// <inheritdoc cref="Before(IChildNodeHost, DomNode, in JsCall)" />
-    public static JSValue Before(IChildNodeHost host, DomNode element, in Arguments a)
-    {
-        var parent = DomBridge.ParentEl(element);
-        if (parent == null || a.Length == 0)
-            return JSUndefined.Value;
-        BeforeCore(host, parent, element, host.BuildChildNodeArgumentNodes(a));
-        return JSUndefined.Value;
-    }
-
-    /// <inheritdoc cref="After(IChildNodeHost, DomNode, in JsCall)" />
-    public static JSValue After(IChildNodeHost host, DomNode element, in Arguments a)
-    {
-        var parent = DomBridge.ParentEl(element);
-        if (parent == null || a.Length == 0)
-            return JSUndefined.Value;
-        AfterCore(host, parent, element, host.BuildChildNodeArgumentNodes(a));
-        return JSUndefined.Value;
-    }
-
-    /// <inheritdoc cref="ReplaceWith(IChildNodeHost, DomNode, in JsCall)" />
-    public static JSValue ReplaceWith(IChildNodeHost host, DomNode element, in Arguments a)
-    {
-        var parent = DomBridge.ParentEl(element);
-        if (parent == null)
-            return JSUndefined.Value;
-        var replacementIndex = DomBridge.ChildIndexOf(parent, element);
-        if (replacementIndex < 0)
-            return JSUndefined.Value;
-        ReplaceWithCore(host, parent, element, replacementIndex, host.BuildChildNodeArgumentNodes(a));
-        return JSUndefined.Value;
     }
 }

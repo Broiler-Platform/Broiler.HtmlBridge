@@ -4,18 +4,17 @@ using System.Runtime.CompilerServices;
 
 using Broiler.HtmlBridge.Jseal;
 
-// The engine-typed half of this file, and every line of it is an adapter pinned by a caller outside
-// this group. Eight unmigrated sites build collections by handing over a script context and a list
-// of engine values (DomBridge.DocumentQueryHost/SelectorsHost/FormAssociationHost/FormControlHost/
-// SubDocumentHost, DomBridge/Utilities.cs, Features/NodeAccessorsBinding.cs,
-// Features/NodeMutationBinding.cs), and DomBridge/Utilities.DomInterfaces.cs registers the interfaces
-// and the NamedNodeMap operations with a context. See the adapters below for what each pins. The
-// NamedNodeMap surface itself is JSEAL now — its supplier, Features/AttributesBinding.cs, migrated —
-// and the one engine type left under it is the weak table's key, which must be a reference type.
-using Broiler.JavaScript.BuiltIns.String;
+// The engine-typed remainder of this file, and it is down to one adapter and the machinery under it.
+// DomBridge/DomBridge.FormControlHost.cs is the last caller that builds a collection by handing over a
+// script context and a list of engine values — a file input's `files`, which it installs as an engine
+// object — so FileList(JSContext, …) and the four members below it stay until that one call migrates.
+// The other four adapters have gone with their callers: the interface-registration hub
+// (DomBridge/Utilities.DomInterfaces.cs), the query/selector/form-association/node-accessor hosts,
+// DomBridge/Utilities.cs and the frame projection in DomBridge.SubDocumentHost.cs all pass a realm now.
+// The NamedNodeMap surface is JSEAL too — its supplier, Features/AttributesBinding.cs, migrated — and
+// the one engine type left under it is the weak table's key, which must be a reference type.
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -361,34 +360,16 @@ internal static class DomCollectionBinding
     }
 
     // ------------------------------------------------------------------
-    //  Engine-typed adapters. Everything below is pinned by a file this group does not own.
+    //  The one engine-typed adapter left, and the file that pins it.
     // ------------------------------------------------------------------
 
-    /// <inheritdoc cref="RegisterInterfaces(IJsRealm)" />
-    /// <remarks>
-    /// Pinned by <c>DomBridge/Utilities.DomInterfaces.cs</c>, the unmigrated interface-registration
-    /// hub, which holds a script context and hands it over. Goes when that hub passes a realm.
-    /// </remarks>
-    public static void RegisterInterfaces(JSContext context) => RegisterInterfaces(RealmFor(context));
-
-    /// <inheritdoc cref="NodeList(IJsRealm, Func{List{JsValue}})" />
-    /// <remarks>The engine-typed form, for the callers listed at the top of this file.</remarks>
-    public static JSValue NodeList(JSContext? context, Func<List<JSValue>> contents) =>
-        ToEngineCollection(NodeList(RealmFor(context), Adapt(contents)));
-
-    /// <inheritdoc cref="HtmlCollection(IJsRealm, Func{List{JsValue}}, Func{string, JsValue?})" />
-    /// <remarks>The engine-typed form, for the callers listed at the top of this file.</remarks>
-    public static JSValue HtmlCollection(
-        JSContext? context, Func<List<JSValue>> contents, Func<string, JSValue?>? namedLookup = null) =>
-        ToEngineCollection(HtmlCollection(RealmFor(context), Adapt(contents), Adapt(namedLookup)));
-
-    /// <inheritdoc cref="StyleSheetList(IJsRealm, Func{List{JsValue}})" />
-    /// <remarks>The engine-typed form, for the callers listed at the top of this file.</remarks>
-    public static JSValue StyleSheetList(JSContext? context, Func<List<JSValue>> contents) =>
-        ToEngineCollection(StyleSheetList(RealmFor(context), Adapt(contents)));
-
     /// <inheritdoc cref="FileList(IJsRealm, Func{List{JsValue}})" />
-    /// <remarks>The engine-typed form, for the callers listed at the top of this file.</remarks>
+    /// <remarks>
+    /// The engine-typed form, and the last of the five that stood here. Its one caller is
+    /// <c>DomBridge/DomBridge.FormControlHost.cs</c>, which holds a file input's <c>files</c> as an
+    /// engine object because the member it installs it on does; it is not this group's file. Everything
+    /// below this point exists to serve this one call, and goes with it.
+    /// </remarks>
     public static JSValue FileList(JSContext? context, Func<List<JSValue>> contents) =>
         ToEngineCollection(FileList(RealmFor(context), Adapt(contents)));
 
@@ -493,14 +474,6 @@ internal static class DomCollectionBinding
                     length));
     }
 
-    /// <inheritdoc cref="RegisterNamedNodeMapOperations(IJsRealm)" />
-    /// <remarks>
-    /// Pinned by <c>DomBridge/Utilities.DomInterfaces.cs</c>, the unmigrated interface-registration
-    /// hub, which holds a script context and hands it over. Goes when that hub passes a realm.
-    /// </remarks>
-    public static void RegisterNamedNodeMapOperations(JSContext context) =>
-        RegisterNamedNodeMapOperations(RealmFor(context));
-
     /// <summary>The engine object a migrated collection builder minted, for an unmigrated caller.</summary>
     /// <remarks>
     /// <see cref="Runtime.JsInterop"/> is a cast and not a conversion — the handle carries the
@@ -512,11 +485,10 @@ internal static class DomCollectionBinding
     /// <summary>An engine-typed contents function as the JSEAL one the collection holds.</summary>
     /// <remarks>
     /// Re-wrapped on every read rather than once, because the function is what makes the collection
-    /// live: the list it answers with is different each time, and so are the wrappers in it. Every
-    /// member of every collection the bridge builds is an object wrapper — a node, an <c>Attr</c>, a
-    /// stylesheet — which is why six of the eight call sites already spell that cast themselves; the
-    /// two non-object arms are here so a supplier that answered otherwise keeps answering what it
-    /// answered rather than throwing on the way through.
+    /// live: the list it answers with is different each time, and so are the wrappers in it. The one
+    /// caller left answers an empty list, and the two non-object arms below are kept anyway so that a
+    /// supplier which answered otherwise keeps answering what it answered rather than throwing on the
+    /// way through.
     /// </remarks>
     private static Func<List<JsValue>> Adapt(Func<List<JSValue>> contents) =>
         () =>
@@ -528,18 +500,6 @@ internal static class DomCollectionBinding
 
             return handles;
         };
-
-    /// <summary>An engine-typed named getter as the JSEAL one the handler consults.</summary>
-    /// <remarks>
-    /// A CLR <see langword="null"/> is the miss — the read falls through to the ordinary one, and
-    /// <c>in</c> answers false — and everything else is an answer, including the engine's <c>null</c>,
-    /// which is what a <c>NamedNodeMap</c>'s getter produces for a name whose <c>Attr</c> could not be
-    /// built. The distinction between the two was the shape of the old delegate and is preserved.
-    /// </remarks>
-    private static Func<string, JsValue?>? Adapt(Func<string, JSValue?>? namedLookup) =>
-        namedLookup is null
-            ? null
-            : name => namedLookup(name) is { } found ? Handle(found) : null;
 
     /// <summary>An engine value a collection holds, as the handle the handler answers with.</summary>
     private static JsValue Handle(JSValue value) =>
@@ -553,19 +513,20 @@ internal static class DomCollectionBinding
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Adopted here because the call sites cannot pass a realm.</b> Eight of them hand over the
-    /// bridge's script context, and none of the eight is this group's to change. Adopting is what
+    /// <b>Adopted here because the one call site left cannot pass a realm.</b> There were ten of them
+    /// handing over the bridge's script context; nine now pass a realm, and the tenth
+    /// (<c>DomBridge/DomBridge.FormControlHost.cs</c>) is not this group's to change. Adopting is what
     /// the bridge itself does with the same object at <c>Attach</c> (see <c>DomBridge.Realm.cs</c>)
     /// and what <c>Features/BlobBinding.cs</c> already does for the same reason: a provider that
     /// recognises the context wraps it <em>without owning it</em>, and because every handle carries
     /// the engine's own value a second wrapper over one context mints the objects the first would.
-    /// Cached per context so the eight collection factories — which run per property read, not once
-    /// per page — do not each build a wrapper and its job queue.
+    /// Still cached per context, because a collection factory runs per property read rather than once
+    /// per page and must not build a wrapper and its job queue each time.
     /// </para>
     /// <para>
     /// <b>A null context is now a failure rather than a prototype-less collection.</b> The old
     /// builder had nowhere to read the interface prototypes from and shrugged; there is no realm to
-    /// mint an <em>object</em> in, so shrugging is not available. Every caller passes the bridge's
+    /// mint an <em>object</em> in, so shrugging is not available. The caller passes the bridge's
     /// own context, which <c>Registration.cs</c> assigns on the first line of attach and before any
     /// collection can be built, so this is a diagnosis rather than a path.
     /// </para>

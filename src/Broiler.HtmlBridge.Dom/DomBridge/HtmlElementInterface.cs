@@ -46,13 +46,15 @@ namespace Broiler.HtmlBridge;
 /// <c>el.dataset === el.dataset</c> hold while the element itself carries neither.
 /// </para>
 /// <para>
-/// <b>The installer speaks JSEAL.</b> Three neighbours still take the engine's argument frame and are
-/// named where they appear — the form-control reflectors
-/// (<see cref="Dom.Features.FormControlBinding"/>) and <c>click</c>/<c>focus</c>/<c>blur</c>
-/// (<see cref="Dom.Features.EventTargetBinding"/>, whose members are installed from unmigrated files
-/// too) — plus the wrapper entry point below, which <c>DomBridge/JsObjects.cs</c> hands an engine
-/// object. Everything else is minted through <see cref="Realm"/> onto a handle over the same object,
-/// which is a cast rather than a conversion, so the members land in the order they are written in.
+/// <b>The installer speaks JSEAL, and three members are what is left of the engine vocabulary.</b>
+/// <c>click</c>, <c>focus</c> and <c>blur</c> are <see cref="Dom.Features.EventTargetBinding"/>'s, and
+/// that module reads the engine's own argument frame because unmigrated files install the same three
+/// elsewhere; there is no adapter between two call frames, only between two object types, so those
+/// three are minted with the frame their bodies read and ask
+/// <see cref="ElementForEngineReceiver"/> for their element through it. The form-control reflectors
+/// beside them were a fourth case and are not any more. Everything else is minted through
+/// <see cref="Realm"/> onto a handle over the same object, which is a cast rather than a conversion,
+/// so every member lands in the order it is written in.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -89,10 +91,11 @@ public sealed partial class DomBridge
     /// </summary>
     internal void RegisterHtmlElementInterface()
     {
-        if (PrototypeOfInterface("HTMLElement") is not { } proto)
+        var proto = PrototypeHandleOfInterface("HTMLElement");
+        if (!proto.IsObject)
             return;
 
-        InstallHtmlElementInterface(Dom.Runtime.JsInterop.FromEngineObject(proto), RequireElementReceiver);
+        InstallHtmlElementInterface(proto, RequireElementReceiver);
         _htmlElementInterfacePrototypeReady = true;
     }
 
@@ -101,14 +104,13 @@ public sealed partial class DomBridge
     /// not inherit the interface, and for a wrapper minted before the realm carried it.
     /// </summary>
     /// <remarks>
-    /// Engine-typed because its caller is: <c>DomBridge/JsObjects.cs</c> mints the wrapper and holds
-    /// it as the engine's own object. The seam is a cast, so the handle below is that object.
+    /// The source captures rather than resolves: the element is the one this wrapper was minted for,
+    /// whatever receiver a call happens to arrive with. That is what an own property of one wrapper
+    /// means, and it is why it never raises the illegal-invocation <c>TypeError</c> the prototype's
+    /// source does.
     /// </remarks>
-    private void PopulateHtmlElementInterfaceOnInstance(JSObject obj, DomElement element)
-    {
-        InstallHtmlElementInterface(
-            Dom.Runtime.JsInterop.FromEngineObject(obj), (in JsCall _, string _) => element);
-    }
+    private void PopulateHtmlElementInterfaceOnInstance(JsValue wrapper, DomElement element) =>
+        InstallHtmlElementInterface(wrapper, (in JsCall _, string _) => element);
 
     /// <summary>
     /// The whole <c>HTMLElement</c> interface onto <paramref name="target"/> —
@@ -119,12 +121,9 @@ public sealed partial class DomBridge
         Dom.Features.GlobalAttributeBinding.InstallHtmlElementMembers(this, Realm, target, element);
         Dom.Features.ElementContentBinding.InstallHtmlElementMembers(this, Realm, target, element);
 
-        // The form-control reflectors still install with FastAddValue against the engine's own object
-        // and argument frame, so the module is handed both — the same object the realm is installing
-        // on, and the same resolution rule under the frame its members read.
-        var engineTarget = Dom.Runtime.JsInterop.ToEngineObject(target);
-        var engineElement = EngineSourceOf(element);
-        _formControl.InstallHtmlElementMembers(engineTarget, engineElement);
+        // hidden and tabIndex — the two genuinely global reflectors the form-control module carries.
+        // The realm's, in this position, since that module reads a JsCall now.
+        _formControl.InstallHtmlElementMembers(target, element);
 
         // style — ElementCSSInlineStyle. Assigning a string sets cssText rather than replacing the
         // object, which is why the setter is here and not a plain data property.
@@ -154,13 +153,19 @@ public sealed partial class DomBridge
             (in call) => DatasetFor(element(in call, "dataset")), null);
 
         // click/focus/blur are EventTargetBinding's, and that module's bodies read the engine frame
-        // because unmigrated files install the same members elsewhere; they land on this same object.
+        // because unmigrated files install the same members elsewhere; they land on this same object,
+        // in this position, and ask the one element source for their element through that frame.
+        var engineTarget = Dom.Runtime.JsInterop.ToEngineObject(target);
+
         AddPrototypeMethod(engineTarget, "click", 0,
-            (in Arguments a) => Dom.Features.EventTargetBinding.Click(this, engineElement(in a, "click"), in a));
+            (in Arguments a) => Dom.Features.EventTargetBinding.Click(
+                this, ElementForEngineReceiver(element, in a, "click"), in a));
         AddPrototypeMethod(engineTarget, "focus", 0,
-            (in Arguments a) => Dom.Features.EventTargetBinding.Focus(this, engineElement(in a, "focus"), in a));
+            (in Arguments a) => Dom.Features.EventTargetBinding.Focus(
+                this, ElementForEngineReceiver(element, in a, "focus"), in a));
         AddPrototypeMethod(engineTarget, "blur", 0,
-            (in Arguments a) => Dom.Features.EventTargetBinding.Blur(this, engineElement(in a, "blur"), in a));
+            (in Arguments a) => Dom.Features.EventTargetBinding.Blur(
+                this, ElementForEngineReceiver(element, in a, "blur"), in a));
 
         // attachInternals() — HTML §4.13.5, a member of HTMLElement rather than of the custom
         // elements only, which is what makes the standard feature-detect answer the right way. It

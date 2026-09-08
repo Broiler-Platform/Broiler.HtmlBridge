@@ -65,15 +65,6 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
     /// where the receiver is unambiguous rather than through host indexing.</summary>
     private JsValue _streamIsLocked;
 
-    /// <param name="context">
-    /// The engine context the unmigrated caller (<c>DomBridge/Registration/Polyfills.cs</c>) still
-    /// holds. Nothing here reads it — the module installs into the realm it was constructed with, so
-    /// the overload below is the whole of this one — and the parameter goes when that registration
-    /// file is migrated and calls the overload instead.
-    /// </param>
-    /// <param name="blobs">The blob store the byte hook reads from.</param>
-    internal void Register(Broiler.JavaScript.Engine.JSContext context, BlobBinding blobs) => Register(blobs);
-
     /// <summary>
     /// Registers the streams asset and <c>Blob.prototype.stream()</c> into the realm this module was
     /// constructed with.
@@ -134,13 +125,12 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
     /// A blob's bytes, or <see langword="null"/> when the value is not one.
     /// </summary>
     /// <remarks>
-    /// <see cref="BlobBinding"/> is not migrated yet, so it answers about an engine value; only an
-    /// object can be a blob, so the handle crosses the seam as the engine object it carries and a
-    /// primitive is refused here rather than there — which is the same answer, because the blob
-    /// store keys on object identity.
+    /// The non-object arm stays here as well as in <see cref="BlobBinding"/>: only an object can be a
+    /// blob, because the store keys on object identity, so both sides answer the same and neither
+    /// depends on the other having asked.
     /// </remarks>
     private static byte[]? BytesOfBlob(BlobBinding blobs, JsValue candidate) =>
-        candidate.IsObject ? blobs.BytesOf(Runtime.JsInterop.ToEngineObject(candidate)) : null;
+        candidate.IsObject ? blobs.BytesOf(candidate) : null;
 
     /// <summary>
     /// A <c>ReadableStream</c> delivering <paramref name="bytes"/> as one chunk and then closing.
@@ -156,22 +146,18 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
     }
 
     /// <summary>A <c>ReadableStream</c> over the UTF-8 encoding of a text body.</summary>
-    /// <param name="context">
-    /// The engine context <c>DomBridge.FetchHost.cs</c> — an unmigrated file, and another group's —
-    /// still passes. Unread; see <see cref="Register"/>.
-    /// </param>
-    internal Broiler.JavaScript.Runtime.JSValue StreamOverText(Broiler.JavaScript.Engine.JSContext context, string text) =>
-        ToEngineResult(StreamOverBytes(Encoding.UTF8.GetBytes(text)));
+    internal JsValue StreamOverText(string text) =>
+        StreamOverBytes(Encoding.UTF8.GetBytes(text));
 
     /// <summary>
     /// A <c>ReadableStream</c> over a text body that calls <paramref name="onDisturbed"/> the first
     /// time it is read or cancelled — the Body mixin's <c>bodyUsed</c>, which is what makes
     /// <c>text()</c>, <c>json()</c> and <c>clone()</c> refuse a body something has already consumed.
     /// </summary>
-    internal Broiler.JavaScript.Runtime.JSValue StreamOverTextObserved(Broiler.JavaScript.Engine.JSContext context, string text, Action onDisturbed)
+    internal JsValue StreamOverTextObserved(string text, Action onDisturbed)
     {
         if (!_streamOverObservedBytes.IsObject)
-            return ToEngineResult(JsValue.Null);
+            return JsValue.Null;
 
         var realm = _realm();
         var reported = false;
@@ -187,26 +173,26 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
             return JsValue.Undefined;
         }, 0);
 
-        return ToEngineResult(realm.Invoke(
+        return realm.Invoke(
             _streamOverObservedBytes,
             JsValue.Undefined,
-            [ToArrayBuffer(Encoding.UTF8.GetBytes(text)), report]));
+            [ToArrayBuffer(Encoding.UTF8.GetBytes(text)), report]);
     }
 
     /// <summary>Whether a reader holds <paramref name="stream"/>. <see langword="false"/> for
     /// anything that is not one of these streams.</summary>
     /// <remarks>
-    /// The argument arrives as an engine value because its caller, <c>DomBridge.FetchHost.cs</c>, is
-    /// not migrated; only an object can be one of these streams, so a non-object is refused here and
-    /// the JavaScript predicate is asked about the rest.
+    /// Only an object can be one of these streams, so a non-object is refused here and the JavaScript
+    /// predicate is asked about the rest — the same two arms the engine-typed form had, with the
+    /// object test now on the handle's own kind.
     /// </remarks>
-    internal bool IsStreamLocked(Broiler.JavaScript.Runtime.JSValue stream)
+    internal bool IsStreamLocked(JsValue stream)
     {
-        if (!_streamIsLocked.IsObject || stream is not Broiler.JavaScript.Runtime.JSObject streamObject)
+        if (!_streamIsLocked.IsObject || !stream.IsObject)
             return false;
 
         return _realm()
-            .Invoke(_streamIsLocked, JsValue.Undefined, [Runtime.JsInterop.FromEngineObject(streamObject)])
+            .Invoke(_streamIsLocked, JsValue.Undefined, [stream])
             .AsBoolean;
     }
 
@@ -221,17 +207,6 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
 
         return ToArrayBuffer(bytes);
     }
-
-    /// <summary>
-    /// A stream (or the null a missing factory yields) as the engine value an unmigrated caller
-    /// holds. <see cref="Runtime.JsInterop"/> converts an object and nothing else, which is why the
-    /// null arm names the engine's own singleton: a JSEAL primitive has no engine instance to hand
-    /// back.
-    /// </summary>
-    private static Broiler.JavaScript.Runtime.JSValue ToEngineResult(JsValue value) =>
-        value.IsObject
-            ? Runtime.JsInterop.ToEngineObject(value)
-            : Broiler.JavaScript.BuiltIns.Null.JSNull.Value;
 
     /// <summary>
     /// The bytes as an <c>ArrayBuffer</c>. The asset wraps it in a <c>Uint8Array</c> — the chunk type

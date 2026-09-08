@@ -1,11 +1,6 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
-// Engine-typed only for the three adapters at the foot of this file, whose caller is an unmigrated
-// registration site with an engine call frame: DomBridge/ElementInterfaces.cs installs <object>.data,
-// .contentDocument and getSVGDocument() as engine functions and hands each an `in Arguments`.
-using Broiler.JavaScript.Runtime;
-
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
@@ -28,14 +23,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// member that reads an argument, and no frame at all for the two that do not.
 /// </para>
 /// <para>
-/// <b>What has not moved is the call frame, and it is pinned from outside.</b> All three members are
-/// registered from <c>DomBridge/ElementInterfaces.cs</c>, which still mints engine functions, so the
-/// three adapters at the foot of this file take the engine's argument frame and hand back an engine
-/// value. Each is one line over the operation above it, so the two spellings cannot drift: when that
-/// registration site migrates it calls the <see cref="JsCall"/> overload and the adapters are deleted.
-/// The one behavioural difference the deletion makes is where the <c>data</c> setter's <c>ToString</c>
-/// comes from — the engine's own coercion today, the realm's afterwards — and those are the same
-/// ECMAScript operation, so a page observes no change.
+/// <b>The call frame has moved too.</b> All three members are registered from
+/// <c>DomBridge/ElementInterfaces.cs</c>, which minted them as engine functions until this round; the
+/// three one-line adapters that took the engine's argument frame and handed back an engine value are
+/// deleted, and that file calls the operations above directly. The one difference the deletion makes
+/// is where the <c>data</c> setter's <c>ToString</c> comes from — the engine's own coercion before,
+/// the realm's now — and those are the same ECMAScript operation, so a page observes no change.
 /// </para>
 /// </remarks>
 internal static class ObjectElementBinding
@@ -84,37 +77,4 @@ internal static class ObjectElementBinding
             return JsValue.Null;
         return host.GetOrCreateSubDocument(element);
     }
-
-    // -------- The engine-typed adapters; see the remarks on this class --------
-
-    /// <inheritdoc cref="SetData(IObjectElementHost, DomElement, in JsCall)" />
-    public static JSValue SetData(IObjectElementHost host, DomElement element, in Arguments a)
-    {
-        SetData(host, element, a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
-    }
-
-    /// <inheritdoc cref="ContentDocument" />
-    public static JSValue GetContentDocument(IObjectElementHost host, DomElement element, in Arguments _) =>
-        ToEngineResult(ContentDocument(host, element));
-
-    /// <inheritdoc cref="SvgDocument" />
-    public static JSValue GetSvgDocument(IObjectElementHost host, DomElement element, in Arguments _) =>
-        ToEngineResult(SvgDocument(host, element));
-
-    /// <summary>
-    /// A sub-document (or the <c>null</c> the two gates yield) as the engine value the unmigrated
-    /// registration site takes back.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="Runtime.JsInterop"/> carries an object across without converting it, which is why the
-    /// null arm names the engine's own singleton instead: a JSEAL primitive has no engine instance to
-    /// hand back. Null is the only primitive these two produce, and anything else is asked to be an
-    /// object — so a handle that is neither still fails at the seam, exactly as it did when the seam
-    /// was written out at each return.
-    /// </remarks>
-    private static JSValue ToEngineResult(JsValue value) =>
-        value.IsNull
-            ? JavaScript.BuiltIns.Null.JSNull.Value
-            : Runtime.JsInterop.ToEngineObject(value);
 }

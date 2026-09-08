@@ -12,29 +12,30 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Two names for one wrapper, and the file says which is which.</b> <see cref="WrapNode"/> is the
-/// JSEAL-vocabulary entry point and <see cref="ToJSObject"/> the engine-typed one; they answer the
-/// same instance, because a JSEAL object handle carries the engine's own object. Wrapper identity
-/// lives in <c>Runtime/JsObjectRegistry.cs</c> and is untouched by either.
+/// <b>Two names for one wrapper, and the direction between them has inverted.</b>
+/// <see cref="WrapNode"/> is the JSEAL-vocabulary entry point and now the implementation: the object
+/// is minted by <see cref="IJsRealm.NewObject"/> — or by <see cref="IJsRealm.NewExotic"/> for a
+/// <c>&lt;form&gt;</c> — and all but three of its members are installed through the realm.
+/// <see cref="ToJSObject"/> is the engine-typed sibling and is one cast over it. They answer the same
+/// instance, because a JSEAL object handle carries the engine's own object; wrapper identity lives in
+/// <c>Runtime/JsObjectRegistry.cs</c> and is untouched by either.
 /// </para>
 /// <para>
 /// <b>What is still engine-typed here is pinned from outside, not left behind.</b> A wrapper's
 /// members are installed by a dozen modules, and a member cannot be minted by the realm while the body
-/// it would call takes an <c>Arguments</c>: there is no adapter between the two call frames, only
-/// between the two object types. So each install site migrates when its callee does. Through the realm
-/// already: <c>CharacterDataBinding</c>, <c>NodeAccessorsBinding</c>, <c>NodeRelationshipsBinding</c>,
-/// <c>TreeMutationBinding</c>, <c>AttributesBinding</c>, <c>FormSubmitBinding</c>,
-/// <c>CanvasBinding</c>, and the handful whose bodies read nothing but the DOM. Still on the engine's
-/// frame, and each named at its site below: <c>EventTargetBinding</c>, <c>FormControlBinding</c>,
-/// <c>IframeElementBinding</c>, <c>ElementContentBinding</c>, the element and HTMLElement interface
-/// installers, and the per-tag member pass.
+/// it would call reads the engine's argument frame: there is no adapter between the two call frames,
+/// only between the two object types. So each install site migrates when its callee does, and this
+/// file is down to one callee that has not — <c>EventTargetBinding</c>, whose three members are named
+/// at their site below. <c>FormControlBinding</c>, <c>IframeElementBinding</c>, the element and
+/// HTMLElement interface installers and the per-tag member pass all took an engine object until this
+/// round and take the handle now; <c>ElementContentBinding.InstallTextContent</c> is the one
+/// install site still handed <c>obj</c>, and that module's own file decides it.
 /// </para>
 /// <para>
-/// <b>The wrapper object itself is the last thing to flip, and <see cref="ToJSObject"/> is why.</b>
-/// Thirty files across this assembly ask for a node's wrapper as the engine's object, so the object
-/// this method mints, the prototype it is linked through, and every unmigrated installer handed
-/// <c>obj</c> are all typed by that one return type. It stays until those callers ask
-/// <see cref="WrapNode"/> instead.
+/// <b><see cref="ToJSObject"/> stays, and its callers are why.</b> Twenty-six files across this
+/// assembly ask for a node's wrapper as the engine's object. Migrating its <em>return type</em> would
+/// ripple into every one of them at once, which is the change this file-by-file port exists to avoid —
+/// so the type stays and the body no longer does: what it wraps is now built the realm's way.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -46,7 +47,7 @@ public sealed partial class DomBridge
     // text/comment nodes (which get JS wrappers) can round-trip once they flip to canonical
     // DomText/DomComment. A facade node IS-A DomNode, so this is a behaviour-preserving widen.
     // P2.2: wrapper identity now lives in JsObjectRegistry, the single authority (was the scattered
-    // _jsObjectCache/_docRootToDocJSObject fields).
+    // _jsObjectCache and per-document-root wrapper fields).
     private readonly Dom.Runtime.JsObjectRegistry _jsObjects = new();
     /// <summary>Counter for tracking top-layer insertion order via showModal().</summary>
     private int _topLayerCounter;
@@ -58,63 +59,49 @@ public sealed partial class DomBridge
     /// <remarks>
     /// <para>
     /// <b>It is the same object, not a conversion.</b> A JSEAL object handle carries the engine's own
-    /// <c>JSObject</c>, so a wrapper reached through here and one reached through
+    /// object, so a wrapper reached through here and one reached through
     /// <see cref="ToJSObject"/> are the same instance: <c>el === el</c> holds, and the seven
     /// <c>ConditionalWeakTable</c>s the bridge keys on wrapper identity — <c>JsObjectRegistry</c>
     /// first among them — keep answering the question they always asked.
     /// </para>
     /// <para>
-    /// <b>Why this delegates to <see cref="ToJSObject"/> rather than the other way round.</b> Building
-    /// a wrapper is not one file's work: the members go on it from a dozen modules — the attribute
-    /// surface, the tree mutations, the event target, the form controls, the element and HTMLElement
-    /// interface installers — and the ones that have not migrated still take an engine argument frame
-    /// and install an engine function. A wrapper minted by
-    /// <see cref="IJsRealm.NewObject"/> would be handed straight back to them, so the realm would name
-    /// the object and the engine would still furnish it. The direction inverts, and this method
-    /// becomes the implementation, when those modules land; until then the honest shape is a handle
-    /// over what they build.
+    /// <b>This is the implementation now, and it used to be the other way round.</b> Building a wrapper
+    /// is not one file's work: the members go on it from a dozen modules, and while the ones that had
+    /// not migrated still installed engine functions there was nothing to be gained by minting the
+    /// object through the realm — the realm would have named it and the engine would still have
+    /// furnished it. All but three of those modules read a <see cref="JsCall"/> now, so the object is
+    /// the realm's and <see cref="ToJSObject"/> is the cast over it.
     /// </para>
     /// </remarks>
-    internal JsValue WrapNode(DomNode node) =>
-        Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
-
-    /// <summary>
-    /// A node's JS wrapper, as the engine object the unmigrated half of the bridge holds.
-    /// </summary>
-    /// <remarks>
-    /// <b>This is the engine-typed adapter and it stays one deliberately.</b> It is the most-called
-    /// method in the bridge — thirty files across this assembly reach for it, twenty-nine of them
-    /// outside this file — so migrating its <em>return type</em> would ripple into every one of them at
-    /// once, which is the change this file-by-file port exists to avoid. <see cref="WrapNode"/> is the
-    /// JSEAL-vocabulary sibling; a migrated caller asks for that and everything else keeps asking for
-    /// this.
-    /// </remarks>
-    internal JSObject ToJSObject(DomNode node)
+    internal JsValue WrapNode(DomNode node)
     {
         if (_jsObjects.TryGet(node, out var cached))
-            return cached;
+            return Dom.Runtime.JsInterop.FromEngineObject(cached);
 
         // Phase 4 item 1: a canonical DomDocument is the document root. The main document is in the
         // node-wrapper map above; a sub-document root's wrapper lives in the document-wrapper map
         // (P2.2/P4.4a). Resolve it here so e.g. documentElement.parentNode returns the document
         // object, not a fallthrough character-data wrapper.
         if (node is DomDocument documentNode && _jsObjects.TryGetDocument(documentNode, out var documentWrapper))
-            return documentWrapper;
+            return Dom.Runtime.JsInterop.FromEngineObject(documentWrapper);
 
         // A <form> gets a wrapper that additionally resolves an unknown name to the control carrying
         // it (HTMLFormElement's named getter). It is decided here rather than in the form binding
         // because a wrapper's type is fixed when it is created, and every member installed below goes
-        // on this same object.
-        var obj = node is DomElement formElement &&
-                  string.Equals(formElement.TagName, "form", StringComparison.OrdinalIgnoreCase)
-            ? new Dom.Features.FormElementJSObject(formElement, this)
-            : new JSObject();
-        _jsObjects.Set(node, obj);
+        // on this same object. The lookup itself is FormNamedControls, an IJsExotic the realm consults
+        // after ordinary properties — the same handler form.elements uses, so the two cannot answer a
+        // name differently — where it used to be an engine subclass restating that order by hand.
+        var handle = node is DomElement formElement &&
+                     string.Equals(formElement.TagName, "form", StringComparison.OrdinalIgnoreCase)
+            ? Realm.NewExotic(new Dom.Features.FormNamedControls(formElement, this, missingIsNull: false))
+            : Realm.NewObject();
 
-        // The same wrapper, named the way a migrated installer asks for it. Every member below that
-        // the realm mints goes on this handle, and every member the engine still mints goes on `obj`;
-        // they are one object, so the two halves cannot drift apart.
-        var handle = Dom.Runtime.JsInterop.FromEngineObject(obj);
+        // The same wrapper as the engine's own object, for the registry — which is keyed on it — and
+        // for the handful of installers below whose callee still reads the engine's argument frame.
+        // The seam is a cast rather than a conversion, so a member the realm mints and a member the
+        // engine mints land on one object and the two halves cannot drift apart.
+        var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
+        _jsObjects.Set(node, obj);
 
         // Point the wrapper at its interface prototype before any member is installed, so
         // constructor.name and Object.getPrototypeOf answer the interface rather than Object.
@@ -133,7 +120,7 @@ public sealed partial class DomBridge
             // Phase 4 item 1: the doctype is a canonical DomDocumentType (was a #doctype sentinel
             // element). It gets the minimal DocumentType surface, not the full element wrapper.
             PopulateDocumentTypeWrapper(handle, docType);
-            return obj;
+            return handle;
         }
 
         if (node is DomDocumentFragment fragment)
@@ -142,13 +129,13 @@ public sealed partial class DomBridge
             // #document-fragment sentinel element). It gets the DocumentFragment container surface
             // (Node base + ParentNode mixin + child manipulation), not the full element wrapper.
             PopulateDocumentFragmentWrapper(handle, fragment);
-            return obj;
+            return handle;
         }
 
         if (node is not DomElement element)
         {
             PopulateCharacterDataWrapper(handle, node);
-            return obj;
+            return handle;
         }
 
 
@@ -159,7 +146,7 @@ public sealed partial class DomBridge
         // minted before the realm carried the interfaces inherits nothing and installs its own, from
         // the same installer, so the two shapes cannot drift.
         if (!_elementInterfacePrototypeReady)
-            PopulateElementInterfaceOnInstance(obj, element);
+            PopulateElementInterfaceOnInstance(handle, element);
 
         // HTMLElement's — the global reflectors, style, dataset, innerText/outerText, click/focus/blur,
         // attachInternals, the on* handlers and the offset* metrics — the same way, on
@@ -167,7 +154,7 @@ public sealed partial class DomBridge
         // itself: SVGElement derives straight from Element, so it inherits none of them, and keeping
         // its own copies is what preserves the surface it has today.
         if (!_htmlElementInterfacePrototypeReady || !IsHtmlNamespace(element))
-            PopulateHtmlElementInterfaceOnInstance(obj, element);
+            PopulateHtmlElementInterfaceOnInstance(handle, element);
 
         // textContent (read/write) — Node's member, and deliberately the element's own: its operation
         // differs from the character-data one on Node.prototype (Phase 3 P3.57:
@@ -283,7 +270,8 @@ public sealed partial class DomBridge
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
         // routed by receiver (DomBridge.EventTargetInterface.cs) — one function for every target, as
         // in a browser. A wrapper minted before the realm carried it installs its own, and those three
-        // are the engine's: EventTargetBinding takes an Arguments, so they move when it does.
+        // are the engine's: EventTargetBinding reads the engine's argument frame, so they move when
+        // it does.
         if (!_eventTargetRoutingReady)
         {
             obj.FastAddValue("addEventListener",
@@ -311,7 +299,7 @@ public sealed partial class DomBridge
         // IFormControlHost contract (DomBridge.FormControlHost.cs). Installed on every element, where
         // a browser gives them only to the interfaces that declare them; the two that are genuinely
         // HTMLElement's, hidden and tabIndex, are on its prototype.
-        _formControl.Install(obj, element);
+        _formControl.Install(handle, element);
 
         // checkValidity() — form validation (Phase 3 P3.9: FormBinding owns the validity check). The
         // body answers a CLR bool and reads no argument, so nothing about it needed an engine frame.
@@ -341,17 +329,32 @@ public sealed partial class DomBridge
         // read/write, sandbox reflection) — Phase 3 P3.55: extracted into the co-located IframeElementBinding
         // feature module, sibling of the P3.52 <object> ObjectElementBinding. Reaches the frames machinery
         // through the IIframeElementHost contract (DomBridge.IframeElementHost.cs).
-        Dom.Features.IframeElementBinding.Install(this, obj, element);
+        Dom.Features.IframeElementBinding.Install(this, handle, element);
 
-        AddElementSpecificMembers(obj, element);
+        AddElementSpecificMembers(handle, element);
 
         // Node interface constants (DOM §4.4: these exist on all Node objects) — the type values and
         // the DOCUMENT_POSITION_* bits compareDocumentPosition returns. On Node.prototype, which this
         // wrapper inherits; a wrapper minted before the realm carried it installs its own.
         InstallNodeConstantsIfNotInherited(handle);
 
-        return obj;
+        return handle;
     }
+
+    /// <summary>
+    /// A node's JS wrapper, as the engine object the unmigrated half of the bridge holds.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the engine-typed adapter and it stays one deliberately.</b> It is the most-called
+    /// method in the bridge — twenty-six files across this assembly reach for it, none of them this
+    /// one — so migrating its <em>return type</em> would ripple into every one of them at once, which
+    /// is the change this file-by-file port exists to avoid. It is a cast over
+    /// <see cref="WrapNode"/>, not a second wrapper: a JSEAL object handle carries the engine's own
+    /// object, so <c>el === el</c> holds across the seam and the weak tables keyed on wrapper identity
+    /// keep answering the question they always asked.
+    /// </remarks>
+    internal JSObject ToJSObject(DomNode node) =>
+        Dom.Runtime.JsInterop.ToEngineObject(WrapNode(node));
 
 
     /// <summary>

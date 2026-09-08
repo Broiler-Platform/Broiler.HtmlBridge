@@ -1,7 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge;
 
@@ -59,15 +57,15 @@ namespace Broiler.HtmlBridge;
 /// those three by receiver. A text or comment node consequently carries no own properties at all.
 /// </para>
 /// <para>
-/// <b>Two vocabularies for installing a prototype member, and the file says which is which.</b>
-/// <see cref="DefinePrototypeMethod"/> and <see cref="DefinePrototypeAccessor"/> mint through the
-/// realm and are what every member below uses — the <c>ChildNode</c> mixin four included, since
-/// <c>ChildNodeBinding</c> migrated — because every body below calls a binding that reads a
-/// <see cref="JsCall"/> frame. <see cref="AddPrototypeMethod"/> and
-/// <see cref="AddPrototypeAccessor"/> are the engine-typed pair, kept for
+/// <b>One vocabulary for installing a prototype member.</b> <see cref="DefinePrototypeMethod"/> and
+/// <see cref="DefinePrototypeAccessor"/> mint through the realm, and every member below uses them —
+/// the <c>ChildNode</c> mixin four included — because every body below calls a binding that reads a
+/// <see cref="JsCall"/> frame. An engine-typed pair stood beside them for
 /// <c>DomBridge/ElementInterface.cs</c> and <c>DomBridge/HtmlElementInterface.cs</c>, whose bodies
-/// still take the engine's argument frame; there is no adapter between two call frames, only between
-/// two object types, so those two sites keep the engine pair until their own bindings migrate.
+/// took the engine's argument frame; those two files install through the realm now, and the one
+/// engine-framed helper they still need for the four members whose <em>modules</em> have not
+/// migrated is declared where those four are, in <c>DomBridge/ElementInterface.cs</c>. Nothing here
+/// names an engine type.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -146,12 +144,13 @@ public sealed partial class DomBridge
     /// </remarks>
     private void DropDocumentNodeMemberCopies()
     {
-        // The document wrapper is still an engine object held by DomBridge.cs; the handle over it is
-        // the same object, so deleting through the realm deletes from what the page holds.
-        if (_documentJSObject is not { } document)
+        // The document wrapper's field is still an engine object held by DomBridge.cs; DocumentHandle
+        // is that same object asked for as a handle, so deleting through the realm deletes from what
+        // the page holds. Missing — no document registered yet — is not an object, which is the same
+        // escape the null test on the field made.
+        var handle = DocumentHandle;
+        if (!handle.IsObject)
             return;
-
-        var handle = Dom.Runtime.JsInterop.FromEngineObject(document);
 
         foreach (var member in new[] { "nodeType", "nodeName", "childNodes", "firstChild", "lastChild" })
             Realm.DeleteProperty(handle, member);
@@ -189,21 +188,6 @@ public sealed partial class DomBridge
         var prototype = Realm.GetProperty(constructor, "prototype");
         return prototype.IsObject ? prototype : JsValue.Undefined;
     }
-
-    /// <summary>
-    /// <see cref="PrototypeHandleOfInterface"/> as the engine object the unmigrated interface
-    /// installers hold.
-    /// </summary>
-    /// <remarks>
-    /// <b>This is an engine-typed adapter and it is pinned from outside.</b>
-    /// <c>DomBridge/ElementInterface.cs</c>, <c>DomBridge/HtmlElementInterface.cs</c> and
-    /// <c>DomBridge/EventTargetInterface.cs</c> each take the prototype as a <c>JSObject</c> and
-    /// install onto it with the engine pair below; it goes when they do.
-    /// </remarks>
-    private JSObject? PrototypeOfInterface(string interfaceName) =>
-        _jsContext?[interfaceName] is JSObject constructor
-            ? constructor[(KeyString)"prototype"] as JSObject
-            : null;
 
     /// <summary>
     /// <c>Node.prototype</c>: the tree accessors and node operations. Installed for every node kind,
@@ -343,7 +327,7 @@ public sealed partial class DomBridge
     private DomNode RequireNode(in JsCall call, string interfaceName, string member)
     {
         // The reverse map is keyed on the engine object, which an object handle carries; a non-object
-        // receiver answers no node without asking, which is the branch the `is JSObject` test took.
+        // receiver answers no node without asking, which is the branch the engine-object test took.
         if (call.This.IsObject &&
             _jsObjects.TryGetNode(Dom.Runtime.JsInterop.ToEngineObject(call.This), out var node))
         {
@@ -352,20 +336,6 @@ public sealed partial class DomBridge
 
         throw call.Realm.Error(
             JsErrorKind.TypeError,
-            $"Failed to execute '{member}' on '{interfaceName}': Illegal invocation");
-    }
-
-    /// <summary>
-    /// <see cref="RequireNode(in JsCall, string, string)"/> for a member whose body still takes an
-    /// engine argument frame — the four <c>ChildNode</c> mixin operations, and the ones
-    /// <c>DomBridge/ElementInterface.cs</c> installs.
-    /// </summary>
-    private DomNode RequireNode(in Arguments a, string interfaceName, string member)
-    {
-        if (a.This is JSObject receiver && _jsObjects.TryGetNode(receiver, out var node))
-            return node;
-
-        return JSException.ThrowTypeError<DomNode>(
             $"Failed to execute '{member}' on '{interfaceName}': Illegal invocation");
     }
 
@@ -387,28 +357,4 @@ public sealed partial class DomBridge
     private void DefinePrototypeAccessor(JsValue proto, string name,
         JsNativeFunction getter, JsNativeFunction? setter = null) =>
         Realm.DefineAccessor(proto, name, getter, setter);
-
-    /// <summary>Adds a WebIDL operation to an interface prototype, with the engine's argument frame.</summary>
-    /// <remarks>
-    /// <b>An engine-typed adapter, pinned by the interface installers that have not migrated.</b>
-    /// <c>DomBridge/ElementInterface.cs</c> and <c>DomBridge/HtmlElementInterface.cs</c> pass bodies
-    /// taking an <c>Arguments</c>, and there is no adapter between two call frames — only between two
-    /// object types — so this stays until they move. Enumerable and configurable but not
-    /// writable-as-data is what the instance properties were, and what Web IDL asks for on a prototype.
-    /// </remarks>
-    private static void AddPrototypeMethod(JSObject proto, string name, int length, JSFunctionDelegate body) =>
-        proto.FastAddValue(name, new DomFunction(body, name, length),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
-    /// <summary>
-    /// Adds a WebIDL attribute to an interface prototype with the engine's argument frame, read-only
-    /// unless a setter is given. The engine-typed sibling of
-    /// <see cref="DefinePrototypeAccessor"/>; see <see cref="AddPrototypeMethod"/> for what pins it.
-    /// </summary>
-    private static void AddPrototypeAccessor(JSObject proto, string name,
-        JSFunctionDelegate getter, JSFunctionDelegate? setter = null) =>
-        proto.FastAddProperty(name,
-            new DomFunction(getter, "get " + name),
-            setter is null ? null : new DomFunction(setter, "set " + name),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
 }

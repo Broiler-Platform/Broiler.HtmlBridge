@@ -141,16 +141,23 @@ public sealed partial class DomBridge
     /// Non-HTML resources (by extension or Content-Type) get a minimal empty document.
     /// </summary>
     /// <remarks>
-    /// Engine-typed because its callers are: the per-container cache in
-    /// <see cref="Runtime.BrowsingContextManager"/> and the iframe/object/window-context host
-    /// contracts, none of them this group's files. The document object itself is built in JSEAL by
-    /// <see cref="Dom.Features.SubDocumentBinding"/>, whose engine-typed <c>BuildDocument</c> is the
-    /// matching cast.
+    /// <para>
+    /// Everything inside is JSEAL: the document object is built through the realm by
+    /// <see cref="Dom.Features.SubDocumentBinding.Build"/> and the per-container cache in
+    /// <see cref="Runtime.BrowsingContextManager"/> holds the handle it answered with.
+    /// </para>
+    /// <para>
+    /// The <em>return type</em> is the adapter, and it is pinned by four files this group does not own:
+    /// <c>DomBridge/DomBridge.IframeElementHost.cs</c>, <c>DomBridge/DomBridge.ObjectElementHost.cs</c>,
+    /// <c>DomBridge.SubWindowHost.cs</c> and <c>DomBridge.WindowContextHost.cs</c> each wrap the answer
+    /// with <c>JsInterop.FromEngineObject</c> before handing it to a JSEAL contract, so the one cast
+    /// left here is the one they undo. It goes when they read the handle directly.
+    /// </para>
     /// </remarks>
     internal JavaScript.Runtime.JSObject GetOrCreateSubDocument(DomElement containerElement)
     {
         if (_browsingContexts.TryGetSubDocument(containerElement, out var cached))
-            return cached;
+            return Dom.Runtime.JsInterop.ToEngineObject(cached);
 
         var executeHtmlScripts = false;
         string? htmlToExecute = null;
@@ -209,11 +216,11 @@ public sealed partial class DomBridge
             }
         }
 
-        var doc = _subDocuments.BuildDocument(docRoot);
+        var doc = _subDocuments.Build(docRoot);
         _browsingContexts.SetSubDocument(containerElement, doc);
         if (executeHtmlScripts && !string.IsNullOrEmpty(htmlToExecute))
             ExecuteSubDocumentScripts(containerElement, htmlToExecute);
-        return doc;
+        return Dom.Runtime.JsInterop.ToEngineObject(doc);
     }
 
     private static DomElement? FindBodyElement(DomElement documentElement) =>

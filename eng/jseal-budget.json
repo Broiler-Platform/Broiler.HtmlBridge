@@ -100,10 +100,10 @@
       "note": "Two files: IDomBridgeRuntime.Attach takes a JSContext, and ScriptCompileAhead names the engine's compiler. The first is the seam JSEAL exists to move -- an Attach that takes an IJsRealm is what makes a second engine able to serve a page at all -- so this 3 is the highest-value one in the file despite being the smallest."
     },
     "Broiler.HtmlBridge.Dom": {
-      "engineReferences": 178,
+      "engineReferences": 116,
       "engineProjectRefs": 3,
-      "guestEvalSites": 11,
-      "note": "The 250-file migration. 322 source files, four of the engine's assemblies linked, and 55 evaluation sites across 28 files. This number is expected to fall in dozens, not in ones."
+      "guestEvalSites": 6,
+      "note": "The DOM bridge. Started at 891 when JSEAL landed. What remains is structural rather than unmigrated: the three wrapper-root fields DomBridge declares and ten files read; IDomBridgeRuntime.Attach, which takes a JSContext from another project; the ArrayBuffer mint, for which IJsValues has no member; the weak tables that need a reference-typed key a struct handle cannot be; BridgeModuleContext, which derives from the engine's module context because JSEAL has no module-graph contract; and the engine-frame halves of members whose installers still mint engine functions. Each occurrence names its own pin in its doc comment."
     },
     "Broiler.HtmlBridge.Jseal": {
       "engineReferences": 0,

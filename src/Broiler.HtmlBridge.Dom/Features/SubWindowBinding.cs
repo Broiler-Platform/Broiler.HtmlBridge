@@ -157,12 +157,16 @@ internal sealed class SubWindowBinding(
         var subDocument = _host.GetOrCreateSubDocument(containerElement);
         var window = realm.NewObject();
 
-        // The four collaborators below are unmigrated and hold JS objects as engine values, so the
-        // window is unwrapped once here rather than at each of them.
+        // The event-target registry and the generic EventTarget installation take handles now, so the
+        // window goes to them as it stands. The other two still hold JS objects as engine values —
+        // the browsing-context cache stores one, and window.postMessage is installed by a member
+        // whose other caller (DomBridge/Registration/Window.cs) hands over an engine object — so the
+        // window is unwrapped once here rather than at each of them. That is a cast, so all four are
+        // given the same object.
         var engineWindow = JsInterop.ToEngineObject(window);
         _browsingContexts.SetSubWindow(containerElement, engineWindow);
-        _eventTargets.SetOwnerWindow(engineWindow, engineWindow);
-        _messaging.InstallEventTargetApi(engineWindow, "DomBridge.subWindow.dispatchEvent");
+        _eventTargets.SetOwnerWindow(window, window);
+        _messaging.InstallEventTargetApi(window, "DomBridge.subWindow.dispatchEvent");
         _messaging.RegisterWindowMessaging(engineWindow);
 
         realm.DefineAccessor(window, "document",

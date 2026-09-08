@@ -1,12 +1,6 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
-// The engine-typed half of this file, and every line of it is an adapter for one unmigrated caller:
-// DomBridge.SubDocumentHost.cs asks for the same seven collections for a frame's document and holds
-// the answer as an engine value. See the adapters at the foot of the file.
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
@@ -40,11 +34,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): a wrapper is a
-/// <see cref="JsValue"/>, and the script context this module used to take beside its host is gone
-/// from the migrated entry points. It was there for one thing — being handed straight back to the
-/// collection builder so it could find the interface prototypes — and the builder now asks the
-/// host's realm for those. What remains engine-typed is the adapters the three unmigrated
-/// registration sites bind to; see the note at the top of the file.
+/// <see cref="JsValue"/>, and the script context this module used to take beside its host is gone.
+/// It was there for one thing — being handed straight back to the collection builder so it could
+/// find the interface prototypes — and the builder now asks the host's realm for those. The seven
+/// engine-typed adapters that stood at the foot of this file went with it: their one caller, the
+/// frame projection in <c>DomBridge.SubDocumentHost.cs</c>, asks for the same seven collections in
+/// handles now, so the file names no engine type at all.
 /// </para>
 /// </remarks>
 internal static class DocumentCollectionBinding
@@ -199,39 +194,4 @@ internal static class DocumentCollectionBinding
 
     private static bool IsTag(DomElement element, string tag) =>
         string.Equals(element.TagName, tag, StringComparison.OrdinalIgnoreCase);
-
-    // ------------------------------------------------------------------
-    //  Engine-typed adapters. Pinned by the three registration sites named at the top of the file.
-    // ------------------------------------------------------------------
-
-    /// <inheritdoc cref="Forms(IDocumentCollectionHost)" />
-    /// <remarks>
-    /// <b>The context parameter is unread and cannot be dropped.</b> <c>DomBridge.SubDocumentHost.cs</c>
-    /// selects among all seven of these by kind and passes the bridge's script context to each, so the
-    /// parameter is part of a call shape in a file this group does not own. The realm that used to be
-    /// found from it is <see cref="IDocumentCollectionHost.Realm"/>, which the same host already
-    /// answers. All seven adapters, and this remark, go when that caller migrates.
-    /// </remarks>
-    public static JSValue Forms(IDocumentCollectionHost host, JSContext? context) => ToEngine(Forms(host));
-
-    /// <summary>The engine-typed <c>document.images</c> adapter; see the remark on <c>Forms</c>.</summary>
-    public static JSValue Images(IDocumentCollectionHost host, JSContext? context) => ToEngine(Images(host));
-
-    /// <summary>The engine-typed <c>document.links</c> adapter; see the remark on <c>Forms</c>.</summary>
-    public static JSValue Links(IDocumentCollectionHost host, JSContext? context) => ToEngine(Links(host));
-
-    /// <summary>The engine-typed <c>document.anchors</c> adapter; see the remark on <c>Forms</c>.</summary>
-    public static JSValue Anchors(IDocumentCollectionHost host, JSContext? context) => ToEngine(Anchors(host));
-
-    /// <summary>The engine-typed <c>document.scripts</c> adapter; see the remark on <c>Forms</c>.</summary>
-    public static JSValue Scripts(IDocumentCollectionHost host, JSContext? context) => ToEngine(Scripts(host));
-
-    /// <summary>The engine-typed <c>document.embeds</c> adapter; see the remark on <c>Forms</c>.</summary>
-    public static JSValue Embeds(IDocumentCollectionHost host, JSContext? context) => ToEngine(Embeds(host));
-
-    /// <summary>The engine-typed <c>document.styleSheets</c> adapter; see the remark on <c>Forms</c>.</summary>
-    public static JSValue StyleSheets(IDocumentCollectionHost host, JSContext? context) => ToEngine(StyleSheets(host));
-
-    /// <summary>The engine object a migrated collection builder minted, for an unmigrated caller.</summary>
-    private static JSValue ToEngine(JsValue collection) => Runtime.JsInterop.ToEngineObject(collection);
 }

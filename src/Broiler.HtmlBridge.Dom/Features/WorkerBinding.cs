@@ -4,8 +4,6 @@ using System.Collections.Generic;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -65,10 +63,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="JsCapabilities.WorkerRealms"/> claims and now also describes.
 /// </para>
 /// <para>
-/// One engine-typed adapter is left, and <c>DomBridge/Registration/Registration.cs</c> pins it:
-/// <see cref="Register"/> is handed the script context and the window object by a file this change
-/// does not own. Both cross as handles without being converted, because that is what a handle over
-/// an object already holds.
+/// No engine type is named here. The last one was <see cref="Register"/>, which took the script
+/// context and the window object from the registration hub; it takes the realm and the window handle
+/// now, and the two writes it makes go to the same two objects they always did.
 /// </para>
 /// </remarks>
 internal sealed class WorkerBinding : IDisposable
@@ -80,24 +77,19 @@ internal sealed class WorkerBinding : IDisposable
 
     public WorkerBinding(IWorkerHost host) => _host = host;
 
-    /// <summary>Installs the <c>Worker</c> constructor on <paramref name="window"/> and the context.</summary>
+    /// <summary>Installs the <c>Worker</c> constructor on <paramref name="window"/> and the global.</summary>
     /// <remarks>
-    /// The engine-typed signature is pinned by <c>DomBridge/Registration/Registration.cs</c>, which is
-    /// not this round's to change; both objects it hands over cross as handles without being
-    /// converted, because that is what a handle over an object already holds. The context is the
-    /// realm's global under this engine, and it is written through as one.
+    /// Two writes, kept as two: the constructor is defined on <paramref name="window"/> and set on
+    /// the realm's global, which is what the engine-typed form did with the window object and the
+    /// script context. Under a realm whose global <em>is</em> the window those are one object and the
+    /// second write is a no-op on the same value; under one where they are distinct, both spellings
+    /// still resolve, which is what the pair was for.
     /// </remarks>
-    public void Register(JSContext context, JSObject window)
+    public void Register(IJsRealm realm, JsValue window)
     {
-        // Not the `Realm` property, which throws: this runs during the registration pass that adopts
-        // the realm, and a null here would mean the bridge called it in the wrong order.
-        var realm = _host.Realm
-            ?? throw new InvalidOperationException(
-                "Worker cannot be registered before the bridge has adopted a JavaScript realm.");
-
         var ctor = realm.NewConstructor("Worker", CreateWorker, 1);
-        realm.DefineValue(JsInterop.FromEngineObject(window), "Worker", ctor);
-        realm.SetProperty(JsInterop.FromEngineObject(context), "Worker", ctor);
+        realm.DefineValue(window, "Worker", ctor);
+        realm.SetProperty(realm.Global, "Worker", ctor);
     }
 
     private JsValue CreateWorker(in JsCall call)

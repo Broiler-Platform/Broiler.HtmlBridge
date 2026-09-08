@@ -11,12 +11,12 @@ namespace Broiler.HtmlBridge;
 /// implementation, so none of them widens the public <c>DomBridge</c> surface.
 /// </summary>
 /// <remarks>
-/// <b>This file is where the fetch surface's engine types stop.</b> The contract itself speaks
-/// <see cref="JsValue"/>, but three of the things it forwards to have not migrated — the streams
-/// module's four members, which still take and return the engine's own values, and the bridge's
-/// wrapper-to-node lookup — so the conversions through <see cref="JsInterop"/> are gathered here
-/// rather than spread through the binding. They go when <c>Features/StreamsBinding.cs</c> and the
-/// bridge's wrapper registry migrate; nothing in <c>FetchBinding</c> changes when they do.
+/// <b>One engine reference is left and the bridge's wrapper registry pins it.</b> The contract
+/// speaks <see cref="JsValue"/> throughout, and so does everything it forwards to — the streams
+/// module included — except the wrapper-to-node lookup, which is keyed on the engine object a handle
+/// carries and is called that way by fifteen files across the assembly. So the one unwrap through
+/// <see cref="JsInterop"/> below goes when that registry does; nothing in <c>FetchBinding</c> changes
+/// when it happens.
 /// </remarks>
 public sealed partial class DomBridge : IFetchHost
 {
@@ -40,28 +40,13 @@ public sealed partial class DomBridge : IFetchHost
 
     string IFetchHost.PageUrl => _pageUrl;
 
-    JsValue IFetchHost.StreamOverText(string text) =>
-        FetchStreamHandle(_streams.StreamOverText(_jsContext!, text));
+    JsValue IFetchHost.StreamOverText(string text) => _streams.StreamOverText(text);
 
     JsValue IFetchHost.StreamOverTextObserved(string text, System.Action onDisturbed) =>
-        FetchStreamHandle(_streams.StreamOverTextObserved(_jsContext!, text, onDisturbed));
+        _streams.StreamOverTextObserved(text, onDisturbed);
 
-    bool IFetchHost.IsStreamLocked(JsValue stream) =>
-        stream.IsObject && _streams.IsStreamLocked(JsInterop.ToEngineObject(stream));
+    bool IFetchHost.IsStreamLocked(JsValue stream) => _streams.IsStreamLocked(stream);
 
     JsValue IFetchHost.CreateBlob(byte[] bytes, string contentType) =>
         _blobs.CreateBlobFromBytes(Realm, bytes, contentType);
-
-    /// <summary>
-    /// A stream the unmigrated streams module produced, as a handle.
-    /// </summary>
-    /// <remarks>
-    /// The module answers the engine's <c>null</c> singleton when it has no factory to build a stream
-    /// with — a realm whose streams asset did not evaluate — and <see cref="JsInterop"/> converts an
-    /// object and nothing else, so that arm is spelled out rather than passed through.
-    /// </remarks>
-    private static JsValue FetchStreamHandle(Broiler.JavaScript.Runtime.JSValue value) =>
-        value is Broiler.JavaScript.Runtime.JSObject instance
-            ? JsInterop.FromEngineObject(instance)
-            : JsValue.Null;
 }

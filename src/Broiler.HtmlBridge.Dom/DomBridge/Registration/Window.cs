@@ -505,6 +505,10 @@ public sealed partial class DomBridge
         realm.SetProperty(realm.Global, "screen", screenObj);
 
         var visualViewport = realm.NewObject();
+        // The one engine reference left in this file, and the wrapper-root field pins it: the field
+        // assigned below (declared in DomBridge.cs) is engine-typed because
+        // DomBridge/LayoutMetrics.Scrolling.cs reads it as one, and that file is not this group's.
+        // The handle and the object it carries are one instance, so the two names cannot drift.
         _visualViewportJSObject = Dom.Runtime.JsInterop.ToEngineObject(visualViewport);
         realm.DefineAccessor(visualViewport, "width", (in _) => JsValue.Number(GetVisualViewportWidth()), null);
         realm.DefineAccessor(visualViewport, "height", (in _) => JsValue.Number(GetVisualViewportHeight()), null);

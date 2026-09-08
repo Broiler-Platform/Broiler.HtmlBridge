@@ -20,12 +20,17 @@ namespace Broiler.HtmlBridge;
 /// (<c>el === el</c>, and the weak tables keyed on it) is the same question it was before.
 /// </para>
 /// <para>
-/// Five things on the other side of the seam are unmigrated and are why this file names engine types
-/// at all: the wrapper factory and its reverse lookup, the two name validations and the selector check
-/// (each raises its <c>DOMException</c> against the script context), <c>DomCollectionBinding</c> and
-/// <c>DocumentCollectionBinding</c> (which build their collections over engine values), and
-/// <c>StartSubDocumentViewTransition</c> (which still takes an engine argument frame). They are
-/// unwrapped here and nowhere above.
+/// Two things on the other side of the seam are unmigrated and are why this file names an engine type
+/// at all: the two reverse wrapper lookups, whose <em>names</em> spell the engine's object type at
+/// every call site and which are declared in <c>DomBridge/Utilities.cs</c>, not here; and the two name
+/// validations and the selector check, each of which raises its <c>DOMException</c> against the script
+/// context. The reverse lookups are unwrapped here and nowhere above.
+/// </para>
+/// <para>
+/// Four things have left that list, and each of them is now a plain forward: the wrapper factory
+/// (<c>WrapNode</c>) answers a handle, <c>DomCollectionBinding</c> and <c>DocumentCollectionBinding</c>
+/// both mint into a realm, and <c>StartSubDocumentViewTransition</c> takes the one argument it reads
+/// rather than an engine frame around it.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge : ISubDocumentHost
@@ -38,8 +43,9 @@ public sealed partial class DomBridge : ISubDocumentHost
     // (DomBridge.cs) rather than a second reading of the engine-typed field.
     JsValue ISubDocumentHost.MainWindow => WindowHandle;
 
-    JsValue ISubDocumentHost.ToJsObject(DomNode node) =>
-        Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
+    // The bridge's wrapper factory answers a handle now (DomBridge/JsObjects.cs), so this forwards
+    // rather than unwrapping the engine-typed adapter beside it and re-wrapping the result.
+    JsValue ISubDocumentHost.ToJsObject(DomNode node) => WrapNode(node);
 
     void ISubDocumentHost.LinkToInterface(JsValue wrapper, string interfaceName) =>
         LinkToInterface(wrapper, interfaceName);
@@ -104,56 +110,29 @@ public sealed partial class DomBridge : ISubDocumentHost
 
     void ISubDocumentHost.ValidateSelector(string selector) => ValidateSelector(selector);
 
+    // The three collection seams are now straight forwards: both builders mint in a realm and speak
+    // in handles, so the wrapper list the module produces is the list the collection holds and the
+    // named getter it supplies is the one the collection consults. The round trip that used to sit
+    // here — every wrapper down to the engine's own value on the way in and back up on the way out,
+    // and the collection itself narrowed on the way back — existed only because the builders took a
+    // script context, and it is what made a non-object member throw rather than answer.
     JsValue ISubDocumentHost.NodeList(Func<List<JsValue>> contents) =>
-        AdoptSubDocumentCollection(Dom.Features.DomCollectionBinding.NodeList(
-            _jsContext, () => ToSubDocumentCollectionItems(contents())));
+        Dom.Features.DomCollectionBinding.NodeList(Realm, contents);
 
     JsValue ISubDocumentHost.HtmlCollection(Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup) =>
-        AdoptSubDocumentCollection(Dom.Features.DomCollectionBinding.HtmlCollection(
-            _jsContext,
-            () => ToSubDocumentCollectionItems(contents()),
-            namedLookup is null
-                ? null
-                : name => namedLookup(name) is { } named ? Dom.Runtime.JsInterop.ToEngineValue(named) : null));
+        Dom.Features.DomCollectionBinding.HtmlCollection(Realm, contents, namedLookup);
 
     JsValue ISubDocumentHost.DocumentCollection(IDocumentCollectionHost collections, DocumentCollectionKind kind) =>
-        AdoptSubDocumentCollection(kind switch
+        kind switch
         {
-            DocumentCollectionKind.Forms => Dom.Features.DocumentCollectionBinding.Forms(collections, _jsContext),
-            DocumentCollectionKind.Images => Dom.Features.DocumentCollectionBinding.Images(collections, _jsContext),
-            DocumentCollectionKind.Links => Dom.Features.DocumentCollectionBinding.Links(collections, _jsContext),
-            DocumentCollectionKind.Anchors => Dom.Features.DocumentCollectionBinding.Anchors(collections, _jsContext),
-            DocumentCollectionKind.Scripts => Dom.Features.DocumentCollectionBinding.Scripts(collections, _jsContext),
-            DocumentCollectionKind.StyleSheets => Dom.Features.DocumentCollectionBinding.StyleSheets(collections, _jsContext),
-            _ => Dom.Features.DocumentCollectionBinding.Embeds(collections, _jsContext),
-        });
-
-    /// <summary>The module's wrapper handles as the engine values a collection stores.</summary>
-    private static List<JavaScript.Runtime.JSValue> ToSubDocumentCollectionItems(List<JsValue> values)
-    {
-        var engineValues = new List<JavaScript.Runtime.JSValue>(values.Count);
-        foreach (var value in values)
-        {
-            // Every member of a sub-document collection is a node wrapper, so the cast cannot fail; a
-            // primitive would mean the module produced something a collection cannot hold.
-            engineValues.Add(Dom.Runtime.JsInterop.ToEngineObject(value));
-        }
-
-        return engineValues;
-    }
-
-    /// <summary>A handle over a collection the unmigrated collection builders produced.</summary>
-    /// <remarks>
-    /// Their static type is <c>JSValue</c> and their dynamic type is always the collection object —
-    /// each builder has one return statement — so the pattern is a type-narrowing rather than a branch
-    /// expected to fall through. The fallback is <c>undefined</c> rather than a throw because a
-    /// collection getter answering an empty-ish value is a better outcome for a page than an exception
-    /// thrown from inside a property read.
-    /// </remarks>
-    private static JsValue AdoptSubDocumentCollection(JavaScript.Runtime.JSValue collection) =>
-        collection is JavaScript.Runtime.JSObject @object
-            ? Dom.Runtime.JsInterop.FromEngineObject(@object)
-            : JsValue.Undefined;
+            DocumentCollectionKind.Forms => Dom.Features.DocumentCollectionBinding.Forms(collections),
+            DocumentCollectionKind.Images => Dom.Features.DocumentCollectionBinding.Images(collections),
+            DocumentCollectionKind.Links => Dom.Features.DocumentCollectionBinding.Links(collections),
+            DocumentCollectionKind.Anchors => Dom.Features.DocumentCollectionBinding.Anchors(collections),
+            DocumentCollectionKind.Scripts => Dom.Features.DocumentCollectionBinding.Scripts(collections),
+            DocumentCollectionKind.StyleSheets => Dom.Features.DocumentCollectionBinding.StyleSheets(collections),
+            _ => Dom.Features.DocumentCollectionBinding.Embeds(collections),
+        };
 
     void ISubDocumentHost.SetElementTextContent(DomElement element, string? value) => SetElementTextContent(element, value);
     IReadOnlyList<DomElement> ISubDocumentHost.HitTestDocumentPoint(DomNode docRoot, double x, double y) =>
@@ -225,23 +204,12 @@ public sealed partial class DomBridge : ISubDocumentHost
     /// <c>startViewTransition()</c> on the sub-document, over the one argument the operation takes.
     /// </summary>
     /// <remarks>
-    /// The implementation (<c>DomBridge.ViewTransition.SubDocument.cs</c>) still reads an engine
-    /// argument frame, and reads exactly one slot of it — the update callback, or the options object
-    /// carrying it — so a one-slot frame over this handle is the whole of what it can observe. A
-    /// handle carrying a primitive has no engine value to unwrap and stands in as <c>undefined</c>,
-    /// which that implementation ignores exactly as it ignored the primitive it replaces; and an
-    /// omitted argument arrives here as <see cref="JsValue.Missing"/>, which takes the same path,
-    /// since the only thing the frame's length decides there is whether to look at slot zero at all.
+    /// The implementation (<c>DomBridge.ViewTransition.SubDocument.cs</c>) takes the handle now, so
+    /// this is a forward. It used to mint a one-slot engine argument frame around the same value,
+    /// because that implementation read a frame and read exactly one slot of it — the update callback,
+    /// or the options object carrying it. The frame is not missed: a primitive and an omitted argument
+    /// both reach the same "no update callback" arm there that they reached through it.
     /// </remarks>
-    JsValue ISubDocumentHost.StartViewTransition(DomNode docRoot, JsValue options)
-    {
-        var frame = new JavaScript.Runtime.Arguments(
-            JavaScript.Runtime.JSUndefined.Value,
-            Dom.Runtime.JsInterop.ToEngineValue(options) ?? JavaScript.Runtime.JSUndefined.Value);
-
-        var transition = StartSubDocumentViewTransition(docRoot, in frame);
-        return transition is JavaScript.Runtime.JSObject @object
-            ? Dom.Runtime.JsInterop.FromEngineObject(@object)
-            : JsValue.Undefined;
-    }
+    JsValue ISubDocumentHost.StartViewTransition(DomNode docRoot, JsValue options) =>
+        StartSubDocumentViewTransition(docRoot, options);
 }

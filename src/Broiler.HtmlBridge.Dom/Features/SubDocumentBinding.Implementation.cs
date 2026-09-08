@@ -132,7 +132,7 @@ internal sealed partial class SubDocumentBinding
     /// <remarks>
     /// <see cref="JsValue.Missing"/> is "no filter", which is what the traversal module tests
     /// callability against — the same question the null this replaces asked. An <c>acceptNode</c> that
-    /// is not callable is no filter either, which is what the <c>as JSFunction</c> cast said.
+    /// is not callable is no filter either, which is what the cast to the engine's function type said.
     /// </remarks>
     private static JsValue FilterArgument(in JsCall call)
     {

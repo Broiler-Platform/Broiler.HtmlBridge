@@ -1,6 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -10,26 +9,24 @@ namespace Broiler.HtmlBridge;
 // explicit interface members, so the module reaches no arbitrary bridge private field and the public
 // surface is unchanged.
 //
-// This file is the engine-typed half of the seam. The module is written against JSEAL and speaks only
-// JsValue; the wrapper cache, the NodeList factory and the document wrapper below still speak
-// Broiler.JS, and they stop doing so when Runtime/JsObjectRegistry.cs and DomCollectionBinding
-// migrate. The childNodes collection moved here from the module for the reason ISelectorsHost's two
-// HTMLCollection builders did: assembling one is entirely engine-typed work today, and reassembling
-// it from a list handed across the seam would convert every element of a live collection twice on
-// every property read.
+// Nothing here is engine-typed any more: the module speaks JsValue, the NodeList factory takes the
+// realm and the same handles, and the wrapper cache is reached through WrapNode. The childNodes
+// collection stays in this file rather than going back to the module for the reason ISelectorsHost's
+// two HTMLCollection builders stay: a live collection recomputes its contents on every property read,
+// and the bridge is where the child list lives.
 public sealed partial class DomBridge : Dom.Features.INodeAccessorsHost
 {
     JsValue Dom.Features.INodeAccessorsHost.WrapNode(DomNode node) => WrapNode(node);
 
     JsValue Dom.Features.INodeAccessorsHost.ChildNodeList(DomNode node) =>
-        Dom.Runtime.JsInterop.FromEngineObject((JSObject)Dom.Features.DomCollectionBinding.NodeList(_jsContext, () =>
+        Dom.Features.DomCollectionBinding.NodeList(Realm, () =>
         {
-            var children = new List<JSValue>();
+            var children = new List<JsValue>();
             foreach (var child in node.ChildNodes)
-                children.Add(ToJSObject(child));
+                children.Add(WrapNode(child));
 
             return children;
-        }));
+        });
 
     DomNode Dom.Features.INodeAccessorsHost.DocumentNode => _document;
 

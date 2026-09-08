@@ -1,6 +1,8 @@
 using System.Text;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
+// The three engine namespaces are for GetNodeTextValue alone — the one adapter left in this file, and
+// pinned by a caller outside it; see its remarks.
 using Broiler.JavaScript.BuiltIns.Null;
 using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
@@ -55,10 +57,17 @@ public sealed partial class DomBridge
     /// <b>This is the adapter, and it names the engine because a primitive cannot cross the seam.</b>
     /// <c>JsInterop</c> carries an object across without converting it — the handle holds the engine's
     /// own object — and a string or a <c>null</c> is not an object, so the two arms are spelled out.
-    /// Four sites outside this file still take the engine value: <c>DomBridge/ElementInterfaces.cs</c>
-    /// (<c>text</c>), <c>DomBridge/CharacterDataInterface.cs</c> (<c>Node.prototype.textContent</c>),
-    /// <c>DomBridge.ElementContentHost.cs</c>, and <c>Features/ElementContentBinding.cs</c> through it.
-    /// It goes when they do.
+    /// <para>
+    /// <b>One site outside this file still takes the engine value, and it does not want one.</b>
+    /// <c>DomBridge.ElementContentHost.cs</c> asks for it and immediately unpicks it again —
+    /// <c>GetNodeTextValue(node) is JSString text ? text.ToString() : null</c> — which is
+    /// <see cref="NodeTextOrNull"/> spelled the long way round through two allocations. That file is
+    /// another group's, so the round trip stays and this adapter with it; the three sites that used to
+    /// join it (<c>DomBridge/ElementInterfaces.cs</c>'s <c>text</c>,
+    /// <c>DomBridge/CharacterDataInterface.cs</c>'s <c>Node.prototype.textContent</c>, and
+    /// <c>DomBridge/JsObjects.NonElementNodes.cs</c>) all read the CLR answer above and let
+    /// <see cref="JsValue.String(string?)"/> make the same distinction.
+    /// </para>
     /// </remarks>
     private JSValue GetNodeTextValue(DomNode node) =>
         NodeTextOrNull(node) is { } text ? new JSString(text) : JSNull.Value;

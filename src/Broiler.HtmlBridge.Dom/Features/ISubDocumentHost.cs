@@ -16,20 +16,20 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The whole contract is spelled in JSEAL: a JS object is a <see cref="JsValue"/>, and the
-/// <c>JSContext</c> this interface used to carry beside its <see cref="Realm"/> is gone. It was there
-/// for four things and only four — raising a <c>DOMException</c> from the two name validations and the
-/// selector check, and being handed straight back to the two collection builders — so each is now a
-/// named operation instead (<see cref="ValidateElementName"/>, <see cref="ValidateQualifiedName"/>,
+/// The whole contract is spelled in JSEAL: a JS object is a <see cref="JsValue"/>, and the script
+/// context this interface used to carry beside its <see cref="Realm"/> is gone. It was there for four
+/// things and only four — raising a <c>DOMException</c> from the two name validations and the selector
+/// check, and being handed straight back to the two collection builders — so each is now a named
+/// operation instead (<see cref="ValidateElementName"/>, <see cref="ValidateQualifiedName"/>,
 /// <see cref="ValidateSelector"/>, <see cref="NodeList"/>/<see cref="HtmlCollection"/>/
 /// <see cref="DocumentCollection"/>). The module says what it wants done and which engine does it is
 /// the bridge's business.
 /// </para>
 /// <para>
-/// The renames are part of that: a member called <c>ToJSObject</c> or <c>FindDomNodeByJSObject</c>
-/// names an engine type in every call site that mentions it, so they are
-/// <see cref="ToJsObject"/>, <see cref="FindNode"/> and <see cref="FindElement"/> here — the shape
-/// <c>ITraversalHost</c> already took.
+/// The renames are part of that: a member whose own name spells the engine's object type spells it
+/// again in every call site that mentions it, so the bridge's wrapper factory and its two reverse
+/// lookups are <see cref="ToJsObject"/>, <see cref="FindNode"/> and <see cref="FindElement"/> here —
+/// the shape <c>ITraversalHost</c> already took.
 /// </para>
 /// </remarks>
 internal interface ISubDocumentHost
@@ -131,8 +131,10 @@ internal interface ISubDocumentHost
     /// containing document uses.
     /// </summary>
     /// <remarks>
-    /// Asked for by name rather than built here because that builder still takes the script context;
-    /// naming the collection is what keeps this contract, and the module over it, free of it. The
+    /// Asked for by name rather than built here because the bridge owns collection construction: the
+    /// module names the collection it wants and the host picks the builder. That used to be the harder
+    /// constraint — the builder took the script context, which this contract deliberately does not
+    /// carry — and is now only the division of labour. The
     /// eight collections are seven kinds because <c>embeds</c> and <c>plugins</c> are required to
     /// answer the same object (HTML §3.1.5), so the module builds <see cref="DocumentCollectionKind.Embeds"/>
     /// once and installs it twice.

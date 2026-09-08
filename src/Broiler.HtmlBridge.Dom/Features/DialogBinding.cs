@@ -1,7 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -16,21 +14,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the members are minted by the realm
-/// and their bodies run on a <see cref="JsCall"/>, so the migrated half of this file names no engine
-/// type.
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>) throughout: every member is minted by
+/// the realm and every body runs on a <see cref="JsCall"/>, so this file names no engine type at all.
 /// </para>
 /// <para>
-/// <b>Two members stay engine-typed, and both are pinned from outside.</b>
-/// <see cref="Install(JSObject, DomElement, string, bool)"/> is called by
-/// <c>DomBridge/ElementInterfaces.cs</c> with an engine wrapper, and forwards through
-/// <see cref="Runtime.JsInterop"/>, which carries an object across without converting it.
-/// <see cref="InstallElementMembers"/> is called by <c>DomBridge/ElementInterface.cs</c> with an
-/// <see cref="ElementSource"/> — a delegate whose parameter <em>is</em> the engine's argument frame,
-/// so a JSEAL callback has nothing to hand it, and the installer has to mint its two members with
-/// that frame. Both disappear when their caller migrates. <see cref="ExitFullscreenCore"/> was a
-/// third and is not: <c>DomBridge/Registration/Document.cs</c> now mints that method through the
-/// realm and takes a <see cref="JsValue"/> back.
+/// It carried two engine-typed adapters until this round, and both were pinned by their caller rather
+/// than by anything here. <see cref="Install(JsValue, DomElement, string, bool)"/> took the wrapper as
+/// an engine object because <c>DomBridge/ElementInterfaces.cs</c> held it as one; it takes the handle
+/// that file already has. <see cref="InstallElementMembers"/> minted its two members with the engine's
+/// argument frame because the <c>ElementSource</c> it was handed read that frame; that delegate is one
+/// JSEAL declaration now (<see cref="JsElementSource"/>), so the two fullscreen methods are the
+/// realm's like the rest.
 /// </para>
 /// </remarks>
 internal sealed class DialogBinding(IDialogHost host)
@@ -43,31 +37,23 @@ internal sealed class DialogBinding(IDialogHost host)
     /// (Chromium has both there too).
     /// </summary>
     /// <remarks>
-    /// Engine-typed because <see cref="ElementSource"/> is: the receiver-resolving source reads the
-    /// call's <c>this</c> out of the engine's own argument frame, so the member it serves has to be
-    /// installed with that frame. Only the wrapping is engine-typed — the operation itself is
-    /// <see cref="RequestFullscreen"/>, which speaks JSEAL.
+    /// Both are the realm's, minted with the same attributes the engine pair they replace installed —
+    /// enumerable and configurable, which is <see cref="JsPropertyFlags.Default"/> for a value — and in
+    /// the same order, so <c>Object.getOwnPropertyNames(Element.prototype)</c> reads unchanged. The
+    /// operation itself was already JSEAL: <see cref="RequestFullscreen"/> hands back the promise
+    /// directly now instead of being unwrapped for an engine return.
     /// </remarks>
-    internal void InstallElementMembers(JSObject target, ElementSource element)
+    internal void InstallElementMembers(JsValue target, JsElementSource element)
     {
-        target.FastAddValue("requestFullscreen",
-            new DomFunction(
-                (in a) => Runtime.JsInterop.ToEngineObject(RequestFullscreen(element(in a, "requestFullscreen"))),
-                "requestFullscreen", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        target.FastAddValue("webkitRequestFullscreen",
-            new DomFunction(
-                (in a) => Runtime.JsInterop.ToEngineObject(RequestFullscreen(element(in a, "webkitRequestFullscreen"))),
-                "webkitRequestFullscreen", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-    }
+        var realm = _host.Realm;
 
-    /// <summary>
-    /// Engine-typed adapter for <c>DomBridge/ElementInterfaces.cs</c>, which still holds the element
-    /// wrapper as an engine object. See the remarks on this class.
-    /// </summary>
-    internal void Install(JSObject obj, DomElement element, string tag, bool hasPopover) =>
-        Install(Runtime.JsInterop.FromEngineObject(obj), element, tag, hasPopover);
+        realm.DefineValue(target, "requestFullscreen",
+            realm.NewMethod("requestFullscreen",
+                (in call) => RequestFullscreen(element(in call, "requestFullscreen")), 0));
+        realm.DefineValue(target, "webkitRequestFullscreen",
+            realm.NewMethod("webkitRequestFullscreen",
+                (in call) => RequestFullscreen(element(in call, "webkitRequestFullscreen")), 0));
+    }
 
     /// <summary>
     /// Installs the dialog/details interface members and the popover methods on

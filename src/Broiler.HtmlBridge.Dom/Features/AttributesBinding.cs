@@ -1,4 +1,3 @@
-using Broiler.JavaScript.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
@@ -64,17 +63,15 @@ internal sealed class AttributesBinding(IAttributesHost host)
     /// and threw. Both halves are live now, from the same contents function.
     /// </para>
     /// <para>
-    /// The caller and the answer are JSEAL; the middle is not, because
-    /// <see cref="DomCollectionBinding"/> is not: the collection it mints, the list its contents
-    /// function answers with and the argument frames its six operations receive are all the engine's.
-    /// The <c>Attr</c> nodes those functions produce are built through the realm and cross back with
-    /// <see cref="Runtime.JsInterop"/>.
+    /// The caller, the middle and the answer are all JSEAL now: <see cref="DomCollectionBinding"/>
+    /// mints the collection in this host's realm, the contents function answers with handles, and the
+    /// six operations receive a <see cref="JsCall"/>. Nothing on this path converts.
     /// </para>
     /// </remarks>
     internal JsValue BuildNamedNodeMap(DomElement element, JsValue ownerObj)
     {
         if (_namedNodeMaps.TryGetValue(element, out var cached))
-            return Runtime.JsInterop.FromEngineObject(cached);
+            return cached.Value;
 
         var owner = ownerObj;
         var map = DomCollectionBinding.NamedNodeMap(
@@ -97,7 +94,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
                 RemoveNamedItemNS = (in call) => RemoveNamedItemNS(element, owner, in call),
             });
 
-        _namedNodeMaps.Add(element, Runtime.JsInterop.ToEngineObject(map));
+        _namedNodeMaps.Add(element, new System.Runtime.CompilerServices.StrongBox<JsValue>(map));
         return map;
     }
 
@@ -110,13 +107,15 @@ internal sealed class AttributesBinding(IAttributesHost host)
     /// cached — and a browser answers <see langword="true"/> across every access path, the index,
     /// the qualified name, <c>getNamedItem</c> and <c>getAttributeNode</c> alike.
     /// <para>
-    /// The map cache holds the engine's object rather than a handle because a
-    /// <see cref="ConditionalWeakTable{TKey,TValue}"/> value must be a reference type and a
-    /// <see cref="JsValue"/> is not one. Nothing is lost by that: the handle carries this very object,
-    /// so re-wrapping a cached entry answers a value <c>===</c> the one the first read produced.
+    /// The map cache boxes its handle because a <see cref="ConditionalWeakTable{TKey,TValue}"/> value
+    /// must be a reference type and a <see cref="JsValue"/> is a struct — the same reason the
+    /// <c>Attr</c> cache below stores a dictionary rather than a value. The box is the only thing that
+    /// changed when the cache stopped holding the engine's own object: a handle carries that very
+    /// object, so a cached entry is still <c>===</c> the one the first read produced.
     /// </para>
     /// </remarks>
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<DomElement, JSObject> _namedNodeMaps = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<
+        DomElement, System.Runtime.CompilerServices.StrongBox<JsValue>> _namedNodeMaps = new();
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<DomElement, Dictionary<string, JsValue>> _attrNodes = new();
 
@@ -295,7 +294,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
     /// A parentless <c>Attr</c> (<c>document.createAttribute</c>). Engine-typed because its caller,
     /// <c>DomBridge.DocumentFactoryHost.cs</c>, is not migrated.
     /// </summary>
-    internal JSObject BuildStandaloneAttrNode(string qualifiedName, string? namespaceUri) =>
+    internal JavaScript.Runtime.JSObject BuildStandaloneAttrNode(string qualifiedName, string? namespaceUri) =>
         Runtime.JsInterop.ToEngineObject(
             BuildAttrNodeShell(qualifiedName, JsValue.Null, namespaceUri, null, JsValue.String(string.Empty), null));
 

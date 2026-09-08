@@ -2,8 +2,8 @@ using System;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
-// Engine-typed only for Build and the installer beneath it — see the last paragraph of the class
-// remarks for the one caller that pins them.
+// Engine-typed only for the Build(string) overload and the installer beneath it, which exist for one
+// caller that asks for an engine object from a static — see the last paragraph of the class remarks.
 using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
@@ -69,15 +69,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// than one that answers for the document actually in hand.
 /// </para>
 /// <para>
-/// <b>One navigation surface, installed two ways, because the two callers are two vocabularies.</b>
-/// <c>Registration/Window.cs</c> builds the top-level Location through the realm and passes both to
-/// <see cref="AddNavigationSurface(IJsRealm, JsValue, string, ILocationHost?)"/>, which is the whole
-/// of that path. <see cref="Build"/> — a frame's Location, asked for by <c>SubWindowBinding</c>, a
-/// file this round does not own — is a static call with no realm to be had, so it mints its object
-/// and installs the same six members in engine terms. The <em>logic</em> is not duplicated: both
-/// installers hand the same <see cref="DocumentUrl"/> to the same
+/// <b>One navigation surface, installed two ways, because one caller is still two vocabularies
+/// away.</b> <c>Registration/Window.cs</c> builds the top-level Location through the realm and passes
+/// both to <see cref="AddNavigationSurface(IJsRealm, JsValue, string, ILocationHost?)"/>, which is the
+/// whole of that path. A frame's Location — asked for by <c>SubWindowBinding</c>, a file this round
+/// does not own — is <see cref="Build(IJsRealm, string)"/>, which now takes the realm and is entirely
+/// realm-framed; the engine-typed <see cref="Build(string)"/> beneath it survives only because that
+/// one caller still asks for an engine object, and a static has no realm to conjure. It is the whole
+/// of what is left in engine terms here, and it goes the moment that call site passes the
+/// <c>_host.Realm</c> it already holds three lines above the call. The <em>logic</em> is not
+/// duplicated either way: every installer hands the same <see cref="DocumentUrl"/> to the same
 /// <see cref="NavigateTo"/>/<see cref="Request"/> pair, and only the six installations and the two
-/// argument reads differ. That half goes when <c>SubWindowBinding</c> passes a realm.
+/// argument reads differ.
 /// </para>
 /// </summary>
 internal static class LocationBinding
@@ -115,37 +118,39 @@ internal static class LocationBinding
     /// from the URL when it is absolute; when it is not, only what can be known is defined —
     /// matching what the two call sites did before this module existed.
     /// </summary>
-    internal static JSObject Build(string href)
+    /// <remarks>
+    /// No host is passed on to the navigation surface: this builds a <em>frame's</em> Location, and
+    /// neither half of the host surface fits a frame. hashchange belongs to the frame's own event
+    /// target, which the window-dispatch contract does not reach; and a frame navigating replaces the
+    /// frame, not the page, which is a different operation from the one the host would perform. The
+    /// frame's <c>href</c> and <c>hash</c> still move on a fragment navigation — that part needs no
+    /// host.
+    /// </remarks>
+    internal static JsValue Build(IJsRealm realm, string href)
     {
-        var location = new JSObject();
+        var location = realm.NewObject();
 
         if (Uri.TryCreate(href, UriKind.Absolute, out var uri))
         {
-            Add(location, "protocol", uri.Scheme + ":");
-            Add(location, "host", Scripting.Origin.HostOf(uri));
-            Add(location, "hostname", uri.Host);
+            Add(realm, location, "protocol", uri.Scheme + ":");
+            Add(realm, location, "host", Scripting.Origin.HostOf(uri));
+            Add(realm, location, "hostname", uri.Host);
             // A URL with no explicit port has an empty `port`, not its scheme's default: the
             // default is what `host` omits, and a page testing `location.port === ""` is asking
             // exactly that question.
-            Add(location, "port", uri.IsDefaultPort ? string.Empty : uri.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            Add(location, "pathname", uri.AbsolutePath);
-            Add(location, "search", uri.Query);
-            Add(location, "origin", Scripting.Origin.Of(uri));
+            Add(realm, location, "port", uri.IsDefaultPort ? string.Empty : uri.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Add(realm, location, "pathname", uri.AbsolutePath);
+            Add(realm, location, "search", uri.Query);
+            Add(realm, location, "origin", Scripting.Origin.Of(uri));
         }
         else
         {
-            Add(location, "search", string.Empty);
+            Add(realm, location, "search", string.Empty);
         }
 
         // `hash` is not added here — the navigation surface owns it, because a fragment navigation
         // has to move it and `href` together and a data property cannot be kept in step.
-        //
-        // No host is passed: this overload builds a *frame's* Location, and neither half of the host
-        // surface fits a frame. hashchange belongs to the frame's own event target, which the
-        // window-dispatch contract does not reach; and a frame navigating replaces the frame, not
-        // the page, which is a different operation from the one the host would perform. The frame's
-        // `href` and `hash` still move on a fragment navigation — that part needs no host.
-        AddNavigationSurface(location, new DocumentUrl(href), null);
+        AddNavigationSurface(realm, location, href, null);
         return location;
     }
 
@@ -217,13 +222,42 @@ internal static class LocationBinding
         return JsValue.Undefined;
     }
 
-    // ── the engine-typed installer, for the one caller that has no realm to give ────────────────
+    // ── the engine-typed builder, for the one caller that does not hand its realm over ──────────
     //
-    // Features/SubWindowBinding.cs asks Build() for a frame's Location as an engine object, and a
-    // static has no realm to reach. So the same six members are installed in engine terms here, over
-    // the same DocumentUrl and through the same NavigateTo/Request pair the realm-framed installer
-    // above uses — the installation is what differs, not the behaviour. Deleted when that caller
-    // hands a realm over.
+    // Features/SubWindowBinding.cs asks Build() for a frame's Location as an engine object and calls
+    // it as a static with no realm passed, so this overload mints the object and installs the same
+    // components and the same six navigation members in engine terms, over the same DocumentUrl and
+    // through the same NavigateTo/Request pair the realm-framed pair above uses — the installation is
+    // what differs, not the behaviour, and the two are kept in the same member order because
+    // Object.getOwnPropertyNames on a frame's location reports it.
+    //
+    // This whole section is deleted, not adapted, the moment that call site passes the _host.Realm it
+    // already holds three lines above the call: `Build(realm, href)` above is that caller's
+    // replacement, and it is why this one is a duplicate rather than the only builder.
+
+    /// <inheritdoc cref="Build(IJsRealm, string)"/>
+    internal static JSObject Build(string href)
+    {
+        var location = new JSObject();
+
+        if (Uri.TryCreate(href, UriKind.Absolute, out var uri))
+        {
+            Add(location, "protocol", uri.Scheme + ":");
+            Add(location, "host", Scripting.Origin.HostOf(uri));
+            Add(location, "hostname", uri.Host);
+            Add(location, "port", uri.IsDefaultPort ? string.Empty : uri.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Add(location, "pathname", uri.AbsolutePath);
+            Add(location, "search", uri.Query);
+            Add(location, "origin", Scripting.Origin.Of(uri));
+        }
+        else
+        {
+            Add(location, "search", string.Empty);
+        }
+
+        AddNavigationSurface(location, new DocumentUrl(href), null);
+        return location;
+    }
 
     private static void AddNavigationSurface(JSObject location, DocumentUrl url, ILocationHost? host)
     {
@@ -400,6 +434,10 @@ internal static class LocationBinding
     // reader wants back.
     private static string Spell(string method, string target)
         => method is "href" or "hash" ? $"location.{method} = {target}" : $"location.{method}({target})";
+
+    /// <summary>One URL component, enumerable and configurable as every Location component is.</summary>
+    private static void Add(IJsRealm realm, JsValue location, string name, string value)
+        => realm.DefineValue(location, name, JsValue.String(value));
 
     private static void Add(JSObject location, string name, string value)
         => location.FastAddValue(name, new JSString(value), JSPropertyAttributes.EnumerableConfigurableValue);

@@ -15,9 +15,14 @@ namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// Registers a minimal <c>document</c> object on a <see cref="JSContext"/>
-/// so that JavaScript executed via YantraJS can perform basic DOM queries
+/// so that JavaScript executed against it can perform basic DOM queries
 /// against the current page HTML.
 /// </summary>
+/// <remarks>
+/// That parameter is what <c>IDomBridgeRuntime.Attach</c> hands over, and the interface lives in
+/// <c>Broiler.HtmlBridge.Core</c>. It is the last thing holding the bridge to one engine; see
+/// <c>DomBridge.Realm.cs</c> for the <see cref="Jseal.IJsRealm"/> that will replace it.
+/// </remarks>
 public sealed partial class DomBridge : IDomBridgeRuntime
 {
     /// <summary>
@@ -770,6 +775,13 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     /// on the JS context, matching the HTML5 "named access on the Window
     /// object" behaviour (e.g. <c>window.myId</c> → element with id="myId").
     /// </summary>
+    /// <remarks>
+    /// <b>It takes a script context for the same reason <c>Attach</c> does, and it moves when that
+    /// does.</b> A host reaches this through the bridge as an object it built the context for, and
+    /// <c>IDomBridgeRuntime</c> — the sanctioned surface, and in another project — hands one over, so
+    /// a host holds a context and not a realm. Narrowing the parameter here would make the method
+    /// uncallable by the only kind of caller it has.
+    /// </remarks>
     public void RegisterNamedElementGlobals(JSContext context)
     {
         foreach (var el in Elements)

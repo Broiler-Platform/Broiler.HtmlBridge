@@ -1,8 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge;
 
@@ -12,12 +9,11 @@ namespace Broiler.HtmlBridge;
 // helper, passing the bridge in), so the module reaches no arbitrary bridge private field and the public
 // surface is unchanged.
 //
-// This file is the engine-typed half of the seam. The module is written against JSEAL and hands back
-// JsValue handles; the searches, the collection factory and the wrapper cache below still speak
-// Broiler.JS, and they stop doing so when DomBridge/Utilities.cs and DomCollectionBinding migrate. The
-// two `HTMLCollection` builders moved here from the module for that reason and are otherwise unchanged:
-// assembling one is entirely engine-typed work today, and reassembling it from a list handed across the
-// seam would convert every element of a live collection twice on every property read.
+// The seam this file used to be is gone: DomBridge/Utilities.cs and DomCollectionBinding both speak
+// JSEAL now, so the searches, the collection factory and the wrapper lookups below are the realm's and
+// nothing here converts anything. The two `HTMLCollection` builders that moved here from the module
+// stay put — a live collection's named getter runs on every property read, and pushing it back across
+// an assembly boundary would buy nothing now that both sides hold the same handles.
 public sealed partial class DomBridge : Dom.Features.ISelectorsHost
 {
     void Dom.Features.ISelectorsHost.ValidateSelector(string selector)
@@ -29,7 +25,7 @@ public sealed partial class DomBridge : Dom.Features.ISelectorsHost
     JsValue Dom.Features.ISelectorsHost.ElementsByTagName(DomElement element, string tagName)
         => FromEngineResult(LiveCollection(() =>
         {
-            var results = new List<JSValue>();
+            var results = new List<JsValue>();
             CollectDescendantsByTag(element, tagName, results, this);
             return results;
         }));
@@ -37,13 +33,12 @@ public sealed partial class DomBridge : Dom.Features.ISelectorsHost
     JsValue Dom.Features.ISelectorsHost.ElementsByClassName(DomElement element, string classNames)
         => FromEngineResult(LiveCollection(() =>
         {
-            var results = new List<JSValue>();
+            var results = new List<JsValue>();
             CollectDescendantsByClass(element, classNames, results, this);
             return results;
         }));
 
-    JsValue Dom.Features.ISelectorsHost.ToWrapper(DomNode node)
-        => Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
+    JsValue Dom.Features.ISelectorsHost.ToWrapper(DomNode node) => WrapNode(node);
 
     bool Dom.Features.ISelectorsHost.MatchesSelector(DomElement element, string selector, DomElement? scope)
         => MatchesSelector(element, selector, scope);
@@ -53,33 +48,41 @@ public sealed partial class DomBridge : Dom.Features.ISelectorsHost
     /// §4.2.10.2 gives one: a lookup answers the first element whose <c>id</c> — or, for the
     /// elements HTML names, whose <c>name</c> — matches.
     /// </summary>
-    private JSValue LiveCollection(Func<List<JSValue>> contents) =>
-        Dom.Features.DomCollectionBinding.HtmlCollection(_jsContext, contents, name => NamedItem(contents, name));
+    private JsValue LiveCollection(Func<List<JsValue>> contents) =>
+        Dom.Features.DomCollectionBinding.HtmlCollection(Realm, contents, name => NamedItem(Realm, contents, name));
 
-    private static JSValue? NamedItem(Func<List<JSValue>> contents, string name)
+    private static JsValue? NamedItem(IJsRealm realm, Func<List<JsValue>> contents, string name)
     {
         if (name.Length == 0)
             return null;
 
         foreach (var candidate in contents())
         {
-            if (candidate is JSObject wrapper &&
-                (Matches(wrapper, "id", name) || Matches(wrapper, "name", name)))
-                return wrapper;
+            if (candidate.IsObject &&
+                (Matches(realm, candidate, "id", name) || Matches(realm, candidate, "name", name)))
+                return candidate;
         }
 
         return null;
 
-        static bool Matches(JSObject wrapper, string attribute, string name) =>
-            wrapper[(KeyString)attribute] is JSString value &&
-            string.Equals(value.ToString(), name, StringComparison.Ordinal);
+        // The attribute has to be a JavaScript *string* to match, exactly as before: an element whose
+        // reflected `id` is anything else does not answer the named getter. So this reads the property
+        // and tests its kind rather than coercing — realm.ToJsString would run a page toString and
+        // make an object match a name it never had.
+        static bool Matches(IJsRealm realm, JsValue wrapper, string attribute, string name) =>
+            realm.GetProperty(wrapper, attribute) is { IsString: true } value &&
+            string.Equals(value.AsString, name, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// A JSEAL handle over a selector result, which is an object or JavaScript <c>null</c> and never
-    /// anything else: a wrapper, a <c>NodeList</c>, an <c>HTMLCollection</c>, or the <c>null</c> a
-    /// <c>querySelector</c> that matched nothing answers.
+    /// A selector result normalised to what the DOM says it can be: an object or JavaScript
+    /// <c>null</c> and never anything else — a wrapper, a <c>NodeList</c>, an <c>HTMLCollection</c>,
+    /// or the <c>null</c> a <c>querySelector</c> that matched nothing answers.
     /// </summary>
-    private static JsValue FromEngineResult(JSValue value) =>
-        value is JSObject obj ? Dom.Runtime.JsInterop.FromEngineObject(obj) : JsValue.Null;
+    /// <remarks>
+    /// It stopped being a conversion when the searches migrated, but it stays a filter: the arms it
+    /// guards all answer an object or <c>null</c> already, and this is where that invariant is
+    /// stated. <c>DomBridge/JsObjects.NonElementNodes.cs</c> is the other caller.
+    /// </remarks>
+    private static JsValue FromEngineResult(JsValue value) => value.IsObject ? value : JsValue.Null;
 }

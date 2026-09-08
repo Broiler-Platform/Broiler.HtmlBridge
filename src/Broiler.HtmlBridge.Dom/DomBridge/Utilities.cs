@@ -1,10 +1,10 @@
 using System.Text;
 using System.Text.RegularExpressions;
-// Two engine namespaces, and only two: JSNull for the "matched nothing" answer querySelector gives,
-// and JSObject/JSValue for the wrapper lookups and the collection lists below. The six others this
-// file carried (Number, Storage, Array, String, Engine, Function) named nothing left in it — the
-// style, classList, storage and canvas builders they served all moved to feature modules.
-using Broiler.JavaScript.BuiltIns.Null;
+// One engine namespace, and only one: JSObject, for the two wrapper-cache reverse lookups below.
+// Fifteen files outside this one hand them an engine object (each unwrapping a JSEAL handle at its own
+// seam), so the parameter type is pinned from outside and the using goes when they stop. The searches
+// and the collections they build are the realm's now, so JSNull and JSValue are gone with them.
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
 using Broiler.CSS;
@@ -40,7 +40,7 @@ public sealed partial class DomBridge
     // Phase 4 item 1: root widened DomElement -> DomNode so querySelector/querySelectorAll work over a
     // canonical DomDocumentFragment. A fragment cannot itself match a selector, so the :scope-root
     // self-match is guarded to element roots and the descendant scope is null for a fragment root.
-    private static JSValue FindInDescendants(DomNode root, string selector, bool all, DomBridge bridge)
+    private static JsValue FindInDescendants(DomNode root, string selector, bool all, DomBridge bridge)
     {
         // DOM §4.2.6: an unparsable selector is a SyntaxError before the search runs. This is the
         // shared descendant search, so it covers the DocumentFragment forms as well as the Element
@@ -48,7 +48,7 @@ public sealed partial class DomBridge
         // document's.
         bridge.ValidateSelector(selector);
 
-        var results = new List<JSValue>();
+        var results = new List<JsValue>();
 
         // A pseudo-element selects no element, so the search is over before it starts — see
         // DomApiSyntax.CarriesPseudoElement. The empty list still has to be the right *kind* of
@@ -56,15 +56,15 @@ public sealed partial class DomBridge
         if (Dom.Features.DomApiSyntax.CarriesPseudoElement(selector))
         {
             return all
-                ? Dom.Features.DomCollectionBinding.NodeList(bridge._jsContext, () => results)
-                : JSNull.Value;
+                ? Dom.Features.DomCollectionBinding.NodeList(bridge.Realm, () => results)
+                : JsValue.Null;
         }
 
         var scope = root as DomElement;
         if (scope is not null && selector.Contains(":scope") &&
             bridge.MatchesSelector(scope, selector, scope))
         {
-            results.Add(bridge.ToJSObject(scope));
+            results.Add(bridge.WrapNode(scope));
             if (!all)
                 return results[0];
         }
@@ -73,17 +73,17 @@ public sealed partial class DomBridge
         // querySelectorAll is a STATIC NodeList (DOM §4.2.6) — the one collection the specification
         // defines as a snapshot rather than live, so the list is handed the results it already has
         // rather than the search that produced them.
-        if (all) return Dom.Features.DomCollectionBinding.NodeList(bridge._jsContext, () => results);
-        return results.Count > 0 ? results[0] : JSNull.Value;
+        if (all) return Dom.Features.DomCollectionBinding.NodeList(bridge.Realm, () => results);
+        return results.Count > 0 ? results[0] : JsValue.Null;
     }
 
-    private static void SearchDescendants(DomNode parent, string selector, List<JSValue> results, DomBridge bridge, bool all, DomElement? scope)
+    private static void SearchDescendants(DomNode parent, string selector, List<JsValue> results, DomBridge bridge, bool all, DomElement? scope)
     {
         foreach (var child in ChildElements(parent))
         {
             if (!IsText(child) && bridge.MatchesSelector(child, selector, scope))
             {
-                results.Add(bridge.ToJSObject(child));
+                results.Add(bridge.WrapNode(child));
                 if (!all) return;
             }
             SearchDescendants(child, selector, results, bridge, all, scope);
@@ -227,17 +227,25 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Finds the <see cref="DomElement"/> corresponding to a given <see cref="JSObject"/>
+    /// Finds the <see cref="DomElement"/> corresponding to a given wrapper object
     /// by looking up the JS object cache.
     /// </summary>
+    /// <remarks>
+    /// <b>The engine parameter type is pinned from outside, and so is the name.</b> Fifteen files
+    /// across the assembly call this pair, every one of them unwrapping a JSEAL handle at its own
+    /// seam; the declaration cannot take a <c>JsValue</c> — nor lose the <em>JSObject</em> in its
+    /// name — until they all ask with one. <see cref="Dom.Runtime.JsObjectRegistry"/> holds the
+    /// mapping either way.
+    /// </remarks>
     private DomElement? FindDomElementByJSObject(JSObject jsObj) => FindDomNodeByJSObject(jsObj) as DomElement;
 
     /// <summary>
-    /// Finds the canonical <see cref="DomNode"/> corresponding to a given
-    /// <see cref="JSObject"/> by reverse-scanning the JS-object cache. Unlike
+    /// Finds the canonical <see cref="DomNode"/> corresponding to a given wrapper object
+    /// by reverse-scanning the JS-object cache. Unlike
     /// <see cref="FindDomElementByJSObject"/> this also resolves text/comment nodes
     /// (RF-BRIDGE-1c Phase F — needed once ranges/selection carry canonical char-data nodes).
     /// </summary>
+    /// <inheritdoc cref="FindDomElementByJSObject" path="/remarks" />
     private DomNode? FindDomNodeByJSObject(JSObject jsObj) =>
         _jsObjects.TryGetNode(jsObj, out var node) ? node : null;
 
@@ -410,7 +418,7 @@ public sealed partial class DomBridge
     /// <summary>
     /// Collects descendant elements matching a tag name in tree order (depth-first).
     /// </summary>
-    private static void CollectDescendantsByTag(DomElement root, string tagName, List<JSValue> results, DomBridge bridge)
+    private static void CollectDescendantsByTag(DomElement root, string tagName, List<JsValue> results, DomBridge bridge)
     {
         // Phase 4 item 4/5: reuse canonical Descendants() (public, document-order, level-snapshotted —
         // the bridge's own WPT #1143 defensive idiom promoted to canonical, operating on the real child
@@ -420,7 +428,7 @@ public sealed partial class DomBridge
         foreach (var element in root.Descendants().OfType<DomElement>())
         {
             if (tagName == "*" || string.Equals(element.TagName, tagName, StringComparison.OrdinalIgnoreCase))
-                results.Add(bridge.ToJSObject(element));
+                results.Add(bridge.WrapNode(element));
         }
     }
 
@@ -434,7 +442,7 @@ public sealed partial class DomBridge
     /// to survive as a selector. The set rule itself lives in
     /// <see cref="Dom.Features.ClassNameSet"/>, shared with the document half of the same method.
     /// </remarks>
-    private static void CollectDescendantsByClass(DomElement root, string classNames, List<JSValue> results, DomBridge bridge)
+    private static void CollectDescendantsByClass(DomElement root, string classNames, List<JsValue> results, DomBridge bridge)
     {
         var wanted = Dom.Features.ClassNameSet.Parse(classNames);
         if (wanted.Length == 0)
@@ -443,7 +451,7 @@ public sealed partial class DomBridge
         foreach (var element in root.Descendants().OfType<DomElement>())
         {
             if (Dom.Features.ClassNameSet.Matches(element, wanted))
-                results.Add(bridge.ToJSObject(element));
+                results.Add(bridge.WrapNode(element));
         }
     }
 

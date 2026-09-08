@@ -1,6 +1,9 @@
 using Broiler.HtmlBridge.Jseal;
-// The two engine namespaces left: the property-attribute enum the unmigrated installations below
-// pass, and the wrapper type this file is handed.
+// The two engine namespaces left, and one member decides both: <img>.width/height read the used
+// dimension through Features/ComputedStyleBinding.cs, which is not migrated, so that getter takes the
+// engine's argument frame and the property has to be installed with an engine function. The wrapper
+// type comes with it — an engine function needs the engine object to go on — and _tables and
+// FormAssociationBinding, neither of them migrated, are handed that same object.
 using Broiler.JavaScript.Storage;
 using Broiler.JavaScript.Runtime;
 
@@ -79,33 +82,42 @@ public sealed partial class DomBridge
         ("fetchPriority", "fetchpriority"),
     ];
 
-    private void AddElementSpecificMembers(JSObject obj, Broiler.Dom.DomElement element)
+    /// <summary>
+    /// The per-tag member pass: everything an element gets because of what tag it is, rather than
+    /// because it is an <c>Element</c> or an <c>HTMLElement</c>.
+    /// </summary>
+    /// <remarks>
+    /// The wrapper arrives as a handle, and the engine object is derived from it rather than the other
+    /// way round — the seam is a cast, not a conversion (<c>Runtime/JsInterop.cs</c>), so both name the
+    /// same object and a member lands in the position it is installed in. That is what keeps
+    /// <c>Object.getOwnPropertyNames(el)</c> reporting the order it always has, with the realm's
+    /// members and the three engine-typed neighbours interleaved exactly as they are written below.
+    /// </remarks>
+    private void AddElementSpecificMembers(JsValue handle, Broiler.Dom.DomElement element)
     {
         // -- Phase 5: HTML DOM Interfaces --
 
         var tag = element.TagName.ToLowerInvariant();
 
-        // A JSEAL handle over the same wrapper, for the members whose module has migrated. The seam is
-        // a cast rather than a conversion (Runtime/JsInterop.cs), so a member installed through the
-        // realm lands on this object in the position it is installed in — which is what keeps
-        // Object.getOwnPropertyNames(el) reporting the order it always has, with the migrated and
-        // unmigrated members interleaved exactly as they are written below.
-        var handle = Dom.Runtime.JsInterop.FromEngineObject(obj);
+        // The same wrapper as the engine's own object, for the three installations below whose callee
+        // reads the engine's argument frame: the table interfaces, the form-association members, and
+        // <img>.width/height's used-dimension getter.
+        var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
 
         // HTMLTableElement / HTMLTableSectionElement / HTMLTableRowElement interfaces (Phase 3 P3.5:
         // extracted into the co-located TableBinding feature module).
         _tables.Install(obj, element, tag);
 
         // HTMLFormElement interface (Phase 3 P3.9: extracted into the co-located FormBinding module).
-        _forms.Install(obj, element, tag);
+        _forms.Install(handle, element, tag);
 
         // HTMLDetailsElement.open, HTMLDialogElement (showModal/show/close/open/returnValue) and the
         // popover API (Phase 3 P3.7: extracted into the co-located DialogBinding feature module).
-        _dialogs.Install(obj, element, tag, HasAttr(element, "popover"));
+        _dialogs.Install(handle, element, tag, HasAttr(element, "popover"));
 
         // HTMLSelectElement / HTMLOptionElement (Phase 3 P3.8: extracted into the co-located
         // SelectBinding feature module).
-        _select.Install(obj, element, tag);
+        _select.Install(handle, element, tag);
 
         // HTMLMediaElement.canPlayType() on <video>/<audio> — the capability question a media player
         // asks before it commits to a source (Phase 3 co-located MediaCapabilityBinding module,
@@ -139,14 +151,12 @@ public sealed partial class DomBridge
             // data get (reflected URL) + type get/set are in ElementReflectionBinding (P3.49); the data
             // setter, contentDocument getter and getSVGDocument() are sub-document-coupled and live in the
             // ObjectElementBinding feature module (Phase 3 P3.52).
-            // The getter's module has migrated and the setter's has not, so the pair is mixed: the
-            // realm mints the half that is ready and the seam unwraps it for the engine-typed
-            // installation the other half still needs.
-            obj.FastAddProperty("data",
-                Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("get data",
-                    (in _) => Dom.Features.ElementReflectionBinding.GetData(this, element))),
-                new DomFunction((in a) => Dom.Features.ObjectElementBinding.SetData(this, element, in a), "set data"),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            // Both modules are migrated now, so the pair is the realm's: it names the two functions
+            // "get data"/"set data" as the engine-typed installation spelled out, and the setter's
+            // ToString is the realm's — the same ECMAScript coercion on the same value.
+            Realm.DefineAccessor(handle, "data",
+                (in _) => Dom.Features.ElementReflectionBinding.GetData(this, element),
+                (in call) => Dom.Features.ObjectElementBinding.SetData(this, element, in call));
 
             // type property (MIME type of the resource)
             Realm.DefineAccessor(handle, "type",
@@ -156,14 +166,13 @@ public sealed partial class DomBridge
             // contentDocument for <object> element (with same-origin check)
             // Returns null when the resource fails to load (HTTP 404, file not found, etc.)
             // which signals that the fallback content (child nodes) should be visible.
-            obj.FastAddProperty("contentDocument",
-                new DomFunction((in _) => Dom.Features.ObjectElementBinding.GetContentDocument(this, element, in _), "get contentDocument"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            Realm.DefineAccessor(handle, "contentDocument",
+                (in _) => Dom.Features.ObjectElementBinding.ContentDocument(this, element), null);
 
             // getSVGDocument() for <object> element
-            obj.FastAddValue("getSVGDocument",
-                new DomFunction((in _) => Dom.Features.ObjectElementBinding.GetSvgDocument(this, element, in _), "getSVGDocument", 0),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "getSVGDocument",
+                Realm.NewMethod("getSVGDocument",
+                    (in _) => Dom.Features.ObjectElementBinding.SvgDocument(this, element), 0));
         }
 
         // HTMLAnchorElement — href property with URI resolution

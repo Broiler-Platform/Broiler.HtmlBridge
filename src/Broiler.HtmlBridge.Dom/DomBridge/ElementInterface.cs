@@ -2,7 +2,12 @@ using System.Runtime.CompilerServices;
 
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
+// The engine namespaces are here for one member: animate()'s body reads the engine's own argument
+// frame (DomBridge/WebAnimations.cs), so the member has to be minted with that frame — see
+// AddPrototypeMethod, which this file also lends to DomBridge/HtmlElementInterface.cs for
+// click/focus/blur.
 using Broiler.JavaScript.Runtime;
+using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge;
 
@@ -43,16 +48,16 @@ namespace Broiler.HtmlBridge;
 /// every copy against its prototype counterpart by hand.
 /// </para>
 /// <para>
-/// <b>The installer speaks JSEAL, and the engine vocabulary that is left is a list of unmigrated
-/// neighbours.</b> Members are minted through <see cref="Realm"/> and installed on a handle over the
-/// target, which is a cast rather than a conversion — so each lands on the object in the position it
-/// is written in and <c>Object.getOwnPropertyNames</c> reports the order it always did, with the
-/// migrated and unmigrated members interleaved exactly as below. What still needs the engine's
-/// argument frame is named where it appears: <c>animate</c> (<c>DomBridge/WebAnimations.cs</c>), the
-/// four <c>ChildNode</c> members (<see cref="Dom.Features.ChildNodeBinding"/>, whose bodies are
-/// engine-framed because two unmigrated files install them elsewhere), <see cref="_dialogs"/>, and the
-/// two entry points below that are handed an engine object by <c>DomBridge/JsObjects.cs</c> and
-/// <c>DomBridge/CharacterDataInterface.cs</c>.
+/// <b>The installer speaks JSEAL, and one member is what is left of the engine vocabulary.</b> Every
+/// member is minted through <see cref="Realm"/> and installed on the target handle, in the position it
+/// is written in, so <c>Object.getOwnPropertyNames</c> reports the order it always did. The exception
+/// is <c>animate</c>: its body is <c>DomBridge/WebAnimations.cs</c>'s <see cref="ElementAnimate"/>,
+/// which reads the engine's own argument frame and parses the keyframes and the options object out of
+/// it. There is no adapter between two call frames — only between two object types — so that one
+/// member is minted with the frame its body reads, and <see cref="ElementForEngineReceiver"/> asks the
+/// single element source below through it. The four <c>ChildNode</c> members and the fullscreen pair
+/// were engine-framed for the same reason and are not any more: their modules read a
+/// <see cref="JsCall"/>.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -82,11 +87,11 @@ public sealed partial class DomBridge
     /// </summary>
     internal void RegisterElementInterface()
     {
-        if (PrototypeOfInterface("Element") is not { } proto)
+        var proto = PrototypeHandleOfInterface("Element");
+        if (!proto.IsObject)
             return;
 
-        InstallElementInterface(
-            Dom.Runtime.JsInterop.FromEngineObject(proto), RequireElementReceiver, RequireWrapperReceiver);
+        InstallElementInterface(proto, RequireElementReceiver, RequireWrapperReceiver);
         _elementInterfacePrototypeReady = true;
     }
 
@@ -96,14 +101,13 @@ public sealed partial class DomBridge
     /// realm carried the interfaces, which inherits from nothing.
     /// </summary>
     /// <remarks>
-    /// Engine-typed because its caller is: <c>DomBridge/JsObjects.cs</c> mints the wrapper and holds
-    /// it as the engine's own object. The seam is a cast, so the handle below is that object.
+    /// Both sources capture rather than resolve: the element is the one the wrapper was minted for and
+    /// the wrapper is this object, whatever receiver a call happens to arrive with. That is what an own
+    /// property of one wrapper means, and it is why neither raises the illegal-invocation
+    /// <c>TypeError</c> the prototype's pair does.
     /// </remarks>
-    private void PopulateElementInterfaceOnInstance(JSObject obj, DomElement element)
-    {
-        var wrapper = Dom.Runtime.JsInterop.FromEngineObject(obj);
+    private void PopulateElementInterfaceOnInstance(JsValue wrapper, DomElement element) =>
         InstallElementInterface(wrapper, (in JsCall _, string _) => element, (in JsCall _, string _) => wrapper);
-    }
 
     /// <summary>The element the receiver names, or a <c>TypeError</c> when it is not one.</summary>
     /// <remarks>
@@ -142,17 +146,17 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// A <see cref="Dom.Features.JsElementSource"/> as the engine-shaped
-    /// <see cref="Dom.Features.ElementSource"/>, for the feature modules that still install their
-    /// members on an engine argument frame.
+    /// The one element source, asked from a member whose <em>body</em> reads the engine's own argument
+    /// frame and which therefore has to be minted with that frame.
     /// </summary>
     /// <remarks>
-    /// One resolution rule, asked through whichever frame the member happens to have — this is the
-    /// mirror of the <c>JsSourceOf</c> that used to point the other way, and it exists for the same
-    /// reason. Building a second receiver-resolving source against the engine's frame would work and is
-    /// exactly what must not happen: the prototype's members and a pre-realm wrapper's are the same
-    /// members because one installer writes them, and two sources answering "which element is this"
-    /// independently is the drift that arrangement exists to prevent.
+    /// <para>
+    /// One resolution rule, asked through whichever frame the member happens to have. Building a
+    /// second receiver-resolving source against the engine's frame would work and is exactly what must
+    /// not happen: the prototype's members and a pre-realm wrapper's are the same members because one
+    /// installer writes them, and two sources answering "which element is this" independently is the
+    /// drift that arrangement exists to prevent.
+    /// </para>
     /// <para>
     /// Both sources look at the receiver and nothing else (<see cref="RequireElementReceiver"/> tests
     /// <c>call.This</c>; the capturing source ignores the frame entirely), so presenting the engine
@@ -161,16 +165,37 @@ public sealed partial class DomBridge
     /// receiver that is not an engine object becomes <c>undefined</c>, which fails the same test the
     /// engine-object one did.
     /// </para>
+    /// <para>
+    /// Two members are left that need it — <c>animate</c> here and <c>click</c>/<c>focus</c>/
+    /// <c>blur</c> in <c>DomBridge/HtmlElementInterface.cs</c>, which shares this partial class — and
+    /// each is pinned by a feature module that has not migrated rather than by anything in either file.
+    /// </para>
     /// </remarks>
-    private Dom.Features.ElementSource EngineSourceOf(Dom.Features.JsElementSource element) =>
-        (in Arguments a, string member) =>
-        {
-            var receiver = a.This is JSObject wrapper
-                ? Dom.Runtime.JsInterop.FromEngineObject(wrapper)
-                : JsValue.Undefined;
-            var call = new JsCall(Realm, receiver, default);
-            return element(in call, member);
-        };
+    private DomElement ElementForEngineReceiver(
+        Dom.Features.JsElementSource element, in Arguments a, string member)
+    {
+        var receiver = a.This is JSObject wrapper
+            ? Dom.Runtime.JsInterop.FromEngineObject(wrapper)
+            : JsValue.Undefined;
+        var call = new JsCall(Realm, receiver, default);
+        return element(in call, member);
+    }
+
+    /// <summary>Adds a WebIDL operation to an interface prototype, with the engine's argument frame.</summary>
+    /// <remarks>
+    /// <b>An engine-typed adapter, pinned by the two feature modules whose bodies read that frame</b> —
+    /// <c>DomBridge/WebAnimations.cs</c> for <c>animate</c> and
+    /// <see cref="Dom.Features.EventTargetBinding"/> for <c>click</c>/<c>focus</c>/<c>blur</c>. It sits
+    /// here rather than beside the realm-minted prototype helpers in
+    /// <c>DomBridge/CharacterDataInterface.cs</c>, where it used to, because those four call sites are
+    /// the only ones left and both are in this partial class. Enumerable and configurable but not
+    /// writable-as-data is what the instance properties were and what Web IDL asks for on a prototype —
+    /// the same pair <see cref="JsPropertyFlags.Default"/> produces for a value, so the realm's members
+    /// and these carry identical attributes on the same object.
+    /// </remarks>
+    private static void AddPrototypeMethod(JSObject proto, string name, int length, JSFunctionDelegate body) =>
+        proto.FastAddValue(name, new DomFunction(body, name, length),
+            JSPropertyAttributes.EnumerableConfigurableValue);
 
     /// <summary>Adds a WebIDL operation to an interface prototype.</summary>
     /// <remarks>
@@ -201,19 +226,16 @@ public sealed partial class DomBridge
 
         Dom.Features.ElementGeometryBinding.InstallElementMembers(this, Realm, target, element);
 
-        // The dialog/details/popover module and animate() still install against the engine's own
-        // object and read its argument frame, so each is handed both — the same object this file has
-        // been installing on, and the same resolution rule under the frame its members read. The
-        // adapted source is built once here rather than per call.
-        var engineTarget = Dom.Runtime.JsInterop.ToEngineObject(target);
-        var engineElement = EngineSourceOf(element);
-
-        _dialogs.InstallElementMembers(engineTarget, engineElement);
+        // Fullscreen's requestFullscreen()/webkitRequestFullscreen(), which the dialog/details/popover
+        // module owns because they share its top-layer machinery. The realm's, in this position.
+        _dialogs.InstallElementMembers(target, element);
 
         // Animatable.animate() — Web Animations §Animatable, which Element includes. ElementAnimate is
-        // the bridge's own unmigrated callback (DomBridge/WebAnimations.cs) and reads the engine frame.
-        AddPrototypeMethod(engineTarget, "animate", 2,
-            (in Arguments a) => ElementAnimate(engineElement(in a, "animate"), in a));
+        // the bridge's own unmigrated callback (DomBridge/WebAnimations.cs) and reads the engine's
+        // argument frame, so this one member is minted with that frame — onto the same object, since
+        // the seam is a cast — and asks the source above for its element through the frame it has.
+        AddPrototypeMethod(Dom.Runtime.JsInterop.ToEngineObject(target), "animate", 2,
+            (in Arguments a) => ElementAnimate(ElementForEngineReceiver(element, in a, "animate"), in a));
     }
 
     /// <summary>
@@ -335,24 +357,21 @@ public sealed partial class DomBridge
         AddInterfaceMethod(target, "replaceChildren", 0,
             (in call) => Dom.Features.TreeMutationBinding.ReplaceChildren(this, element(in call, "replaceChildren"), in call));
 
-        // The ChildNode mixin is the one group here whose bodies are still engine-framed, and not
-        // because of this file: DomBridge/CharacterDataInterface.cs and
-        // DomBridge/JsObjects.NonElementNodes.cs install the same four members on Node.prototype and
-        // on the non-element wrappers, so ChildNodeBinding reads the engine's frame for all three
-        // callers. Writing a second, JSEAL-framed copy of those four bodies to serve this one is the
-        // duplication the shared installer above exists to avoid, so the engine frame is adapted here
-        // instead and the four move together when those two files do.
-        var engineTarget = Dom.Runtime.JsInterop.ToEngineObject(target);
-        var engineElement = EngineSourceOf(element);
-
-        AddPrototypeMethod(engineTarget, "remove", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.Remove(this, engineElement(in a, "remove"), in a));
-        AddPrototypeMethod(engineTarget, "before", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.Before(this, engineElement(in a, "before"), in a));
-        AddPrototypeMethod(engineTarget, "after", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.After(this, engineElement(in a, "after"), in a));
-        AddPrototypeMethod(engineTarget, "replaceWith", 0,
-            (in Arguments a) => Dom.Features.ChildNodeBinding.ReplaceWith(this, engineElement(in a, "replaceWith"), in a));
+        // The ChildNode mixin. These four bodies were the last engine-framed group in this file, and
+        // not because of this file: DomBridge/CharacterDataInterface.cs and
+        // DomBridge/JsObjects.NonElementNodes.cs install the same four members on
+        // CharacterData.prototype and on the non-element wrappers, so ChildNodeBinding had to serve
+        // three callers at once and kept a second, engine-framed entry point per operation to do it.
+        // All three mint through the realm now, so there is one entry point again and these are
+        // ordinary interface methods.
+        AddInterfaceMethod(target, "remove", 0,
+            (in call) => Dom.Features.ChildNodeBinding.Remove(this, element(in call, "remove"), in call));
+        AddInterfaceMethod(target, "before", 0,
+            (in call) => Dom.Features.ChildNodeBinding.Before(this, element(in call, "before"), in call));
+        AddInterfaceMethod(target, "after", 0,
+            (in call) => Dom.Features.ChildNodeBinding.After(this, element(in call, "after"), in call));
+        AddInterfaceMethod(target, "replaceWith", 0,
+            (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, element(in call, "replaceWith"), in call));
     }
 
     /// <summary>The selector and collection lookups scoped to an element.</summary>

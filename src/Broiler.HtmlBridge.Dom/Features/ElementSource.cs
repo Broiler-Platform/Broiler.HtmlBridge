@@ -1,6 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -22,13 +21,22 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>TypeError</c> naming the member, as it is in a browser. A capturing source ignores it.
 /// </para>
 /// <para>
-/// <b>This is the one source now; the engine-shaped <see cref="ElementSource"/> below is what is left
-/// of the pair.</b> The two used to be twins declared in two files — this one under the name
-/// <c>JsElementSource</c> beside the element-interface installer in <c>DomBridge/ElementInterface.cs</c>
-/// — because a member installed by <c>FastAddProperty</c> saw the engine's argument frame while one
-/// minted through <see cref="IJsRealm"/> sees a <see cref="JsCall"/>, and the installer had to hand
-/// each module the frame its own signature named. With the element-interface hubs migrated, the JSEAL
-/// frame is the one the installer speaks and the twins are one declaration again.
+/// <b>There is one source now.</b> It used to be a pair: an engine-shaped twin stood beside this one
+/// because a member installed by <c>FastAddProperty</c> saw the engine's argument frame while one
+/// minted through <see cref="IJsRealm"/> sees a <see cref="JsCall"/>, and the element-interface
+/// installer had to hand each feature module the frame its own signature named. Both hubs
+/// (<c>DomBridge/ElementInterface.cs</c>, <c>DomBridge/HtmlElementInterface.cs</c>) and every module
+/// they installed against now speak JSEAL, so the twin is gone and this is the only declaration.
+/// The two members whose <em>bodies</em> still read the engine's frame — <c>animate()</c> and
+/// <c>click</c>/<c>focus</c>/<c>blur</c>, whose modules are not migrated — ask this same source for
+/// their element through a receiver-only <see cref="JsCall"/> built at their install site, so there
+/// is still exactly one rule for "which element is this".
+/// </para>
+/// <para>
+/// The name is <c>JsElementSource</c> rather than <c>ElementSource</c> only because four feature
+/// modules outside this file declare their installers against it — <c>ElementContentBinding</c>,
+/// <c>ElementGeometryBinding</c>, <c>GlobalAttributeBinding</c> and <c>InsertAdjacentBinding</c>.
+/// Renaming it is a rename of those seven signatures and nothing else.
 /// </para>
 /// </remarks>
 internal delegate DomElement JsElementSource(in JsCall call, string member);
@@ -43,18 +51,3 @@ internal delegate DomElement JsElementSource(in JsCall call, string member);
 /// member was installed on; a receiver-resolving one answers the receiver itself.
 /// </remarks>
 internal delegate JsValue WrapperSource(in JsCall call, string member);
-
-/// <summary>
-/// <see cref="JsElementSource"/> read through the engine's own argument frame, for the two feature
-/// modules that still install their members with <c>FastAddValue</c>.
-/// </summary>
-/// <remarks>
-/// <para>
-/// It answers the same question by the same rule — the element-interface installer builds one of
-/// these out of the JSEAL source rather than resolving the receiver a second time, so the two cannot
-/// drift. It exists only because <see cref="DialogBinding.InstallElementMembers"/> and
-/// <see cref="FormControlBinding.InstallHtmlElementMembers"/> declare their installers against it;
-/// those two are what pin the engine vocabulary here, and this declaration goes with them.
-/// </para>
-/// </remarks>
-internal delegate DomElement ElementSource(in Arguments a, string member);

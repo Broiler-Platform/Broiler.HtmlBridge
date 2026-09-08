@@ -350,8 +350,8 @@ public sealed partial class DomBridge
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
         // routed by receiver (DomBridge.EventTargetInterface.cs) — one function for every target, as
         // in a browser. A wrapper minted before the realm carried it installs its own, and those three
-        // are the engine's: EventTargetBinding takes an Arguments. The handle carries this very object,
-        // so the two halves install onto one.
+        // are the engine's: EventTargetBinding reads the engine's argument frame. The handle carries
+        // this very object, so the two halves install onto one.
         if (!_eventTargetRoutingReady)
         {
             var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
@@ -613,7 +613,7 @@ public sealed partial class DomBridge
     /// The reverse lookup itself is <c>DomBridge/Utilities.cs</c>'s and is keyed on the engine object,
     /// which a handle carries — so this is one cast, gathered here rather than repeated at each of the
     /// six argument reads in the fragment's child manipulation. A non-object handle answers null
-    /// without asking, which is the branch the <c>is not JSObject</c> guard used to take at each site.
+    /// without asking, which is the branch the engine-object guard used to take at each site.
     /// </remarks>
     private DomNode? NodeForWrapper(JsValue value) =>
         value.IsObject ? FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(value)) : null;

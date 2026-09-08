@@ -77,8 +77,8 @@ internal sealed class BlobBinding
     /// Keyed on the engine object rather than on a handle: a <see cref="JsValue"/> is a struct, so it
     /// cannot be a <see cref="ConditionalWeakTable{TKey,TValue}"/> key, and the reference it carries
     /// is the only identity the object has. <see cref="JsInterop"/> is the sanctioned way to reach
-    /// it, and it is also what the streams module already hands this class through
-    /// <see cref="BytesOf"/>.
+    /// it, and it is reached in exactly one place —
+    /// <see cref="TryDataFor"/>, which is the one place a handle is unwrapped for it.
     /// </remarks>
     private readonly ConditionalWeakTable<Broiler.JavaScript.Runtime.JSObject, BlobData> _blobs = new();
 
@@ -106,30 +106,19 @@ internal sealed class BlobBinding
     // -------- Registration --------
 
     /// <summary>
-    /// Registers <c>Blob</c> and <c>File</c> and installs their members. Runs once per context, with
+    /// Registers <c>Blob</c> and <c>File</c> and installs their members. Runs once per realm, with
     /// the other interface constructors.
     /// </summary>
-    /// <param name="context">
-    /// The engine context <c>DomBridge/Registration/Polyfills.cs</c> — an unmigrated hub — still
-    /// holds and hands over.
-    /// </param>
     /// <remarks>
-    /// <b>The context is turned into a realm here because the call site cannot pass one.</b> Every
-    /// other feature module reaches the bridge's realm through its host contract or through the
-    /// accessor it was constructed with; this one is built as <c>new BlobBinding()</c> and registered
-    /// by a hub that hands over a <c>JSContext</c>, and neither of those two lines is this module's
-    /// to change while they belong to files nobody owns this round. Adopting is exactly what the
-    /// bridge itself does with the same object at <c>Attach</c> (see <c>DomBridge.Realm.cs</c>): a
-    /// provider that recognises the context wraps it <em>without owning it</em>
-    /// (<see cref="IJsRealmAdoption"/>), and because every handle carries the engine's own value, a
-    /// second wrapper over one context mints the same objects the first would — the <c>Blob</c> a
-    /// page builds is the <c>Blob</c> the fetch path and the streams module see. When Polyfills.cs
-    /// migrates it passes the bridge's realm and this whole method becomes one line.
+    /// <b>The realm is the bridge's own, and the overload that used to make one here is gone.</b>
+    /// This module is built as <c>new BlobBinding()</c> rather than against a host contract, so it
+    /// used to be handed the script context and adopt it — which minted a <em>second</em>
+    /// <see cref="IJsRealm"/> over the one context, with a job queue of its own that nothing drained.
+    /// The objects were the right ones (a handle carries the engine's own value), but a promise
+    /// settled through the second realm reported to a queue no event loop pumped. The call site in
+    /// <c>DomBridge/Registration/Polyfills.cs</c> passes the bridge's realm now, so there is one
+    /// realm and one queue.
     /// </remarks>
-    internal void RegisterInterfaces(Broiler.JavaScript.Engine.JSContext context) =>
-        RegisterInterfaces(AdoptRealm(context));
-
-    /// <inheritdoc cref="RegisterInterfaces(Broiler.JavaScript.Engine.JSContext)" />
     internal void RegisterInterfaces(IJsRealm realm)
     {
         // The host halves of the two constructors, captured into a closure and deleted from the
@@ -229,35 +218,6 @@ internal sealed class BlobBinding
         realm.DefineValue(url, "revokeObjectURL", realm.NewMethod("revokeObjectURL", RevokeObjectUrl, 1));
     }
 
-    /// <summary>
-    /// The context the unmigrated registration site handed over, wrapped as a realm by whichever
-    /// registered provider recognises it. See the remarks on
-    /// <see cref="RegisterInterfaces(Broiler.JavaScript.Engine.JSContext)"/> for why this is here at
-    /// all and when it goes.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// No provider recognised the object, which means no engine provider assembly was linked. A blob
-    /// surface built on nothing would leave a page with a <c>Blob</c> that is a
-    /// <c>ReferenceError</c> and no error to explain it, so this is thrown rather than tolerated.
-    /// </exception>
-    private static IJsRealm AdoptRealm(Broiler.JavaScript.Engine.JSContext context)
-    {
-        foreach (var provider in JsEngineRegistry.All)
-        {
-            if (provider is IJsRealmAdoption adoption &&
-                adoption.TryAdopt(context, out var realm) &&
-                realm is not null)
-            {
-                return realm;
-            }
-        }
-
-        throw new InvalidOperationException(
-            "No registered JavaScript engine provider recognised the script context the Blob " +
-            "registration was handed. A host must reference an engine provider assembly — " +
-            "Broiler.HtmlBridge.Jseal.BroilerJs for Broiler.JS — and that assembly registers itself " +
-            "when it is loaded.");
-    }
 
     // -------- Construction --------
 
@@ -327,11 +287,11 @@ internal sealed class BlobBinding
     /// deleted from the global, so this does not become a way for a page to reach bytes out of band.
     /// </summary>
     /// <remarks>
-    /// It takes the engine object because <c>StreamsBinding</c>, which is migrated, converts a handle
-    /// on the way in — and because that object is what this class keys on anyway.
+    /// It takes a handle like everything else on this class; the unwrap to the object the weak table
+    /// keys on happens in <see cref="TryDataFor"/>, in one place.
     /// </remarks>
-    internal byte[]? BytesOf(Broiler.JavaScript.Runtime.JSObject candidate) =>
-        _blobs.TryGetValue(candidate, out var data) ? data.Bytes : null;
+    internal byte[]? BytesOf(JsValue candidate) =>
+        TryDataFor(candidate, out var data) ? data.Bytes : null;
 
     private static double ReadLastModified(IJsRealm realm, JsValue options)
     {
