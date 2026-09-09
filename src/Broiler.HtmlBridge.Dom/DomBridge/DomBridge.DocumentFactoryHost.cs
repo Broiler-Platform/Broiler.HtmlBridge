@@ -15,14 +15,18 @@ namespace Broiler.HtmlBridge;
 // wrapper tables are keyed on.
 public sealed partial class DomBridge : Dom.Features.IDocumentFactoryHost
 {
-    JsValue Dom.Features.IDocumentFactoryHost.WrapNode(DomNode node) =>
-        Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
+    // The bridge's own WrapNode, which answers the handle. This used to read
+    // FromEngineObject(ToJSObject(node)), and ToJSObject is ToEngineObject(WrapNode(node)) — the same
+    // wrapper converted down and back up, twice, to arrive where it started.
+    JsValue Dom.Features.IDocumentFactoryHost.WrapNode(DomNode node) => WrapNode(node);
 
     // Missing rather than undefined for "nothing is defined for this name": the module tests it with
-    // IsMissing and never hands it to script, which is what the null check it replaces did.
+    // IsMissing and never hands it to script, which is what the null check it replaces did. The
+    // IsObject filter is kept rather than delegating outright, so a non-object answer still reads as
+    // "nothing matched" instead of reaching a caller that expects a wrapper.
     JsValue Dom.Features.IDocumentFactoryHost.CreateDefinedCustomElement(string tagName, string? isValue) =>
-        CustomElements.CreateDefined(tagName, isValue) is { } upgraded
-            ? Dom.Runtime.JsInterop.FromEngineObject(upgraded)
+        CustomElements.CreateDefinedElement(tagName, isValue) is { IsObject: true } upgraded
+            ? upgraded
             : JsValue.Missing;
 
     void Dom.Features.IDocumentFactoryHost.RecordCustomElementIsValue(DomElement element, string isValue) =>

@@ -1,7 +1,6 @@
 using System.Text.RegularExpressions;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -504,16 +503,6 @@ internal sealed partial class CustomElementsBinding(ICustomElementsHost host)
         _upgraded.Add(created);
         return _host.WrapNode(created);
     }
-
-    /// <summary>
-    /// Engine-typed adapter for <c>DomBridge/DomBridge.DocumentFactoryHost.cs</c>, whose
-    /// <c>IDocumentFactoryHost</c> still hands the created element back as an engine object. See the
-    /// remarks on this class.
-    /// </summary>
-    internal JSObject? CreateDefined(string tagName, string? isValue) =>
-        CreateDefinedElement(tagName, isValue) is { IsObject: true } created
-            ? Runtime.JsInterop.ToEngineObject(created)
-            : null;
 
     /// <summary>
     /// Creates an element for a defined custom tag by running its constructor, which is what makes
