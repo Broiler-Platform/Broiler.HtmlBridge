@@ -82,10 +82,21 @@ public enum JsCapabilities : uint
     /// event listener, a promise reaction and a <c>toString</c> coercion all are.
     /// </summary>
     /// <remarks>
-    /// <b>This is the capability that decides whether an engine can host a DOM at all</b>, and it is
-    /// the one Broiler.VM does not have today: every capability its JavaScript profile imports is
-    /// declared non-reentrant, and its core refuses a re-entrant call for the duration of a host
-    /// frame. An engine without it can run a page's script; it cannot dispatch a <c>click</c>.
+    /// <para>
+    /// <b>This is the capability that decides whether an engine can host a DOM at all.</b> An engine
+    /// without it can run a page's script; it cannot dispatch a <c>click</c>.
+    /// </para>
+    /// <para>
+    /// <b>These remarks used to name Broiler.VM as the engine that does not have it, and the reason
+    /// they gave was wrong in a way worth keeping.</b> The reason given was that every capability
+    /// that profile imports is declared non-reentrant and its core refuses a re-entrant call for the
+    /// duration of a host frame. The first half was true and the second was true only of a
+    /// capability that DECLARES non-reentrance - the refusal is keyed on the declaration, and
+    /// nothing there had ever declared the other mode. The deeper error was reading the capability
+    /// channel as the only way host code can reach a guest: on that engine a host object is an
+    /// ordinary object in the realm, so a listener call never crosses the core and never meets a
+    /// gate. See <c>docs/jseal.md</c> for what a provider there would now cost.
+    /// </para>
     /// </remarks>
     ReentrantHostCalls = 1 << 8,
 
