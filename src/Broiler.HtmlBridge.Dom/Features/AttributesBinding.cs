@@ -26,14 +26,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// contract is <see cref="JsNativeFunction"/> since its own migration.
 /// </para>
 /// <para>
-/// <b>Two engine references remain and neither is this module's to remove.</b>
+/// <b>One engine reference remains and it is not this module's to remove.</b>
 /// <see cref="BuildStandaloneAttrNode"/> answers an engine object because
 /// <c>DomBridge/DomBridge.DocumentFactoryHost.cs</c>, which reaches it for
-/// <c>document.createAttribute</c>, still holds one; and the <c>InvalidCharacterError</c> that
-/// <c>setAttribute</c> and <c>toggleAttribute</c> must throw is minted by the bridge's name validator,
-/// which takes a script context (<see cref="IAttributesHost.JsContext"/>). Both convert with
+/// <c>document.createAttribute</c>, still holds one. It converts with
 /// <see cref="Runtime.JsInterop"/> or not at all: it carries an object across without converting it —
 /// the handle holds the engine's own object — and cannot carry a primitive.
+/// <para>
+/// The second used to be the <c>InvalidCharacterError</c> that <c>setAttribute</c> and
+/// <c>toggleAttribute</c> must throw, which the bridge's name validator minted from a script context
+/// this contract had to carry. The validator takes a realm now, so the contract member is gone and
+/// the three call sites use <c>call.Realm</c> — the realm the call arrived through.
+/// </para>
 /// </para>
 /// </remarks>
 internal sealed class AttributesBinding(IAttributesHost host)

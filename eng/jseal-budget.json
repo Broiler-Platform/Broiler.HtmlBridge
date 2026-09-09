@@ -100,7 +100,7 @@
       "note": "Two files: IDomBridgeRuntime.Attach takes a JSContext, and ScriptCompileAhead names the engine's compiler. The first is the seam JSEAL exists to move -- an Attach that takes an IJsRealm is what makes a second engine able to serve a page at all -- so this 3 is the highest-value one in the file despite being the smallest."
     },
     "Broiler.HtmlBridge.Dom": {
-      "engineReferences": 109,
+      "engineReferences": 108,
       "engineProjectRefs": 3,
       "guestEvalSites": 6,
       "note": "The DOM bridge. Started at 891 when JSEAL landed, and reached 110 when the name-validation cluster moved -- ThrowDOMException and the three validators now take an IJsRealm and reach IJsCalls.DomError, which the Broiler.JS provider implements with the same algorithm and the same fallback wording, so no page sees a different exception. That commit also removed IAttributesHost.JsContext, whose own doc comment had named the condition for its removal. What remains is structural rather than unmigrated: the three wrapper-root fields DomBridge declares and ten files read; IDomBridgeRuntime.Attach, which takes a JSContext from another project; the ArrayBuffer mint, for which IJsValues has no member; the weak tables that need a reference-typed key a struct handle cannot be; BridgeModuleContext, which derives from the engine's module context because JSEAL has no module-graph contract; and the engine-frame halves of members whose installers still mint engine functions. Each occurrence names its own pin in its doc comment."

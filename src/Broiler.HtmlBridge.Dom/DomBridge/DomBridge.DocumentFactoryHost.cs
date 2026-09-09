@@ -68,8 +68,8 @@ public sealed partial class DomBridge : Dom.Features.IDocumentFactoryHost
     DomNode Dom.Features.IDocumentFactoryHost.CloneDomNode(DomNode source, bool deep)
         => CloneDomElement(source, deep);
 
-    // Both validations raise their DOMException against the script context, which is what the module
-    // used to be handed so that it could pass it back here.
+    // Both validations raise their DOMException against the realm, through IJsCalls.DomError. They
+    // took a script context until the validators did.
     void Dom.Features.IDocumentFactoryHost.ValidateElementName(string name)
         => ValidateElementName(name, Realm);
 

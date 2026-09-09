@@ -40,8 +40,8 @@ public sealed partial class DomBridge : Dom.Features.IDocumentLevelFactoryHost
     JsValue Dom.Features.IDocumentLevelFactoryHost.BuildDocument(DomNode docRoot)
         => Dom.Runtime.JsInterop.FromEngineObject(_subDocuments.BuildDocument(docRoot));
 
-    // Both validations raise their DOMException against the script context, which is what the module
-    // used to be handed so that it could pass it back here.
+    // Both validations raise their DOMException against the realm, through IJsCalls.DomError. They
+    // took a script context until the validators did.
     void Dom.Features.IDocumentLevelFactoryHost.ValidateElementName(string name)
         => ValidateElementName(name, Realm);
 

@@ -342,8 +342,22 @@ public sealed partial class DomBridge
     /// </summary>
     public void SyncWindowMembersOntoGlobal()
     {
-        if (_jsContext is not { } context || _windowJSObject is not { } window)
+        if (_windowJSObject is not { } window)
             return;
+
+        // THE MIRROR IS THE WORK; THE CACHE SWAP IS AN OPTIMISATION, AND THEY USED TO SHARE A GUARD.
+        // Asking for a context first meant a bridge holding a realm and no context returned here
+        // having done nothing -- silently, which for this method is the worst shape available: a
+        // host calls it after every script, and what it skips is the window-to-global mirror that
+        // makes `window.foo = 1` in one script visible as `foo` in the next. Under an engine whose
+        // window and global are distinct objects that is the difference between a page working and
+        // a page whose scripts cannot see each other. The mirror runs on the realm alone, so it now
+        // runs whenever there is one.
+        if (_jsContext is not { } context)
+        {
+            MirrorWindowMembersOntoGlobal(Realm, Dom.Runtime.JsInterop.FromEngineObject(window));
+            return;
+        }
 
         // Same reasoning as RegisterDocument's swap, and the same bounded set: the source
         // MirrorWindowMembersOntoGlobal evaluates is a compile-time constant in this assembly. This
