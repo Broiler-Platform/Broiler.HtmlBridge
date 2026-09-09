@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.Dom;
 
@@ -60,14 +59,32 @@ public sealed partial class DomBridge
     // rather than re-implement the `while ParentNode` climb.
     private DomNode GetTreeRoot(DomNode node) => node.GetRootNode();
 
-    private JSValue ToJSRootNode(DomNode root)
+    /// <summary>
+    /// The wrapper a <c>getRootNode()</c> answers with, or <see cref="JsValue.Null"/> when the
+    /// document has none yet.
+    /// </summary>
+    /// <remarks>
+    /// <b>It answered a <c>JSValue</c> until its one caller stopped needing one, and between them
+    /// they were a round trip.</b> This built an engine value; <c>WrapRootNode</c> tested it with
+    /// <c>is JSObject</c> and wrapped it straight back into a handle. Both halves are the same
+    /// object either way — a handle carries the engine's own — so the conversion was work with no
+    /// observer, and removing it removes two engine references rather than relocating them.
+    /// <para>
+    /// <b>The <see cref="JsValue.Null"/> arm is not the same as an absent one and is kept
+    /// deliberately.</b> <c>DocumentHandle</c> answers <see cref="JsValue.Missing"/> before a
+    /// document wrapper exists, which is "the bridge has not registered a document yet" — a state no
+    /// page can observe. What a page asking <c>getRootNode()</c> in that window must see is
+    /// <c>null</c>, which is what the engine's own null meant here, so the translation is explicit.
+    /// </para>
+    /// </remarks>
+    private JsValue ToJSRootNode(DomNode root)
     {
         if (ReferenceEquals(root, _document))
-            return _documentJSObject ?? JSNull.Value;
+            return DocumentHandle.IsMissing ? JsValue.Null : DocumentHandle;
 
-        // A severed sub-document root is a canonical DomDocument (P4.4b); ToJSObject resolves it to
+        // A severed sub-document root is a canonical DomDocument (P4.4b); WrapNode resolves it to
         // its document wrapper via the document-wrapper map, so no #subdoc-root special case remains.
-        return ToJSObject(root);
+        return WrapNode(root);
     }
 
     private DomElement? GetSlotHost(DomElement slot) => GetShadowHost(FindContainingShadowRoot(slot));
