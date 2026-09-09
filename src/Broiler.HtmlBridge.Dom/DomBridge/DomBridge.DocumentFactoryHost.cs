@@ -62,7 +62,7 @@ public sealed partial class DomBridge : Dom.Features.IDocumentFactoryHost
         => CreateBridgeDocumentFragment();
 
     JsValue Dom.Features.IDocumentFactoryHost.BuildStandaloneAttrNode(string qualifiedName, string? namespaceUri)
-        => Dom.Runtime.JsInterop.FromEngineObject(_attributes.BuildStandaloneAttrNode(qualifiedName, namespaceUri));
+        => _attributes.BuildStandaloneAttrNode(qualifiedName, namespaceUri);
 
     // The module only asks this of a handle it has already established is an object, so unwrapping it
     // cannot fail here; a non-object would mean the module skipped its own guard.
