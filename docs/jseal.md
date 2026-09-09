@@ -323,45 +323,85 @@ the thread's synchronization context, stranding the host's promise reactions —
 contract's own remarks during the worker migration. All four are fixed, and all four would have
 reached a page.
 
-## Broiler.VM: why there is no provider yet
+## Broiler.VM: what changed, and what a provider would now cost
 
-There is no `Broiler.HtmlBridge.Jseal.Vm`, and **no JSEAL of any shape would let one serve a page
-today.** This is not an unfinished port. Four facts, each checked against the submodule at the pinned
-commit:
+There is still no `Broiler.HtmlBridge.Jseal.Vm`. What has changed is why: **the reason used to be
+that no JSEAL of any shape could serve a page on that engine, and that is no longer true.** This
+section used to say so at length, and the argument it made was wrong in a specific and instructive
+way. It is worth keeping the shape of the mistake, because the same shape is available to anyone
+reasoning about a second engine from its contracts rather than from a probe.
 
-1. **The JavaScript profile's value model is `internal`.**
-   [`JsValue.cs:83`](../Broiler.VM/src/Broiler.VM.Profile.JavaScript/JsValue.cs) is
-   `internal readonly struct JsValue`; `JsObject`, `JsFunction`, `JsRealm*` and `JsProxy` likewise. The
-   only public value type is `JavaScriptValueKind`, which has three members — `Undefined`, `Boolean`,
-   `Number` — and says of itself that the representation "is provisional and JS-4 lands what replaces
-   it".
-2. **No host capability can accept or return an object.** `VmCapabilityKind`
-   ([`VmHostCapabilityDescriptor.cs:29`](../Broiler.VM/src/Broiler.VM.Abstractions/VmHostCapabilityDescriptor.cs))
-   has exactly two members, `Value` and `ArtifactProvider`. The profile imports exactly three
-   capabilities (`JavaScriptProfile.cs:292`, `:325`, `:374`) and their signatures are bytes-shaped.
-   **A DOM accessor is a host call that returns an object.**
-3. **No capability may re-enter the guest.** All three are declared `NonReentrant`
-   (`JavaScriptProfile.cs:298`, `:331`, `:380`), and `ReentrantIntoInvokingRuntime` appears nowhere in
-   the Broiler.VM tree except its own declaration and one predicate that tests for it. The core holds
-   a per-runtime in-capability flag and refuses a re-entrant call — enforced, not merely declared.
-   **An event listener is a host→guest call from inside a host frame.**
-4. Consequently `JsCapabilities.Document` — which requires `ReentrantHostCalls` — cannot be declared
-   by a VM provider, and a host that branches on it correctly declines to load a page.
+**The argument that was wrong.** A DOM accessor returns an object; a Broiler.VM value capability
+answers a `long` or a `VmOpaqueRef`; an opaque reference is by construction not dereferenceable;
+therefore no registration any composition could make would deliver a DOM object to a guest. Every
+step of that is true, and the conclusion does not follow. It assumes the object has to travel
+through the **capability channel**, and it does not: a host object in Broiler.VM's JavaScript
+profile is an ordinary object in the realm, its methods are ordinary native functions, and calling
+one is the interpreter's own call path — the same one the standard library takes when
+`Array.prototype.map` invokes the function it was handed. Nothing about it reaches the VM core, so
+no core member has to be able to carry it.
 
-**The upstream ask, which is the real deliverable of this layer.** It is smaller and more answerable
-than "publish your value model":
+**The reentrancy argument was wrong in a second way, and a probe settled it.** This section used to
+say the VM core refuses a re-entrant call for the duration of a host frame. It does, but it refuses
+on the *declaration*: the binding hands the descriptor's own mode to the runtime, which raises the
+in-capability depth only for `NonReentrant`, and the source-level contract says the refusal applies
+"where the capability declared `NonReentrant`". Nothing refused a re-entrant **value** capability;
+nothing had ever declared one. A test in that repository now declares one and watches a nested call
+complete, with a control that flips the declaration and gets the refusal back.
 
-- a `VmCapabilityKind` whose signature admits an opaque host object in and out;
-- a capability declared `ReentrantIntoInvokingRuntime` for the DOM binding surface;
-- a public value type with a host-attachable state slot, so `JsValue`'s reference can be a weak-table
-  key the way `JSObject` is today.
+**What is true, and is the part worth carrying forward,** is that the wall is somewhere else than
+this document said. A host callback re-entering *the instance that is executing* is refused by a
+different gate that never reads the declaration, and lifting that gate is not a small change: the
+VM's per-operation scope is not nestable and has no restore, its load mediator's fan-out bounds
+reset for a nested operation and never restore, a nested meter bills its interval twice, and
+cancellation does not reach the inner operation. The seam described below needs none of that,
+because nothing nests.
 
-Until those exist, `VmScriptEngine` remains the right integration for Broiler.VM: it serves the
-document-free entry points on the profile and delegates the document-bearing ones, exactly as
-[`docs/vm-javascript-profile.md`](vm-javascript-profile.md) describes.
+### What Broiler.VM now provides
 
-**The measurement that answers "is this working".** Not "the bridge no longer names Broiler.JS" —
-that is relocation, and any of these designs achieves it. The number that matters is how many DOM
-operations are expressible without a host→guest re-entry and without a host capability returning an
-object. That is what the second engine is waiting on, and it is worth reporting beside the reference
-count rather than instead of it.
+`Broiler.VM.Profile.JavaScript` publishes a host surface: a realm object an embedder holds, a value
+type carrying a stable opaque identity per guest object, minting for objects, arrays, methods,
+constructors and exotic objects, property definition including accessors, reads and writes, and a
+call back into the guest. A composition supplies its embedder when it builds the profile
+descriptor, and **registration is still the permission**: a realm reaches an embedder only where the
+composition also registered an optional capability whose handler is never invoked, so a build that
+linked an embedder has no host object in its realms unless the composition that ran it said so. The
+decision record is `JSD-0024` in that repository; the programme around it is its hosting roadmap.
+
+Three properties of that seam matter to a provider written against it. Every crossing charges a host
+call and fuel proportional to what it carries, so an embedder cannot buy unmetered work. The realm
+is valid only inside a step, on the guest's own thread, and refuses by name outside it. And an abort
+— a spent allowance, a cancellation — reaching host code is latched: catching it clears nothing, and
+the operation still ends the way the core was told it would. **A provider that wraps guest calls in
+`catch (Exception)`, which is ordinary defensive style, cannot turn a spent allowance into a
+completed page load.**
+
+### What a provider would cost, contract by contract
+
+| Contract | State on Broiler.VM |
+|---|---|
+| `IJsValues` | `NewObject`, `NewArray`, `NewMethod`, `NewConstructor`, `NewExotic`, `ToJsString` and `ToNumber` all have counterparts. The method/constructor split is the same boolean the Broiler.JS provider uses, so `el.setAttribute.prototype` is `undefined` for the same reason |
+| `IJsMembers` | `DefineValue`, `DefineAccessor`, `GetProperty`, `SetProperty`, `HasProperty` and `OwnPropertyNames` exist. `DefineIndex`, `GetIndex`, `DeleteProperty`, `SetPrototype` and `GetPrototype` do not yet, and are that roadmap's next stage |
+| `IJsCalls` | `Invoke` and `Construct` exist and route through the interpreter's call path, so the call-depth ceiling is charged. `Error` exists; `DomError` needs a `DOMException` constructor installed in the realm, which is the provider's own work |
+| `IJsJobs` | **Nothing.** The engine has a job queue and host-drivable drain and step entry points, but nothing on the seam reaches them |
+| `IJsSource` | Host script and guest source are not yet distinguishable there: the request payload is the source text and nothing else, so a provider cannot tell the engine that this evaluation is the bridge's own and not the page's |
+| `IJsClone` | **Nothing**, and no second realm to clone between |
+| `IJsExotic` | A host-completed lookup exists, consulted only after the object's own storage — the order this document's own remarks require |
+
+`JsCapabilities.Document` needs `HostScriptSource | Promises | ExoticObjects | GlobalIsVariableScope
+| ReentrantHostCalls`. **`ReentrantHostCalls` and `ExoticObjects` are now honestly declarable**, and
+`GlobalIsVariableScope` holds because that engine's top-level `var` lands on the global object.
+`Promises` and `HostScriptSource` do not have a seam yet, so `Document` is not declarable and a
+provider written today would say so rather than claim it.
+
+**The measurement that answers "is this working" has not changed, and it has moved.** It was never
+"the bridge no longer names Broiler.JS" — that is relocation, and any of these designs achieves it.
+It was how many DOM operations are expressible without a host→guest re-entry and without a host
+capability returning an object. Both of those constraints are gone, so the honest replacement is
+narrower and harder: **how much of a page loads on a realm whose provider declares less than
+`Document`**, and what the first missing capability turns out to be when it does not.
+
+**The upstream ask that is left.** One row remains genuinely blocked upstream, and it is not about
+the DOM: the VM's capability channel still cannot answer a guest with bytes, so a global the *guest*
+reaches without an embedder — a shell-shaped `read` — can exist and refuse and nothing more. That
+row is filed in that profile's amendment register and is unaffected by anything here.
