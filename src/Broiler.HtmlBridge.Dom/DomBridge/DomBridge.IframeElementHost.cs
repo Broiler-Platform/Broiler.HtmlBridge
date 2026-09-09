@@ -27,7 +27,7 @@ public sealed partial class DomBridge : Dom.Features.IIframeElementHost
         => Dom.Runtime.JsInterop.FromEngineObject(GetOrCreateSubDocument(element));
 
     JsValue Dom.Features.IIframeElementHost.GetOrCreateSubWindow(DomElement element)
-        => Dom.Runtime.JsInterop.FromEngineObject(_subWindows.GetOrCreate(element));
+        => _subWindows.GetOrCreate(element);
 
     void Dom.Features.IIframeElementHost.InvalidateCachedSubDocument(DomElement element) => InvalidateCachedSubDocument(element);
     void Dom.Features.IIframeElementHost.ClearOnloadFired(DomElement element) => _browsingContexts.ClearOnloadFired(element);

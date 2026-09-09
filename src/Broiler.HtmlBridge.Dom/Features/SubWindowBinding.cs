@@ -138,14 +138,14 @@ internal sealed class SubWindowBinding(
         "localStorage", "sessionStorage",
     ];
 
-    /// <summary>
-    /// <see cref="Build"/> as an engine object, for the callers that still hold one: the
-    /// browsing-context cache the window is stored in, and the bridge's iframe/window-load surfaces
-    /// (<c>DomBridge.IframeElementHost.cs</c>, <c>DomBridge.WindowLoad.cs</c>) — other groups' files
-    /// this round. A cast, not a conversion, so it is the same window object either way.
-    /// </summary>
-    public JavaScript.Runtime.JSObject GetOrCreate(DomElement containerElement) =>
-        JsInterop.ToEngineObject(Build(containerElement));
+    /// <summary>Gets or builds the sub-window for a nested-browsing-context container.</summary>
+    /// <remarks>
+    /// It answered an engine object until two of its three callers stopped wanting one. The third,
+    /// <c>DomBridge.WindowLoad.cs</c>, collects windows into the engine array <c>window.frames</c>
+    /// is built from and converts there instead — a boundary with a different unit rather than a
+    /// conversion this method owes.
+    /// </remarks>
+    public JsValue GetOrCreate(DomElement containerElement) => Build(containerElement);
 
     /// <summary>Gets or builds the sub-window JS object for a nested-browsing-context container.</summary>
     private JsValue Build(DomElement containerElement)

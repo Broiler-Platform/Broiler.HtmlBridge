@@ -478,7 +478,10 @@ public sealed partial class DomBridge
             {
                 var src = TryGetAttribute(child, "src", out var srcValue) ? srcValue : string.Empty;
                 if (!IsCrossOrigin(src, _pageUrl))
-                    frames.Add(_subWindows.GetOrCreate(child));
+                    // The one conversion GetOrCreate stopped doing for everybody, done here
+                    // because `frames` is the engine List<JSValue> the window.frames JSArray is
+                    // built from -- a different unit, and its turn is not this commit's.
+                    frames.Add(Dom.Runtime.JsInterop.ToEngineObject(_subWindows.GetOrCreate(child)));
             }
         }
     }
