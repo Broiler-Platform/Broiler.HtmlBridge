@@ -1,11 +1,7 @@
 using System.Globalization;
 using System.Text;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -22,11 +18,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// Every accessor here is an attribute/font-size estimation stub — none reads layout geometry — so the
 /// module is a pure <c>internal static</c> class with <b>no host contract</b> (like <c>ClassListBinding</c>
 /// P3.6 and <c>WebStorageBinding</c> P3.48). It reads content attributes and text through the bridge's
-/// neutral <c>internal static</c> <c>TryGetAttribute</c>/<c>CollectTextContent</c> helpers, and builds the
-/// no-op SMIL functions with the bridge's <c>internal static</c> <c>UndefinedFunction</c>/<c>ZeroFunction</c>
-/// factories. Was the bridge's <c>JsElementInterfacesCallback086Core</c>/<c>GetViewBox087Core</c>/
+/// neutral <c>internal static</c> <c>TryGetAttribute</c>/<c>CollectTextContent</c> helpers. Was the
+/// bridge's <c>JsElementInterfacesCallback086Core</c>/<c>GetViewBox087Core</c>/
 /// <c>GetNumberOfChars088Core</c>..<c>GetRotationOfChar093Core</c>/<c>SetCurrentTime095Core</c> (and the
 /// private <c>CreateSvgLengthValue</c> helper, moved here since it had no other consumer).
+/// </para>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type:
+/// objects, accessors and methods come from the realm, which is handed in when the interfaces are
+/// installed and arrives on the call frame for every accessor and method body afterwards. The three
+/// SMIL no-ops used to be built by the bridge's <c>UndefinedFunction</c>/<c>ZeroFunction</c> factories,
+/// which mint a plain <em>constructable</em> engine function; see the remarks on
+/// <see cref="InstallSmilNoOps"/> for why they are asked of the realm as constructors here.
 /// </para>
 /// </summary>
 internal static class SvgElementBinding
@@ -35,7 +38,11 @@ internal static class SvgElementBinding
     /// Installs the SVG DOM interfaces on <paramref name="obj"/> when <paramref name="element"/> is an SVG
     /// element (SVG namespace or a recognised SVG tag). A no-op for non-SVG elements.
     /// </summary>
-    public static void Install(JSObject obj, DomElement element, string tag)
+    /// <param name="realm">The realm the installed members and everything they build belong to.</param>
+    /// <param name="obj">The element's JS wrapper.</param>
+    /// <param name="element">The element the members read.</param>
+    /// <param name="tag">The element's lower-cased tag name, which selects the interfaces.</param>
+    public static void Install(IJsRealm realm, JsValue obj, DomElement element, string tag)
     {
         // -- Phase 6: SVG DOM interfaces --
 
@@ -47,69 +54,64 @@ internal static class SvgElementBinding
               tag == "svg:svg" || tag == "svg:rect" || tag == "svg:text" || tag == "svg:g"))
             return;
 
-        // For SVG dimensional attributes, provide SVGAnimatedLength objects with baseVal/animVal
+        // For SVG dimensional attributes, provide SVGAnimatedLength objects with baseVal/animVal.
+        // A null setter is how the read-only IDL attribute is spelled; the realm mints the accessor
+        // function itself, names it "get width" and makes it non-constructable — the three things the
+        // hand-built native accessor at this site was doing before.
         foreach (var dimAttr in new[] { "width", "height", "x", "y", "cx", "cy", "r", "rx", "ry" })
         {
             var attrName = dimAttr; // capture for closure
-            obj.FastAddProperty(attrName,
-                new DomFunction((in _) => BuildAnimatedLength(attrName, element), $"get {attrName}"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineAccessor(obj, attrName,
+                (in call) => BuildAnimatedLength(call.Realm, attrName, element), null);
         }
 
         // SVG viewBox attribute — returns SVGAnimatedRect with baseVal {x,y,width,height}
         if (tag == "svg" || tag == "svg:svg")
         {
-            obj.FastAddProperty("viewBox",
-                new DomFunction((in _) => GetViewBox(element), "get viewBox"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineAccessor(obj, "viewBox",
+                (in call) => GetViewBox(call.Realm, element), null);
         }
 
         // SVGTextContentElement methods
         if (tag == "text" || tag == "svg:text" || tag == "tspan" || tag == "svg:tspan" ||
             tag == "textpath" || tag == "svg:textpath")
         {
-            obj.FastAddValue("getNumberOfChars",
-                new DomFunction((in _) => GetNumberOfChars(element), "getNumberOfChars", 0),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(obj, "getNumberOfChars",
+                realm.NewMethod("getNumberOfChars", (in _) => GetNumberOfChars(element), 0));
 
             // getComputedTextLength() — returns estimated total advance width
-            obj.FastAddValue("getComputedTextLength",
-                new DomFunction((in _) => GetComputedTextLength(element), "getComputedTextLength", 0),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(obj, "getComputedTextLength",
+                realm.NewMethod("getComputedTextLength", (in _) => GetComputedTextLength(element), 0));
 
             // getSubStringLength(charnum, nchars) — returns advance width of substring
-            obj.FastAddValue("getSubStringLength",
-                new DomFunction((in a) => GetSubStringLength(element, in a), "getSubStringLength", 2),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(obj, "getSubStringLength",
+                realm.NewMethod("getSubStringLength", (in call) => GetSubStringLength(element, in call), 2));
 
             // getStartPositionOfChar(charnum) — returns SVGPoint {x, y}
-            obj.FastAddValue("getStartPositionOfChar",
-                new DomFunction((in a) => GetStartPositionOfChar(element, in a), "getStartPositionOfChar", 1),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(obj, "getStartPositionOfChar",
+                realm.NewMethod("getStartPositionOfChar", (in call) => GetStartPositionOfChar(element, in call), 1));
 
             // getEndPositionOfChar(charnum) — returns SVGPoint {x, y}
-            obj.FastAddValue("getEndPositionOfChar",
-                new DomFunction((in a) => GetEndPositionOfChar(element, in a), "getEndPositionOfChar", 1),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(obj, "getEndPositionOfChar",
+                realm.NewMethod("getEndPositionOfChar", (in call) => GetEndPositionOfChar(element, in call), 1));
 
             // getRotationOfChar(charnum) — returns rotation angle in degrees
-            obj.FastAddValue("getRotationOfChar",
-                new DomFunction((in a) => GetRotationOfChar(element, in a), "getRotationOfChar", 1),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(obj, "getRotationOfChar",
+                realm.NewMethod("getRotationOfChar", (in call) => GetRotationOfChar(element, in call), 1));
         }
 
         // SVGSVGElement methods (getCurrentTime, setCurrentTime)
         if (tag == "svg" || tag == "svg:svg")
         {
+            // The timeline position is per wrapper and lives in this closure, exactly as it did before:
+            // both methods capture the same local, so what setCurrentTime wrote getCurrentTime reads.
             double currentTime = 0;
 
-            obj.FastAddValue("getCurrentTime",
-                new DomFunction((in _) => new JSNumber(currentTime), "getCurrentTime", 0),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(obj, "getCurrentTime",
+                realm.NewMethod("getCurrentTime", (in _) => JsValue.Number(currentTime), 0));
 
-            obj.FastAddValue("setCurrentTime",
-                new DomFunction((in a) => SetCurrentTime(ref currentTime, in a), "setCurrentTime", 1),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(obj, "setCurrentTime",
+                realm.NewMethod("setCurrentTime", (in call) => SetCurrentTime(ref currentTime, in call), 1));
         }
 
         // SMIL animation element methods (beginElement, endElement, getStartTime)
@@ -118,38 +120,55 @@ internal static class SvgElementBinding
             tag == "animatetransform" || tag == "svg:animatetransform" ||
             tag == "animatemotion" || tag == "svg:animatemotion")
         {
-            obj.FastAddValue("beginElement",
-                DomBridge.UndefinedFunction("beginElement", 0),
-                JSPropertyAttributes.EnumerableConfigurableValue);
-
-            obj.FastAddValue("endElement",
-                DomBridge.UndefinedFunction("endElement", 0),
-                JSPropertyAttributes.EnumerableConfigurableValue);
-
-            obj.FastAddValue("getStartTime",
-                DomBridge.ZeroFunction("getStartTime", 0),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            InstallSmilNoOps(realm, obj);
         }
     }
 
-    // SVGAnimatedLength stub for a dimensional presentation attribute — baseVal/animVal each an SVGLength.
-    private static JSValue BuildAnimatedLength(string attrName, DomElement element)
+    /// <summary>
+    /// The three SMIL animation-element no-ops: <c>beginElement</c>, <c>endElement</c> and
+    /// <c>getStartTime</c>, which report nothing because Broiler runs no SMIL timeline.
+    /// </summary>
+    /// <remarks>
+    /// All three are <em>constructable</em>, and only because they always have been: they were built by
+    /// the bridge's <c>UndefinedFunction</c>/<c>ZeroFunction</c> helpers, which mint a plain engine
+    /// function — one that carries a <c>prototype</c> object and so passes the engine's constructor test
+    /// — rather than the non-constructable shape WebIDL gives an operation. Under JSEAL that distinction
+    /// is which factory is called, so preserving the behaviour means asking for a constructor here. A
+    /// browser answers <c>undefined</c> for <c>el.beginElement.prototype</c> and throws on
+    /// <c>new el.beginElement()</c>; correcting that is a behaviour change that belongs in its own commit
+    /// alongside the helpers' other callers, as <see cref="ScreenOrientationBinding"/> records for
+    /// <c>screen.orientation.unlock</c>.
+    /// </remarks>
+    private static void InstallSmilNoOps(IJsRealm realm, JsValue obj)
     {
-        var animLength = new JSObject();
+        realm.DefineValue(obj, "beginElement",
+            realm.NewConstructor("beginElement", static (in _) => JsValue.Undefined, 0));
+
+        realm.DefineValue(obj, "endElement",
+            realm.NewConstructor("endElement", static (in _) => JsValue.Undefined, 0));
+
+        realm.DefineValue(obj, "getStartTime",
+            realm.NewConstructor("getStartTime", static (in _) => JsValue.Number(0), 0));
+    }
+
+    // SVGAnimatedLength stub for a dimensional presentation attribute — baseVal/animVal each an SVGLength.
+    private static JsValue BuildAnimatedLength(IJsRealm realm, string attrName, DomElement element)
+    {
+        var animLength = realm.NewObject();
         var valueStr = DomBridge.TryGetAttribute(element, attrName, out var v) ? v : "0";
         double.TryParse(valueStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var numVal);
-        var baseVal = CreateSvgLengthValue(numVal);
-        var animVal = CreateSvgLengthValue(numVal);
-        animLength.FastAddValue("baseVal", baseVal, JSPropertyAttributes.EnumerableConfigurableValue);
-        animLength.FastAddValue("animVal", animVal, JSPropertyAttributes.EnumerableConfigurableValue);
+        var baseVal = CreateSvgLengthValue(realm, numVal);
+        var animVal = CreateSvgLengthValue(realm, numVal);
+        realm.DefineValue(animLength, "baseVal", baseVal);
+        realm.DefineValue(animLength, "animVal", animVal);
         return animLength;
     }
 
     // SVGAnimatedRect for the viewBox attribute — baseVal/animVal share one parsed {x,y,width,height}.
-    private static JSValue GetViewBox(DomElement element)
+    private static JsValue GetViewBox(IJsRealm realm, DomElement element)
     {
-        var animRect = new JSObject();
-        var baseRect = new JSObject();
+        var animRect = realm.NewObject();
+        var baseRect = realm.NewObject();
         double vbX = 0, vbY = 0, vbW = 0, vbH = 0;
         if (DomBridge.TryGetAttribute(element, "viewBox", out var vb) && !string.IsNullOrWhiteSpace(vb))
         {
@@ -163,91 +182,94 @@ internal static class SvgElementBinding
             }
         }
 
-        baseRect.FastAddValue("x", new JSNumber(vbX), JSPropertyAttributes.EnumerableConfigurableValue);
-        baseRect.FastAddValue("y", new JSNumber(vbY), JSPropertyAttributes.EnumerableConfigurableValue);
-        baseRect.FastAddValue("width", new JSNumber(vbW), JSPropertyAttributes.EnumerableConfigurableValue);
-        baseRect.FastAddValue("height", new JSNumber(vbH), JSPropertyAttributes.EnumerableConfigurableValue);
-        animRect.FastAddValue("baseVal", baseRect, JSPropertyAttributes.EnumerableConfigurableValue);
-        animRect.FastAddValue("animVal", baseRect, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(baseRect, "x", JsValue.Number(vbX));
+        realm.DefineValue(baseRect, "y", JsValue.Number(vbY));
+        realm.DefineValue(baseRect, "width", JsValue.Number(vbW));
+        realm.DefineValue(baseRect, "height", JsValue.Number(vbH));
+        realm.DefineValue(animRect, "baseVal", baseRect);
+        realm.DefineValue(animRect, "animVal", baseRect);
         return animRect;
     }
 
-    private static JSValue GetNumberOfChars(DomElement element)
+    private static JsValue GetNumberOfChars(DomElement element)
     {
         var sb = new StringBuilder();
         DomBridge.CollectTextContent(element, sb);
-        return new JSNumber(sb.Length);
+        return JsValue.Number(sb.Length);
     }
 
-    private static JSValue GetComputedTextLength(DomElement element)
+    private static JsValue GetComputedTextLength(DomElement element)
     {
         var sb = new StringBuilder();
         DomBridge.CollectTextContent(element, sb);
         // Stub: estimate using font-size * character count * 0.6 average advance ratio
         var fontSize = ReadFontSize(element);
-        return new JSNumber(sb.Length * fontSize * 0.6);
+        return JsValue.Number(sb.Length * fontSize * 0.6);
     }
 
-    private static JSValue GetSubStringLength(DomElement element, in Arguments a)
+    private static JsValue GetSubStringLength(DomElement element, in JsCall call)
     {
         var sb = new StringBuilder();
         DomBridge.CollectTextContent(element, sb);
-        var charnum = a.Length > 0 ? (int)a[0].DoubleValue : 0;
-        var nchars = a.Length > 1 ? (int)a[1].DoubleValue : 0;
+        // The realm's ToNumber, not the handle's: the engine's DoubleValue on an argument *was* the
+        // ECMAScript coercion, so `getSubStringLength("1", "2")` has always counted from character 1,
+        // and an argument object's valueOf has always been allowed to run here.
+        var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
+        var nchars = call.Length > 1 ? (int)call.Realm.ToNumber(call[1]) : 0;
         if (charnum < 0 || charnum >= sb.Length)
-            throw new JSException("INDEX_SIZE_ERR");
+            throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
         if (nchars == 0)
-            return new JSNumber(0);
+            return JsValue.Number(0);
         var fontSize = ReadFontSize(element);
-        return new JSNumber(nchars * fontSize * 0.6);
+        return JsValue.Number(nchars * fontSize * 0.6);
     }
 
-    private static JSValue GetStartPositionOfChar(DomElement element, in Arguments a)
+    private static JsValue GetStartPositionOfChar(DomElement element, in JsCall call)
     {
         var sb = new StringBuilder();
         DomBridge.CollectTextContent(element, sb);
-        var charnum = a.Length > 0 ? (int)a[0].DoubleValue : 0;
+        var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         if (charnum < 0 || charnum >= sb.Length)
-            throw new JSException("INDEX_SIZE_ERR");
+            throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
         var fontSize = ReadFontSize(element);
 
-        var pt = new JSObject();
-        pt.FastAddValue("x", new JSNumber(charnum * fontSize * 0.6), JSPropertyAttributes.EnumerableConfigurableValue);
-        pt.FastAddValue("y", new JSNumber(fontSize), JSPropertyAttributes.EnumerableConfigurableValue);
+        var pt = call.Realm.NewObject();
+        call.Realm.DefineValue(pt, "x", JsValue.Number(charnum * fontSize * 0.6));
+        call.Realm.DefineValue(pt, "y", JsValue.Number(fontSize));
         return pt;
     }
 
-    private static JSValue GetEndPositionOfChar(DomElement element, in Arguments a)
+    private static JsValue GetEndPositionOfChar(DomElement element, in JsCall call)
     {
         var sb = new StringBuilder();
         DomBridge.CollectTextContent(element, sb);
-        var charnum = a.Length > 0 ? (int)a[0].DoubleValue : 0;
+        var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         if (charnum < 0 || charnum >= sb.Length)
-            throw new JSException("INDEX_SIZE_ERR");
+            throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
         var fontSize = ReadFontSize(element);
 
-        var pt = new JSObject();
-        pt.FastAddValue("x", new JSNumber((charnum + 1) * fontSize * 0.6), JSPropertyAttributes.EnumerableConfigurableValue);
-        pt.FastAddValue("y", new JSNumber(fontSize), JSPropertyAttributes.EnumerableConfigurableValue);
+        var pt = call.Realm.NewObject();
+        call.Realm.DefineValue(pt, "x", JsValue.Number((charnum + 1) * fontSize * 0.6));
+        call.Realm.DefineValue(pt, "y", JsValue.Number(fontSize));
         return pt;
     }
 
-    private static JSValue GetRotationOfChar(DomElement element, in Arguments a)
+    private static JsValue GetRotationOfChar(DomElement element, in JsCall call)
     {
         var sb = new StringBuilder();
         DomBridge.CollectTextContent(element, sb);
-        var charnum = a.Length > 0 ? (int)a[0].DoubleValue : 0;
+        var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         if (charnum < 0 || charnum >= sb.Length)
-            throw new JSException("INDEX_SIZE_ERR");
+            throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
         // Default rotation is 0 degrees (horizontal text)
-        return new JSNumber(0);
+        return JsValue.Number(0);
     }
 
-    private static JSValue SetCurrentTime(ref double currentTime, in Arguments a)
+    private static JsValue SetCurrentTime(ref double currentTime, in JsCall call)
     {
-        if (a.Length > 0)
-            currentTime = a[0].DoubleValue;
-        return JSUndefined.Value;
+        if (call.Length > 0)
+            currentTime = call.Realm.ToNumber(call[0]);
+        return JsValue.Undefined;
     }
 
     // Reads the element's font-size presentation attribute (px/pt suffix tolerated), defaulting to 16.
@@ -264,23 +286,23 @@ internal static class SvgElementBinding
     }
 
     // Builds the SVGLength value object (value/valueInSpecifiedUnits/unitType + the SVG_LENGTHTYPE_* constants).
-    private static JSObject CreateSvgLengthValue(double numericValue)
+    private static JsValue CreateSvgLengthValue(IJsRealm realm, double numericValue)
     {
-        var svgLength = new JSObject();
-        svgLength.FastAddValue("value", new JSNumber(numericValue), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("valueInSpecifiedUnits", new JSNumber(numericValue), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("unitType", new JSNumber(1), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_UNKNOWN", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_NUMBER", new JSNumber(1), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_PERCENTAGE", new JSNumber(2), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_EMS", new JSNumber(3), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_EXS", new JSNumber(4), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_PX", new JSNumber(5), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_CM", new JSNumber(6), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_MM", new JSNumber(7), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_IN", new JSNumber(8), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_PT", new JSNumber(9), JSPropertyAttributes.EnumerableConfigurableValue);
-        svgLength.FastAddValue("SVG_LENGTHTYPE_PC", new JSNumber(10), JSPropertyAttributes.EnumerableConfigurableValue);
+        var svgLength = realm.NewObject();
+        realm.DefineValue(svgLength, "value", JsValue.Number(numericValue));
+        realm.DefineValue(svgLength, "valueInSpecifiedUnits", JsValue.Number(numericValue));
+        realm.DefineValue(svgLength, "unitType", JsValue.Number(1));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_UNKNOWN", JsValue.Number(0));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_NUMBER", JsValue.Number(1));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_PERCENTAGE", JsValue.Number(2));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_EMS", JsValue.Number(3));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_EXS", JsValue.Number(4));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_PX", JsValue.Number(5));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_CM", JsValue.Number(6));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_MM", JsValue.Number(7));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_IN", JsValue.Number(8));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_PT", JsValue.Number(9));
+        realm.DefineValue(svgLength, "SVG_LENGTHTYPE_PC", JsValue.Number(10));
         return svgLength;
     }
 }

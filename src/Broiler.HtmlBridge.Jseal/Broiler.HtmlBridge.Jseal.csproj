@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Broiler.HtmlBridge.Jseal</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>JSEAL — the JavaScript Engine Abstraction Layer. Engine-neutral contracts the HTML bridge binds the document against, so which JavaScript engine runs a page is a provider choice rather than a compile-time fact about the bridge.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Jseal.BroilerJs" />
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Jseal.Tests" />
+    <InternalsVisibleTo Include="Broiler.Browser.Core.Tests" />
+  </ItemGroup>
+
+  <!--
+    THIS PROJECT HAS NO ProjectReference AND NO PackageReference, AND THAT IS THE POINT.
+
+    Engine neutrality is asserted everywhere else in this repository by grepping for a namespace.
+    Here it is asserted by the compiler: an assembly that references nothing cannot name a
+    Broiler.JavaScript type, a Broiler.VM type, or anything either of them drags in. If a future
+    change needs one, the reference has to be added here first, in a diff a reviewer sees, rather
+    than arriving transitively through a helper.
+
+    scripts/check-engine-neutrality.sh fails the build if this element ever gains a child, so the
+    property survives a refactor that did not read this comment.
+
+    The corollary is that JSEAL cannot reach Broiler.HtmlBridge.Core either — no ContentSecurityPolicy,
+    no MicroTaskQueue, no RenderLogger. That is deliberate and costs less than it looks: the policy
+    decisions those types carry belong to the host, and what JSEAL needs from them is expressed as a
+    capability (see JsCapabilities) rather than as a dependency. A provider is free to consult Core;
+    the contracts are not.
+  -->
+
+</Project>

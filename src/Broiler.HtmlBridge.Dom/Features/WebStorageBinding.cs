@@ -1,7 +1,8 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
+using Broiler.HtmlBridge.Jseal;
+
+// Engine-typed for one thing: StorageObject completes its own property lookup and its own deletion,
+// which is a JSObject override. See the last paragraph of the class remarks.
 using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.JavaScript.Storage;
 using Broiler.JavaScript.Runtime;
 
@@ -29,6 +30,22 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// through one <c>load.php</c> bundle, so the abort took the entire bundle with it (ResourceLoader,
 /// the Vector skin's scripts and every module queued behind them) off one identifier.
 /// </para>
+/// <para>
+/// <b>This is the one object that completes its own property lookup and has not become an
+/// <see cref="IJsExotic"/>, and the reason is a gap in that contract rather than a missing realm.</b>
+/// The realm arrives now — <c>DomBridge/Registration/Window.cs</c> passes it — so every member below
+/// is minted through it and this file names an engine type for the backing object alone.
+/// </para>
+/// <para>
+/// What the realm does not fix is the reason the object cannot move. <c>Storage</c> is the only one of
+/// the six lookup-completing objects whose behaviour includes a <em>deletion</em>: the override on
+/// <see cref="StorageObject"/> takes <c>delete localStorage.foo</c> out of the backing map, so
+/// <c>getItem</c> stops answering for it and <c>length</c> and <c>key(n)</c> stop counting it.
+/// <see cref="IJsExotic"/> declares hooks for a named read, an indexed read and a named write,
+/// and none for a delete — so converting as the contract stands would leave the ordinary property
+/// deleted and the item still in the store, which is a wrong answer rather than a missing feature.
+/// The contract needs a delete hook before this object can move; reported rather than worked around.
+/// </para>
 /// </remarks>
 internal static class WebStorageBinding
 {
@@ -45,70 +62,72 @@ internal static class WebStorageBinding
     /// Builds one storage area. Call it once per area — <c>localStorage</c> and
     /// <c>sessionStorage</c> are separate areas and must not share a backing store.
     /// </summary>
-    public static JSObject BuildStorage()
+    /// <param name="realm">The realm the area's six members are minted in.</param>
+    public static JsValue BuildStorage(IJsRealm realm)
     {
         var storage = new StorageObject();
+        var area = Runtime.JsInterop.FromEngineObject(storage);
 
         // Non-enumerable, as they are in a browser: there the members live on Storage.prototype and
         // only the stored keys are own properties, so `for (var k in storage)` and
         // `Object.keys(storage)` yield keys alone. Bridge objects carry their members directly
         // (see RegisterDomInterfaceConstructors), so hiding them from enumeration is what keeps a
         // page that iterates a storage area from finding four methods among its keys.
-        storage.FastAddValue("getItem",
-            new DomFunction((in a) => GetItem(storage, in a), "getItem", 1),
-            JSPropertyAttributes.ConfigurableValue);
+        realm.DefineValue(area, "getItem",
+            realm.NewMethod("getItem", (in call) => GetItem(storage, in call), 1),
+            JsPropertyFlags.NonEnumerable);
 
-        storage.FastAddValue("setItem",
-            new DomFunction((in a) => SetItem(storage, in a), "setItem", 2),
-            JSPropertyAttributes.ConfigurableValue);
+        realm.DefineValue(area, "setItem",
+            realm.NewMethod("setItem", (in call) => SetItem(storage, in call), 2),
+            JsPropertyFlags.NonEnumerable);
 
-        storage.FastAddValue("removeItem",
-            new DomFunction((in a) => RemoveItem(storage, in a), "removeItem", 1),
-            JSPropertyAttributes.ConfigurableValue);
+        realm.DefineValue(area, "removeItem",
+            realm.NewMethod("removeItem", (in call) => RemoveItem(storage, in call), 1),
+            JsPropertyFlags.NonEnumerable);
 
-        storage.FastAddValue("clear",
-            new DomFunction((in a) => Clear(storage, in a), "clear", 0),
-            JSPropertyAttributes.ConfigurableValue);
+        realm.DefineValue(area, "clear",
+            realm.NewMethod("clear", (in call) => Clear(storage, in call), 0),
+            JsPropertyFlags.NonEnumerable);
 
-        storage.FastAddValue("key",
-            new DomFunction((in a) => Key(storage, in a), "key", 1),
-            JSPropertyAttributes.ConfigurableValue);
+        realm.DefineValue(area, "key",
+            realm.NewMethod("key", (in call) => Key(storage, in call), 1),
+            JsPropertyFlags.NonEnumerable);
 
-        storage.FastAddProperty("length",
-            new DomFunction((in _) => new JSNumber(storage.Count), "get length"),
+        realm.DefineAccessor(area, "length",
+            (in _) => JsValue.Number(storage.Count),
             null,
-            JSPropertyAttributes.ConfigurableProperty);
+            JsPropertyFlags.NonEnumerable);
 
-        return storage;
+        return area;
     }
 
-    private static JSValue GetItem(StorageObject storage, in Arguments a)
+    private static JsValue GetItem(StorageObject storage, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
-        return storage.TryGet(a[0].ToString(), out var val) ? new JSString(val) : JSNull.Value;
+        if (call.Length == 0)
+            return JsValue.Null;
+        return storage.TryGet(call.Realm.ToJsString(call[0]), out var val) ? JsValue.String(val) : JsValue.Null;
     }
 
-    private static JSValue SetItem(StorageObject storage, in Arguments a)
+    private static JsValue SetItem(StorageObject storage, in JsCall call)
     {
-        if (a.Length >= 2)
-            storage.Put(a[0].ToString(), a[1].ToString());
+        if (call.Length >= 2)
+            storage.Put(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue RemoveItem(StorageObject storage, in Arguments a)
+    private static JsValue RemoveItem(StorageObject storage, in JsCall call)
     {
-        if (a.Length > 0)
-            storage.Remove(a[0].ToString());
+        if (call.Length > 0)
+            storage.Remove(call.Realm.ToJsString(call[0]));
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue Clear(StorageObject storage, in Arguments _)
+    private static JsValue Clear(StorageObject storage, in JsCall _)
     {
         storage.RemoveAll();
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -116,16 +135,16 @@ internal static class WebStorageBinding
     /// with <c>length</c> it is how a page enumerates an area it did not write itself; MediaWiki's
     /// <c>ext.centralNotice</c> key-value store sweeps its own keys exactly that way.
     /// </summary>
-    private static JSValue Key(StorageObject storage, in Arguments a)
+    private static JsValue Key(StorageObject storage, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
+        if (call.Length == 0)
+            return JsValue.Null;
 
-        var index = a[0].DoubleValue;
+        var index = call.Realm.ToNumber(call[0]);
         if (double.IsNaN(index) || index < 0 || index >= storage.Count)
-            return JSNull.Value;
+            return JsValue.Null;
 
-        return new JSString(storage.KeyAt((int)index));
+        return JsValue.String(storage.KeyAt((int)index));
     }
 
     /// <summary>

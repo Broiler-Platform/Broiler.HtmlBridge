@@ -1,5 +1,4 @@
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -8,29 +7,40 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The narrow set of bridge services the <see cref="TraversalBinding"/> feature module needs
 /// (HtmlBridge complexity-reduction roadmap Phase 3, first vertical slice). It replaces the
 /// former direct reach into <c>DomBridge</c> private state from the traversal callbacks with a
-/// small, named contract: JS-wrapper identity, node lookup, the two range-boundary/geometry
-/// helpers that still live in the bridge (Phase 5 relocates geometry to Layout), and the
-/// range-scoped node-construction seams the <c>Range</c> content operations mint bridge nodes
-/// through. No member exposes arbitrary bridge feature state, so the module never holds a
-/// god-object back-reference.
+/// small, named contract: the realm, JS-wrapper identity, node lookup, the two
+/// range-boundary/geometry helpers that still live in the bridge (Phase 5 relocates geometry to
+/// Layout), and the range-scoped node-construction seams the <c>Range</c> content operations mint
+/// bridge nodes through. No member exposes arbitrary bridge feature state, so the module never
+/// holds a god-object back-reference.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's: a wrapper is a <see cref="JsValue"/> and errors are raised
+/// through <see cref="IJsRealm"/>, so nothing here names an engine type. The bridge's implementation
+/// (<c>DomBridge.TraversalHost.cs</c>) is where the handles meet the engine objects the unmigrated
+/// half of the bridge still holds.
+/// </remarks>
 internal interface ITraversalHost
 {
-    /// <summary>The attached JS context (for DOMException plumbing). Never null while a document
-    /// is attached; the traversal APIs are only reachable from an attached document.</summary>
-    JSContext JsContext { get; }
+    /// <summary>
+    /// The realm the traversal objects are built in, and through which this module raises a
+    /// <c>DOMException</c>. Never null while a document is attached; the traversal APIs are only
+    /// reachable from an attached document. It replaces the former <c>JsContext</c> seam, which
+    /// existed for exactly one purpose — DOMException plumbing — that <see cref="IJsCalls.DomError"/>
+    /// now owns.
+    /// </summary>
+    IJsRealm Realm { get; }
 
     /// <summary>The main document root node that owns a range created without an explicit root.</summary>
     DomNode DocumentNode { get; }
 
     /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JSObject ToJSObject(DomNode node);
+    JsValue WrapNode(DomNode node);
 
     /// <summary>Resolves the canonical node behind a JS wrapper, or null.</summary>
-    DomNode? FindDomNodeByJSObject(JSObject? jsObj);
+    DomNode? FindNode(JsValue wrapper);
 
     /// <summary>Resolves the canonical element behind a JS wrapper, or null.</summary>
-    DomElement? FindDomElementByJSObject(JSObject? jsObj);
+    DomElement? FindElement(JsValue wrapper);
 
     /// <summary>Compares two boundary points within <paramref name="docRoot"/>, returning -1/0/1
     /// per the DOM Range comparison rules.</summary>
@@ -41,14 +51,14 @@ internal interface ITraversalHost
     IReadOnlyList<(double Left, double Top, double Width, double Height)> GetClientRectsForRange(DomRange range);
 
     /// <summary>Builds a CSSOM-View <c>DOMRect</c>-shaped JS object from a used-value rectangle.</summary>
-    JSObject CreateDomRectObject((double Left, double Top, double Width, double Height) rectData);
+    JsValue CreateDomRect((double Left, double Top, double Width, double Height) rectData);
 
     /// <summary>Mints a JS-wrapped comment node registered for wrapper lookup
     /// (<c>document.createComment</c>).</summary>
-    JSObject CreateCommentNode(string data);
+    JsValue CreateCommentNode(string data);
 
     /// <summary>Mints a bridge <c>#document-fragment</c> to receive extracted/cloned range content,
-    /// registered so <see cref="ToJSObject"/> can wrap it.</summary>
+    /// registered so <see cref="WrapNode"/> can wrap it.</summary>
     DomNode CreateRangeResultFragment();
 
     /// <summary>Clones a node for a range content operation, carrying host runtime state, registered

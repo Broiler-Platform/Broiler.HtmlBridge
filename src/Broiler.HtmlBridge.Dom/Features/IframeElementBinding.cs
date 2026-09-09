@@ -1,9 +1,5 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -18,75 +14,81 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// Was the bridge's <c>JsJsObjectsGetContentDocument135Core</c>/<c>GetContentWindow136Core</c>/
 /// <c>GetSVGDocument137Core</c>/<c>SetSrc139Core</c>/<c>SetSrcdoc141Core</c>.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>) throughout, installer and accessor
+/// bodies alike, so this file names no engine type. It carried one engine-typed adapter until this
+/// round: the element-wrapper hub that installs these members (<c>DomBridge/JsObjects.cs</c>) held the
+/// wrapper as an engine object and the handle was minted here. That hub mints the wrapper through the
+/// realm now and passes the handle, so the adapter is gone.
+/// </remarks>
 internal static class IframeElementBinding
 {
     /// <summary>
     /// Installs the <c>&lt;iframe&gt;</c> browsing-context accessors on <paramref name="obj"/> when
     /// <paramref name="element"/> is an <c>&lt;iframe&gt;</c>. A no-op for other elements.
     /// </summary>
-    public static void Install(IIframeElementHost host, JSObject obj, DomElement element)
+    public static void Install(IIframeElementHost host, JsValue obj, DomElement element)
     {
         // contentWindow / contentDocument — for <iframe> elements with full sub-document DOM
         if (!string.Equals(element.TagName, "iframe", StringComparison.OrdinalIgnoreCase))
             return;
 
-        obj.FastAddProperty("contentDocument",
-            new DomFunction((in _) => GetContentDocument(host, element), "get contentDocument"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        var realm = host.Realm;
 
-        obj.FastAddProperty("contentWindow",
-            new DomFunction((in _) => GetContentWindow(host, element), "get contentWindow"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(obj, "contentDocument",
+            (in _) => GetContentDocument(host, element), null);
+
+        realm.DefineAccessor(obj, "contentWindow",
+            (in _) => GetContentWindow(host, element), null);
 
         // getSVGDocument() — returns contentDocument (same as contentDocument for same-origin)
-        obj.FastAddValue("getSVGDocument",
-            new DomFunction((in _) => GetContentDocument(host, element), "getSVGDocument", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(obj, "getSVGDocument",
+            realm.NewMethod("getSVGDocument", (in _) => GetContentDocument(host, element), 0));
 
         // src property (read/write) — for iframe elements
-        obj.FastAddProperty("src",
-            new DomFunction((in _) => DomBridge.TryGetAttribute(element, "src", out var s) ? new JSString(s) : new JSString(string.Empty), "get src"),
-            new DomFunction((in a) => SetFrameAttribute(host, element, "src", in a), "set src"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(obj, "src",
+            (in _) => JsValue.String(DomBridge.TryGetAttribute(element, "src", out var s) ? s : string.Empty),
+            (in call) => SetFrameAttribute(host, element, "src", in call));
 
-        obj.FastAddProperty("srcdoc",
-            new DomFunction((in _) => DomBridge.TryGetAttribute(element, "srcdoc", out var s) ? new JSString(s) : new JSString(string.Empty), "get srcdoc"),
-            new DomFunction((in a) => SetFrameAttribute(host, element, "srcdoc", in a), "set srcdoc"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(obj, "srcdoc",
+            (in _) => JsValue.String(DomBridge.TryGetAttribute(element, "srcdoc", out var s) ? s : string.Empty),
+            (in call) => SetFrameAttribute(host, element, "srcdoc", in call));
 
         // sandbox attribute access
-        obj.FastAddProperty("sandbox",
-            new DomFunction((in _) => DomBridge.TryGetAttribute(element, "sandbox", out var sandbox) ? new JSString(sandbox) : new JSString(string.Empty), "get sandbox"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(obj, "sandbox",
+            (in _) => JsValue.String(DomBridge.TryGetAttribute(element, "sandbox", out var sandbox) ? sandbox : string.Empty),
+            null);
     }
 
     // contentDocument / getSVGDocument — same-origin sub-document, or null across origins.
-    private static JSValue GetContentDocument(IIframeElementHost host, DomElement element)
+    private static JsValue GetContentDocument(IIframeElementHost host, DomElement element)
     {
         // Cross-origin iframes return null for contentDocument (same-origin policy)
         if (host.IsCurrentIframeCrossOrigin(element))
-            return JSNull.Value;
+            return JsValue.Null;
         // Non-HTML resources get a minimal empty sub-document (no parsed fallback content)
         return host.GetOrCreateSubDocument(element);
     }
 
-    private static JSValue GetContentWindow(IIframeElementHost host, DomElement element)
+    private static JsValue GetContentWindow(IIframeElementHost host, DomElement element)
     {
         if (host.IsCurrentIframeCrossOrigin(element))
-            return JSNull.Value;
+            return JsValue.Null;
         return host.GetOrCreateSubWindow(element);
     }
 
     // src / srcdoc setter — writes the content attribute and reloads the frame (invalidate cached
     // sub-document, clear the fired-onload latch, fire onload for the new resource).
-    private static JSValue SetFrameAttribute(IIframeElementHost host, DomElement element, string attribute, in Arguments a)
+    private static JsValue SetFrameAttribute(IIframeElementHost host, DomElement element, string attribute, in JsCall call)
     {
-        DomBridge.SetAttr(element, attribute, a.Length > 0 ? a[0].ToString() : string.Empty);
+        // The realm's ToString, not the handle's: `frame.src = url` is the observable ECMAScript
+        // coercion, and a page assigning a URL object or a template literal wrapper depends on it.
+        DomBridge.SetAttr(element, attribute, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         // Invalidate cached sub-document when the frame source changes
         host.InvalidateCachedSubDocument(element);
         host.ClearOnloadFired(element);
         // Fire onload for the new resource
         host.FireSubDocumentOnload(element);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 }

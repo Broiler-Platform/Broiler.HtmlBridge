@@ -6,7 +6,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <summary>
 /// The narrow surface <see cref="ScriptInsertionRunner"/> needs from the bridge to run a
 /// script-inserted <c>&lt;script&gt;</c>: the document it watches, the page URL and policy a
-/// candidate is authorised against, the JS context it evaluates in, the event-loop queue it defers
+/// candidate is authorised against, the realm it evaluates in, the event-loop queue it defers
 /// an external script's fetch to, and the element event it fires when that fetch settles.
 /// Implemented by <c>DomBridge</c> via explicit interface members (see
 /// <c>DomBridge.ScriptInsertionHost.cs</c>).
@@ -17,8 +17,8 @@ internal interface IScriptInsertionHost
     /// root is something else (a detached subtree, or another document's tree).</summary>
     DomDocument Document { get; }
 
-    /// <summary>Whether a JS context is attached. Nothing can run before <c>Attach</c>.</summary>
-    bool HasJsContext { get; }
+    /// <summary>Whether a JavaScript realm is attached. Nothing can run before <c>Attach</c>.</summary>
+    bool HasRealm { get; }
 
     /// <summary>The document URL, for resolving a relative <c>src</c> and as the CSP self-origin.</summary>
     string PageUrl { get; }
@@ -37,8 +37,9 @@ internal interface IScriptInsertionHost
     /// among the page's timers (a script's deferred fetch+run).</summary>
     void QueueTask(Action task);
 
-    /// <summary>Evaluates classic script source in the page's JS context, under
-    /// <paramref name="label"/> — the name errors from it are reported against.</summary>
+    /// <summary>Evaluates classic script source on the page's behalf, under
+    /// <paramref name="label"/> — the name errors from it are reported against. The source is the
+    /// page's own, so it is guest source and not this repository's script.</summary>
     void EvaluateScript(string source, string label);
 
     /// <summary>The concatenated descendant text of an element: a script element's program text.</summary>

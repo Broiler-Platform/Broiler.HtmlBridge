@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using Broiler.HtmlBridge.Core.Diagnostics;
+using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Jseal.Providers;
 using Broiler.HtmlBridge.Logging;
 using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
@@ -23,9 +23,24 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// collections) is the remaining Phase-2 goal this class is the seam for; today it preserves the
 /// existing defensive concurrency. Instance-scoped to the owning bridge/document; <see cref="Clear"/>
 /// runs on re-parse and disposal and drops pending work without running it.
+/// <para>
+/// <b>A queued page callback is a <see cref="JsValue"/>, and the realm is reached through a function
+/// rather than held.</b> A handle carries no way back to the realm it belongs to, so the drain has to
+/// be given one to invoke through — and the realm is adopted at <c>Attach</c>, after this owner is
+/// built, so what is held is an accessor and not the realm itself. It answers <see langword="null"/>
+/// before an attach and after a teardown, which is a state no page callback can be queued in: only
+/// script registers one, and script needs the realm that is missing.
+/// </para>
+/// <para>
+/// The two engine-typed overloads are adapters for <c>Dom.Features.TimerBinding</c>, another group's
+/// file this round, which still narrows a callback to the engine's own function type before handing it
+/// over. A handle over that function is a cast rather than a conversion, so the identity
+/// <c>clearTimeout</c> and the drain rest on is unchanged.
+/// </para>
 /// </remarks>
-internal sealed class BrowserEventLoop
+internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
 {
+    private readonly Func<IJsRealm?> _realm = realm;
     private int _timerIdCounter;
     // Host-task ids descend from 0 so they cannot collide with the ascending setTimeout/setInterval
     // ids the page holds; see QueueTask.
@@ -41,13 +56,13 @@ internal sealed class BrowserEventLoop
     /// e.g. <c>setTimeout(a, 100); setTimeout(b, 0)</c> runs <c>b</c> before <c>a</c>, and a fast
     /// <c>setInterval</c> ticks the right number of times before a slower <c>setTimeout</c>.
     /// <para>
-    /// Exactly one of <paramref name="Fn"/> (a page callback) and <paramref name="HostTask"/> (host work
-    /// queued through <see cref="QueueTask"/>) is set. Keeping them as separate fields rather than wrapping
+    /// Exactly one of <paramref name="Fn"/> (a page callback, and not a function when there is none) and
+    /// <paramref name="HostTask"/> (host work queued through <see cref="QueueTask"/>) is set. Keeping them as separate fields rather than wrapping
     /// every callback in an <see cref="Action"/> keeps <c>setTimeout</c> — which busy pages call constantly —
     /// free of a closure allocation per registration.
     /// </para>
     /// </summary>
-    private readonly record struct TimerEntry(double Deadline, long Seq, JSFunction? Fn, Action? HostTask, double? Period);
+    private readonly record struct TimerEntry(double Deadline, long Seq, JsValue Fn, Action? HostTask, double? Period);
 
     private long _timerSeqCounter;
     // The loop's virtual clock (ms). Advances to the earliest pending deadline as timers fire, so a timer
@@ -59,7 +74,7 @@ internal sealed class BrowserEventLoop
     private readonly ConcurrentDictionary<int, TimerEntry> _timers = new();
     private readonly ConcurrentDictionary<int, byte> _clearedTimerIds = new();
     private int _rafIdCounter;
-    private readonly ConcurrentDictionary<int, JSFunction> _rafCallbacks = new();
+    private readonly ConcurrentDictionary<int, JsValue> _rafCallbacks = new();
     private int _frameActionIdCounter;
     private readonly ConcurrentDictionary<int, Action> _frameActions = new();
 
@@ -68,14 +83,14 @@ internal sealed class BrowserEventLoop
     // ------------------------------------------------------------------
 
     /// <summary>Registers a one-shot timeout, returning its id. The id is allocated even when
-    /// <paramref name="callback"/> is <c>null</c> (matching <c>setTimeout</c> with a non-function arg).
+    /// <paramref name="callback"/> is not a function (matching <c>setTimeout</c> with a non-function arg).
     /// <paramref name="delayMs"/> sets the timer's virtual deadline (<c>now + max(0, delay)</c>); it is
     /// clamped to a non-negative finite value (a <c>NaN</c>/negative/absent delay is 0), so timeouts fire in
     /// deadline order.</summary>
-    public int SetTimeout(JSFunction? callback, double delayMs = 0)
+    public int SetTimeout(JsValue callback, double delayMs = 0)
     {
         var id = Interlocked.Increment(ref _timerIdCounter);
-        if (callback is not null)
+        if (callback.IsFunction)
         {
             var delay = double.IsNaN(delayMs) || delayMs < 0 ? 0 : delayMs;
             var seq = Interlocked.Increment(ref _timerSeqCounter);
@@ -107,7 +122,7 @@ internal sealed class BrowserEventLoop
     {
         var id = Interlocked.Decrement(ref _hostTaskIdCounter);
         var seq = Interlocked.Increment(ref _timerSeqCounter);
-        _timers[id] = new TimerEntry(_virtualNowMs, seq, Fn: null, task, Period: null);
+        _timers[id] = new TimerEntry(_virtualNowMs, seq, Fn: JsValue.Missing, task, Period: null);
     }
 
     /// <summary>Cancels a timeout and marks its id cleared so an in-flight drain skips it.</summary>
@@ -116,10 +131,10 @@ internal sealed class BrowserEventLoop
     /// <summary>Registers a repeating interval, returning its id. <paramref name="periodMs"/> is the tick
     /// period (clamped to a non-negative finite value); the interval fires at <c>now + period</c> and then
     /// every <c>period</c> ms on the virtual clock, in deadline order with the other timers.</summary>
-    public int SetInterval(JSFunction? callback, double periodMs = 0)
+    public int SetInterval(JsValue callback, double periodMs = 0)
     {
         var id = Interlocked.Increment(ref _timerIdCounter);
-        if (callback is not null)
+        if (callback.IsFunction)
         {
             var period = double.IsNaN(periodMs) || periodMs < 0 ? 0 : periodMs;
             var seq = Interlocked.Increment(ref _timerSeqCounter);
@@ -139,13 +154,35 @@ internal sealed class BrowserEventLoop
     }
 
     /// <summary>Registers a one-shot animation-frame callback, returning its id.</summary>
-    public int RequestAnimationFrame(JSFunction? callback)
+    public int RequestAnimationFrame(JsValue callback)
     {
         var id = Interlocked.Increment(ref _rafIdCounter);
-        if (callback is not null)
+        if (callback.IsFunction)
             _rafCallbacks[id] = callback;
         return id;
     }
+
+    // ------------------------------------------------------------------
+    //  Engine-typed adapters
+    // ------------------------------------------------------------------
+
+    // The three registration entry points as Dom.Features.TimerBinding still calls them: it narrows a
+    // callback to the engine's function type and passes that function or a CLR null. That file is another
+    // group's this round, so the narrowing stays where it is and the handle is minted here. A null
+    // becomes `undefined` rather than Missing because both are simply "not a function" to the tests
+    // above, and undefined is what an absent callback already reached the engine as.
+
+    /// <inheritdoc cref="SetTimeout(JsValue, double)"/>
+    public int SetTimeout(JSFunction? callback, double delayMs = 0) => SetTimeout(ToHandle(callback), delayMs);
+
+    /// <inheritdoc cref="SetInterval(JsValue, double)"/>
+    public int SetInterval(JSFunction? callback, double periodMs = 0) => SetInterval(ToHandle(callback), periodMs);
+
+    /// <inheritdoc cref="RequestAnimationFrame(JsValue)"/>
+    public int RequestAnimationFrame(JSFunction? callback) => RequestAnimationFrame(ToHandle(callback));
+
+    private static JsValue ToHandle(JSFunction? callback) =>
+        callback is null ? JsValue.Undefined : JsProviderValue.Function(callback);
 
     /// <summary>Cancels a pending animation-frame callback.</summary>
     public void CancelAnimationFrame(int id) => _rafCallbacks.TryRemove(id, out _);
@@ -276,7 +313,7 @@ internal sealed class BrowserEventLoop
         }
 
         // Collect rAF callbacks (one-shot: remove as collected)
-        var rafSnapshot = new List<(int Id, JSFunction Fn)>();
+        var rafSnapshot = new List<(int Id, JsValue Fn)>();
         foreach (var kv in _rafCallbacks.ToArray())
         {
             if (_rafCallbacks.TryRemove(kv.Key, out var fn))
@@ -307,8 +344,8 @@ internal sealed class BrowserEventLoop
                 using var turn = JsEntryTrace.Enter(JsEntryKind.Timer,
                     entry.Period is null ? $"timeout#{id}" : $"interval#{id}");
 
-                if (entry.Fn is { } fn)
-                    fn.InvokeFunction(new Arguments(JSUndefined.Value));
+                if (entry.Fn.IsFunction)
+                    _realm()?.Invoke(entry.Fn, JsValue.Undefined);
                 else
                     entry.HostTask?.Invoke();
             }
@@ -328,7 +365,7 @@ internal sealed class BrowserEventLoop
             try
             {
                 using var turn = JsEntryTrace.Enter(JsEntryKind.AnimationFrame, $"raf#{id}");
-                fn.InvokeFunction(new Arguments(JSUndefined.Value, new JSNumber(0)));
+                _realm()?.Invoke(fn, JsValue.Undefined, [JsValue.Number(0)]);
             }
             catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"rAF callback error: {ex.Message}", ex); }
             finally { RunTaskCheckpoint(); }

@@ -1,10 +1,8 @@
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.HtmlBridge.Logging;
-using Broiler.HtmlBridge.Dom.Features;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Dom.Features;
+using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge;
 
@@ -16,8 +14,17 @@ namespace Broiler.HtmlBridge;
 /// popover runtime state still lives on the per-element <see cref="ElementRuntimeState"/> tables and
 /// the top-layer counter; these accessors are the single point a future TopLayerManager re-homes.
 /// </summary>
+/// <remarks>
+/// This is the half-migrated seam for the dialog slice: the module speaks JSEAL, and the one member
+/// that has to hand an object to the unmigrated half of the bridge —
+/// <see cref="IDialogHost.DispatchFullscreenChange"/>, whose dispatcher still takes an engine object
+/// — builds it through the realm and crosses with <see cref="Dom.Runtime.JsInterop"/>. That is a cast
+/// and not a conversion: a JSEAL object handle carries the engine's own object.
+/// </remarks>
 public sealed partial class DomBridge : IDialogHost
 {
+    IJsRealm IDialogHost.Realm => Realm;
+
     void IDialogHost.SetOpenAttribute(DomElement element, bool open)
     {
         if (open)
@@ -70,12 +77,13 @@ public sealed partial class DomBridge : IDialogHost
     {
         try
         {
-            var evt = new JSObject();
-            evt.FastAddValue("type", new JSString("fullscreenchange"),
-                JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("bubbles", JSBoolean.True,
-                JSPropertyAttributes.EnumerableConfigurableValue);
-            DispatchEventOnElement(target, evt);
+            // The event is built through the realm and unwrapped for the dispatcher, which still
+            // takes an engine object. Both halves name the same realm, so the object the listener
+            // sees is the one this built.
+            var evt = Realm.NewObject();
+            Realm.DefineValue(evt, "type", JsValue.String("fullscreenchange"));
+            Realm.DefineValue(evt, "bubbles", JsValue.True);
+            DispatchEventOnElement(target, JsInterop.ToEngineObject(evt));
         }
         catch (Exception ex)
         {

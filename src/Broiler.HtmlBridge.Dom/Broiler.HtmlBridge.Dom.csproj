@@ -41,6 +41,15 @@
     <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom.Html\Broiler.Dom.Html.csproj" />
     <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom\Broiler.Dom.csproj" />
     <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />
+    <!--
+      JSEAL: the contracts a migrated binding builds its JavaScript objects through. Contracts only —
+      no engine provider, and deliberately so. This project's engine coupling is what the JSEAL work
+      exists to count down (eng/jseal-budget.json), and it would be a poor trade to remove a
+      Broiler.JS reference from a file and add a reference to the assembly that has one. The realm is
+      obtained from whichever provider the host linked, through JsEngineRegistry; see
+      DomBridge.Realm.cs.
+    -->
+    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
     <ProjectReference Include="..\..\Broiler.HTML\Source\Broiler.HTML.Dom\Broiler.HTML.Dom.csproj" />
     <!-- The canvas 2D context rasterises into a Broiler.Graphics BBitmap and encodes it through the
          media image abstraction, which is what makes getImageData/toDataURL report real pixels. Both
@@ -50,7 +59,12 @@
     <ProjectReference Include="..\..\Broiler.Media\src\Broiler.Media.Image\Broiler.Media.Image.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
-    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Globals\Broiler.JavaScript.Globals.csproj" />
+    <!--
+      Broiler.JavaScript.Globals is GONE from this project: the only thing the bridge used it for was
+      JSGlobalStatic.StructuredClone, and structured clone is now IJsClone on the realm contract, so the
+      reference moved to the provider that implements it. That is the shape every one of these should
+      eventually take: an engine assembly reached by the provider and not by the bridge.
+    -->
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Modules\Broiler.JavaScript.Modules.csproj" />
   </ItemGroup>
 

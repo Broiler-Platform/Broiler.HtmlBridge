@@ -1,8 +1,6 @@
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
+using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -21,25 +19,38 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>innerText</c>/<c>outerText</c> registration plus the <c>JsJsObjectsSetInnerHTML016Core</c>/
 /// <c>SetOuterHTML018Core</c>/<c>SetTextContent021Core</c> callbacks.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the members are minted by the realm,
+/// their bodies read a <see cref="JsCall"/>, and the three setters coerce with
+/// <see cref="IJsValues.ToJsString"/> — which is what the engine did before, and what the handle's own
+/// <c>ToString</c> deliberately does not do. <c>innerHTML = someObject</c> running that object's
+/// <c>toString</c> is the whole of how a templating library hands over a fragment.
+/// </para>
+/// <para>
+/// <b><see cref="InstallTextContent"/> is the one member still shaped by its caller.</b> It is reached
+/// from the wrapper factory (<c>DomBridge/JsObjects.cs</c>), which has not migrated and holds an engine
+/// object, so the parameter is one — the seam unwraps it, and the realm comes off the host rather than
+/// off a caller that has none to give. The member it installs is built by the realm like the other four.
+/// </para>
+/// </remarks>
 internal static class ElementContentBinding
 {
     /// <summary>
     /// Installs the HTML-serialization members: <c>innerHTML</c> and <c>outerHTML</c> (read/write).
     /// Both are <c>Element</c>'s, so they go on its prototype.
     /// </summary>
-    public static void InstallHtmlSerialization(IElementContentHost host, JSObject target, ElementSource element)
+    public static void InstallHtmlSerialization(IElementContentHost host, IJsRealm realm, JsValue target, JsElementSource element)
     {
         // innerHTML (read/write)
-        target.FastAddProperty("innerHTML",
-            new DomFunction((in a) => new JSString(host.SerializeChildrenToHtml(element(in a, "innerHTML"))), "get innerHTML"),
-            new DomFunction((in a) => SetInnerHtml(host, element(in a, "innerHTML"), in a), "set innerHTML"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "innerHTML",
+            (in call) => JsValue.String(host.SerializeChildrenToHtml(element(in call, "innerHTML"))),
+            (in call) => SetInnerHtml(host, element(in call, "innerHTML"), in call));
 
         // outerHTML (read/write)
-        target.FastAddProperty("outerHTML",
-            new DomFunction((in a) => new JSString(host.SerializeElementToHtml(element(in a, "outerHTML"))), "get outerHTML"),
-            new DomFunction((in a) => SetOuterHtml(host, element(in a, "outerHTML"), in a), "set outerHTML"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "outerHTML",
+            (in call) => JsValue.String(host.SerializeElementToHtml(element(in call, "outerHTML"))),
+            (in call) => SetOuterHtml(host, element(in call, "outerHTML"), in call));
     }
 
     /// <summary>
@@ -48,45 +59,57 @@ internal static class ElementContentBinding
     /// child with one text node — differs from the character-data one already on
     /// <c>Node.prototype</c>, so it shadows that one until a single implementation serves both.
     /// </summary>
+    /// <param name="obj">
+    /// The element's JS wrapper, still an engine object because the wrapper factory that calls this
+    /// holds one. The seam is a cast rather than a conversion, so the member below is installed on
+    /// the same object the factory is building.
+    /// </param>
     public static void InstallTextContent(IElementContentHost host, JSObject obj, DomElement element)
     {
-        obj.FastAddProperty("textContent",
-            new DomFunction((in _) => host.GetNodeTextValue(element), "get textContent"),
-            new DomFunction((in a) => SetTextContent(host, element, in a), "set textContent"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        var realm = host.Realm;
+        var target = Dom.Runtime.JsInterop.FromEngineObject(obj);
+
+        realm.DefineAccessor(target, "textContent",
+            (in _) => JsValue.String(host.NodeTextValue(element)),
+            (in call) => SetTextContent(host, element, in call));
     }
 
     /// <summary>
     /// <c>innerText</c> and <c>outerText</c> (read-only), which are <c>HTMLElement</c>'s and go on its
     /// prototype.
     /// </summary>
-    public static void InstallHtmlElementMembers(IElementContentHost host, JSObject target, ElementSource element)
+    public static void InstallHtmlElementMembers(IElementContentHost host, IJsRealm realm, JsValue target, JsElementSource element)
     {
-        target.FastAddProperty("innerText",
-            new DomFunction((in a) => host.GetNodeTextValue(element(in a, "innerText")), "get innerText"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "innerText",
+            (in call) => JsValue.String(host.NodeTextValue(element(in call, "innerText"))), null);
 
-        target.FastAddProperty("outerText",
-            new DomFunction((in a) => host.GetNodeTextValue(element(in a, "outerText")), "get outerText"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "outerText",
+            (in call) => JsValue.String(host.NodeTextValue(element(in call, "outerText"))), null);
     }
 
-    private static JSValue SetInnerHtml(IElementContentHost host, DomElement element, in Arguments a)
+    private static JsValue SetInnerHtml(IElementContentHost host, DomElement element, in JsCall call)
     {
-        host.SetElementInnerHtml(element, a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
+        host.SetElementInnerHtml(element, StringArgument(in call));
+        return JsValue.Undefined;
     }
 
-    private static JSValue SetOuterHtml(IElementContentHost host, DomElement element, in Arguments a)
+    private static JsValue SetOuterHtml(IElementContentHost host, DomElement element, in JsCall call)
     {
-        host.SetElementOuterHtml(element, a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
+        host.SetElementOuterHtml(element, StringArgument(in call));
+        return JsValue.Undefined;
     }
 
-    private static JSValue SetTextContent(IElementContentHost host, DomElement element, in Arguments a)
+    private static JsValue SetTextContent(IElementContentHost host, DomElement element, in JsCall call)
     {
         // Setting textContent replaces all children with a single text node per DOM spec.
-        host.SetElementTextContent(element, a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
+        host.SetElementTextContent(element, StringArgument(in call));
+        return JsValue.Undefined;
     }
+
+    /// <summary>
+    /// Argument zero as a string — the ECMAScript coercion, which may run a <c>toString</c> the page
+    /// wrote — or the empty string when the setter was called with no argument at all.
+    /// </summary>
+    private static string StringArgument(in JsCall call)
+        => call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
 }

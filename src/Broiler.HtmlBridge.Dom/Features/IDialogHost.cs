@@ -1,4 +1,5 @@
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -14,6 +15,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 internal interface IDialogHost
 {
+    /// <summary>
+    /// The realm the dialog/popover members are installed in, and the one whose job queue backs the
+    /// resolved promise the fullscreen methods return.
+    /// </summary>
+    IJsRealm Realm { get; }
+
     /// <summary>Adds (<paramref name="open"/> true) or removes the boolean <c>open</c> attribute.</summary>
     void SetOpenAttribute(DomElement element, bool open);
 

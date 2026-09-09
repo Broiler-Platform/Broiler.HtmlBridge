@@ -1,6 +1,6 @@
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge;
 
@@ -53,6 +53,10 @@ public sealed partial class DomBridge
     /// Points <paramref name="wrapper"/> at its interface prototype when the realm is up. A no-op
     /// otherwise, and for a node kind this does not name.
     /// </summary>
+    /// <remarks>
+    /// Engine-typed because the four wrapper factories that call it are: each holds the wrapper it
+    /// has just minted as the engine's own object. It forwards to the handle-taking overload below.
+    /// </remarks>
     internal void ApplyInterfacePrototype(JSObject wrapper, DomNode node)
     {
         if (InterfaceNameFor(node) is { } interfaceName)
@@ -64,12 +68,40 @@ public sealed partial class DomBridge
     /// seam for wrappers that are not minted from a <see cref="DomNode"/> — an attribute is not one
     /// in the canonical DOM, so its wrapper never reaches the node choke point.
     /// </summary>
-    internal void LinkToInterface(JSObject wrapper, string interfaceName)
+    /// <remarks>
+    /// A no-op before the realm exists, and for a name no interface global carries — the same two
+    /// escapes the engine-typed lookup had, asked of the realm instead. The prototype is installed
+    /// through <c>IJsMembers.SetPrototype</c>, which is the engine's <c>[[SetPrototypeOf]]</c> path
+    /// and therefore retires the caches keyed on the chain the wrapper is leaving; assigning the
+    /// backing field directly would link the object and leave those caches answering for the old
+    /// chain.
+    /// </remarks>
+    internal void LinkToInterface(JsValue wrapper, string interfaceName)
     {
-        if (_jsContext?[interfaceName] is JSObject constructor &&
-            constructor[(KeyString)"prototype"] is JSObject prototype)
-            wrapper.BasePrototypeObject = prototype;
+        if (_realm is not { } realm)
+            return;
+
+        var constructor = realm.GetProperty(realm.Global, interfaceName);
+        if (!constructor.IsObject)
+            return;
+
+        var prototype = realm.GetProperty(constructor, "prototype");
+        if (prototype.IsObject)
+            realm.SetPrototype(wrapper, prototype);
     }
+
+    /// <summary>
+    /// <see cref="LinkToInterface(JsValue, string)"/> for a caller holding the engine's own object.
+    /// </summary>
+    /// <remarks>
+    /// The wrapper factories (<c>DomBridge/JsObjects.cs</c> and its non-element sibling),
+    /// <c>DomBridge/CharacterDataInterface.cs</c>, <c>DomBridge/Registration/Registration.cs</c> and
+    /// <c>DomBridge.AttributesHost.cs</c> all mint a wrapper as a <see cref="JSObject"/> — they are
+    /// other groups' files this round — so the conversion is gathered here rather than repeated at
+    /// each of them. It is a cast, not a conversion: the handle carries that same object.
+    /// </remarks>
+    internal void LinkToInterface(JSObject wrapper, string interfaceName) =>
+        LinkToInterface(Dom.Runtime.JsInterop.FromEngineObject(wrapper), interfaceName);
 
     /// <summary>
     /// The interface a node implements, or <see langword="null"/> for a kind this does not reach.

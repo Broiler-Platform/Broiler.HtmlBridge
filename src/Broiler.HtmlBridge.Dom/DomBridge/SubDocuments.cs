@@ -1,10 +1,5 @@
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.HtmlBridge.Core.Diagnostics;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Internal.Scripting;
@@ -77,10 +72,12 @@ public sealed partial class DomBridge
         // Fire the onload handler
         try
         {
-            var evt = new JSObject();
-            evt.FastAddValue("type", new JSString("load"), JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-            DispatchEventOnElement(element, evt);
+            // The event object is minted through the realm; the dispatcher is unmigrated and takes
+            // the engine object, which JsInterop casts to — it is the same object either way.
+            var evt = Realm.NewObject();
+            Realm.DefineValue(evt, "type", JsValue.String("load"));
+            Realm.DefineValue(evt, "bubbles", JsValue.False);
+            DispatchEventOnElement(element, Dom.Runtime.JsInterop.ToEngineObject(evt));
         }
         catch (Exception ex)
         {
@@ -138,15 +135,29 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Gets or creates a full sub-document JSObject for iframe/object elements.
+    /// Gets or creates a full sub-document object for iframe/object elements.
     /// The sub-document has its own DOM tree, createElement, getElementById, etc.
     /// For same-origin HTTP/HTTPS resources, attempts to fetch and parse the content.
     /// Non-HTML resources (by extension or Content-Type) get a minimal empty document.
     /// </summary>
-    internal JSObject GetOrCreateSubDocument(DomElement containerElement)
+    /// <remarks>
+    /// <para>
+    /// Everything inside is JSEAL: the document object is built through the realm by
+    /// <see cref="Dom.Features.SubDocumentBinding.Build"/> and the per-container cache in
+    /// <see cref="Runtime.BrowsingContextManager"/> holds the handle it answered with.
+    /// </para>
+    /// <para>
+    /// The <em>return type</em> is the adapter, and it is pinned by four files this group does not own:
+    /// <c>DomBridge/DomBridge.IframeElementHost.cs</c>, <c>DomBridge/DomBridge.ObjectElementHost.cs</c>,
+    /// <c>DomBridge.SubWindowHost.cs</c> and <c>DomBridge.WindowContextHost.cs</c> each wrap the answer
+    /// with <c>JsInterop.FromEngineObject</c> before handing it to a JSEAL contract, so the one cast
+    /// left here is the one they undo. It goes when they read the handle directly.
+    /// </para>
+    /// </remarks>
+    internal JavaScript.Runtime.JSObject GetOrCreateSubDocument(DomElement containerElement)
     {
         if (_browsingContexts.TryGetSubDocument(containerElement, out var cached))
-            return cached;
+            return Dom.Runtime.JsInterop.ToEngineObject(cached);
 
         var executeHtmlScripts = false;
         string? htmlToExecute = null;
@@ -205,11 +216,11 @@ public sealed partial class DomBridge
             }
         }
 
-        var doc = _subDocuments.BuildDocument(docRoot);
+        var doc = _subDocuments.Build(docRoot);
         _browsingContexts.SetSubDocument(containerElement, doc);
         if (executeHtmlScripts && !string.IsNullOrEmpty(htmlToExecute))
             ExecuteSubDocumentScripts(containerElement, htmlToExecute);
-        return doc;
+        return Dom.Runtime.JsInterop.ToEngineObject(doc);
     }
 
     private static DomElement? FindBodyElement(DomElement documentElement) =>
@@ -333,6 +344,10 @@ public sealed partial class DomBridge
         if (_jsContext == null || string.IsNullOrWhiteSpace(html))
             return;
 
+        // The scripts below are the page's own source, not this repository's, so they stay on the
+        // context: JSEAL types them as guest source (IJsSource.EvaluateGuestSource) and the module
+        // roots after them need a JSModuleContext the contract does not describe at all, so moving
+        // half of one loop would split one evaluation path across two vocabularies for no gain.
         var extraction = ScriptExtractionService.ExtractAll(html, GetSubDocumentBaseUrl(containerElement));
         if (extraction.Scripts.Count == 0 &&
             extraction.AsyncScripts.Count == 0 &&

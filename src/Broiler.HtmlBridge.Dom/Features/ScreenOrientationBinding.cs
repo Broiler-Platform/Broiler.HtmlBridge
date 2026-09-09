@@ -1,8 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -31,6 +27,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// rejection a page must handle. Supplying one that always rejects would add nothing a missing
 /// method does not already tell a caller, and supplying one that resolves would be a lie.
 /// </para>
+/// <para>
+/// <c>unlock</c> is <em>constructable</em>, and only because it always has been. It was built by the
+/// bridge's <c>UndefinedFunction</c> helper, which mints a plain engine function — one that carries a
+/// <c>prototype</c> object and so passes the engine's constructor test — rather than the
+/// non-constructable shape WebIDL gives an operation. Under JSEAL that distinction is which factory
+/// is called, so preserving the behaviour means asking for a constructor here; a browser answers
+/// <c>undefined</c> for <c>screen.orientation.unlock.prototype</c> and throws on
+/// <c>new screen.orientation.unlock()</c>, and correcting that is a behaviour change that belongs in
+/// its own commit alongside the helper's other callers.
+/// </para>
 /// </remarks>
 internal static class ScreenOrientationBinding
 {
@@ -39,36 +45,37 @@ internal static class ScreenOrientationBinding
     /// accessors so that a screen whose size is re-evaluated reports the orientation that follows
     /// from it.
     /// </summary>
+    /// <param name="realm">The realm the object, its accessors and <c>unlock</c> belong to.</param>
     /// <param name="width">Screen width in CSS pixels.</param>
     /// <param name="height">Screen height in CSS pixels.</param>
-    public static JSObject Build(int width, int height)
+    public static JsValue Build(IJsRealm realm, int width, int height)
     {
-        var orientation = new JSObject();
+        var orientation = realm.NewObject();
 
-        orientation.FastAddProperty("type",
-            new DomFunction((in _) => new JSString(TypeOf(width, height)), "get type"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(orientation, "type",
+            (in _) => JsValue.String(TypeOf(width, height)), null);
 
         // The angle between the current orientation and the device's natural one. Broiler's output
         // surface is its natural orientation, so the two never differ.
-        orientation.FastAddProperty("angle",
-            new DomFunction((in _) => new JSNumber(0), "get angle"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(orientation, "angle",
+            static (in _) => JsValue.Number(0), null);
 
         // onchange is a settable event-handler attribute that nothing ever fires here, because the
         // orientation cannot change. It is present because a page assigns to it unconditionally,
-        // and null is the value the attribute has before anything is assigned.
-        JSValue onChange = JSNull.Value;
-        orientation.FastAddProperty("onchange",
-            new DomFunction((in _) => onChange, "get onchange"),
-            new DomFunction((in a) => onChange = a.Length > 0 ? a[0] : JSNull.Value, "set onchange"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        // and null is the value the attribute has before anything is assigned. `onchange = ` with no
+        // argument at all cannot happen through an assignment, but the arity check is kept because
+        // the setter is reachable by name (`descriptor.set()`) and a missing argument is not null.
+        JsValue onChange = JsValue.Null;
+        realm.DefineAccessor(orientation, "onchange",
+            (in _) => onChange,
+            (in JsCall call) => onChange = call.Length > 0 ? call[0] : JsValue.Null);
 
         // unlock() releases a lock; with no way to take one there is never a lock to release, which
-        // makes doing nothing the specified behaviour rather than a stub.
-        orientation.FastAddValue("unlock",
-            DomBridge.UndefinedFunction("unlock", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        // makes doing nothing the specified behaviour rather than a stub. It is minted as a
+        // constructor rather than a method to preserve exactly what the bridge's UndefinedFunction
+        // helper built here — see the last paragraph of the class remarks.
+        realm.DefineValue(orientation, "unlock",
+            realm.NewConstructor("unlock", static (in _) => JsValue.Undefined, 0));
 
         return orientation;
     }

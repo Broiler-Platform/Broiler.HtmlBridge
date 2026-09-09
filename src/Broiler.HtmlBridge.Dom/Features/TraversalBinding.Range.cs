@@ -1,11 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -37,33 +30,40 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>surroundContents</c> splits into <c>InvalidNodeTypeError</c> for a doctype and
 /// <c>HierarchyRequestError</c> for a text node.
 /// </para>
+/// <para>
+/// Each of those is raised as <c>throw realm.DomError(name, message)</c> / <c>realm.Error(kind, …)</c>
+/// rather than through a bridge helper that built the <c>DOMException</c> by hand. The object a page
+/// catches is the same one — the provider constructs it against the realm's own <c>DOMException</c>
+/// global and falls back identically when there is none — and the <see langword="throw"/> is now
+/// visible at the call site, so the dead <c>return</c> that used to follow each one is gone.
+/// </para>
 /// </remarks>
 internal sealed partial class TraversalBinding
 {
     // -------- Attributes --------
 
-    private JSValue RangeGetCommonAncestorContainer(DomRange state)
+    private JsValue RangeGetCommonAncestorContainer(DomRange state)
     {
         // CommonAncestorWith returns null for boundaries in different trees, preserving the lenient
-        // JSNull result; the canonical DomRange.CommonAncestorContainer would throw.
+        // null result; the canonical DomRange.CommonAncestorContainer would throw.
         var ancestor = state.StartContainer.CommonAncestorWith(state.EndContainer);
-        return ancestor != null ? _host.ToJSObject(ancestor) : JSNull.Value;
+        return ancestor != null ? _host.WrapNode(ancestor) : JsValue.Null;
     }
 
     // -------- Geometry (CSSOM View) --------
 
-    private JSValue RangeGetBoundingClientRect(BridgeDomRange state, in Arguments _)
+    private JsValue RangeGetBoundingClientRect(BridgeDomRange state, in JsCall call)
     {
         var rects = _host.GetClientRectsForRange(state);
-        return _host.CreateDomRectObject(UnionClientRects(rects));
+        return _host.CreateDomRect(UnionClientRects(rects));
     }
 
-    private JSValue RangeGetClientRects(BridgeDomRange state, in Arguments _)
+    private JsValue RangeGetClientRects(BridgeDomRange state, in JsCall call)
     {
         var rects = _host.GetClientRectsForRange(state);
         if (rects.Count == 0)
-            return new JSArray();
-        return new JSArray([.. rects.Select(rect => (JSValue)_host.CreateDomRectObject(rect))]);
+            return call.Realm.NewArray();
+        return call.Realm.NewArray([.. rects.Select(rect => _host.CreateDomRect(rect))]);
     }
 
     // -------- Argument and boundary validation --------
@@ -74,13 +74,15 @@ internal sealed partial class TraversalBinding
     /// type 'Node'" — and both used to return <c>undefined</c> here, leaving the range untouched and
     /// the caller none the wiser.
     /// </summary>
-    private DomNode NodeArgument(in Arguments a, int index, string member, string interfaceName = "Range")
+    private DomNode NodeArgument(in JsCall call, int index, string member, string interfaceName = "Range")
     {
-        if (index < a.Length && a[index] is JSObject candidate &&
-            _host.FindDomNodeByJSObject(candidate) is { } node)
+        // An index past the end is Missing, which is not an object, so the arity failure and the
+        // wrong-type failure fall into the same arm exactly as they did before.
+        if (call[index].IsObject && _host.FindNode(call[index]) is { } node)
             return node;
 
-        return JSException.ThrowTypeError<DomNode>(
+        throw call.Realm.Error(
+            JsErrorKind.TypeError,
             $"Failed to execute '{member}' on '{interfaceName}': parameter {index + 1} is not of type 'Node'.");
     }
 
@@ -89,9 +91,15 @@ internal sealed partial class TraversalBinding
     /// become <c>0</c>, everything else truncates and wraps modulo 2^32 — which is why a negative
     /// offset is reported as a very large one rather than rejected as negative.
     /// </summary>
-    private static uint ToUnsignedLong(JSValue? value)
+    /// <remarks>
+    /// An argument that was never supplied is <see cref="JsValue.Missing"/> and converts to
+    /// <c>0</c> without asking the realm — there is nothing to coerce. Anything else goes through
+    /// the realm's <c>ToNumber</c>, which is the ECMAScript coercion this site read off the engine
+    /// value directly before, so a numeric string and an object with a <c>valueOf</c> still convert.
+    /// </remarks>
+    private static uint ToUnsignedLong(IJsRealm realm, JsValue value)
     {
-        var number = value is null ? 0 : value.DoubleValue;
+        var number = value.IsMissing ? 0 : realm.ToNumber(value);
         if (double.IsNaN(number) || double.IsInfinity(number))
             return 0;
 
@@ -133,37 +141,35 @@ internal sealed partial class TraversalBinding
     private int ValidateBoundary(DomNode node, uint offset, string member, string interfaceName = "Range")
     {
         if (node is DomDocumentType)
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                $"Failed to execute '{member}' on '{interfaceName}': The node provided is of type '{NodeNameOf(node)}'.",
-                "InvalidNodeTypeError");
+            throw _host.Realm.DomError(
+                "InvalidNodeTypeError",
+                $"Failed to execute '{member}' on '{interfaceName}': The node provided is of type '{NodeNameOf(node)}'.");
 
         var length = NodeLength(node);
         if (offset > (uint)length)
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
+            throw _host.Realm.DomError(
+                "IndexSizeError",
                 node is DomCharacterData || interfaceName == "Selection"
                     ? $"Failed to execute '{member}' on '{interfaceName}': The offset {offset} is larger than the node's length ({length})."
-                    : $"Failed to execute '{member}' on '{interfaceName}': There is no child at offset {offset}.",
-                "IndexSizeError");
+                    : $"Failed to execute '{member}' on '{interfaceName}': There is no child at offset {offset}.");
 
         return (int)offset;
     }
 
     // -------- Boundary operations --------
 
-    private JSValue RangeSetStart(BridgeDomRange state, in Arguments a)
+    private JsValue RangeSetStart(BridgeDomRange state, in JsCall call)
     {
-        var node = NodeArgument(in a, 0, "setStart");
-        state.SetStart(node, ValidateBoundary(node, ToUnsignedLong(a.Length > 1 ? a[1] : null), "setStart"));
-        return JSUndefined.Value;
+        var node = NodeArgument(in call, 0, "setStart");
+        state.SetStart(node, ValidateBoundary(node, ToUnsignedLong(call.Realm, call[1]), "setStart"));
+        return JsValue.Undefined;
     }
 
-    private JSValue RangeSetEnd(BridgeDomRange state, in Arguments a)
+    private JsValue RangeSetEnd(BridgeDomRange state, in JsCall call)
     {
-        var node = NodeArgument(in a, 0, "setEnd");
-        state.SetEnd(node, ValidateBoundary(node, ToUnsignedLong(a.Length > 1 ? a[1] : null), "setEnd"));
-        return JSUndefined.Value;
+        var node = NodeArgument(in call, 0, "setEnd");
+        state.SetEnd(node, ValidateBoundary(node, ToUnsignedLong(call.Realm, call[1]), "setEnd"));
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -171,54 +177,46 @@ internal sealed partial class TraversalBinding
     /// the offset is the node's index or one past it, so one body serves all four — and all four owe
     /// the caller <c>InvalidNodeTypeError</c> when the node has no parent to be positioned within.
     /// </summary>
-    private JSValue RangeSetBoundaryToSibling(BridgeDomRange state, in Arguments a, string member, bool start, bool after)
+    private JsValue RangeSetBoundaryToSibling(BridgeDomRange state, in JsCall call, string member, bool start, bool after)
     {
-        var node = NodeArgument(in a, 0, member);
+        var node = NodeArgument(in call, 0, member);
         // Phase 4 item 1 (P4.4a): a boundary node's parent may be a canonical DomDocument (a regime-B
         // createDocument root) — a valid boundary container that is not a DomElement, so use the raw
         // ParentNode (ParentEl nulled out a non-element parent and wrongly threw here).
         if (node.ParentNode is not { } parent)
-        {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                $"Failed to execute '{member}' on 'Range': the given Node has no parent.",
-                "InvalidNodeTypeError");
-            return JSUndefined.Value;
-        }
+            throw call.Realm.DomError(
+                "InvalidNodeTypeError",
+                $"Failed to execute '{member}' on 'Range': the given Node has no parent.");
 
         var offset = DomBridge.ChildIndexOf(parent, node) + (after ? 1 : 0);
         if (start)
             state.SetStart(parent, offset);
         else
             state.SetEnd(parent, offset);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue RangeCollapse(BridgeDomRange state, in Arguments a)
+    private static JsValue RangeCollapse(BridgeDomRange state, in JsCall call)
     {
-        state.Collapse(a.Length > 0 && a[0].BooleanValue);
-        return JSUndefined.Value;
+        state.Collapse(call.Length > 0 && call[0].AsBoolean);
+        return JsValue.Undefined;
     }
 
-    private JSValue RangeSelectNode(BridgeDomRange state, in Arguments a)
+    private JsValue RangeSelectNode(BridgeDomRange state, in JsCall call)
     {
-        var node = NodeArgument(in a, 0, "selectNode");
+        var node = NodeArgument(in call, 0, "selectNode");
         if (node.ParentNode is null)
-        {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                "Failed to execute 'selectNode' on 'Range': the given Node has no parent.",
-                "InvalidNodeTypeError");
-            return JSUndefined.Value;
-        }
+            throw call.Realm.DomError(
+                "InvalidNodeTypeError",
+                "Failed to execute 'selectNode' on 'Range': the given Node has no parent.");
 
         state.SelectNode(node);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue RangeSelectNodeContents(BridgeDomRange state, in Arguments a)
+    private JsValue RangeSelectNodeContents(BridgeDomRange state, in JsCall call)
     {
-        var node = NodeArgument(in a, 0, "selectNodeContents");
+        var node = NodeArgument(in call, 0, "selectNodeContents");
         try
         {
             state.SelectNodeContents(node);
@@ -227,40 +225,35 @@ internal sealed partial class TraversalBinding
         {
             // A doctype has no contents to select. Uncaught, the canonical exception reached the page
             // as a bare Error carrying a .NET stack trace instead of a DOMException.
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                $"Failed to execute 'selectNodeContents' on 'Range': The node provided is of type '{NodeNameOf(node)}'.",
-                ex.Name);
+            throw call.Realm.DomError(
+                ex.Name,
+                $"Failed to execute 'selectNodeContents' on 'Range': The node provided is of type '{NodeNameOf(node)}'.");
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     // -------- Content operations --------
 
-    private JSValue RangeCloneContents(BridgeDomRange state, in Arguments a) =>
-        _host.ToJSObject(state.CloneContents());
+    private JsValue RangeCloneContents(BridgeDomRange state, in JsCall call) =>
+        _host.WrapNode(state.CloneContents());
 
-    private JSValue RangeExtractContents(BridgeDomRange state, in Arguments a) =>
-        _host.ToJSObject(state.ExtractContents());
+    private JsValue RangeExtractContents(BridgeDomRange state, in JsCall call) =>
+        _host.WrapNode(state.ExtractContents());
 
-    private static JSValue RangeDeleteContents(BridgeDomRange state, in Arguments a)
+    private static JsValue RangeDeleteContents(BridgeDomRange state, in JsCall call)
     {
         state.DeleteContents();
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue RangeInsertNode(BridgeDomRange state, in Arguments a)
+    private JsValue RangeInsertNode(BridgeDomRange state, in JsCall call)
     {
-        var node = NodeArgument(in a, 0, "insertNode");
+        var node = NodeArgument(in call, 0, "insertNode");
         if (node is DomDocumentType)
-        {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                $"Failed to execute 'insertNode' on 'Range': Nodes of type '{NodeNameOf(node)}' may not be inserted inside nodes of type '{NodeNameOf(state.StartContainer)}'.",
-                "HierarchyRequestError");
-            return JSUndefined.Value;
-        }
+            throw call.Realm.DomError(
+                "HierarchyRequestError",
+                $"Failed to execute 'insertNode' on 'Range': Nodes of type '{NodeNameOf(node)}' may not be inserted inside nodes of type '{NodeNameOf(state.StartContainer)}'.");
 
         try
         {
@@ -268,37 +261,29 @@ internal sealed partial class TraversalBinding
         }
         catch (DomException ex)
         {
-            DomBridge.ThrowDOMException(_host.JsContext, ex.Message, ex.Name);
+            throw call.Realm.DomError(ex.Name, ex.Message);
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private JSValue RangeSurroundContents(BridgeDomRange state, in Arguments a)
+    private JsValue RangeSurroundContents(BridgeDomRange state, in JsCall call)
     {
-        var newParent = NodeArgument(in a, 0, "surroundContents");
+        var newParent = NodeArgument(in call, 0, "surroundContents");
 
         // The document root is now a canonical DomDocument (P4.6) and sub-document roots are severed
         // canonical DomDocuments (P4.4b) — neither is a DomElement — so a non-element new parent is
         // rejected here by node kind rather than by the former #document / #subdoc-root sentinel
         // guard. A browser splits the rejection two ways, which is what these two arms are.
         if (newParent is DomDocumentType or DomDocument or DomDocumentFragment)
-        {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                $"Failed to execute 'surroundContents' on 'Range': The node provided is of type '{NodeNameOf(newParent)}'.",
-                "InvalidNodeTypeError");
-            return JSUndefined.Value;
-        }
+            throw call.Realm.DomError(
+                "InvalidNodeTypeError",
+                $"Failed to execute 'surroundContents' on 'Range': The node provided is of type '{NodeNameOf(newParent)}'.");
 
         if (newParent is not DomElement newParentElement)
-        {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                "Failed to execute 'surroundContents' on 'Range': This node type does not support this method.",
-                "HierarchyRequestError");
-            return JSUndefined.Value;
-        }
+            throw call.Realm.DomError(
+                "HierarchyRequestError",
+                "Failed to execute 'surroundContents' on 'Range': This node type does not support this method.");
 
         // The canonical algorithm handles the partial-non-text (InvalidStateError, incl. comment
         // boundaries) check, the extract, and the wrap.
@@ -308,10 +293,10 @@ internal sealed partial class TraversalBinding
         }
         catch (DomException ex)
         {
-            DomBridge.ThrowDOMException(_host.JsContext, ex.Message, ex.Name);
+            throw call.Realm.DomError(ex.Name, ex.Message);
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -321,10 +306,10 @@ internal sealed partial class TraversalBinding
     /// calling the JS <c>setStart</c>/<c>setEnd</c> it looked up off the object; both go away with
     /// the members now on the prototype and the state held here.
     /// </summary>
-    private JSValue RangeCloneRange(BridgeDomRange state, in Arguments a)
+    private JsValue RangeCloneRange(BridgeDomRange state, in JsCall call)
     {
         var clone = BuildRange(state.Root);
-        if (_rangeStates.TryGetValue(clone, out var boundaries) && boundaries is BridgeDomRange cloneState)
+        if (_rangeStates.TryGetValue(IdentityOf(clone), out var boundaries) && boundaries is BridgeDomRange cloneState)
         {
             cloneState.SetStart(state.StartContainer, state.StartOffset);
             cloneState.SetEnd(state.EndContainer, state.EndOffset);
@@ -338,46 +323,40 @@ internal sealed partial class TraversalBinding
     /// range, and DOM §4.5 keeps the method so old code does not break while specifying that it does
     /// nothing. The range stays usable afterwards, which is the observable part.
     /// </summary>
-    private static JSValue RangeDetach(BridgeDomRange state, in Arguments a) => JSUndefined.Value;
+    private static JsValue RangeDetach(BridgeDomRange state, in JsCall call) => JsValue.Undefined;
 
     // -------- Comparison --------
 
-    private JSValue RangeCompareBoundaryPoints(BridgeDomRange state, in Arguments a)
+    private JsValue RangeCompareBoundaryPoints(BridgeDomRange state, in JsCall call)
     {
-        if (a.Length < 2)
-            return JSException.ThrowTypeError<JSValue>(
+        if (call.Length < 2)
+            throw call.Realm.Error(
+                JsErrorKind.TypeError,
                 "Failed to execute 'compareBoundaryPoints' on 'Range': 2 arguments required, but only " +
-                $"{a.Length} present.");
+                $"{call.Length} present.");
 
         // A StaticRange is deliberately not accepted here: the operation is Range-to-Range, and a
         // static range's boundaries may be invalid by construction.
-        if (a[1] is not JSObject sourceRangeObject ||
-            !_rangeStates.TryGetValue(sourceRangeObject, out var sourceBoundaries) ||
+        if (!call[1].IsObject ||
+            !_rangeStates.TryGetValue(IdentityOf(call[1]), out var sourceBoundaries) ||
             sourceBoundaries is not BridgeDomRange source)
-            return JSException.ThrowTypeError<JSValue>(
+            throw call.Realm.Error(
+                JsErrorKind.TypeError,
                 "Failed to execute 'compareBoundaryPoints' on 'Range': parameter 2 is not of type 'Range'.");
 
         // Web IDL `unsigned short`: 3.7 truncates to END_TO_START and is accepted; -1 wraps to 65535
         // and is not. Only the four named methods are in range.
-        var how = ToUnsignedLong(a[0]) % 65536;
+        var how = ToUnsignedLong(call.Realm, call[0]) % 65536;
         if (how > 3)
-        {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
+            throw call.Realm.DomError(
+                "NotSupportedError",
                 "Failed to execute 'compareBoundaryPoints' on 'Range': The comparison method provided must be one of " +
-                "'START_TO_START', 'START_TO_END', 'END_TO_END', or 'END_TO_START'.",
-                "NotSupportedError");
-            return new JSNumber(0);
-        }
+                "'START_TO_START', 'START_TO_END', 'END_TO_END', or 'END_TO_START'.");
 
         if (!ReferenceEquals(state.StartContainer.GetRootNode(), source.StartContainer.GetRootNode()))
-        {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                "Failed to execute 'compareBoundaryPoints' on 'Range': The source range is in a different document than this range.",
-                "WrongDocumentError");
-            return new JSNumber(0);
-        }
+            throw call.Realm.DomError(
+                "WrongDocumentError",
+                "Failed to execute 'compareBoundaryPoints' on 'Range': The source range is in a different document than this range.");
 
         var (thisContainer, thisOffset, otherContainer, otherOffset) = how switch
         {
@@ -387,7 +366,7 @@ internal sealed partial class TraversalBinding
             _ => (state.StartContainer, state.StartOffset, source.EndContainer, source.EndOffset),
         };
 
-        return new JSNumber(
+        return JsValue.Number(
             DomRange.CompareBoundaryPoints(thisContainer, thisOffset, otherContainer, otherOffset));
     }
 
@@ -396,62 +375,58 @@ internal sealed partial class TraversalBinding
     /// three point/node predicates below share their preconditions, which is what
     /// <see cref="ValidatePoint"/> holds.
     /// </summary>
-    private JSValue RangeComparePoint(BridgeDomRange state, in Arguments a)
+    private JsValue RangeComparePoint(BridgeDomRange state, in JsCall call)
     {
-        var node = NodeArgument(in a, 0, "comparePoint");
-        var offset = ToUnsignedLong(a.Length > 1 ? a[1] : null);
+        var node = NodeArgument(in call, 0, "comparePoint");
+        var offset = ToUnsignedLong(call.Realm, call[1]);
 
         if (!ReferenceEquals(node.GetRootNode(), state.StartContainer.GetRootNode()))
-        {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                "Failed to execute 'comparePoint' on 'Range': The node provided and the Range are not in the same tree.",
-                "WrongDocumentError");
-            return new JSNumber(0);
-        }
+            throw call.Realm.DomError(
+                "WrongDocumentError",
+                "Failed to execute 'comparePoint' on 'Range': The node provided and the Range are not in the same tree.");
 
         var point = ValidatePoint(node, offset, "comparePoint");
         if (DomRange.CompareBoundaryPoints(node, point, state.StartContainer, state.StartOffset) < 0)
-            return new JSNumber(-1);
+            return JsValue.Number(-1);
         if (DomRange.CompareBoundaryPoints(node, point, state.EndContainer, state.EndOffset) > 0)
-            return new JSNumber(1);
-        return new JSNumber(0);
+            return JsValue.Number(1);
+        return JsValue.Number(0);
     }
 
-    private JSValue RangeIsPointInRange(BridgeDomRange state, in Arguments a)
+    private JsValue RangeIsPointInRange(BridgeDomRange state, in JsCall call)
     {
-        var node = NodeArgument(in a, 0, "isPointInRange");
-        var offset = ToUnsignedLong(a.Length > 1 ? a[1] : null);
+        var node = NodeArgument(in call, 0, "isPointInRange");
+        var offset = ToUnsignedLong(call.Realm, call[1]);
 
         // A point in another tree is simply not in the range — this one answers false where
         // comparePoint throws, because "is it inside?" has an answer and "where is it?" does not.
         if (!ReferenceEquals(node.GetRootNode(), state.StartContainer.GetRootNode()))
-            return JSBoolean.False;
+            return JsValue.False;
 
         var point = ValidatePoint(node, offset, "isPointInRange");
         var inside =
             DomRange.CompareBoundaryPoints(node, point, state.StartContainer, state.StartOffset) >= 0 &&
             DomRange.CompareBoundaryPoints(node, point, state.EndContainer, state.EndOffset) <= 0;
-        return inside ? JSBoolean.True : JSBoolean.False;
+        return JsValue.Boolean(inside);
     }
 
-    private JSValue RangeIntersectsNode(BridgeDomRange state, in Arguments a)
+    private JsValue RangeIntersectsNode(BridgeDomRange state, in JsCall call)
     {
-        var node = NodeArgument(in a, 0, "intersectsNode");
+        var node = NodeArgument(in call, 0, "intersectsNode");
         if (!ReferenceEquals(node.GetRootNode(), state.StartContainer.GetRootNode()))
-            return JSBoolean.False;
+            return JsValue.False;
 
         // A node with no parent that shares the range's root is the root itself, and the range is
         // inside it — so it intersects. (A *detached* node fails the root test above instead, which
         // is why this arm is true rather than false.)
         if (node.ParentNode is not { } parent)
-            return JSBoolean.True;
+            return JsValue.True;
 
         var offset = DomBridge.ChildIndexOf(parent, node);
         var intersects =
             DomRange.CompareBoundaryPoints(parent, offset, state.EndContainer, state.EndOffset) < 0 &&
             DomRange.CompareBoundaryPoints(parent, offset + 1, state.StartContainer, state.StartOffset) > 0;
-        return intersects ? JSBoolean.True : JSBoolean.False;
+        return JsValue.Boolean(intersects);
     }
 
     /// <summary>The two checks a point argument owes: not inside a doctype, and not past the node's
@@ -459,17 +434,15 @@ internal sealed partial class TraversalBinding
     private int ValidatePoint(DomNode node, uint offset, string member)
     {
         if (node is DomDocumentType)
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                $"Failed to execute '{member}' on 'Range': The node provided is of type '{NodeNameOf(node)}'.",
-                "InvalidNodeTypeError");
+            throw _host.Realm.DomError(
+                "InvalidNodeTypeError",
+                $"Failed to execute '{member}' on 'Range': The node provided is of type '{NodeNameOf(node)}'.");
 
         var length = NodeLength(node);
         if (offset > (uint)length)
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                $"Failed to execute '{member}' on 'Range': The offset {offset} is larger than the node's length ({length}).",
-                "IndexSizeError");
+            throw _host.Realm.DomError(
+                "IndexSizeError",
+                $"Failed to execute '{member}' on 'Range': The offset {offset} is larger than the node's length ({length}).");
 
         return (int)offset;
     }
@@ -482,9 +455,9 @@ internal sealed partial class TraversalBinding
     /// turns a string into nodes with the *surrounding* element's content model applied, which
     /// <c>innerHTML</c> on a detached container cannot do.
     /// </summary>
-    private JSValue RangeCreateContextualFragment(BridgeDomRange state, in Arguments a)
+    private JsValue RangeCreateContextualFragment(BridgeDomRange state, in JsCall call)
     {
-        var html = a.Length > 0 && !a[0].IsUndefined ? a[0].ToString() : string.Empty;
+        var html = call.Length > 0 && !call[0].IsUndefined ? call.Realm.ToJsString(call[0]) : string.Empty;
 
         // The parsing context is the start node if it is an element, otherwise its parent element.
         // `html` is excluded deliberately: parsing into it would run the "before head" rules and
@@ -497,13 +470,13 @@ internal sealed partial class TraversalBinding
         foreach (var node in _host.ParseHtmlFragment(context, html))
             fragment.AppendChild(node);
 
-        return _host.ToJSObject(fragment);
+        return _host.WrapNode(fragment);
     }
 
     // -------- Stringifier --------
 
-    private static JSValue RangeToString(BridgeDomRange state, in Arguments a) =>
-        new JSString(RangeText(state));
+    private static JsValue RangeToString(BridgeDomRange state, in JsCall call) =>
+        JsValue.String(RangeText(state));
 
     /// <summary>
     /// The text a range selects. Shared with <c>Selection.toString()</c>, so the selection and the
@@ -524,6 +497,8 @@ internal sealed partial class TraversalBinding
             return text.Substring(s, e - s);
         }
 
+        // The canonical range's own stringifier, not a JavaScript coercion: this is a CLR object, so
+        // there is no page toString to run and nothing for the realm to be asked.
         return state.ToString();
     }
 

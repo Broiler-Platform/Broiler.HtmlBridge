@@ -1,32 +1,48 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The bridge services <see cref="CustomElementsBinding"/> consumes. Two kinds: the DOM half
-/// (mint an element, ask whether one is in the tree, find a node behind a wrapper) and the engine
-/// half — calling a JavaScript constructor or function, and making promises for
-/// <c>whenDefined</c>. The second kind is unusual for a feature contract and is the point: a custom
-/// element definition is page code, so the registry's job is largely to call back into it at the
-/// right moments.
+/// The bridge services <see cref="CustomElementsBinding"/> consumes: the DOM half — mint an element,
+/// ask whether one is in the tree, find a node behind a wrapper, read a control's form owner and
+/// disabled state — plus JS-wrapper identity and the realm the registry calls page code back through.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
+/// type. What used to be the second kind of member on this contract — calling a JavaScript
+/// constructor, calling a reaction, and the three promise factories <c>whenDefined</c> needed — is
+/// gone: every one of them was an engine operation with no bridge state behind it, and
+/// <see cref="IJsCalls.Construct"/>, <see cref="IJsCalls.Invoke"/> and
+/// <see cref="IJsJobs.NewPromise"/> are the realm's own. The registry asks the realm directly, which
+/// is why <see cref="Realm"/> is the one member that replaced six.
+/// </para>
+/// <para>
+/// <b><c>whenDefined</c>'s pending promise is the case worth naming.</b> It used to be handed a
+/// promise plus a <em>function object</em> wrapping the captured resolve delegate, because the only
+/// way to keep a resolver was to close over an executor that happened to run synchronously.
+/// <see cref="IJsJobs.NewPromise"/> hands the settle functions back, so the registry stores an
+/// <c>Action</c> and never mints a function no page can reach.
+/// </para>
+/// </remarks>
 internal interface ICustomElementsHost
 {
-    JSContext JsContext { get; }
+    /// <summary>The realm a definition's constructor and its reactions are called in.</summary>
+    IJsRealm Realm { get; }
 
     /// <summary>Every element in the document, in tree order — the set an upgrade sweeps.</summary>
     IReadOnlyList<DomElement> Elements { get; }
 
-    JSObject ToJSObject(DomNode node);
+    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
+    JsValue WrapNode(DomNode node);
 
     /// <summary>The wrapper already minted for <paramref name="element"/>, if any. A reaction is
     /// only ever dispatched to an element a page has seen, so this never mints one.</summary>
-    bool TryGetWrapper(DomElement element, out JSObject wrapper);
+    bool TryGetWrapper(DomElement element, out JsValue wrapper);
 
     /// <summary>The node behind a wrapper, for <c>customElements.upgrade(root)</c>.</summary>
-    DomNode? NodeFor(JSObject wrapper);
+    DomNode? FindNode(JsValue wrapper);
 
     DomElement CreateBridgeElement(string tagName);
 
@@ -41,22 +57,4 @@ internal interface ICustomElementsHost
     /// <summary>Whether the element is disabled, by its own attribute or an ancestor
     /// <c>&lt;fieldset&gt;</c>'s — what <c>formDisabledCallback</c> reports.</summary>
     bool IsFormControlDisabled(DomElement element);
-
-    /// <summary><c>new constructor()</c>, returning the object it produced.</summary>
-    JSObject? Construct(JSObject constructor);
-
-    /// <summary><c>function.call(thisValue, …arguments)</c>.</summary>
-    void Call(JSObject function, JSValue thisValue, JSValue[] arguments);
-
-    /// <summary>A promise already resolved with <paramref name="value"/>.</summary>
-    JSValue ResolvedPromise(JSValue value);
-
-    /// <summary>A promise already rejected with <paramref name="message"/>.</summary>
-    JSValue RejectedPromise(string message);
-
-    /// <summary>A pending promise and the function that resolves it.</summary>
-    (JSValue Promise, JSObject Resolver) PendingPromise();
-
-    /// <summary>Calls a resolver produced by <see cref="PendingPromise"/>.</summary>
-    void Resolve(JSObject resolver, JSValue value);
 }

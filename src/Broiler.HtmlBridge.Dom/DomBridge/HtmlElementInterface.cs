@@ -1,9 +1,8 @@
 using System.Runtime.CompilerServices;
 
 using Broiler.Dom;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge;
 
@@ -14,7 +13,7 @@ namespace Broiler.HtmlBridge;
 /// <remarks>
 /// <para>
 /// The sixth instalment of track 6's wrapper item, and the direct sequel to
-/// <c>DomBridge.ElementInterface.cs</c>, whose <see cref="Dom.Features.ElementSource"/> mechanism it
+/// <c>DomBridge.ElementInterface.cs</c>, whose <see cref="Dom.Features.JsElementSource"/> mechanism it
 /// reuses unchanged: each member is written once and installed either on the prototype, where it
 /// resolves its element from the receiver, or on one wrapper, where it closes over the element it was
 /// built for. <c>HTMLElement.prototype</c> owned nothing but its <c>constructor</c>; it owns 37
@@ -46,6 +45,17 @@ namespace Broiler.HtmlBridge;
 /// Both are weak per-element caches now, so <c>el.style === el.style</c> and
 /// <c>el.dataset === el.dataset</c> hold while the element itself carries neither.
 /// </para>
+/// <para>
+/// <b>The installer speaks JSEAL, and three members are what is left of the engine vocabulary.</b>
+/// <c>click</c>, <c>focus</c> and <c>blur</c> are <see cref="Dom.Features.EventTargetBinding"/>'s, and
+/// that module reads the engine's own argument frame because unmigrated files install the same three
+/// elsewhere; there is no adapter between two call frames, only between two object types, so those
+/// three are minted with the frame their bodies read and ask
+/// <see cref="ElementForEngineReceiver"/> for their element through it. The form-control reflectors
+/// beside them were a fourth case and are not any more. Everything else is minted through
+/// <see cref="Realm"/> onto a handle over the same object, which is a cast rather than a conversion,
+/// so every member lands in the order it is written in.
+/// </para>
 /// </remarks>
 public sealed partial class DomBridge
 {
@@ -59,9 +69,11 @@ public sealed partial class DomBridge
     /// <remarks>
     /// The declaration is a live object — it writes each mutation through to the <c>style</c> content
     /// attribute and invalidates the style scope — so a second instance would be redundant rather than
-    /// fresher, and rebuilding one per read would drop whatever the page had set on it.
+    /// fresher, and rebuilding one per read would drop whatever the page had set on it. The box is
+    /// because a <see cref="ConditionalWeakTable{TKey,TValue}"/> value must be a reference type and a
+    /// <see cref="JsValue"/> handle is a struct.
     /// </remarks>
-    private readonly ConditionalWeakTable<DomElement, JSObject> _inlineStyles = new();
+    private readonly ConditionalWeakTable<DomElement, StrongBox<JsValue>> _inlineStyles = new();
 
     /// <summary>One <c>DOMStringMap</c> per element, on the same terms.</summary>
     /// <remarks>
@@ -71,7 +83,7 @@ public sealed partial class DomBridge
     /// self-replacing accessor; a weak table gives the same laziness without leaving an own property
     /// behind.
     /// </remarks>
-    private readonly ConditionalWeakTable<DomElement, JSObject> _datasets = new();
+    private readonly ConditionalWeakTable<DomElement, StrongBox<JsValue>> _datasets = new();
 
     /// <summary>
     /// Installs <c>HTMLElement</c>'s members on <c>HTMLElement.prototype</c>. A no-op when the realm
@@ -79,7 +91,8 @@ public sealed partial class DomBridge
     /// </summary>
     internal void RegisterHtmlElementInterface()
     {
-        if (PrototypeOfInterface("HTMLElement") is not { } proto)
+        var proto = PrototypeHandleOfInterface("HTMLElement");
+        if (!proto.IsObject)
             return;
 
         InstallHtmlElementInterface(proto, RequireElementReceiver);
@@ -90,55 +103,86 @@ public sealed partial class DomBridge
     /// <c>HTMLElement</c>'s members as own properties of one wrapper — for an SVG element, which does
     /// not inherit the interface, and for a wrapper minted before the realm carried it.
     /// </summary>
-    private void PopulateHtmlElementInterfaceOnInstance(JSObject obj, DomElement element)
-    {
-        InstallHtmlElementInterface(obj, (in Arguments _, string _) => element);
-    }
+    /// <remarks>
+    /// The source captures rather than resolves: the element is the one this wrapper was minted for,
+    /// whatever receiver a call happens to arrive with. That is what an own property of one wrapper
+    /// means, and it is why it never raises the illegal-invocation <c>TypeError</c> the prototype's
+    /// source does.
+    /// </remarks>
+    private void PopulateHtmlElementInterfaceOnInstance(JsValue wrapper, DomElement element) =>
+        InstallHtmlElementInterface(wrapper, (in JsCall _, string _) => element);
 
     /// <summary>
     /// The whole <c>HTMLElement</c> interface onto <paramref name="target"/> —
     /// <c>HTMLElement.prototype</c>, or one wrapper that cannot inherit from it.
     /// </summary>
-    private void InstallHtmlElementInterface(JSObject target, Dom.Features.ElementSource element)
+    private void InstallHtmlElementInterface(JsValue target, Dom.Features.JsElementSource element)
     {
-        Dom.Features.GlobalAttributeBinding.InstallHtmlElementMembers(this, target, element);
-        Dom.Features.ElementContentBinding.InstallHtmlElementMembers(this, target, element);
+        Dom.Features.GlobalAttributeBinding.InstallHtmlElementMembers(this, Realm, target, element);
+        Dom.Features.ElementContentBinding.InstallHtmlElementMembers(this, Realm, target, element);
+
+        // hidden and tabIndex — the two genuinely global reflectors the form-control module carries.
+        // The realm's, in this position, since that module reads a JsCall now.
         _formControl.InstallHtmlElementMembers(target, element);
 
         // style — ElementCSSInlineStyle. Assigning a string sets cssText rather than replacing the
         // object, which is why the setter is here and not a plain data property.
-        AddPrototypeAccessor(target, "style",
-            (in Arguments a) => InlineStyleFor(element(in a, "style")),
-            (in Arguments a) => Dom.Features.StyleDeclarationBinding.SetInlineStyleCssText(
-                this, element(in a, "style"), InlineStyleMutation(element(in a, "style")), in a));
+        Realm.DefineAccessor(target, "style",
+            (in call) => InlineStyleFor(element(in call, "style")),
+            (in call) =>
+            {
+                // The receiver is resolved before the value is looked at, as it was when the engine
+                // frame carried the string test inside the callee: assigning a non-string to the
+                // setter with a receiver that is not an element still raises the TypeError.
+                var styled = element(in call, "style");
+
+                // Only a string right-hand side acts — a quirk preserved verbatim from the bridge's
+                // original element.style setter, and the reason StyleDeclarationBinding keeps its
+                // string-typed overload beside the cssText one that stringifies anything.
+                if (call.Length > 0 && call[0].IsString)
+                {
+                    Dom.Features.StyleDeclarationBinding.SetInlineStyleCssText(
+                        this, styled, InlineStyleMutation(styled), call[0].AsString!);
+                }
+
+                return JsValue.Undefined;
+            });
 
         // dataset — HTMLOrSVGElement's live DOMStringMap over the data-* attributes.
-        AddPrototypeAccessor(target, "dataset",
-            (in Arguments a) => DatasetFor(element(in a, "dataset")));
+        Realm.DefineAccessor(target, "dataset",
+            (in call) => DatasetFor(element(in call, "dataset")), null);
 
-        AddPrototypeMethod(target, "click", 0,
-            (in Arguments a) => Dom.Features.EventTargetBinding.Click(this, element(in a, "click"), in a));
-        AddPrototypeMethod(target, "focus", 0,
-            (in Arguments a) => Dom.Features.EventTargetBinding.Focus(this, element(in a, "focus"), in a));
-        AddPrototypeMethod(target, "blur", 0,
-            (in Arguments a) => Dom.Features.EventTargetBinding.Blur(this, element(in a, "blur"), in a));
+        // click/focus/blur are EventTargetBinding's, and that module's bodies read the engine frame
+        // because unmigrated files install the same members elsewhere; they land on this same object,
+        // in this position, and ask the one element source for their element through that frame.
+        var engineTarget = Dom.Runtime.JsInterop.ToEngineObject(target);
+
+        AddPrototypeMethod(engineTarget, "click", 0,
+            (in Arguments a) => Dom.Features.EventTargetBinding.Click(
+                this, ElementForEngineReceiver(element, in a, "click"), in a));
+        AddPrototypeMethod(engineTarget, "focus", 0,
+            (in Arguments a) => Dom.Features.EventTargetBinding.Focus(
+                this, ElementForEngineReceiver(element, in a, "focus"), in a));
+        AddPrototypeMethod(engineTarget, "blur", 0,
+            (in Arguments a) => Dom.Features.EventTargetBinding.Blur(
+                this, ElementForEngineReceiver(element, in a, "blur"), in a));
 
         // attachInternals() — HTML §4.13.5, a member of HTMLElement rather than of the custom
         // elements only, which is what makes the standard feature-detect answer the right way. It
         // refuses at call time for an element that is not a form-associated custom element.
-        AddPrototypeMethod(target, "attachInternals", 0,
-            (in Arguments a) => ElementInternals.AttachInternals(element(in a, "attachInternals"), in a));
+        AddInterfaceMethod(target, "attachInternals", 0,
+            (in call) => ElementInternals.AttachInternals(element(in call, "attachInternals")));
 
         InstallInlineEventHandlerMembers(target, element);
 
-        Dom.Features.ElementGeometryBinding.InstallHtmlElementMembers(this, target, element);
+        Dom.Features.ElementGeometryBinding.InstallHtmlElementMembers(this, Realm, target, element);
     }
 
     /// <summary>
     /// The <c>GlobalEventHandlers</c> reflectors — <c>onclick</c>, <c>onload</c> and the rest of
     /// <see cref="InlineEventNames"/>.
     /// </summary>
-    private void InstallInlineEventHandlerMembers(JSObject target, Dom.Features.ElementSource element)
+    private void InstallInlineEventHandlerMembers(JsValue target, Dom.Features.JsElementSource element)
     {
         foreach (var name in InlineEventNames)
         {
@@ -147,19 +191,24 @@ public sealed partial class DomBridge
             var eventName = name;
             var member = "on" + eventName;
 
-            target.FastAddProperty(member,
-                new DomFunction((in Arguments a) =>
-                    Dom.Features.EventHandlerReflectorBinding.GetOn(this, element(in a, member), eventName, in a), "get " + member),
-                new DomFunction((in Arguments a) =>
-                    Dom.Features.EventHandlerReflectorBinding.SetOn(this, element(in a, member), eventName, in a), "set " + member),
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+            // EventHandlerReflectorBinding is migrated, so the realm mints and names the pair itself.
+            // Minting them through the realm rather than wrapping a bridge function object around it is
+            // what gives the setter a properly tagged argument, and so lets "is it a function" — the
+            // whole of what the setter decides — stay the binding's question.
+            Realm.DefineAccessor(target, member,
+                (in call) => Dom.Features.EventHandlerReflectorBinding.GetOn(
+                    this, element(in call, member), eventName, in call),
+                (in call) => Dom.Features.EventHandlerReflectorBinding.SetOn(
+                    this, element(in call, member), eventName, in call));
         }
     }
 
     /// <summary>The element's one inline style declaration, built on first use.</summary>
-    private JSObject InlineStyleFor(DomElement element) =>
-        _inlineStyles.GetValue(element, key => Dom.Features.StyleDeclarationBinding.BuildInlineDeclaration(
-            this, key, InlineStyleMutation(key), onPositionAreaInvalidate: ClearPositionAreaResolution));
+    private JsValue InlineStyleFor(DomElement element) =>
+        _inlineStyles.GetValue(element, key => new StrongBox<JsValue>(
+            Dom.Features.StyleDeclarationBinding.BuildInlineDeclaration(
+                Realm, this, key, InlineStyleMutation(key),
+                onPositionAreaInvalidate: ClearPositionAreaResolution))).Value;
 
     /// <summary>
     /// What every inline-style mutation owes: write the dict through to the canonical <c>style</c>
@@ -181,18 +230,21 @@ public sealed partial class DomBridge
     /// the realm has no <c>Proxy</c> to build it from, which is honest: an absent dataset is at least
     /// not one that silently drops writes.
     /// </summary>
-    private JSValue DatasetFor(DomElement element)
+    private JsValue DatasetFor(DomElement element)
     {
         if (_datasets.TryGetValue(element, out var cached))
-            return cached;
+            return cached.Value;
 
-        if (_jsContext is not { } context ||
-            Dom.Features.DatasetBinding.Build(context, element, InvalidateStyleScope) is not { } dataset)
+        // The context guard is unchanged in effect — the realm and the context are adopted together
+        // and cleared together — and a realm with no Proxy still answers undefined rather than a map
+        // that would silently drop writes.
+        if (_jsContext is null ||
+            Dom.Features.DatasetBinding.Build(Realm, element, InvalidateStyleScope) is not { IsObject: true } dataset)
         {
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         }
 
-        _datasets.Add(element, dataset);
+        _datasets.Add(element, new StrongBox<JsValue>(dataset));
         return dataset;
     }
 }

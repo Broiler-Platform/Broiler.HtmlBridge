@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Broiler.HtmlBridge.Jseal.BroilerJs</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>The Broiler.JS provider for JSEAL: an IJsEngineProvider and IJsRealm implemented over Broiler.JavaScript's JSContext, so the HTML bridge can bind a document through the engine-neutral contracts without changing which engine actually runs the page.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The realm's job pump and marshalling internals are what a conformance suite has to
+         reach to assert that the provider answers the contract the way the bridge needs. -->
+    <InternalsVisibleTo Include="Broiler.Browser.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The contracts this assembly implements. Everything public here is a JSEAL type. -->
+    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
+
+    <!-- JSContext (the realm and its global), JSEngine (the ambient-realm scope the engine's
+         intrinsic factories read), and Eval. -->
+    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
+
+    <!-- The value types the marshal names: JSFunction, JSArray, JSString, JSNumber, JSBoolean,
+         JSNull, and JSPromise. JSObject/JSValue/KeyString arrive transitively through Runtime
+         and Storage, which this project deliberately does not name: it uses no type from either
+         that BuiltIns does not already put in its own signatures. -->
+    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
+
+    <!--
+      JSGlobalStatic.StructuredClone, and nothing else. IJsClone is the contract half of
+      JsCapabilities.WorkerRealms — "values moved between the two realms by structured clone" — and
+      Broiler.JS implements the algorithm here, in Globals.
+
+      THE TWO ALTERNATIVES WERE BOTH WORSE, which is the argument this reference has to make because
+      it raises this project's engineProjectRefs from 2 to 3 and eng/jseal-budget.json enforces that
+      number even for a provider.
+
+        * Reimplementing structured clone inside this project would be a SECOND definition of which
+          types survive a clone — Date, RegExp, Map, Set, ArrayBuffer, the typed arrays, Error,
+          circular references — and it would drift from the engine's. The drift would surface as a
+          value that crossed to a Worker in a shape the same page could not produce at home.
+        * Calling the realm's own structuredClone global would need no reference, and does not
+          work: the engine gates that export behind JavaScriptFeatureFlags.StructuredClone, an
+          experimental ES2026 flag that is off by default, so typeof structuredClone is
+          "undefined" on both a context this provider builds and the one the host hands it to adopt.
+          The static entry point is not gated, which is why the DOM bridge always called it directly.
+
+      It is a reference that MOVES rather than one that is added. Broiler.HtmlBridge.Dom referenced
+      Broiler.JavaScript.Globals for exactly this — JSWorker, WorkerBinding and MessagingBinding each
+      called JSGlobalStatic.StructuredClone — and no source under that project names it any more, so
+      its own ProjectReference is now unused and its engineProjectRefs can fall from 4 to 3 in the
+      same commit that raises this project from 2 to 3. A provider naming its engine is what a
+      provider is for; a binding naming it is what the budget exists to count down.
+    -->
+    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Globals\Broiler.JavaScript.Globals.csproj" />
+
+    <!-- Broiler.JavaScript.Modules is deliberately ABSENT, unlike Broiler.HtmlBridge.Scripting's
+         reference block which this one is modelled on. A module-bearing realm is what the
+         Modules/DynamicImport capabilities describe, and this provider declares neither by
+         default — see the comment on BroilerJsEngineProvider.Capabilities. Referencing the
+         module assembly to implement a capability that is not asserted would link a module
+         orchestrator into every host that only wanted a document. -->
+  </ItemGroup>
+
+</Project>

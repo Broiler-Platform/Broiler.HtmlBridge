@@ -1,13 +1,20 @@
-using Broiler.JavaScript.Engine;
-
 namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    private void RegisterDocumentEventsAndMutationObservers(JSContext context)
+    /// <summary>
+    /// Installs the typed-event constructor shims and the <c>MutationObserver</c> feature.
+    /// </summary>
+    /// <remarks>
+    /// This took a script context it never used: both halves speak JSEAL — the shims are host script
+    /// run through <c>Realm.EvaluateHostScript</c>, and the observer module asks the realm for
+    /// itself — and the parameter survived only because the registration hub that calls it was not
+    /// owned by the round that migrated this file. The hub has moved, so the adapter is gone.
+    /// </remarks>
+    private void RegisterDocumentEventsAndMutationObservers()
     {
         // Event / typed event constructors — DOM Level 4
-        context.Eval(@"
+        Realm.EvaluateHostScript(@"
                 function Event(type, options) {
                     options = options || {};
                     var evt = document.createEvent('Event');
@@ -134,10 +141,10 @@ public sealed partial class DomBridge
                         options.isComposing === true);
                     return evt;
                 }
-            ");
+            ", "polyfill:event-constructors");
         // MutationObserver (constructor/prototype + host bridge functions) is installed by the
         // Phase 3 MutationObserverBinding feature module.
-        _mutations.RegisterDocumentApis(context);
+        _mutations.RegisterDocumentApis();
     }
 
 }

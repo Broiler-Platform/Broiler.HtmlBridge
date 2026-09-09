@@ -1,12 +1,11 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Boolean;
+// Three engine namespaces are left, and each is here for one adapter this file cannot drop on its
+// own: JSArray for `window.frames`, whose caller (DomBridge/Registration/Window.cs) takes the
+// engine's array; the boolean and object types for DispatchWindowEvent, whose callers and whose
+// listener invoker are all outside this group. See the remarks on DispatchWindowEvent.
 using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.JavaScript.BuiltIns.Boolean;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Engine;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 
@@ -41,15 +40,12 @@ public sealed partial class DomBridge
 
         _documentReadyState = state;
 
-        if (_jsContext == null || _document == null)
+        if (_realm is null || _document == null)
             return;
 
         try
         {
-            var evt = new JSObject();
-            evt.FastAddValue("type", new JSString("readystatechange"), JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-            DispatchEventOnElement(_document, evt);
+            _eventDispatch.DispatchEventOnElement(_document, SimpleEvent("readystatechange", bubbles: false));
         }
         catch (Exception ex)
         {
@@ -83,7 +79,7 @@ public sealed partial class DomBridge
     /// </remarks>
     private void FireInlineSvgRootLoads(DomElement element)
     {
-        if (_jsContext == null)
+        if (_realm is null)
             return;
 
         if (string.Equals(element.TagName, "svg", StringComparison.OrdinalIgnoreCase))
@@ -116,10 +112,7 @@ public sealed partial class DomBridge
 
         try
         {
-            var evt = new JSObject();
-            evt.FastAddValue("type", new JSString("load"), JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-            DispatchEventOnElement(element, evt);
+            _eventDispatch.DispatchEventOnElement(element, SimpleEvent("load", bubbles: false));
         }
         catch (Exception ex)
         {
@@ -140,7 +133,7 @@ public sealed partial class DomBridge
     public void FireWindowLoadEvent()
     {
         ThrowIfDisposed();
-        if (_jsContext == null) return;
+        if (_realm is not { } realm) return;
 
         // Building the frames array is what mints each nested browsing context's window — and so
         // what runs that frame's scripts — so it is done eagerly here, before load fires, rather
@@ -180,7 +173,7 @@ public sealed partial class DomBridge
         //    from the <body onload="…"> inline attribute handler.
         try
         {
-            _jsContext.Eval(@"
+            realm.EvaluateHostScript(@"
 (function() {
   // A page may register the load handler either as `window.onload = fn`
   // or as a bare `onload = fn` assignment. In a browser `window` IS the
@@ -194,7 +187,7 @@ public sealed partial class DomBridge
   if (h) {
     try { h(); } catch(e) {}
   }
-})();");
+})();", "broiler:window-onload");
         }
         catch (Exception ex)
         {
@@ -238,8 +231,11 @@ public sealed partial class DomBridge
         // and addEventListener registrations using the same event path.
         try
         {
-            if (_jsContext.Eval("(function() { var e = document.createEvent('Event'); e.initEvent('load', false, false); return e; })()") is JSObject evt)
-                DispatchEventOnElement(body, evt);
+            var evt = realm.EvaluateHostScript(
+                "(function() { var e = document.createEvent('Event'); e.initEvent('load', false, false); return e; })()",
+                "broiler:body-load-event");
+            if (evt.IsObject)
+                _eventDispatch.DispatchEventOnElement(body, evt);
         }
         catch (Exception ex)
         {
@@ -268,10 +264,7 @@ public sealed partial class DomBridge
     {
         try
         {
-            var evt = new JSObject();
-            evt.FastAddValue("type", new JSString("DOMContentLoaded"), JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("bubbles", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-            DispatchEventOnElement(_document, evt);
+            _eventDispatch.DispatchEventOnElement(_document, SimpleEvent("DOMContentLoaded", bubbles: true));
         }
         catch (Exception ex)
         {
@@ -290,53 +283,97 @@ public sealed partial class DomBridge
         }
     }
 
-    private JSBoolean DispatchWindowEvent(string eventType, bool bubbles = false)
+    /// <summary>
+    /// A plain event object carrying only the two members a bridge-fired simple event needs.
+    /// </summary>
+    /// <remarks>
+    /// Built and dispatched entirely in JSEAL: the three node-target sites above hand it straight to
+    /// <c>EventDispatchBinding</c>, which takes a handle. Only <see cref="DispatchWindowEvent"/> still
+    /// unwraps, and that is its own signature's doing rather than this builder's.
+    /// </remarks>
+    private JsValue SimpleEvent(string type, bool bubbles)
     {
-        var evt = new JSObject();
-        evt.FastAddValue("type", new JSString(eventType), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("bubbles", bubbles ? JSBoolean.True : JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        return DispatchWindowEvent(evt);
+        var realm = Realm;
+        var evt = realm.NewObject();
+        realm.DefineValue(evt, "type", JsValue.String(type));
+        realm.DefineValue(evt, "bubbles", JsValue.Boolean(bubbles));
+        return evt;
     }
 
-    private JSBoolean DispatchWindowEvent(JSObject evt)
+    private JSBoolean DispatchWindowEvent(string eventType, bool bubbles = false)
     {
-        if (_jsContext == null || _windowJSObject == null)
+        if (_realm is null)
             return JSBoolean.True;
 
-        var eventType = evt[(KeyString)"type"]?.ToString() ?? "unknown";
-        evt.FastAddValue("target", _windowJSObject, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt[(KeyString)"srcElement"] = _windowJSObject;
-        evt.FastAddValue("currentTarget", _windowJSObject, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("eventPhase", new JSNumber(2), JSPropertyAttributes.EnumerableConfigurableValue);
+        return DispatchWindowEvent(Dom.Runtime.JsInterop.ToEngineObject(SimpleEvent(eventType, bubbles)));
+    }
+
+    /// <summary>
+    /// Fires <paramref name="evt"/> at the window: the synthetic event object is completed with its
+    /// target/phase members and the five propagation-control operations, then every registered window
+    /// listener for its type runs. Answers whether the default action survived
+    /// (<c>false</c> = <c>preventDefault()</c> was called), which is what <c>dispatchEvent</c> returns.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The event is built through the realm; two things here are not, and both are pinned by files
+    /// outside this group.</b> The parameter and return types are the ones
+    /// <c>IWindowEventTargetHost</c>, <c>ILocationHost</c>, <c>DomBridge.MessagingHost.cs</c> and
+    /// <c>DomBridge/LayoutMetrics.Scrolling.cs</c> call with; and <c>InvokeEventListener</c> in
+    /// <c>DomBridge/Events.cs</c> takes the engine object because the listener it is handed comes out
+    /// of an <c>EventListenerRegistration</c>, whose record is engine-typed in the unowned
+    /// <c>DomBridge/RuntimeStates.cs</c>.
+    /// </para>
+    /// <para>
+    /// <b>The five propagation-control operations are local functions now, and that is what let them
+    /// move.</b> They were <c>DomBridge/JsFunctionCallbacks/Callback.cs</c>'s five
+    /// <c>JsCallback…Core</c> methods, taking an engine argument frame because the lambdas installing
+    /// them here were engine functions — the cycle described in the JSEAL migration notes, which only
+    /// breaks when the installer and the body change together. Both are here, so both changed: the
+    /// bodies close over the same four locals the <c>ref</c> parameters used to carry, in the shape
+    /// <see cref="Dom.Features.LegacyEventBinding"/> already uses for the same five operations on a
+    /// <c>createEvent</c> object. Nothing in this file calls <c>Callback.cs</c> any more.
+    /// </para>
+    /// <para>
+    /// The event's <c>type</c> is read with the realm's <c>ToString</c> rather than the handle's own
+    /// rendering, because that is what the engine-typed read it replaces did: a page that dispatches an
+    /// object whose <c>type</c> has a <c>toString</c> gets that <c>toString</c> run, and the listener
+    /// lookup keys on its result.
+    /// </para>
+    /// </remarks>
+    private JSBoolean DispatchWindowEvent(JSObject evt)
+    {
+        if (_realm is not { } realm || _windowJSObject == null)
+            return JSBoolean.True;
+
+        var handle = Dom.Runtime.JsInterop.FromEngineObject(evt);
+        var window = Dom.Runtime.JsInterop.FromEngineObject(_windowJSObject);
+
+        // A CLR-absent `type` is the only thing that reads as "unknown"; an explicit `undefined`
+        // coerces to the string "undefined", exactly as the former ToString() did.
+        var typeValue = realm.GetProperty(handle, "type");
+        var eventType = typeValue.IsMissing ? "unknown" : realm.ToJsString(typeValue);
+        realm.DefineValue(handle, "target", window);
+        realm.SetProperty(handle, "srcElement", window);
+        realm.DefineValue(handle, "currentTarget", window);
+        realm.DefineValue(handle, "eventPhase", JsValue.Number(2));
 
         var immediateStopped = false;
-        var prevented = evt[(KeyString)"defaultPrevented"] is JSValue defaultPreventedValue &&
-                        defaultPreventedValue.BooleanValue;
+        var prevented = realm.GetProperty(handle, "defaultPrevented").AsBoolean;
         var currentListenerPassive = false;
         var legacyCancelBubble = false;
-        evt[(KeyString)"defaultPrevented"] = prevented ? JSBoolean.True : JSBoolean.False;
-        evt.FastAddValue("stopPropagation",
-            new DomFunction((in _) => JsCallbackStopPropagation001Core(ref legacyCancelBubble, in _), "stopPropagation", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("stopImmediatePropagation",
-            new DomFunction((in _) => JsCallbackStopImmediatePropagation002Core(ref immediateStopped, ref legacyCancelBubble, in _), "stopImmediatePropagation", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("preventDefault",
-            new DomFunction((in _) => JsCallbackPreventDefault003Core(currentListenerPassive, evt, ref prevented, in _), "preventDefault", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddProperty(
-            "cancelBubble",
-            new DomFunction((in _) => legacyCancelBubble ? JSBoolean.True : JSBoolean.False, "get cancelBubble"),
-            new DomFunction((in setArgs) => JsCallbackSetCancelBubble005Core(ref legacyCancelBubble, in setArgs), "set cancelBubble"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
-        evt.FastAddProperty(
-            "returnValue",
-            new DomFunction((in _) => prevented ? JSBoolean.False : JSBoolean.True, "get returnValue"),
-            new DomFunction((in setArgs) => JsCallbackSetReturnValue007Core(currentListenerPassive, evt, ref prevented, in setArgs), "set returnValue"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
-        evt.FastAddValue("composedPath",
-            new DomFunction((in _) => new JSArray(_windowJSObject), "composedPath", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.SetProperty(handle, "defaultPrevented", JsValue.Boolean(prevented));
+
+        // Installed in the order they always were: Object.getOwnPropertyNames on the event is
+        // observable, so the sequence of these six is part of the behaviour, not a detail.
+        realm.DefineValue(handle, "stopPropagation", realm.NewMethod("stopPropagation", StopPropagation, 0));
+        realm.DefineValue(handle, "stopImmediatePropagation",
+            realm.NewMethod("stopImmediatePropagation", StopImmediatePropagation, 0));
+        realm.DefineValue(handle, "preventDefault", realm.NewMethod("preventDefault", PreventDefault, 0));
+        realm.DefineAccessor(handle, "cancelBubble", GetCancelBubble, SetCancelBubble);
+        realm.DefineAccessor(handle, "returnValue", GetReturnValue, SetReturnValue);
+        realm.DefineValue(handle, "composedPath",
+            realm.NewMethod("composedPath", (in _) => realm.NewArray([window]), 0));
 
         if (_eventTargets.TryGetWindowListeners(eventType, out var listeners))
         {
@@ -354,9 +391,69 @@ public sealed partial class DomBridge
             }
         }
 
-        evt[(KeyString)"currentTarget"] = JSNull.Value;
-        evt[(KeyString)"eventPhase"] = new JSNumber(0);
+        realm.SetProperty(handle, "currentTarget", JsValue.Null);
+        realm.SetProperty(handle, "eventPhase", JsValue.Number(0));
         return prevented ? JSBoolean.False : JSBoolean.True;
+
+        JsValue StopPropagation(in JsCall _)
+        {
+            legacyCancelBubble = true;
+            return JsValue.Undefined;
+        }
+
+        JsValue StopImmediatePropagation(in JsCall _)
+        {
+            immediateStopped = true;
+            legacyCancelBubble = true;
+            return JsValue.Undefined;
+        }
+
+        JsValue PreventDefault(in JsCall _)
+        {
+            // An absent `cancelable` reads as an absent value and is not truthy, which is the same
+            // answer the engine-typed `!= null && .BooleanValue` pair gave. A passive listener may
+            // not cancel, and the flag is read at call time rather than captured, exactly as the
+            // lambda that used to pass it did.
+            if (!currentListenerPassive && realm.GetProperty(handle, "cancelable").AsBoolean)
+            {
+                prevented = true;
+                realm.SetProperty(handle, "defaultPrevented", JsValue.True);
+            }
+
+            return JsValue.Undefined;
+        }
+
+        JsValue GetCancelBubble(in JsCall _) => JsValue.Boolean(legacyCancelBubble);
+
+        JsValue SetCancelBubble(in JsCall setCall)
+        {
+            // Assigning a falsy value does not clear the flag — the legacy property's one-way
+            // behaviour, and what this did before.
+            if (setCall.Length > 0 && setCall[0].AsBoolean)
+                legacyCancelBubble = true;
+
+            return JsValue.Undefined;
+        }
+
+        // The dispatch loop's own `prevented`, not the event's `defaultPrevented` property: a page
+        // that overwrote `defaultPrevented` by hand does not change what this answers, which is what
+        // reading the local has always meant here.
+        JsValue GetReturnValue(in JsCall _) => JsValue.Boolean(!prevented);
+
+        JsValue SetReturnValue(in JsCall setCall)
+        {
+            // Short-circuit order preserved: `cancelable` is only read once the assignment is known
+            // to be a falsy one from a non-passive listener, so a getter a page put there runs on
+            // exactly the assignments it ran on before.
+            if (setCall.Length > 0 && !setCall[0].AsBoolean && !currentListenerPassive &&
+                realm.GetProperty(handle, "cancelable").AsBoolean)
+            {
+                prevented = true;
+                realm.SetProperty(handle, "defaultPrevented", JsValue.True);
+            }
+
+            return JsValue.Undefined;
+        }
     }
 
     private JSArray BuildWindowFramesArray()

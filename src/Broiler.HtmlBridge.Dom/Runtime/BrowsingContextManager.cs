@@ -1,4 +1,12 @@
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
+
+// The sub-WINDOW half of this class is still engine-typed, and it is pinned from two directions at
+// once. Runtime/WindowContextManager.cs reads CurrentWindowOverride, SubWindows, IsSubWindow and
+// TryGetSubWindowContainer and converts at each of them; Features/SubWindowBinding.cs stores what it
+// builds through TryGetSubWindow/SetSubWindow and hands the same object to
+// DomBridge/DomBridge.IframeElementHost.cs and DomBridge.WindowLoad.cs. Neither file is this group's,
+// and the second pin means narrowing the map alone would not free SubWindowBinding.GetOrCreate either.
 using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
@@ -17,6 +25,15 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// window resolution, resource loading, onload dispatch); they read and mutate this state through the
 /// narrow surface here. Instance-scoped to the owning bridge/document.</para>
 ///
+/// <para><b>A sub-document is a <see cref="JsValue"/>; a sub-window is still the engine's own object,
+/// and that half is a pin rather than a choice.</b> The sub-document map is written and read by
+/// <c>DomBridge/SubDocuments.cs</c> alone, which builds the document through the realm, so it holds a
+/// handle. The sub-window maps are keyed on, or hand back, a JS object that
+/// <c>Dom.Features.SubWindowBinding</c> and <see cref="WindowContextManager"/> hold engine-typed —
+/// neither is this group's file — so narrowing them here would break each of them at the seam rather
+/// than at a boundary. Nothing is lost by the split: a handle carries the engine's own object, so the
+/// reference identity every one of these maps depends on is the same question either way.</para>
+///
 /// <para>The sub-window maps have deliberately asymmetric lifecycles, preserved from the pre-consolidation
 /// code: the container→sub-window map (<see cref="TryGetSubWindow"/>) is dropped per container when a
 /// sub-document is invalidated (<see cref="RemoveContainerCaches"/>), while the reverse sub-window→container
@@ -25,8 +42,10 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// </remarks>
 internal sealed class BrowsingContextManager
 {
-    // Per-container JS-object identity for the sub-document and sub-window objects.
-    private readonly Dictionary<DomElement, JSObject> _subDocuments = [];
+    // Per-container JS-object identity for the sub-document and sub-window objects. The sub-document
+    // map holds handles; JsValue's own equality is reference equality for an object, so the identity
+    // rule (`frame.contentDocument === frame.contentDocument`) is decided exactly as it was.
+    private readonly Dictionary<DomElement, JsValue> _subDocuments = [];
     private readonly Dictionary<DomElement, JSObject> _subWindows = [];
 
     // Per-container location / base-URL caches.
@@ -50,9 +69,9 @@ internal sealed class BrowsingContextManager
     public JSObject? CurrentWindowOverride { get; set; }
 
     // ── Sub-document JS-object identity ──────────────────────────────────────
-    public bool TryGetSubDocument(DomElement container, out JSObject subDocument) =>
-        _subDocuments.TryGetValue(container, out subDocument!);
-    public void SetSubDocument(DomElement container, JSObject subDocument) =>
+    public bool TryGetSubDocument(DomElement container, out JsValue subDocument) =>
+        _subDocuments.TryGetValue(container, out subDocument);
+    public void SetSubDocument(DomElement container, JsValue subDocument) =>
         _subDocuments[container] = subDocument;
 
     // ── Sub-window JS-object identity (+ reverse container link) ─────────────

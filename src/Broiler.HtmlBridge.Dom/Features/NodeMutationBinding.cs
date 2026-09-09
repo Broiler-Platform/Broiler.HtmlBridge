@@ -1,7 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Null;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -15,23 +13,22 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// Previously the bridge's <c>JsRegistrationGetChildNodes046Core</c>..<c>InsertBefore049Core</c> in the
 /// shared JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
+/// <remarks>
+/// The call frame is JSEAL's: <c>DomBridge/Registration/Document.cs</c> mints all seven members
+/// through the realm. The DOM exceptions go through <c>JsCall.Realm</c>'s own <c>DomError</c>, which
+/// constructs the same object against the same <c>DOMException</c> global the bridge's
+/// <c>ThrowDOMException</c> reached — including its "no constructor yet" fallback, so the
+/// before-attach case the old <c>JsContext</c> null check covered is still covered.
+/// </remarks>
 internal static class NodeMutationBinding
 {
     /// <summary>
-    /// Throws the <c>NotFoundError</c> <c>DOMException</c> the pre-insert and pre-remove steps require
+    /// The <c>NotFoundError</c> <c>DOMException</c> the pre-insert and pre-remove steps require
     /// when the named child is not a child of this parent (DOM §4.2.3) — the document-level
     /// counterpart of <c>TreeMutationBinding</c>'s helper, which carries the same rule for elements.
     /// </summary>
-    private static void ThrowNotFoundError(INodeMutationHost host, string method, string detail)
-    {
-        var message = $"Failed to execute '{method}' on 'Node': {detail}";
-
-        if (host.JsContext is { } context)
-            DomBridge.ThrowDOMException(context, message, "NotFoundError");
-
-        // Only before the bridge is attached, when there is no realm to mint a DOMException in.
-        throw new JSException(message);
-    }
+    private static Exception NotFoundError(IJsRealm realm, string method, string detail) =>
+        realm.DomError("NotFoundError", $"Failed to execute '{method}' on 'Node': {detail}");
 
     /// <summary>
     /// <c>document.childNodes</c> — a live <c>NodeList</c> of the document node's children, which for
@@ -45,22 +42,20 @@ internal static class NodeMutationBinding
     /// <c>NodeList</c> now, for the reasons in <see cref="DomCollectionBinding"/>; it used to be a
     /// snapshot array.
     /// </remarks>
-    public static JSValue GetChildNodes(INodeMutationHost host, in Arguments a) =>
-        DomCollectionBinding.NodeList(host.JsContext, () =>
+    public static JsValue GetChildNodes(INodeMutationHost host, in JsCall call) =>
+        DomCollectionBinding.NodeList(call.Realm, () =>
         {
-            var nodes = new List<JSValue>();
+            var nodes = new List<JsValue>();
             foreach (var child in host.DocumentNode.ChildNodes)
-                nodes.Add(host.ToJSObject(child));
+                nodes.Add(host.WrapNode(child));
             return nodes;
         });
 
-    public static JSValue RemoveChild(INodeMutationHost host, in Arguments a)
+    public static JsValue RemoveChild(INodeMutationHost host, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
-        if (a[0] is not JSObject childObj)
-            return JSNull.Value;
-        var childEl = host.FindDomNodeByJSObject(childObj);
+        if (!call[0].IsObject)
+            return JsValue.Null;
+        var childEl = host.FindDomNode(call[0]);
         if (childEl != null)
         {
             var doc = host.DocumentNode;
@@ -71,7 +66,7 @@ internal static class NodeMutationBinding
                 // DOMException." This fell straight through to `return a[0]` — and a[0] is what a
                 // SUCCESSFUL removeChild returns, so the caller was handed the node back as if it had
                 // been detached while the tree was untouched.
-                ThrowNotFoundError(host, "removeChild",
+                throw NotFoundError(call.Realm, "removeChild",
                     "The node to be removed is not a child of this node.");
             }
 
@@ -81,16 +76,14 @@ internal static class NodeMutationBinding
             host.NotifyChildRemoved(doc, childEl, idx);
         }
 
-        return a[0];
+        return call[0];
     }
 
-    public static JSValue AppendChild(INodeMutationHost host, in Arguments a)
+    public static JsValue AppendChild(INodeMutationHost host, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
-        if (a[0] is not JSObject childObj)
-            return JSNull.Value;
-        var childEl = host.FindDomNodeByJSObject(childObj);
+        if (!call[0].IsObject)
+            return JsValue.Null;
+        var childEl = host.FindDomNode(call[0]);
         if (childEl != null)
         {
             if (DomBridge.ParentEl(childEl) != null)
@@ -112,7 +105,7 @@ internal static class NodeMutationBinding
             host.NotifyChildAdded(doc, childEl, doc.ChildNodes.Count - 1);
         }
 
-        return a[0];
+        return call[0];
     }
 
     /// <summary>
@@ -136,46 +129,46 @@ internal static class NodeMutationBinding
     /// <c>append</c> moves rather than duplicating.
     /// </para>
     /// </remarks>
-    public static JSValue Append(INodeMutationHost host, in Arguments a)
+    public static JsValue Append(INodeMutationHost host, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
+        if (call.Length == 0)
+            return JsValue.Undefined;
 
         var doc = host.DocumentNode;
-        foreach (var node in host.BuildChildNodeArgumentNodes(a))
-            InsertIntoDocumentAt(host, node, doc.ChildNodes.Count);
+        foreach (var node in host.BuildChildNodeArgumentNodes(call.Arguments))
+            InsertIntoDocumentAt(host, call.Realm, node, doc.ChildNodes.Count);
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
     /// DOM §4.2.6 <c>ParentNode.prepend()</c> on the document node: insert the arguments before
     /// the document's first child, keeping their order relative to each other.
     /// </summary>
-    public static JSValue Prepend(INodeMutationHost host, in Arguments a)
+    public static JsValue Prepend(INodeMutationHost host, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
+        if (call.Length == 0)
+            return JsValue.Undefined;
 
         var insertIndex = 0;
-        foreach (var node in host.BuildChildNodeArgumentNodes(a))
-            InsertIntoDocumentAt(host, node, insertIndex++);
+        foreach (var node in host.BuildChildNodeArgumentNodes(call.Arguments))
+            InsertIntoDocumentAt(host, call.Realm, node, insertIndex++);
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
     /// DOM §4.2.6 <c>ParentNode.replaceChildren()</c> on the document node: remove every
     /// existing child, then insert the arguments. Called with none, it empties the document.
     /// </summary>
-    public static JSValue ReplaceChildren(INodeMutationHost host, in Arguments a)
+    public static JsValue ReplaceChildren(INodeMutationHost host, in JsCall call)
     {
         var doc = host.DocumentNode;
 
         // The nodes are resolved before anything is removed: an argument may be a node that
         // is currently a child of the document, and clearing first would detach it and then
         // re-insert it, which is the same end state but a different set of mutation records.
-        var nodes = a.Length == 0 ? [] : host.BuildChildNodeArgumentNodes(a);
+        var nodes = call.Length == 0 ? [] : host.BuildChildNodeArgumentNodes(call.Arguments);
 
         for (var index = doc.ChildNodes.Count - 1; index >= 0; index--)
         {
@@ -188,18 +181,18 @@ internal static class NodeMutationBinding
 
         var insertIndex = 0;
         foreach (var node in nodes)
-            InsertIntoDocumentAt(host, node, insertIndex++);
+            InsertIntoDocumentAt(host, call.Realm, node, insertIndex++);
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
     /// Detaches <paramref name="node"/> from its current parent, if any, and inserts it into the
     /// document at <paramref name="index"/>, firing the notifications each half owes.
     /// </summary>
-    private static void InsertIntoDocumentAt(INodeMutationHost host, DomNode node, int index)
+    private static void InsertIntoDocumentAt(INodeMutationHost host, IJsRealm realm, DomNode node, int index)
     {
-        RejectElementBeforeDoctype(host, node, index);
+        RejectElementBeforeDoctype(host, realm, node, index);
 
         var oldParent = DomBridge.ParentEl(node);
         if (oldParent != null)
@@ -234,7 +227,7 @@ internal static class NodeMutationBinding
     /// behaviour change to existing bindings rather than part of adding the mixin.
     /// </para>
     /// </summary>
-    private static void RejectElementBeforeDoctype(INodeMutationHost host, DomNode node, int index)
+    private static void RejectElementBeforeDoctype(INodeMutationHost host, IJsRealm realm, DomNode node, int index)
     {
         if (node.NodeType != DomNodeType.Element)
             return;
@@ -245,21 +238,17 @@ internal static class NodeMutationBinding
             if (doc.ChildNodes[i].NodeType != DomNodeType.DocumentType)
                 continue;
 
-            if (host.JsContext is { } context)
-                DomBridge.ThrowDOMException(context, "Cannot insert an element before the doctype.", "HierarchyRequestError");
-            throw new InvalidOperationException("Cannot insert an element before the doctype.");
+            throw realm.DomError("HierarchyRequestError", "Cannot insert an element before the doctype.");
         }
     }
 
-    public static JSValue InsertBefore(INodeMutationHost host, in Arguments a)
+    public static JsValue InsertBefore(INodeMutationHost host, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSNull.Value;
-        if (a[0] is not JSObject newObj)
-            return JSNull.Value;
-        var newEl = host.FindDomNodeByJSObject(newObj);
+        if (!call[0].IsObject)
+            return JsValue.Null;
+        var newEl = host.FindDomNode(call[0]);
         if (newEl == null)
-            return a[0];
+            return call[0];
         if (DomBridge.ParentEl(newEl) != null)
         {
             var oldParent = DomBridge.ParentEl(newEl);
@@ -273,7 +262,7 @@ internal static class NodeMutationBinding
         }
 
         var doc = host.DocumentNode;
-        if (a.Length > 1 && a[1] is JSObject refObj && !a[1].IsNull)
+        if (call[1].IsObject)
         {
             // A reference node WAS supplied, so it must be a child of this parent: DOM §4.2.3
             // pre-insert says "If child is non-null and its parent is not parent, then throw a
@@ -281,11 +270,11 @@ internal static class NodeMutationBinding
             // the worst outcome of the three shapes this family had — not a silent no-op but a
             // silent mutation into a position the caller never asked for, leaving the node at the
             // end of the document instead of before the reference.
-            var refEl = host.FindDomNodeByJSObject(refObj);
+            var refEl = host.FindDomNode(call[1]);
             var idx = refEl != null ? DomBridge.ChildIndexOf(doc, refEl) : -1;
             if (idx < 0)
             {
-                ThrowNotFoundError(host, "insertBefore",
+                throw NotFoundError(call.Realm, "insertBefore",
                     "The node before which the new node is to be inserted is not a child of this node.");
             }
 
@@ -293,12 +282,12 @@ internal static class NodeMutationBinding
             // reposition fired spurious add-at-end/remove records.
             DomBridge.InsertChildAt(doc, idx, newEl);
             host.NotifyChildAdded(doc, newEl, idx);
-            return a[0];
+            return call[0];
         }
 
         // A null or absent refChild means append — that IS the specified behaviour, not a fallback.
         doc.AppendChild(newEl);
         host.NotifyChildAdded(doc, newEl, doc.ChildNodes.Count - 1);
-        return a[0];
+        return call[0];
     }
 }

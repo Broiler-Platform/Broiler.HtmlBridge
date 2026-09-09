@@ -1,5 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -11,28 +11,41 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The sub-document surface used to build those collections itself, as
-/// <see cref="JavaScript.BuiltIns.Array.JSArray"/> snapshots — the shape the main document was moved
-/// off. So an <c>&lt;iframe&gt;</c>'s <c>contentDocument</c> answered a different object model from
-/// the document containing it: <c>d.forms.constructor.name</c> was <c>"Array"</c> where the parent's
-/// was <c>"HTMLCollection"</c>, <c>d.forms === d.forms</c> was <see langword="false"/>, there was no
-/// <c>namedItem</c> and no named access, appending a form left a held collection's <c>length</c>
-/// unchanged, and <c>anchors</c>, <c>embeds</c> and <c>plugins</c> were absent outright. Nothing about
-/// a frame's document makes it a different kind of document, and a script inside one is a script like
-/// any other.
+/// The sub-document surface used to build those collections itself, as snapshot arrays — the shape the
+/// main document was moved off. So an <c>&lt;iframe&gt;</c>'s <c>contentDocument</c> answered a
+/// different object model from the document containing it: <c>d.forms.constructor.name</c> was
+/// <c>"Array"</c> where the parent's was <c>"HTMLCollection"</c>, <c>d.forms === d.forms</c> was
+/// <see langword="false"/>, there was no <c>namedItem</c> and no named access, appending a form left a
+/// held collection's <c>length</c> unchanged, and <c>anchors</c>, <c>embeds</c> and <c>plugins</c> were
+/// absent outright. Nothing about a frame's document makes it a different kind of document, and a
+/// script inside one is a script like any other.
 /// </para>
 /// <para>
 /// Only two of the contract's members are genuinely per-document: the element list, which must be this
 /// root's sub-tree rather than the main document's, and <c>currentScript</c>, which a sub-document does
-/// not track. The rest — wrapper identity and the two stylesheet services — are per-<em>node</em>
-/// questions the bridge answers the same way whichever document asks, so they delegate straight
-/// through.
+/// not track. The rest — the realm, wrapper identity and the two stylesheet services — are questions
+/// the bridge answers the same way whichever document asks, so they delegate straight through.
+/// </para>
+/// <para>
+/// <b>This class used to be the group's one engine-typed file, and it is now the plainest.</b>
+/// <see cref="IDocumentCollectionHost"/> handed JS objects around as engine values, so the two
+/// delegating members had to unwrap what <see cref="ISubDocumentHost"/> already answered in JSEAL —
+/// two <c>JsInterop</c> casts whose only job was to lose type information across a contract boundary
+/// and have it re-found on the other side. Both contracts are JSEAL now, so the members are the
+/// forwards they always meant to be, and the file names no engine type.
 /// </para>
 /// </remarks>
 internal sealed class SubDocumentCollectionHost(ISubDocumentHost host, DomNode docRoot)
     : IDocumentCollectionHost
 {
-    public JSObject ToJSObject(DomNode node) => host.ToJSObject(node);
+    /// <summary>
+    /// The bridge's realm, which is the frame's too: a nested browsing context in this engine shares
+    /// the containing document's realm, so a collection built for a sub-document is minted in the same
+    /// place one built for the main document is.
+    /// </summary>
+    public IJsRealm Realm => host.Realm;
+
+    public JsValue WrapNode(DomNode node) => host.ToJsObject(node);
 
     /// <summary>
     /// Every element in this sub-document, in tree order, recomputed per read — which is what makes
@@ -49,7 +62,7 @@ internal sealed class SubDocumentCollectionHost(ISubDocumentHost host, DomNode d
     /// </summary>
     public int CurrentScriptIndex => -1;
 
-    public JSObject BuildStyleSheetObject(DomElement styleElement) => host.BuildStyleSheetObject(styleElement);
+    public JsValue BuildStyleSheetObject(DomElement styleElement) => host.BuildStyleSheetObject(styleElement);
 
     public bool HasAssociatedStyleSheet(DomElement element) => host.HasAssociatedStyleSheet(element);
 }

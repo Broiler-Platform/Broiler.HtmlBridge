@@ -22,14 +22,12 @@ public sealed partial class DomBridge : IDisposable
 
     /// <summary>
     /// Releases every per-session resource this bridge owns. Deterministic and idempotent — a
-    /// second call is a no-op. After disposal the document/timer entry points
-    /// (<see cref="Attach(Broiler.JavaScript.Engine.JSContext, string)"/>,
+    /// second call is a no-op. After disposal the document/timer entry points (<c>Attach</c>,
     /// <see cref="FlushTimers"/>, <see cref="FlushTimerStep"/>, <see cref="FireWindowLoadEvent"/>,
     /// <see cref="HasPendingTimers"/>) throw <see cref="ObjectDisposedException"/>.
     /// </summary>
     /// <remarks>
-    /// The bridge does not own the <see cref="Broiler.JavaScript.Engine.JSContext"/> passed to
-    /// <see cref="Attach(Broiler.JavaScript.Engine.JSContext, string)"/> — the caller (or the
+    /// The bridge does not own the script context passed to <c>Attach</c> — the caller (or the
     /// owning <c>InteractiveSession</c>) disposes it — so this only drops the reference and never
     /// disposes the context. Pending timer/animation callbacks are dropped, never run: disposal
     /// tears down, it does not flush.
@@ -53,11 +51,14 @@ public sealed partial class DomBridge : IDisposable
         ResetComputedStyleEngines();
         ClearComputedPropsCache();
         _jsObjects.Clear();
-        _documentJSObject = null;
-        _windowJSObject = null;
-        _visualViewportJSObject = null;
+        // The document/window/visualViewport wrapper roots, dropped by the file that declares them.
+        ClearWrapperRoots();
 
-        // The bridge borrows the JS context; only drop the reference.
+        // The bridge borrows the JS context; only drop the reference. The adopted realm is the same
+        // borrow seen through JSEAL — disposing it releases the adoption, not the context, which is
+        // the host's to dispose (see DomBridge.Realm.cs and IJsRealmAdoption).
+        _realm?.Dispose();
+        _realm = null;
         _jsContext = null;
 
 

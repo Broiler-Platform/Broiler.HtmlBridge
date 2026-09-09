@@ -1,8 +1,15 @@
+// Four engine namespaces, all of them for ThrowDOMException and the two validators that forward to
+// it. That helper reaches the page's DOMException constructor through the script context and raises
+// a JSException; five files outside this migration group hand it their context (the two document
+// factory hosts, the sub-document host, DomBridge/HtmlFragmentMutation.cs and
+// Features/AttributesBinding.cs), so the parameter type cannot change until they ask with a realm.
+// Everything else in this file — the three constructor-global installers — is the realm's now.
 using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -107,30 +114,48 @@ public sealed partial class DomBridge
     /// forms, the sub-document forms, and the <c>DocumentFragment</c> forms — because a browser throws
     /// from all of them identically, which was measured rather than assumed. The CSS cascade does not
     /// come through here and stays lenient, as CSS error handling requires.
+    /// <para>
+    /// <b>This one takes no script context, where its three neighbours above still do.</b> Every
+    /// caller is a file in this migration's own group, so the nullable script-context parameter —
+    /// only ever forwarded to <see cref="ThrowDOMException"/> — could go, and the realm raises the
+    /// exception instead: <c>IJsCalls.DomError</c> constructs it through the same <c>DOMException</c>
+    /// global against the same realm, so what a page catches is unchanged. The parameter's
+    /// null-tolerance survives as the realm's: before <c>Attach</c> there is no realm and the check is
+    /// skipped, which is what a <see langword="null"/> context meant and is the state the bridge's own
+    /// pre-attach selector work runs in.
+    /// </para>
     /// </remarks>
-    internal static void ValidateSelector(string selector, JSContext? context)
+    internal void ValidateSelector(string selector)
     {
-        if (context is not null && !Dom.Features.DomApiSyntax.IsValidSelectorList(selector))
+        if (_realm is { } realm && !Dom.Features.DomApiSyntax.IsValidSelectorList(selector))
         {
-            ThrowDOMException(
-                context,
-                $"Failed to execute 'querySelector' on 'Document': '{selector}' is not a valid selector.",
-                "SyntaxError");
+            throw realm.DomError(
+                "SyntaxError",
+                $"Failed to execute 'querySelector' on 'Document': '{selector}' is not a valid selector.");
         }
     }
 
     /// <summary>
-    /// Registers the <c>DOMException</c> constructor on <paramref name="context"/>.
+    /// Registers the <c>DOMException</c> constructor on <paramref name="realm"/>.
     /// </summary>
     /// <remarks>
-    /// Internal rather than private because a worker's context needs it too: without it
+    /// <para>
+    /// Internal rather than private because a worker's realm needs it too: without it
     /// <see cref="ThrowDOMException"/> falls back to throwing a bare string, so worker code catching
     /// a <c>NetworkError</c> or <c>DataCloneError</c> would find no <c>.name</c> or <c>.code</c> to
-    /// branch on. See <c>JSWorker.InstallWorkerGlobals</c>.
+    /// branch on. See <c>JSWorker.InstallWorkerGlobals</c>, which is why the parameter is the realm
+    /// rather than this bridge's own: a worker's realm is a different one on a different thread.
+    /// </para>
+    /// <para>
+    /// Host script, not guest source — the text below is a compile-time constant of this assembly and
+    /// is not subject to the page's content policy, which is the distinction <c>IJsSource</c> draws.
+    /// The label is new and diagnostics-only: the engine's bare <c>Eval</c> carried none, and a named
+    /// frame is what a stack trace through this constructor now says instead of nothing.
+    /// </para>
     /// </remarks>
-    internal static void RegisterDOMException(JSContext context)
+    internal static void RegisterDOMException(IJsRealm realm)
     {
-        context.Eval(@"
+        realm.EvaluateHostScript(@"
             function DOMException(message, name) {
                 this.message = message || '';
                 this.name = name || 'Error';
@@ -213,15 +238,15 @@ public sealed partial class DomBridge
             DOMException.prototype.TIMEOUT_ERR = 23;
             DOMException.prototype.INVALID_NODE_TYPE_ERR = 24;
             DOMException.prototype.DATA_CLONE_ERR = 25;
-        ");
+        ", "polyfill:dom-exception");
     }
 
     /// <summary>
-    /// Registers the <c>Node</c> constructor with DOM type constants on the JS context.
+    /// Registers the <c>Node</c> constructor with DOM type constants on the realm.
     /// </summary>
-    private static void RegisterNodeConstructor(JSContext context)
+    private static void RegisterNodeConstructor(IJsRealm realm)
     {
-        context.Eval(@"
+        realm.EvaluateHostScript(@"
             function Node() {}
             Node.ELEMENT_NODE = 1;
             Node.ATTRIBUTE_NODE = 2;
@@ -263,12 +288,12 @@ public sealed partial class DomBridge
             Node.prototype.DOCUMENT_POSITION_CONTAINS = 0x08;
             Node.prototype.DOCUMENT_POSITION_CONTAINED_BY = 0x10;
             Node.prototype.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC = 0x20;
-        ");
+        ", "polyfill:node-constants");
     }
 
-    private static void RegisterSVGLength(JSContext context)
+    private static void RegisterSVGLength(IJsRealm realm)
     {
-        context.Eval(@"
+        realm.EvaluateHostScript(@"
             function SVGLength() {}
             SVGLength.SVG_LENGTHTYPE_UNKNOWN = 0;
             SVGLength.SVG_LENGTHTYPE_NUMBER = 1;
@@ -281,6 +306,6 @@ public sealed partial class DomBridge
             SVGLength.SVG_LENGTHTYPE_IN = 8;
             SVGLength.SVG_LENGTHTYPE_PT = 9;
             SVGLength.SVG_LENGTHTYPE_PC = 10;
-        ");
+        ", "polyfill:svg-length");
     }
 }

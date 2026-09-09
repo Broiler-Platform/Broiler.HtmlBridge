@@ -1,27 +1,35 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The narrow surface the co-located sub-window feature (<see cref="SubWindowBinding"/>, P3.17) needs
-/// from the bridge: the top-level window object, the sub-document builder it wraps (mutual recursion),
-/// the browsing-context tree/link queries, sub-resource URL resolution, the scroll-geometry read/write
-/// helpers, computed-style construction, and the global event constructors. Implemented by
+/// from the bridge: the realm, the top-level window object, the sub-document builder it wraps (mutual
+/// recursion), the browsing-context tree/link queries, sub-resource URL resolution, the scroll-geometry
+/// read/write helpers, computed-style construction, and the parent realm's globals. Implemented by
 /// <c>DomBridge</c> via explicit interface members (see <c>DomBridge.SubWindowHost.cs</c>), so the module
 /// reaches no arbitrary bridge private field. The module holds direct references to the shared owners it
 /// uses (<c>BrowsingContextManager</c>, <c>EventTargetRegistry</c>, <c>MessagingBinding</c>); those are
 /// not part of this contract.
 /// </summary>
+/// <remarks>
+/// The contract names no engine type: a JS object is a <see cref="JsValue"/> and the scroll arguments
+/// arrive as the migrated call frame's own values. One member <em>name</em> still carries the
+/// engine's word for a frame; see the remarks on it.
+/// </remarks>
 internal interface ISubWindowHost
 {
-    /// <summary>The top-level window JS object (the sub-window's <c>top</c>, and its <c>parent</c> when
-    /// the sub-document is not itself nested).</summary>
-    JSObject? WindowJSObject { get; }
+    /// <summary>The realm the sub-window and everything installed on it belongs to.</summary>
+    IJsRealm Realm { get; }
+
+    /// <summary>The top-level window object (the sub-window's <c>top</c>, and its <c>parent</c> when
+    /// the sub-document is not itself nested), or a non-object when the bridge has no window.</summary>
+    JsValue MainWindow { get; }
 
     /// <summary>The sub-document JS object for a container (built on demand). The sub-window's
     /// <c>document</c> getter and <c>defaultView</c> wiring depend on it.</summary>
-    JSObject GetOrCreateSubDocument(DomElement container);
+    JsValue GetOrCreateSubDocument(DomElement container);
 
     /// <summary>The severed content document of a nested-browsing-context container, or <c>null</c>.</summary>
     DomDocument? GetContentDocument(DomElement container);
@@ -43,22 +51,32 @@ internal interface ISubWindowHost
     void SetElementScroll(DomElement element, double? left, double? top, bool relative, string? behavior);
 
     /// <summary>Parses <c>scroll(x,y)</c> / <c>scroll({left,top,behavior})</c> arguments.</summary>
-    (double? Left, double? Top, string? Behavior) GetScrollArguments(in Arguments args);
+    /// <remarks>
+    /// The name still carries the engine's word for a call frame, and it is the last thing in this
+    /// contract that does. It cannot be renamed from here alone: <c>IWindowScrollHost</c> — another
+    /// group's contract — declares the same member and the bridge answers both with this one
+    /// reading, so the two have to be renamed together or the shared reading splits in half.
+    /// </remarks>
+    (double? Left, double? Top, string? Behavior) GetScrollArguments(ReadOnlySpan<JsValue> supplied);
 
     /// <summary>The DOM element a JS object wraps, or <c>null</c> (for <c>getComputedStyle</c>).</summary>
-    DomElement? FindDomElementByJSObject(JSObject jsObj);
+    DomElement? FindElement(JsValue wrapper);
 
     /// <summary>Builds the read-only computed-style JS object for an element (sub-window
     /// <c>getComputedStyle</c>), resolving the sub-document's own stylesheets.</summary>
-    JSObject BuildComputedStyleObject(DomElement? element, string? pseudoElement);
+    JsValue BuildComputedStyleObject(DomElement? element, string? pseudoElement);
 
-    /// <summary>A global constructor/value from the JS context (the sub-window mirrors the event
-    /// constructors — <c>Event</c>, <c>MouseEvent</c>, … — and <c>MessageChannel</c>), or <c>null</c>
-    /// when the context has no such global (or no context).</summary>
-    JSValue? GetGlobal(string name);
+    /// <summary>
+    /// Reads a global of the containing realm — the sub-window mirrors the event constructors
+    /// (<c>Event</c>, <c>MouseEvent</c>, …), the language built-ins and the web globals from it.
+    /// Answers <see langword="false"/> only when there is no realm to read at all; a name the realm
+    /// does not define reads as <c>undefined</c> and is mirrored as such, which is what the property
+    /// read this replaces produced.
+    /// </summary>
+    bool TryGetGlobal(string name, out JsValue value);
 
     /// <summary>Publishes on <paramref name="subWindow"/> whatever this frame's own scripts declared
     /// while it was being built, so a parent page can reach them as <c>frames[0].window.foo</c>.
     /// See <c>DomBridge.SubDocumentGlobals.cs</c>.</summary>
-    void PublishPendingSubDocumentGlobals(DomElement containerElement, JSObject subWindow);
+    void PublishPendingSubDocumentGlobals(DomElement containerElement, JsValue subWindow);
 }

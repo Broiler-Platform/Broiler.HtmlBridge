@@ -1,26 +1,28 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Engine;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The narrow host surface <see cref="CharacterDataBinding"/> needs from the bridge: the
 /// notifying character-data setter (mutation-observer aware), the text-node factory (for
-/// <c>splitText</c>), the and the JS-wrapper factory. Read-side text access,
+/// <c>splitText</c>), and the JS-wrapper factory. Read-side text access,
 /// node-type tests and the neutral tree helpers are the bridge's <c>internal static</c> helpers,
 /// called directly.
 /// </summary>
+/// <remarks>
+/// The contract names no engine type, and it carries no script context: that seam existed for one
+/// purpose — constructing the <c>DOMException</c> an out-of-bounds offset must throw — and
+/// <see cref="IJsCalls.DomError"/> owns that now, reached from the call frame each operation already
+/// has. The wrapper factory is <see cref="WrapNode"/> for the same reason the rest of the migration
+/// renames such members: it was named after the engine type it answered, and a member named after an
+/// engine type is an engine reference too.
+/// </remarks>
 internal interface ICharacterDataHost
 {
     void SetCharacterData(DomNode node, string? value);
     DomText CreateBridgeTextNode(string data);
-    JSObject ToJSObject(DomNode node);
 
-    /// <summary>
-    /// The attached JS context, used only to construct the <c>DOMException</c> an out-of-bounds
-    /// offset must throw — the same way <see cref="INodeMutationHost.JsContext"/> is used. Null
-    /// before the bridge is attached, in which case the binding falls back to a plain error.
-    /// </summary>
-    JSContext? JsContext { get; }
+    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
+    JsValue WrapNode(DomNode node);
 }

@@ -1,13 +1,13 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Dom.Runtime;
+
+// Engine-typed only for the three option-reader adapters below, whose caller —
+// DomBridge.ElementGeometryHost.cs — unwraps a JSEAL handle before it asks.
+using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
 using Broiler.CSS;
 using System.Globalization;
@@ -74,74 +74,53 @@ public sealed partial class DomBridge
         }
     }
 
-    private (string Block, string Inline, string? Behavior) GetScrollIntoViewOptions(in Arguments args)
+    // -------- the scroll-option readers, and why three of them still have an engine-shaped face --------
+    //
+    // These answer one member of a ScrollToOptions/ScrollIntoViewOptions dictionary, and they are shared
+    // by every scrolling entry point the bridge has: the element-geometry contract, the window scroll
+    // contract and the sub-window one. The reads are JSEAL's below — a missing, null or undefined member
+    // means "leave this alone", and a member that is present goes through the realm's own ToNumber and
+    // ToString, because that is the coercion a page observes when it writes `scrollTo({ left: "100" })`.
+    // The handle's own rendering deliberately does not run a page's toString, so it cannot be used here.
+    //
+    // The JSObject overloads are adapters, not implementations. DomBridge.ElementGeometryHost.cs — not
+    // this file's to change — decides the shape of a scrollIntoView/scroll argument from a JSEAL handle
+    // and then unwraps the options object to ask these; keeping the overloads is what lets that file go
+    // on compiling untouched, and they disappear when it names the JSEAL readers directly. All six are
+    // instance members rather than statics for one reason: the JSEAL readers need the bridge's realm, and
+    // a static has no way to obtain one.
+    //
+    // The whole-argument-list reading that used to sit above these — GetScrollArguments(in Arguments),
+    // for the window scroll contract — is gone: window.scroll/scrollTo/scrollBy are minted through the
+    // realm now, so DomBridge.WindowScrollHost.cs forwards to the one JSEAL reading in
+    // DomBridge.SubWindowHost.cs rather than this file keeping a second copy of it.
+
+    private double? ReadScrollCoordinateOption(JsValue options, string propertyName)
     {
-        const string defaultBlock = "start";
-        const string defaultInline = "nearest";
-
-        if (args.Length == 0)
-            return (defaultBlock, "start-if-needed", null);
-
-        var first = args[0];
-        if (first is JSObject options)
-        {
-            return (
-                NormalizeScrollIntoViewAlignment(GetOptionalStringOption(options, "block"), defaultBlock),
-                NormalizeScrollIntoViewAlignment(GetOptionalStringOption(options, "inline"), defaultInline),
-                GetOptionalScrollBehavior(options));
-        }
-
-        if (first.IsBoolean)
-        {
-            return first.BooleanValue
-                ? (defaultBlock, defaultInline, null)
-                : ("end", defaultInline, null);
-        }
-
-        return (defaultBlock, defaultInline, null);
+        var value = Realm.GetProperty(options, propertyName);
+        return value.IsNullish ? null : Realm.ToNumber(value);
     }
 
-    private (double? Left, double? Top, string? Behavior) GetScrollArguments(in Arguments args)
+    private string? ReadScrollBehaviorOption(JsValue options) => ReadScrollStringOption(options, "behavior");
+
+    private string? ReadScrollStringOption(JsValue options, string propertyName)
     {
-        if (args.Length == 0)
-            return (null, null, null);
-
-        if (args[0] is JSObject options)
-        {
-            return (
-                GetOptionalScrollCoordinate(options, "left"),
-                GetOptionalScrollCoordinate(options, "top"),
-                GetOptionalScrollBehavior(options));
-        }
-
-        return (args.Length > 0 ? args[0].DoubleValue : null, args.Length > 1 ? args[1].DoubleValue : null, null);
-    }
-
-    private static double? GetOptionalScrollCoordinate(JSObject options, string propertyName)
-    {
-        var value = options[(KeyString)propertyName];
-        return value == null || value.IsUndefined || value.IsNull ? null : value.DoubleValue;
-    }
-
-    private static string? GetOptionalScrollBehavior(JSObject options)
-    {
-        var value = options[(KeyString)"behavior"];
-        if (value == null || value.IsUndefined || value.IsNull)
+        var value = Realm.GetProperty(options, propertyName);
+        if (value.IsNullish)
             return null;
 
-        var behavior = value.ToString();
-        return string.IsNullOrWhiteSpace(behavior) ? null : behavior;
-    }
-
-    private static string? GetOptionalStringOption(JSObject options, string propertyName)
-    {
-        var value = options[(KeyString)propertyName];
-        if (value == null || value.IsUndefined || value.IsNull)
-            return null;
-
-        var text = value.ToString();
+        var text = Realm.ToJsString(value);
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
+
+    private double? GetOptionalScrollCoordinate(JSObject options, string propertyName)
+        => ReadScrollCoordinateOption(JsInterop.FromEngineObject(options), propertyName);
+
+    private string? GetOptionalScrollBehavior(JSObject options)
+        => ReadScrollBehaviorOption(JsInterop.FromEngineObject(options));
+
+    private string? GetOptionalStringOption(JSObject options, string propertyName)
+        => ReadScrollStringOption(JsInterop.FromEngineObject(options), propertyName);
 
     private static string NormalizeScrollIntoViewAlignment(string? value, string fallback)
     {
@@ -339,10 +318,12 @@ public sealed partial class DomBridge
 
     private void DispatchElementEvent(DomElement element, string eventType)
     {
-        var evt = new JSObject();
-        evt.FastAddValue("type", new JSString(eventType), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        DispatchEventOnElement(element, evt);
+        var evt = Realm.NewObject();
+        Realm.DefineValue(evt, "type", JsValue.String(eventType));
+        Realm.DefineValue(evt, "bubbles", JsValue.False);
+        // Element dispatch has not migrated, so the event crosses back as the engine's own object — a
+        // cast rather than a conversion, so the listeners see the object that was built here.
+        DispatchEventOnElement(element, JsInterop.ToEngineObject(evt));
     }
 
     private string ResolveScrollBehavior(DomElement element, string? requestedBehavior)
@@ -463,19 +444,27 @@ public sealed partial class DomBridge
 
     private void DispatchVisualViewportScrollEvent()
     {
-        if (_visualViewportJSObject == null || _eventTargets.VisualViewportScrollListeners.Count == 0)
+        var viewport = _visualViewportJSObject;
+        if (viewport == null || _eventTargets.VisualViewportScrollListeners.Count == 0)
             return;
 
-        var evt = new JSObject();
-        evt.FastAddValue("type", new JSString("scroll"), JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("target", _visualViewportJSObject, JSPropertyAttributes.EnumerableConfigurableValue);
-        evt.FastAddValue("currentTarget", _visualViewportJSObject, JSPropertyAttributes.EnumerableConfigurableValue);
+        // The visualViewport object and its listener list are still held as engine values by the
+        // registration hub and the event-target registry, so both cross the seam as handles over the
+        // engine's own objects: the listeners are the ones the page added, and the target they see is the
+        // visualViewport they registered on.
+        var target = JsInterop.FromEngineObject(viewport);
+        var evt = Realm.NewObject();
+        Realm.DefineValue(evt, "type", JsValue.String("scroll"));
+        Realm.DefineValue(evt, "target", target);
+        Realm.DefineValue(evt, "currentTarget", target);
 
         foreach (var listener in _eventTargets.VisualViewportScrollListeners.ToList())
         {
             try
             {
-                listener.InvokeFunction(new Arguments(listener, evt));
+                // `this` is the listener itself, as it has been since this dispatch was written.
+                var callee = JsInterop.FromEngineObject(listener);
+                Realm.Invoke(callee, callee, [evt]);
             }
             catch (Exception ex)
             {

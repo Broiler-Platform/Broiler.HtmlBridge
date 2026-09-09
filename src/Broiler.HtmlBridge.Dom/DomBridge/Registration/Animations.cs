@@ -1,9 +1,7 @@
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
+using System.Runtime.InteropServices;
 using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 using Broiler.CSS;
 
@@ -16,15 +14,15 @@ public sealed partial class DomBridge
     // a per-bridge instance table, owned by the session's bridge. Still an element-keyed
     // ConditionalWeakTable, so it GCs with the element and the cloneNode copy (see CloneDomElement) is
     // preserved. The one static caller (the AnimationObjectBinding currentTime get/set feature
-    // callbacks) is threaded the resolved AnimationRuntimeState by the now-instance BuildAnimationObject.
+    // callbacks) is threaded the resolved AnimationRuntimeState by the now-instance BuildAnimation.
     private readonly ConditionalWeakTable<DomElement, AnimationRuntimeState> _animationRuntimeStates = [];
 
     private AnimationRuntimeState AnimationStateFor(DomElement element) =>
         _animationRuntimeStates.GetValue(element, static _ => new AnimationRuntimeState());
 
-    private JSArray BuildAnimationList(DomElement? target)
+    private JsValue BuildAnimationList(DomElement? target)
     {
-        var animations = new List<JSValue>();
+        var animations = new List<JsValue>();
         foreach (var element in Elements)
         {
             if (IsText(element) || IsComment(element))
@@ -36,10 +34,12 @@ public sealed partial class DomBridge
                 continue;
 
             EnsureAnimationCurrentTime(element, animationShorthand, animationDelay);
-            animations.Add(BuildAnimationObject(element));
+            animations.Add(BuildAnimation(element));
         }
 
-        return new JSArray(animations);
+        // The list's own storage, not a copy of it: NewArray takes a span and materialises the array
+        // from it, which is the same one pass the engine's list constructor made.
+        return Realm.NewArray(CollectionsMarshal.AsSpan(animations));
     }
 
     private bool TryGetAnimationProperties(
@@ -96,31 +96,36 @@ public sealed partial class DomBridge
         AnimationStateFor(element).CurrentTimeMilliseconds.Set(currentTimeMs);
     }
 
-    private JSObject BuildAnimationObject(DomElement element)
+    /// <summary>
+    /// One <c>Animation</c> object for <paramref name="element"/>: its <c>currentTime</c> accessor
+    /// pair and the <c>ready</c> thenable.
+    /// </summary>
+    /// <remarks>
+    /// The surface is the co-located AnimationObjectBinding feature module (Phase 3), written against
+    /// JSEAL — so the object, its accessor pair and the two ready-promise methods are minted by the
+    /// realm, which names the accessors "get/set currentTime" and makes every function
+    /// non-constructable exactly as the bridge's own native-callable type did. currentTime reads and writes
+    /// the element's per-bridge animation timeline; it is resolved once here (a stable
+    /// ConditionalWeakTable identity for this element and bridge) and handed to the callbacks.
+    /// </remarks>
+    private JsValue BuildAnimation(DomElement element)
     {
-        var animation = new JSObject();
-        // The animation-object currentTime/ready.then surface is the co-located AnimationObjectBinding
-        // feature module (Phase 3). currentTime reads/writes the element's per-bridge animation timeline;
-        // resolve it once here (stable CWT identity for this element/bridge) and hand it to the callbacks.
+        var realm = Realm;
+        var animation = realm.NewObject();
         var animationState = AnimationStateFor(element);
-        animation.FastAddProperty(
+        realm.DefineAccessor(
+            animation,
             "currentTime",
-            new DomFunction((in _) => Dom.Features.AnimationObjectBinding.GetCurrentTime(animationState, in _), "get currentTime"),
-            new DomFunction((in a) => Dom.Features.AnimationObjectBinding.SetCurrentTime(animationState, in a), "set currentTime"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+            (in c) => Dom.Features.AnimationObjectBinding.GetCurrentTime(animationState, in c),
+            (in c) => Dom.Features.AnimationObjectBinding.SetCurrentTime(animationState, in c));
 
-        var ready = new JSObject();
-        ready.FastAddValue(
-            "then",
-            new DomFunction((in a) => Dom.Features.AnimationObjectBinding.Then(ready, in a), "then", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        ready.FastAddValue(
-            "catch",
-            new DomFunction((in _) => ready, "catch", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        var ready = realm.NewObject();
+        realm.DefineValue(ready, "then",
+            realm.NewMethod("then", (in c) => Dom.Features.AnimationObjectBinding.Then(ready, in c), 1));
+        realm.DefineValue(ready, "catch",
+            realm.NewMethod("catch", (in _) => ready, 1));
 
-        animation.FastAddValue("ready", ready, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(animation, "ready", ready);
         return animation;
     }
-
 }

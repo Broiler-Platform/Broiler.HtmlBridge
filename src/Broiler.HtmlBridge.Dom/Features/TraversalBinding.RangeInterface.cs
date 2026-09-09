@@ -1,10 +1,5 @@
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -43,6 +38,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>Range.prototype.setStart.call({}, node, 0)</c> — a <c>TypeError</c> rather than a crash or a
 /// silent wrong answer.
 /// </para>
+/// <para>
+/// <b>The JavaScript half is host script, not guest source.</b> The two IIFEs below are written by
+/// this repository and ship with it, so they run through <see cref="IJsSource.EvaluateHostScript"/>
+/// and are not subject to the page's Content-Security-Policy — which is the distinction JSEAL draws
+/// and the reason a realm may serve these while refusing the page its own <c>eval</c>.
+/// </para>
 /// </remarks>
 internal sealed partial class TraversalBinding
 {
@@ -51,7 +52,7 @@ internal sealed partial class TraversalBinding
     /// (there is none on the normal path — <c>createRange</c> is reachable only from page script) is
     /// left unlinked rather than failing.
     /// </summary>
-    private JSObject? _rangePrototype;
+    private JsValue? _rangePrototype;
 
     /// <summary>
     /// The boundaries behind each range object, so a prototype method can find them from its
@@ -65,8 +66,12 @@ internal sealed partial class TraversalBinding
     /// <c>AbstractRange.prototype</c> read either; every operation on <c>Range.prototype</c> demands
     /// the live one, so <c>Range.prototype.setStart.call(staticRange, …)</c> is the same
     /// <c>TypeError</c> as calling it on any other foreign receiver.
+    /// <para>
+    /// The key is the object identity behind the handle (see <see cref="IdentityOf"/>), because a
+    /// <see cref="JsValue"/> is a struct and a weak table needs a reference.
+    /// </para>
     /// </remarks>
-    private readonly ConditionalWeakTable<JSObject, IRangeBoundaries> _rangeStates = new();
+    private readonly ConditionalWeakTable<object, IRangeBoundaries> _rangeStates = new();
 
     /// <summary>The four boundary values every <c>AbstractRange</c> has, live or static.</summary>
     private interface IRangeBoundaries
@@ -93,15 +98,22 @@ internal sealed partial class TraversalBinding
     /// Registers the two interface globals and installs every member on their prototypes. Runs once
     /// per context, with the other DOM interface constructors.
     /// </summary>
-    internal void RegisterRangeInterface(JSContext context)
+    /// <param name="context">
+    /// The engine context the unmigrated caller (<c>DomBridge/Registration/Polyfills.cs</c>) still
+    /// holds. Nothing here reads it: this module reaches the same realm through
+    /// <see cref="ITraversalHost.Realm"/>. The parameter stays only so that call site needs no edit
+    /// while it is another group's file, and goes when it is migrated.
+    /// </param>
+    internal void RegisterRangeInterface(Broiler.JavaScript.Engine.JSContext context)
     {
+        var realm = _host.Realm;
+
         // The host halves of the two constructors, reached only from the JavaScript below: they are
         // captured into a closure and deleted from the global, so a page cannot mint one out of band.
-        context["__broilerCreateRange"] = new DomFunction((in _) => BuildRange(), "createRange", 0);
-        context["__broilerCreateStaticRange"] =
-            new DomFunction((in a) => BuildStaticRange(in a), "createStaticRange", 1);
+        realm.SetProperty(realm.Global, "__broilerCreateRange", realm.NewMethod("createRange", (in _) => BuildRange(), 0));
+        realm.SetProperty(realm.Global, "__broilerCreateStaticRange", realm.NewMethod("createStaticRange", BuildStaticRange, 1));
 
-        context.Eval("""
+        realm.EvaluateHostScript("""
             (function () {
                 var create = __broilerCreateRange;
                 var createStatic = __broilerCreateStaticRange;
@@ -156,27 +168,36 @@ internal sealed partial class TraversalBinding
                 globalThis.Range = Range;
                 globalThis.StaticRange = StaticRange;
             })();
-            """);
+            """, "interface:range");
 
         // Read the two interface objects back by evaluating their names rather than through the
-        // context indexer: they are published with `globalThis.X = …` from inside the closure above,
-        // not as top-level declarations.
-        if (context.Eval("Range") is not JSObject rangeConstructor ||
-            rangeConstructor[(KeyString)"prototype"] is not JSObject rangePrototype ||
-            context.Eval("AbstractRange") is not JSObject abstractRangeConstructor ||
-            abstractRangeConstructor[(KeyString)"prototype"] is not JSObject abstractRangePrototype)
+        // global's property lookup: they are published with `globalThis.X = …` from inside the
+        // closure above, not as top-level declarations.
+        var rangeConstructor = realm.EvaluateHostScript("Range", "probe:Range");
+        var abstractRangeConstructor = realm.EvaluateHostScript("AbstractRange", "probe:AbstractRange");
+        if (!rangeConstructor.IsObject || !abstractRangeConstructor.IsObject)
+            return;
+
+        var rangePrototype = realm.GetProperty(rangeConstructor, "prototype");
+        var abstractRangePrototype = realm.GetProperty(abstractRangeConstructor, "prototype");
+        if (!rangePrototype.IsObject || !abstractRangePrototype.IsObject)
             return;
 
         _rangePrototype = rangePrototype;
-        _staticRangePrototype =
-            (context.Eval("StaticRange") as JSObject)?[(KeyString)"prototype"] as JSObject;
+
+        var staticRangeConstructor = realm.EvaluateHostScript("StaticRange", "probe:StaticRange");
+        var staticRangePrototype = staticRangeConstructor.IsObject
+            ? realm.GetProperty(staticRangeConstructor, "prototype")
+            : JsValue.Undefined;
+        _staticRangePrototype = staticRangePrototype.IsObject ? staticRangePrototype : null;
+
         InstallAbstractRangeMembers(abstractRangePrototype);
         InstallRangeMembers(rangePrototype);
-        RegisterSelectionInterface(context);
+        RegisterSelectionInterface();
     }
 
     /// <summary><c>StaticRange.prototype</c>, once the interface is registered.</summary>
-    private JSObject? _staticRangePrototype;
+    private JsValue? _staticRangePrototype;
 
     /// <summary>
     /// <c>new StaticRange(init)</c> — DOM §4.4. The four members are all required, and neither
@@ -184,87 +205,87 @@ internal sealed partial class TraversalBinding
     /// static range is allowed to be invalid (that is what makes it cheap enough for an input event
     /// to carry one).
     /// </summary>
-    private JSValue BuildStaticRange(in Arguments a)
+    private JsValue BuildStaticRange(in JsCall call)
     {
-        var init = a.Length > 0 ? a[0] as JSObject : null;
+        var realm = call.Realm;
+        var init = call[0].IsObject ? call[0] : JsValue.Missing;
 
-        var startContainer = RequiredNodeMember(init, "startContainer");
-        var startOffset = RequiredOffsetMember(init, "startOffset");
-        var endContainer = RequiredNodeMember(init, "endContainer");
-        var endOffset = RequiredOffsetMember(init, "endOffset");
+        var startContainer = RequiredNodeMember(realm, init, "startContainer");
+        var startOffset = RequiredOffsetMember(realm, init, "startOffset");
+        var endContainer = RequiredNodeMember(realm, init, "endContainer");
+        var endOffset = RequiredOffsetMember(realm, init, "endOffset");
 
         if (startContainer is DomDocumentType || endContainer is DomDocumentType)
-        {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                "Failed to construct 'StaticRange': Neither startContainer nor endContainer can be a DocumentType or Attribute node.",
-                "InvalidNodeTypeError");
-            return JSUndefined.Value;
-        }
+            throw realm.DomError(
+                "InvalidNodeTypeError",
+                "Failed to construct 'StaticRange': Neither startContainer nor endContainer can be a DocumentType or Attribute node.");
 
-        var staticRange = new JSObject();
+        var staticRange = realm.NewObject();
         _rangeStates.Add(
-            staticRange,
+            IdentityOf(staticRange),
             new StaticRangeBoundaries(startContainer, (int)startOffset, endContainer, (int)endOffset));
         if (_staticRangePrototype is { } prototype)
-            staticRange.BasePrototypeObject = prototype;
+            realm.SetPrototype(staticRange, prototype);
         return staticRange;
     }
 
-    private DomNode RequiredNodeMember(JSObject? init, string member)
+    private DomNode RequiredNodeMember(IJsRealm realm, JsValue init, string member)
     {
-        if (init?[(KeyString)member] is JSObject candidate &&
-            _host.FindDomNodeByJSObject(candidate) is { } node)
+        if (init.IsObject && realm.GetProperty(init, member) is { IsObject: true } candidate &&
+            _host.FindNode(candidate) is { } node)
             return node;
 
-        return JSException.ThrowTypeError<DomNode>(
+        throw realm.Error(
+            JsErrorKind.TypeError,
             $"Failed to construct 'StaticRange': Failed to read the '{member}' property from " +
             "'StaticRangeInit': Required member is undefined.");
     }
 
-    private static uint RequiredOffsetMember(JSObject? init, string member)
+    private static uint RequiredOffsetMember(IJsRealm realm, JsValue init, string member)
     {
-        var value = init?[(KeyString)member];
-        if (value is null || value.IsUndefined)
-            return JSException.ThrowTypeError<uint>(
+        // No init at all reads as an absent member, which is the same failure as an undefined one —
+        // the CLR-null the property read used to answer and an explicit `undefined` were already
+        // treated identically here, and Missing is what the former stands as now.
+        var value = init.IsObject ? realm.GetProperty(init, member) : JsValue.Missing;
+        if (value.IsMissing || value.IsUndefined)
+            throw realm.Error(
+                JsErrorKind.TypeError,
                 $"Failed to construct 'StaticRange': Failed to read the '{member}' property from " +
                 "'StaticRangeInit': Required member is undefined.");
 
-        return ToUnsignedLong(value);
+        return ToUnsignedLong(realm, value);
     }
 
     /// <summary>The five boundary attributes DOM §4.5 gives <c>AbstractRange</c>.</summary>
-    private void InstallAbstractRangeMembers(JSObject prototype)
+    private void InstallAbstractRangeMembers(JsValue prototype)
     {
-        Getter(prototype, "startContainer", (state, host) => host.ToJSObject(state.StartContainer));
-        Getter(prototype, "startOffset", static (state, _) => new JSNumber(state.StartOffset));
-        Getter(prototype, "endContainer", (state, host) => host.ToJSObject(state.EndContainer));
-        Getter(prototype, "endOffset", static (state, _) => new JSNumber(state.EndOffset));
-        Getter(prototype, "collapsed", static (state, _) => state.Collapsed ? JSBoolean.True : JSBoolean.False);
+        Getter(prototype, "startContainer", (state, host) => host.WrapNode(state.StartContainer));
+        Getter(prototype, "startOffset", static (state, _) => JsValue.Number(state.StartOffset));
+        Getter(prototype, "endContainer", (state, host) => host.WrapNode(state.EndContainer));
+        Getter(prototype, "endOffset", static (state, _) => JsValue.Number(state.EndOffset));
+        Getter(prototype, "collapsed", static (state, _) => JsValue.Boolean(state.Collapsed));
     }
 
     /// <summary>
     /// <c>Range</c>'s own attribute and its operations, including the CSSOM-View geometry pair and
     /// the HTML fragment-parsing extension.
     /// </summary>
-    private void InstallRangeMembers(JSObject prototype)
+    private void InstallRangeMembers(JsValue prototype)
     {
         // Range's own attribute rather than AbstractRange's, so it reads the live range — a
         // StaticRange has no common ancestor to report and is not asked for one.
-        prototype.FastAddProperty(
+        _host.Realm.DefineAccessor(
+            prototype,
             "commonAncestorContainer",
-            new DomFunction(
-                (in a) => RangeGetCommonAncestorContainer(StateFor(in a, "commonAncestorContainer")),
-                "get commonAncestorContainer"),
-            null,
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+            (in call) => RangeGetCommonAncestorContainer(StateFor(in call, "commonAncestorContainer")),
+            null);
 
         Method(prototype, "setStart", 2, RangeSetStart);
         Method(prototype, "setEnd", 2, RangeSetEnd);
-        Method(prototype, "setStartBefore", 1, (BridgeDomRange state, in Arguments a) => RangeSetBoundaryToSibling(state, in a, "setStartBefore", start: true, after: false));
-        Method(prototype, "setStartAfter", 1, (BridgeDomRange state, in Arguments a) => RangeSetBoundaryToSibling(state, in a, "setStartAfter", start: true, after: true));
-        Method(prototype, "setEndBefore", 1, (BridgeDomRange state, in Arguments a) => RangeSetBoundaryToSibling(state, in a, "setEndBefore", start: false, after: false));
-        Method(prototype, "setEndAfter", 1, (BridgeDomRange state, in Arguments a) => RangeSetBoundaryToSibling(state, in a, "setEndAfter", start: false, after: true));
+        Method(prototype, "setStartBefore", 1, (BridgeDomRange state, in JsCall call) => RangeSetBoundaryToSibling(state, in call, "setStartBefore", start: true, after: false));
+        Method(prototype, "setStartAfter", 1, (BridgeDomRange state, in JsCall call) => RangeSetBoundaryToSibling(state, in call, "setStartAfter", start: true, after: true));
+        Method(prototype, "setEndBefore", 1, (BridgeDomRange state, in JsCall call) => RangeSetBoundaryToSibling(state, in call, "setEndBefore", start: false, after: false));
+        Method(prototype, "setEndAfter", 1, (BridgeDomRange state, in JsCall call) => RangeSetBoundaryToSibling(state, in call, "setEndAfter", start: false, after: true));
         // `collapse(toStart)` is optional, so Web IDL gives it length 0 rather than 1.
         Method(prototype, "collapse", 0, RangeCollapse);
         Method(prototype, "selectNode", 1, RangeSelectNode);
@@ -286,36 +307,42 @@ internal sealed partial class TraversalBinding
         Method(prototype, "createContextualFragment", 1, RangeCreateContextualFragment);
     }
 
-    private delegate JSValue RangeOperation(BridgeDomRange state, in Arguments a);
+    private delegate JsValue RangeOperation(BridgeDomRange state, in JsCall call);
 
-    private void Method(JSObject prototype, string name, int length, RangeOperation body) =>
-        prototype.FastAddValue(
+    private void Method(JsValue prototype, string name, int length, RangeOperation body) =>
+        _host.Realm.DefineValue(
+            prototype,
             name,
-            new DomFunction((in a) => body(StateFor(in a, name), in a), name, length),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+            _host.Realm.NewMethod(name, (in call) => body(StateFor(in call, name), in call), length));
 
     /// <summary>
     /// An <c>AbstractRange</c> attribute. It reads <see cref="IRangeBoundaries"/> rather than a live
     /// range, so the same getter serves a <c>Range</c> and a <c>StaticRange</c>.
     /// </summary>
-    private void Getter(JSObject prototype, string name, Func<IRangeBoundaries, ITraversalHost, JSValue> read) =>
-        prototype.FastAddProperty(
+    /// <remarks>
+    /// The realm mints the accessor function, names it <c>get name</c> and makes it
+    /// non-constructable — the three things the bridge's own function type did at this call site
+    /// before. A <see langword="null"/> setter is still how read-only is spelled.
+    /// </remarks>
+    private void Getter(JsValue prototype, string name, Func<IRangeBoundaries, ITraversalHost, JsValue> read) =>
+        _host.Realm.DefineAccessor(
+            prototype,
             name,
-            new DomFunction((in a) => read(BoundariesFor(in a, name), _host), $"get {name}"),
-            null,
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+            (in call) => read(BoundariesFor(in call, name), _host),
+            null);
 
     /// <summary>
     /// The boundaries behind the receiver, or a <c>TypeError</c> — a member held on the prototype can
     /// be called on anything, and a browser answers "Illegal invocation" for a receiver that is not a
     /// range.
     /// </summary>
-    private IRangeBoundaries BoundariesFor(in Arguments a, string member)
+    private IRangeBoundaries BoundariesFor(in JsCall call, string member)
     {
-        if (a.This is JSObject receiver && _rangeStates.TryGetValue(receiver, out var boundaries))
+        if (call.This.IsObject && _rangeStates.TryGetValue(IdentityOf(call.This), out var boundaries))
             return boundaries;
 
-        return JSException.ThrowTypeError<IRangeBoundaries>(
+        throw call.Realm.Error(
+            JsErrorKind.TypeError,
             $"Failed to execute '{member}' on 'Range': Illegal invocation");
     }
 
@@ -324,8 +351,9 @@ internal sealed partial class TraversalBinding
     /// borrowed <c>Range.prototype</c> method, which is an illegal invocation for the same reason any
     /// other foreign receiver is: it has no tree to mutate.
     /// </summary>
-    private BridgeDomRange StateFor(in Arguments a, string member) =>
-        BoundariesFor(in a, member) as BridgeDomRange
-        ?? JSException.ThrowTypeError<BridgeDomRange>(
+    private BridgeDomRange StateFor(in JsCall call, string member) =>
+        BoundariesFor(in call, member) as BridgeDomRange
+        ?? throw call.Realm.Error(
+            JsErrorKind.TypeError,
             $"Failed to execute '{member}' on 'Range': Illegal invocation");
 }

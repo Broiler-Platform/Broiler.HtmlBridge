@@ -1,0 +1,134 @@
+{
+  "$comment": [
+    "The engine-neutrality ratchet. One entry per directory under src/, recording how much of it",
+    "still names a JavaScript engine directly. scripts/check-engine-neutrality.sh measures the tree",
+    "and compares it against these numbers.",
+    "",
+    "THESE NUMBERS MAY FALL AND MAY NEVER RISE. A count above its budget fails the build, and the",
+    "fix is to port the file rather than to raise the number. A migration that moves a file onto",
+    "Broiler.HtmlBridge.Jseal lowers a count, and must lower the budget in the SAME COMMIT -- the",
+    "check reports every count that came in under budget for exactly that reason, because a ratchet",
+    "nobody tightens is a ratchet that stops at whatever the worst day was.",
+    "",
+    "The consequence worth stating plainly: a project whose budget is already 0 cannot gain an",
+    "engine-coupled file at all. That is the state every entry here is travelling towards, and it",
+    "is what lets the remaining migration land as a hundred small changes instead of one merge that",
+    "moves 250 files and can only be reviewed by trusting it.",
+    "",
+    "Broiler.HtmlBridge.Jseal is 0/0/0 and is the one entry these numbers do not actually protect.",
+    "Its project file has no ProjectReference and no PackageReference, so an assembly that cannot",
+    "see a Broiler.JavaScript type cannot name one: its neutrality is a compiler outcome, not a grep",
+    "result. What the check guards there is the CLAIM -- it fails if that project file ever gains a",
+    "reference of either kind, because the moment it does, every 0 below stops meaning anything.",
+    "",
+    "WHAT EACH METRIC COUNTS, LITERALLY.",
+    "",
+    "  engineReferences   Occurrences of the text 'Broiler.JavaScript' in .cs files beneath the",
+    "                     directory, bin/ and obj/ excluded. Text, not semantics: a using directive,",
+    "                     a fully-qualified type name and a mention inside a doc comment each count",
+    "                     one. Counting occurrences rather than files is deliberate -- a file being",
+    "                     half-ported is progress, and a metric that only moved when a whole file",
+    "                     landed would hide it.",
+    "",
+    "  engineProjectRefs  ProjectReference Include paths in the directory's .csproj files that point",
+    "                     into Broiler.JS/ or Broiler.VM/, counted regardless of Condition. This is",
+    "                     the metric that actually has to reach 0 for an engine to be swappable: as",
+    "                     long as a binding project links the engine, nothing stops the next file",
+    "                     from using it, and the two counts above are the only thing noticing.",
+    "",
+    "  guestEvalSites     Occurrences of '.Eval(' in .cs files. The name records where these are",
+    "                     going, not what they are: today's sites are undifferentiated, and splitting",
+    "                     them into IJsSource.EvaluateHostScript (source this repository authored,",
+    "                     exempt from the page's content policy) and EvaluateGuestSource (source the",
+    "                     page supplied, which a Content-Security-Policy may forbid) is the porting",
+    "                     work this number measures. A ported site names neither .Eval( nor an engine",
+    "                     type, so it leaves all three counts at once.",
+    "",
+    "WHY THE UNIT IS A DIRECTORY AND NOT A PROJECT FILE. src/Broiler.App has no .csproj: its eight",
+    "files are pulled in by <Compile Include=\"..\\Broiler.App\\...\"> from three heads. Keying this",
+    "on project files would leave those files counted nowhere, which is the one place an engine",
+    "reference could be parked without any budget noticing. Keying on the directory covers them, and",
+    "makes the entry name the same string the check prints.",
+    "",
+    "This is an object rather than the array eng/solutions.json uses, so that a directory cannot be",
+    "budgeted twice -- two entries for one project would let the check read whichever came first.",
+    "A project marked \"role\": \"provider\" is the one kind whose engine references are SUPPOSED to grow -- naming the engine is what a provider assembly is for. For those, engineReferences and guestEvalSites are recorded and reported when they drift, but not enforced; engineProjectRefs stays enforced, because which engine assemblies a provider links is a real boundary and a Broiler.JS provider quietly acquiring a Broiler.VM reference should have to argue for it in a diff."
+  ],
+  "projects": {
+    "Broiler.App": {
+      "engineReferences": 0,
+      "engineProjectRefs": 0,
+      "guestEvalSites": 0,
+      "note": "Shared sources with no project file of their own; linked into the Core, Linux and Windows heads. Nothing here has ever touched the engine, and being at 0 without a csproj means it cannot acquire a reference except in source."
+    },
+    "Broiler.App.Android": {
+      "engineReferences": 0,
+      "engineProjectRefs": 0,
+      "guestEvalSites": 0
+    },
+    "Broiler.Browser.Android": {
+      "engineReferences": 0,
+      "engineProjectRefs": 0,
+      "guestEvalSites": 0
+    },
+    "Broiler.Browser.Core": {
+      "engineReferences": 0,
+      "engineProjectRefs": 1,
+      "guestEvalSites": 0,
+      "note": "The one reference is Broiler.JavaScript.All, unconditional. No source here names the engine, so this is a link the head does not use directly -- it is here because BrowserApp.NewScriptEngine() still picks an engine with an #if rather than through JsEngineRegistry. It drops to 0 when it does; see the remarks on JsEngineRegistry. The sibling reference to Broiler.HtmlBridge.Scripting.Vm is conditional on the -VM build types and is not counted, because it points inside src/."
+    },
+    "Broiler.Browser.Core.Tests": {
+      "engineReferences": 0,
+      "engineProjectRefs": 0,
+      "guestEvalSites": 0,
+      "note": "Already neutral, and reaches JSEAL internals through InternalsVisibleTo rather than a reference. VmScriptEngineTests compiles only under the -VM build types and gets the engine transitively; if a test ever needs to name one directly, that is a real budget increase and this file is where the argument for it belongs."
+    },
+    "Broiler.Browser.Linux": {
+      "engineReferences": 0,
+      "engineProjectRefs": 0,
+      "guestEvalSites": 0
+    },
+    "Broiler.Browser.Windows": {
+      "engineReferences": 0,
+      "engineProjectRefs": 0,
+      "guestEvalSites": 0
+    },
+    "Broiler.HtmlBridge.Core": {
+      "engineReferences": 3,
+      "engineProjectRefs": 1,
+      "guestEvalSites": 0,
+      "note": "Two files: IDomBridgeRuntime.Attach takes a JSContext, and ScriptCompileAhead names the engine's compiler. The first is the seam JSEAL exists to move -- an Attach that takes an IJsRealm is what makes a second engine able to serve a page at all -- so this 3 is the highest-value one in the file despite being the smallest."
+    },
+    "Broiler.HtmlBridge.Dom": {
+      "engineReferences": 116,
+      "engineProjectRefs": 3,
+      "guestEvalSites": 6,
+      "note": "The DOM bridge. Started at 891 when JSEAL landed. What remains is structural rather than unmigrated: the three wrapper-root fields DomBridge declares and ten files read; IDomBridgeRuntime.Attach, which takes a JSContext from another project; the ArrayBuffer mint, for which IJsValues has no member; the weak tables that need a reference-typed key a struct handle cannot be; BridgeModuleContext, which derives from the engine's module context because JSEAL has no module-graph contract; and the engine-frame halves of members whose installers still mint engine functions. Each occurrence names its own pin in its doc comment."
+    },
+    "Broiler.HtmlBridge.Jseal": {
+      "engineReferences": 0,
+      "engineProjectRefs": 0,
+      "guestEvalSites": 0,
+      "note": "Proved by the compiler, not by this file. The project has no ProjectReference and no PackageReference, so it cannot name an engine type whatever a grep says; the check fails if that project file ever gains one. See the comment in Broiler.HtmlBridge.Jseal.csproj."
+    },
+    "Broiler.HtmlBridge.Jseal.BroilerJs": {
+      "engineReferences": 42,
+      "engineProjectRefs": 3,
+      "guestEvalSites": 1,
+      "role": "provider",
+      "note": "The Broiler.JS provider, and the one project under src/ whose budget is not expected to reach zero. Naming Broiler.JavaScript is what this assembly is for: every reference here is a reference the bridge no longer has to make. The single eval site is JSContext.Eval inside the realm's own IJsSource implementation -- the provider being asked to evaluate, not a binding evaluating. Its two engine project references are Broiler.JavaScript.Engine and .BuiltIns. Its engineProjectRefs rose from 2 to 3 when IJsClone landed: JSGlobalStatic.StructuredClone lives in Broiler.JavaScript.Globals, so the provider that implements structured clone needs it. That is the gate doing its job rather than a regression -- the same reference LEFT Broiler.HtmlBridge.Dom in the same commit, because the bridge's only use of it was the call that is now behind the contract. An engine assembly reached by the provider and not by the bridge is the shape all of these should end in."
+    },
+    "Broiler.HtmlBridge.Scripting": {
+      "engineReferences": 10,
+      "engineProjectRefs": 3,
+      "guestEvalSites": 6,
+      "note": "Six files: the Broiler.JS ScriptEngine and what it needs to build a realm. This is where the Broiler.JS provider will live once it is one, and the counts here move to a Jseal.BroilerJs assembly rather than to zero -- a provider naming its own engine is what a provider is for."
+    },
+    "Broiler.HtmlBridge.Scripting.Vm": {
+      "engineReferences": 1,
+      "engineProjectRefs": 5,
+      "guestEvalSites": 0,
+      "note": "The 1 is a doc comment in VmScriptEngine.cs saying the profile does not expose Broiler.JavaScript types. It is counted because the metric is textual and stays textual: a check that tried to tell prose from code would need a parser, and would then be arguable in a way this is not. Lower it by rewording the sentence, or leave it -- it costs nothing at 1."
+    }
+  }
+}

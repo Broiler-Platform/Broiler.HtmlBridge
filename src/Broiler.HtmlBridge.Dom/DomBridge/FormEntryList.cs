@@ -1,7 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -171,29 +169,42 @@ public sealed partial class DomBridge
     /// Reads a <c>FormData</c>'s entries, or answers <see langword="false"/> for anything else.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Recognised by shape rather than by identity, because this engine's <c>FormData</c> objects are
     /// plain objects carrying the interface's members rather than instances of a registered
     /// interface. Reading through <c>forEach</c> rather than the private entry list keeps this
     /// working for any object that really is one.
+    /// </para>
+    /// <para>
+    /// <b>The realm is a parameter because every operation here needs one</b> — reading the three
+    /// members, minting the collector, calling <c>forEach</c>, and the two string coercions. Those
+    /// coercions are the observable ECMAScript ones, which is why they are
+    /// <see cref="IJsValues.ToJsString"/> and not <c>JsValue.ToString</c>: an entry whose name or
+    /// value is an object with its own <c>toString</c> participates, exactly as it did when the
+    /// engine's <c>JSValue.ToString()</c> ran it.
+    /// </para>
     /// </remarks>
-    internal static bool TryReadFormDataEntries(JSObject candidate, out List<KeyValuePair<string, string>> entries)
+    internal static bool TryReadFormDataEntries(
+        IJsRealm realm, JsValue candidate, out List<KeyValuePair<string, string>> entries)
     {
         entries = [];
-        if (candidate[(KeyString)"forEach"] is not JSFunction forEach ||
-            candidate[(KeyString)"append"] is not JSFunction ||
-            candidate[(KeyString)"getAll"] is not JSFunction)
+        var forEach = realm.GetProperty(candidate, "forEach");
+        if (!forEach.IsFunction ||
+            !realm.GetProperty(candidate, "append").IsFunction ||
+            !realm.GetProperty(candidate, "getAll").IsFunction)
             return false;
 
         var collected = entries;
-        var collector = new DomFunction((in a) =>
+        var collector = realm.NewMethod("collect", (in call) =>
         {
             // forEach hands (value, name, formData), the order the Web IDL iterable declares.
-            if (a.Length >= 2)
-                collected.Add(new KeyValuePair<string, string>(a[1].ToString(), a[0].ToString()));
-            return JSUndefined.Value;
-        }, "collect", 3);
+            if (call.Length >= 2)
+                collected.Add(new KeyValuePair<string, string>(
+                    call.Realm.ToJsString(call[1]), call.Realm.ToJsString(call[0])));
+            return JsValue.Undefined;
+        }, 3);
 
-        forEach.InvokeFunction(new Arguments(candidate, collector));
+        realm.Invoke(forEach, candidate, [collector]);
         return true;
     }
 }

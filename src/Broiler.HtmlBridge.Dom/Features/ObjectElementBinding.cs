@@ -1,6 +1,5 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -17,35 +16,65 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>IsCrossOrigin</c> helpers directly. Was the bridge's
 /// <c>JsElementInterfacesSetData051Core</c>/<c>GetContentDocument054Core</c>/<c>GetSVGDocument055Core</c>.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The sub-document is a JSEAL <see cref="JsValue"/> handle throughout — that is what the host contract
+/// hands back — and each operation below is written in JSEAL: a <see cref="JsCall"/> frame for the one
+/// member that reads an argument, and no frame at all for the two that do not.
+/// </para>
+/// <para>
+/// <b>The call frame has moved too.</b> All three members are registered from
+/// <c>DomBridge/ElementInterfaces.cs</c>, which minted them as engine functions until this round; the
+/// three one-line adapters that took the engine's argument frame and handed back an engine value are
+/// deleted, and that file calls the operations above directly. The one difference the deletion makes
+/// is where the <c>data</c> setter's <c>ToString</c> comes from — the engine's own coercion before,
+/// the realm's now — and those are the same ECMAScript operation, so a page observes no change.
+/// </para>
+/// </remarks>
 internal static class ObjectElementBinding
 {
-    // <object>.data setter — writes the content attribute and invalidates the cached sub-document.
-    public static JSValue SetData(IObjectElementHost host, DomElement element, in Arguments a)
+    // -------- The operations --------
+
+    /// <summary><c>&lt;object&gt;.data</c>'s setter — writes the content attribute and invalidates the
+    /// cached sub-document, so a new <c>data</c> URL reloads.</summary>
+    internal static JsValue SetData(IObjectElementHost host, DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "data", a.Length > 0 ? a[0].ToString() : string.Empty);
-        host.InvalidateCachedSubDocument(element);
-        return JSUndefined.Value;
+        // The realm's ToString, not the handle's: assigning an object to `obj.data` runs that object's
+        // own toString, which is the coercion a page observes in the attribute afterwards.
+        SetData(host, element, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+        return JsValue.Undefined;
     }
 
-    // <object>.contentDocument getter — same-origin sub-document, or null if cross-origin or load-failed
-    // (so the fallback child content is visible).
-    public static JSValue GetContentDocument(IObjectElementHost host, DomElement element, in Arguments _)
+    /// <summary>The write itself, taking the already-coerced URL so that the coercion stays where the
+    /// argument is — see the remarks on this class.</summary>
+    internal static void SetData(IObjectElementHost host, DomElement element, string dataUrl)
+    {
+        DomBridge.SetAttr(element, "data", dataUrl);
+        host.InvalidateCachedSubDocument(element);
+    }
+
+    /// <summary>
+    /// <c>&lt;object&gt;.contentDocument</c> — the same-origin sub-document, or <c>null</c> when the
+    /// resource is cross-origin or failed to load (so the fallback child content is visible).
+    /// </summary>
+    internal static JsValue ContentDocument(IObjectElementHost host, DomElement element)
     {
         var dataUrl = DomBridge.TryGetAttribute(element, "data", out var d) ? d : string.Empty;
         if (DomBridge.IsCrossOrigin(dataUrl, host.PageUrl))
-            return JSNull.Value;
+            return JsValue.Null;
         // Check if the resource actually loaded successfully
         if (host.IsObjectLoadFailed(element))
-            return JSNull.Value;
+            return JsValue.Null;
         return host.GetOrCreateSubDocument(element);
     }
 
-    // <object>.getSVGDocument() — same-origin sub-document (no load-failure gate).
-    public static JSValue GetSvgDocument(IObjectElementHost host, DomElement element, in Arguments _)
+    /// <summary><c>&lt;object&gt;.getSVGDocument()</c> — the same-origin sub-document, with no
+    /// load-failure gate.</summary>
+    internal static JsValue SvgDocument(IObjectElementHost host, DomElement element)
     {
         var dataUrl = DomBridge.TryGetAttribute(element, "data", out var d) ? d : string.Empty;
         if (DomBridge.IsCrossOrigin(dataUrl, host.PageUrl))
-            return JSNull.Value;
+            return JsValue.Null;
         return host.GetOrCreateSubDocument(element);
     }
 }

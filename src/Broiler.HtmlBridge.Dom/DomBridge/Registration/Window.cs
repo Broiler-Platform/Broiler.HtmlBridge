@@ -1,12 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Net;
 
 namespace Broiler.HtmlBridge;
@@ -16,21 +8,29 @@ public sealed partial class DomBridge
     // The one MemoryInfo behind both console.memory and performance.memory. It is built with the
     // console in RegisterWindowBasics and read by RegisterPerformanceObject, which runs after it —
     // the two names report one object, as they do in Chrome. See PerformanceMemoryBinding.
-    private JSObject? _memoryInfo;
+    private JsValue _memoryInfo;
 
-    private JSObject RegisterWindowBasics(JSObject document, JSObject window)
+    private JsValue RegisterWindowBasics(JsValue document, JsValue window)
     {
-        window.FastAddValue("document", document, JSPropertyAttributes.EnumerableConfigurableValue);
+        var realm = Realm;
+
+        realm.DefineValue(window, "document", document);
 
         // window.localStorage / window.sessionStorage — the two Web Storage areas (HTML §12.2),
         // each an in-memory Storage object of its own. Built separately because they are separate
         // areas: a page that stashes per-tab state in one and durable state in the other must not
         // see the two answer each other's reads.
-        window.FastAddValue("localStorage", Dom.Features.WebStorageBinding.BuildStorage(), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("sessionStorage", Dom.Features.WebStorageBinding.BuildStorage(), JSPropertyAttributes.EnumerableConfigurableValue);
+        //
+        // The storage areas are the bridge's four exotic objects' neighbours: WebStorageBinding
+        // mints all six members of each through the realm, over a backing object that completes its
+        // own lookup and its own deletion — which is the one thing IJsExotic cannot yet express.
+        realm.DefineValue(window, "localStorage", Dom.Features.WebStorageBinding.BuildStorage(realm));
+        realm.DefineValue(window, "sessionStorage", Dom.Features.WebStorageBinding.BuildStorage(realm));
 
-        // window.matchMedia(query) — evaluates basic media queries
-        window.FastAddValue("matchMedia", new DomFunction((in a) => Dom.Features.MatchMediaBinding.MatchMedia(this, in a), "matchMedia", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // window.matchMedia(query) — evaluates basic media queries. The realm mints the function
+        // with the same name, arity and non-constructable shape it had, and the binding builds its
+        // MediaQueryList through the realm.
+        realm.DefineValue(window, "matchMedia", realm.NewMethod("matchMedia", (in a) => Dom.Features.MatchMediaBinding.MatchMedia(this, in a), 1));
 
         // window.location — the URL components here, and the navigation surface (`href`, `hash`,
         // assign, replace, reload, toString) from LocationBinding. The components alone made
@@ -41,17 +41,17 @@ public sealed partial class DomBridge
         // `hash` is not among the components below — the binding owns it, because a fragment
         // navigation moves it and `href` together. `this` goes in as the hashchange target: it is
         // the top-level window, and the one whose listeners a page's hash routing registers on.
-        var location = new JSObject();
-        location.FastAddValue("protocol", new JSString(_pageProtocol), JSPropertyAttributes.EnumerableConfigurableValue);
-        location.FastAddValue("host", new JSString(_pageHost), JSPropertyAttributes.EnumerableConfigurableValue);
-        location.FastAddValue("hostname", new JSString(_pageHostName), JSPropertyAttributes.EnumerableConfigurableValue);
-        location.FastAddValue("port", new JSString(_pagePort), JSPropertyAttributes.EnumerableConfigurableValue);
-        location.FastAddValue("pathname", new JSString(_pagePathName), JSPropertyAttributes.EnumerableConfigurableValue);
-        location.FastAddValue("search", new JSString(_pageSearch), JSPropertyAttributes.EnumerableConfigurableValue);
-        location.FastAddValue("origin", new JSString(_pageOrigin), JSPropertyAttributes.EnumerableConfigurableValue);
-        Dom.Features.LocationBinding.AddNavigationSurface(location, _pageUrl, this);
+        var location = realm.NewObject();
+        realm.DefineValue(location, "protocol", JsValue.String(_pageProtocol));
+        realm.DefineValue(location, "host", JsValue.String(_pageHost));
+        realm.DefineValue(location, "hostname", JsValue.String(_pageHostName));
+        realm.DefineValue(location, "port", JsValue.String(_pagePort));
+        realm.DefineValue(location, "pathname", JsValue.String(_pagePathName));
+        realm.DefineValue(location, "search", JsValue.String(_pageSearch));
+        realm.DefineValue(location, "origin", JsValue.String(_pageOrigin));
+        Dom.Features.LocationBinding.AddNavigationSurface(realm, location, _pageUrl, this);
 
-        window.FastAddValue("location", location, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(window, "location", location);
 
         // document.location is the *same* Location as window.location (HTML §3.1.5: the getter
         // returns this document's relevant global object's Location), so it is the one object
@@ -62,60 +62,73 @@ public sealed partial class DomBridge
         // bundle `top` above died in — `dF=function(){var a=document.location;return
         // a.protocol+"//"+a.host}` is how it builds its own origin — so it is the next thing that
         // failed once `top` resolved.
-        document.FastAddValue("location", location, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "location", location);
 
         // window timers / animation frames — thin adapters over the P2.4 BrowserEventLoop, co-located
-        // in the TimerBinding feature module (Phase 3).
-        window.FastAddValue("setTimeout", new DomFunction((in a) => Dom.Features.TimerBinding.SetTimeout(_eventLoop, _windowContext, in a), "setTimeout", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("clearTimeout", new DomFunction((in a) => Dom.Features.TimerBinding.ClearTimeout(_eventLoop, in a), "clearTimeout", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("setInterval", new DomFunction((in a) => Dom.Features.TimerBinding.SetInterval(_eventLoop, _windowContext, in a), "setInterval", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("clearInterval", new DomFunction((in a) => Dom.Features.TimerBinding.ClearInterval(_eventLoop, in a), "clearInterval", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("requestAnimationFrame", new DomFunction((in a) => Dom.Features.TimerBinding.RequestAnimationFrame(_eventLoop, _windowContext, in a), "requestAnimationFrame", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("cancelAnimationFrame", new DomFunction((in a) => Dom.Features.TimerBinding.CancelAnimationFrame(_eventLoop, in a), "cancelAnimationFrame", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // in the TimerBinding feature module (Phase 3). The realm mints all six with the names and
+        // arities they had, and the binding reads its arguments off the call frame. The event loop
+        // they queue into still holds engine functions, which is the one seam TimerBinding names.
+        realm.DefineValue(window, "setTimeout", realm.NewMethod("setTimeout", (in a) => Dom.Features.TimerBinding.SetTimeout(_eventLoop, _windowContext, in a), 2));
+        realm.DefineValue(window, "clearTimeout", realm.NewMethod("clearTimeout", (in a) => Dom.Features.TimerBinding.ClearTimeout(_eventLoop, in a), 1));
+        realm.DefineValue(window, "setInterval", realm.NewMethod("setInterval", (in a) => Dom.Features.TimerBinding.SetInterval(_eventLoop, _windowContext, in a), 2));
+        realm.DefineValue(window, "clearInterval", realm.NewMethod("clearInterval", (in a) => Dom.Features.TimerBinding.ClearInterval(_eventLoop, in a), 1));
+        realm.DefineValue(window, "requestAnimationFrame", realm.NewMethod("requestAnimationFrame", (in a) => Dom.Features.TimerBinding.RequestAnimationFrame(_eventLoop, _windowContext, in a), 1));
+        realm.DefineValue(window, "cancelAnimationFrame", realm.NewMethod("cancelAnimationFrame", (in a) => Dom.Features.TimerBinding.CancelAnimationFrame(_eventLoop, in a), 1));
 
-        // window.alert(msg) — logs to debug output
-        window.FastAddValue("alert", new DomFunction(Dom.Features.WindowDocumentMiscBinding.Alert, "alert", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // window.alert(msg) — logs to debug output. The realm mints it with the name, arity and
+        // non-constructable shape it had, and the binding coerces its message through the realm.
+        realm.DefineValue(window, "alert", realm.NewMethod("alert", Dom.Features.WindowDocumentMiscBinding.Alert, 1));
 
         // btoa / atob — the WindowOrWorkerGlobalScope base64 pair (HTML §8.3), co-located in the
         // Base64Binding feature module. The window IS the global object, so registering here is
-        // what makes the unqualified `atob(…)` a page writes resolve as well.
-        window.FastAddValue("btoa", new DomFunction((in a) => Dom.Features.Base64Binding.Btoa(_jsContext!, in a), "btoa", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("atob", new DomFunction((in a) => Dom.Features.Base64Binding.Atob(_jsContext!, in a), "atob", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // what makes the unqualified `atob(…)` a page writes resolve as well. The binding raises its
+        // InvalidCharacterError through the realm rather than being handed a context to raise it
+        // against.
+        realm.DefineValue(window, "btoa", realm.NewMethod("btoa", Dom.Features.Base64Binding.Btoa, 1));
+        realm.DefineValue(window, "atob", realm.NewMethod("atob", Dom.Features.Base64Binding.Atob, 1));
 
         // console object (shared between window.console and global console)
-        var console = Dom.Features.ConsoleBinding.Build();
+        var console = Dom.Features.ConsoleBinding.Build(realm);
 
         // console.memory — the same MemoryInfo shape performance.memory reports, and in Chrome the
         // same object. Kept as one object here too, so a page that samples both does not have to
         // reconcile two answers taken a moment apart. See PerformanceMemoryBinding.
-        _memoryInfo = Dom.Features.PerformanceMemoryBinding.Build();
-        console.FastAddValue("memory", _memoryInfo, JSPropertyAttributes.EnumerableConfigurableValue);
+        _memoryInfo = Dom.Features.PerformanceMemoryBinding.Build(realm);
+        realm.DefineValue(console, "memory", _memoryInfo);
 
-        window.FastAddValue("console", console, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(window, "console", console);
 
         return console;
     }
 
-    private void RegisterWindowGlobals(JSContext context, JSObject document, JSObject window, JSObject console, JSFunction fetchFn)
+    private void RegisterWindowGlobals(JsValue document, JsValue window, JsValue console, JsValue fetchFn)
     {
-        context["window"] = window;
-        window.FastAddValue("Event", context["Event"], JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("CustomEvent", context["CustomEvent"], JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("MouseEvent", context["MouseEvent"], JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("FocusEvent", context["FocusEvent"], JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("KeyboardEvent", context["KeyboardEvent"], JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("WheelEvent", context["WheelEvent"], JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("UIEvent", context["UIEvent"], JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("InputEvent", context["InputEvent"], JSPropertyAttributes.EnumerableConfigurableValue);
+        var realm = Realm;
 
-        // window.parent — uses the JSContext global scope so that parent.X()
+        // `window` and the global are one object under this engine (JsCapabilities.GlobalIsVariableScope),
+        // so the pairs below — a window member and its unqualified spelling — are two writes to the
+        // same object, exactly as they were when one went through the context and one through the
+        // window. Both are kept because a realm that separated them would still need both.
+        var global = realm.Global;
+
+        realm.SetProperty(global, "window", window);
+        realm.DefineValue(window, "Event", realm.GetProperty(global, "Event"));
+        realm.DefineValue(window, "CustomEvent", realm.GetProperty(global, "CustomEvent"));
+        realm.DefineValue(window, "MouseEvent", realm.GetProperty(global, "MouseEvent"));
+        realm.DefineValue(window, "FocusEvent", realm.GetProperty(global, "FocusEvent"));
+        realm.DefineValue(window, "KeyboardEvent", realm.GetProperty(global, "KeyboardEvent"));
+        realm.DefineValue(window, "WheelEvent", realm.GetProperty(global, "WheelEvent"));
+        realm.DefineValue(window, "UIEvent", realm.GetProperty(global, "UIEvent"));
+        realm.DefineValue(window, "InputEvent", realm.GetProperty(global, "InputEvent"));
+
+        // window.parent — uses the realm's global scope so that parent.X()
         // resolves user-defined globals (e.g. parent.notify() from sub-documents).
-        var globalThis = context.Eval("this");
-        window.FastAddValue("parent", globalThis, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["parent"] = globalThis;
+        var globalThis = realm.EvaluateHostScript("this", "probe:global-this");
+        realm.DefineValue(window, "parent", globalThis);
+        realm.SetProperty(global, "parent", globalThis);
 
         // window.self — refers to this window
-        window.FastAddValue("self", window, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(window, "self", window);
 
         // window.top — the topmost browsing context. This document is the top-level one, so
         // `top`, `parent` and `self` are all this window; a sub-document's window instead gets
@@ -126,21 +139,21 @@ public sealed partial class DomBridge
         // unqualified (`if (top != self)`), so this is the first thing a page's boilerplate
         // touches: google.com's One-Google-bar bundle died on it, taking with it every listener
         // the rest of that script would have registered.
-        window.FastAddValue("top", globalThis, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["top"] = globalThis;
+        realm.DefineValue(window, "top", globalThis);
+        realm.SetProperty(global, "top", globalThis);
 
         // document.defaultView — returns the window object
-        document.FastAddValue("defaultView", window, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["console"] = console;
-        context["fetch"] = fetchFn;
+        realm.DefineValue(document, "defaultView", window);
+        realm.SetProperty(global, "console", console);
+        realm.SetProperty(global, "fetch", fetchFn);
 
         // Expose timer functions as globals (matching window.* counterparts)
-        context["setTimeout"] = window[(KeyString)"setTimeout"];
-        context["clearTimeout"] = window[(KeyString)"clearTimeout"];
-        context["setInterval"] = window[(KeyString)"setInterval"];
-        context["clearInterval"] = window[(KeyString)"clearInterval"];
-        context["requestAnimationFrame"] = window[(KeyString)"requestAnimationFrame"];
-        context["cancelAnimationFrame"] = window[(KeyString)"cancelAnimationFrame"];
+        realm.SetProperty(global, "setTimeout", realm.GetProperty(window, "setTimeout"));
+        realm.SetProperty(global, "clearTimeout", realm.GetProperty(window, "clearTimeout"));
+        realm.SetProperty(global, "setInterval", realm.GetProperty(window, "setInterval"));
+        realm.SetProperty(global, "clearInterval", realm.GetProperty(window, "clearInterval"));
+        realm.SetProperty(global, "requestAnimationFrame", realm.GetProperty(window, "requestAnimationFrame"));
+        realm.SetProperty(global, "cancelAnimationFrame", realm.GetProperty(window, "cancelAnimationFrame"));
     }
 
     /// <summary>
@@ -158,8 +171,10 @@ public sealed partial class DomBridge
     /// </remarks>
     public DocumentFetchTiming? DocumentFetchTiming { get; set; }
 
-    private void RegisterPerformanceObject(JSContext context, JSObject window)
+    private void RegisterPerformanceObject(JsValue window)
     {
+        var realm = Realm;
+
         // ---------------------------------------------------------------
         //  Google Search Compliance: Phase 1 (P0) — Critical polyfills
         // ---------------------------------------------------------------
@@ -179,9 +194,9 @@ public sealed partial class DomBridge
         var fetchTiming = DocumentFetchTiming;
         var performanceTimeOrigin = fetchTiming?.UnixTimeOriginMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var performanceMonotonicOrigin = fetchTiming?.MonotonicOrigin ?? System.Diagnostics.Stopwatch.GetTimestamp();
-        var performanceObj = new JSObject();
-        performanceObj.FastAddValue("timeOrigin", new JSNumber(performanceTimeOrigin), JSPropertyAttributes.EnumerableConfigurableValue);
-        performanceObj.FastAddValue("now", new DomFunction((in _) => Dom.Features.WindowDocumentMiscBinding.PerformanceNow(performanceMonotonicOrigin, in _), "now", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        var performanceObj = realm.NewObject();
+        realm.DefineValue(performanceObj, "timeOrigin", JsValue.Number(performanceTimeOrigin));
+        realm.DefineValue(performanceObj, "now", realm.NewMethod("now", (in c) => Dom.Features.WindowDocumentMiscBinding.PerformanceNow(performanceMonotonicOrigin, in c), 0));
 
         // The Performance Timeline getters (Performance Timeline §3), all three of which answer from
         // the one entry a document that has navigated once and loaded no instrumented resources has:
@@ -203,42 +218,42 @@ public sealed partial class DomBridge
         // are two points on one timeline.
         _navigationTiming = new Dom.Features.NavigationTimingState(performanceMonotonicOrigin);
         Dom.Features.NavigationTimingBinding.Install(
-            performanceObj, _pageUrl, _pageProtocol, _navigationTiming, fetchTiming);
+            realm, performanceObj, _pageUrl, _pageProtocol, _navigationTiming, fetchTiming);
 
         // performance.memory — the same MemoryInfo console.memory reports (built with the console in
         // RegisterWindowBasics, which runs first).
-        if (_memoryInfo is { } memory)
-            performanceObj.FastAddValue("memory", memory, JSPropertyAttributes.EnumerableConfigurableValue);
+        if (!_memoryInfo.IsMissing)
+            realm.DefineValue(performanceObj, "memory", _memoryInfo);
 
         // performance.mark() / performance.measure() — no-op stubs
-        performanceObj.FastAddValue("mark", UndefinedFunction("mark", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        performanceObj.FastAddValue("measure", UndefinedFunction("measure", 3), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(performanceObj, "mark", UndefinedMember("mark", 1));
+        realm.DefineValue(performanceObj, "measure", UndefinedMember("measure", 3));
 
         // The clear/resize counterparts to mark, measure and the resource buffer. Nothing is recorded
         // for them to clear, but a page that marks commonly clears in the same breath, and the throw
         // would land on the clear rather than on the mark it pairs with.
-        performanceObj.FastAddValue("clearMarks", UndefinedFunction("clearMarks", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        performanceObj.FastAddValue("clearMeasures", UndefinedFunction("clearMeasures", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        performanceObj.FastAddValue("clearResourceTimings", UndefinedFunction("clearResourceTimings", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        performanceObj.FastAddValue("setResourceTimingBufferSize", UndefinedFunction("setResourceTimingBufferSize", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(performanceObj, "clearMarks", UndefinedMember("clearMarks", 1));
+        realm.DefineValue(performanceObj, "clearMeasures", UndefinedMember("clearMeasures", 1));
+        realm.DefineValue(performanceObj, "clearResourceTimings", UndefinedMember("clearResourceTimings", 0));
+        realm.DefineValue(performanceObj, "setResourceTimingBufferSize", UndefinedMember("setResourceTimingBufferSize", 1));
 
         // toJSON is how the interface serialises, and telemetry that ships timings reaches it through
         // JSON.stringify(performance) as often as by name.
-        performanceObj.FastAddValue(
+        realm.DefineValue(
+            performanceObj,
             "toJSON",
-            new DomFunction(
+            realm.NewMethod(
+                "toJSON",
                 (in _) =>
                 {
-                    var json = new JSObject();
-                    json.FastAddValue("timeOrigin", new JSNumber(performanceTimeOrigin), JSPropertyAttributes.EnumerableConfigurableValue);
+                    var json = realm.NewObject();
+                    realm.DefineValue(json, "timeOrigin", JsValue.Number(performanceTimeOrigin));
                     return json;
                 },
-                "toJSON",
-                0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+                0));
 
-        window.FastAddValue("performance", performanceObj, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["performance"] = performanceObj;
+        realm.DefineValue(window, "performance", performanceObj);
+        realm.SetProperty(realm.Global, "performance", performanceObj);
     }
 
     /// <summary>
@@ -255,36 +270,37 @@ public sealed partial class DomBridge
     /// of its two appearance panels is shown — leaving both in the page and the article a
     /// panel's height too far down.
     /// </remarks>
-    private void RegisterHistoryObject(JSContext context, JSObject window)
+    private void RegisterHistoryObject(JsValue window)
     {
-        var history = new JSObject();
+        var realm = Realm;
+        var history = realm.NewObject();
 
-        history.FastAddValue("length", new JSNumber(1), JSPropertyAttributes.EnumerableConfigurableValue);
-        history.FastAddValue("state", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
-        history.FastAddValue("scrollRestoration", new JSString("auto"), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(history, "length", JsValue.Number(1));
+        realm.DefineValue(history, "state", JsValue.Null);
+        realm.DefineValue(history, "scrollRestoration", JsValue.String("auto"));
 
         // pushState/replaceState record the state the page hands them, because a page that writes
         // one commonly reads it straight back; neither changes the document's URL, which a capture
         // has no way to honour.
-        history.FastAddValue("pushState", new DomFunction((in a) => StoreHistoryState(history, in a), "pushState", 3), JSPropertyAttributes.EnumerableConfigurableValue);
-        history.FastAddValue("replaceState", new DomFunction((in a) => StoreHistoryState(history, in a), "replaceState", 3), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(history, "pushState", realm.NewMethod("pushState", (in c) => StoreHistoryState(history, in c), 3));
+        realm.DefineValue(history, "replaceState", realm.NewMethod("replaceState", (in c) => StoreHistoryState(history, in c), 3));
 
-        history.FastAddValue("back", UndefinedFunction("back", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        history.FastAddValue("forward", UndefinedFunction("forward", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        history.FastAddValue("go", UndefinedFunction("go", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(history, "back", UndefinedMember("back", 0));
+        realm.DefineValue(history, "forward", UndefinedMember("forward", 0));
+        realm.DefineValue(history, "go", UndefinedMember("go", 1));
 
-        window.FastAddValue("history", history, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["history"] = history;
+        realm.DefineValue(window, "history", history);
+        realm.SetProperty(realm.Global, "history", history);
     }
 
-    private static JSValue StoreHistoryState(JSObject history, in Arguments arguments)
+    private static JsValue StoreHistoryState(JsValue history, in JsCall call)
     {
-        history.FastAddValue(
-            "state",
-            arguments.Length > 0 ? arguments[0] : JSNull.Value,
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        // `history.state` is re-defined rather than assigned, which is what the engine-typed
+        // installer did: the slot keeps the attributes it was created with, and an argument the page
+        // did not pass reads as null rather than undefined.
+        call.Realm.DefineValue(history, "state", call.Length > 0 ? call[0] : JsValue.Null);
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -303,103 +319,110 @@ public sealed partial class DomBridge
     /// callback a real <c>IdleDeadline</c> (see <c>TimerBinding.RequestIdleCallback</c>), because a
     /// callback that receives no deadline throws on the first thing it does with the parameter.
     /// </remarks>
-    private void RegisterObservationStubs(JSContext context, JSObject window)
+    private void RegisterObservationStubs(JsValue window)
     {
-        if (window[(KeyString)"PerformanceObserver"] is not JSUndefined)
+        var realm = Realm;
+
+        if (!realm.GetProperty(window, "PerformanceObserver").IsUndefined)
             return;
 
-        var observerPrototype = new JSObject();
-        observerPrototype.FastAddValue("observe", UndefinedFunction("observe", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        observerPrototype.FastAddValue("disconnect", UndefinedFunction("disconnect", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        observerPrototype.FastAddValue("takeRecords", new DomFunction((in _) => new JSArray(), "takeRecords", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        var observerPrototype = realm.NewObject();
+        realm.DefineValue(observerPrototype, "observe", UndefinedMember("observe", 1));
+        realm.DefineValue(observerPrototype, "disconnect", UndefinedMember("disconnect", 0));
+        realm.DefineValue(observerPrototype, "takeRecords", realm.NewMethod("takeRecords", (in _) => realm.NewArray(), 0));
 
-        var performanceObserver = new JSFunction((in _) =>
+        var performanceObserver = realm.NewConstructor("PerformanceObserver", (in _) =>
         {
-            var instance = new JSObject();
-            instance.FastAddValue("observe", UndefinedFunction("observe", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-            instance.FastAddValue("disconnect", UndefinedFunction("disconnect", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-            instance.FastAddValue("takeRecords", new DomFunction((in _) => new JSArray(), "takeRecords", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+            var instance = realm.NewObject();
+            realm.DefineValue(instance, "observe", UndefinedMember("observe", 1));
+            realm.DefineValue(instance, "disconnect", UndefinedMember("disconnect", 0));
+            realm.DefineValue(instance, "takeRecords", realm.NewMethod("takeRecords", (in _) => realm.NewArray(), 0));
             return instance;
-        }, "PerformanceObserver", 1);
+        }, 1);
 
-        performanceObserver.FastAddValue("prototype", observerPrototype, JSPropertyAttributes.ConfigurableValue);
+        realm.DefineValue(performanceObserver, "prototype", observerPrototype, JsPropertyFlags.NonEnumerable);
 
         // Feature detection reads this before observing, and an observer that claims to support
         // nothing is the honest answer for a capture that reports no entries.
-        performanceObserver.FastAddValue("supportedEntryTypes", new JSArray(), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(performanceObserver, "supportedEntryTypes", realm.NewArray());
 
-        window.FastAddValue("PerformanceObserver", performanceObserver, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["PerformanceObserver"] = performanceObserver;
+        realm.DefineValue(window, "PerformanceObserver", performanceObserver);
+        realm.SetProperty(realm.Global, "PerformanceObserver", performanceObserver);
 
-        if (window[(KeyString)"requestIdleCallback"] is JSUndefined)
+        if (realm.GetProperty(window, "requestIdleCallback").IsUndefined)
         {
-            var requestIdle = new DomFunction((in a) => Dom.Features.TimerBinding.RequestIdleCallback(_eventLoop, _windowContext, in a), "requestIdleCallback", 1);
-            window.FastAddValue("requestIdleCallback", requestIdle, JSPropertyAttributes.EnumerableConfigurableValue);
-            context["requestIdleCallback"] = requestIdle;
+            var requestIdle = realm.NewMethod("requestIdleCallback", (in a) => Dom.Features.TimerBinding.RequestIdleCallback(_eventLoop, _windowContext, in a), 1);
+            realm.DefineValue(window, "requestIdleCallback", requestIdle);
+            realm.SetProperty(realm.Global, "requestIdleCallback", requestIdle);
 
-            var cancelIdle = new DomFunction((in a) => Dom.Features.TimerBinding.CancelIdleCallback(_eventLoop, in a), "cancelIdleCallback", 1);
-            window.FastAddValue("cancelIdleCallback", cancelIdle, JSPropertyAttributes.EnumerableConfigurableValue);
-            context["cancelIdleCallback"] = cancelIdle;
+            var cancelIdle = realm.NewMethod("cancelIdleCallback", (in a) => Dom.Features.TimerBinding.CancelIdleCallback(_eventLoop, in a), 1);
+            realm.DefineValue(window, "cancelIdleCallback", cancelIdle);
+            realm.SetProperty(realm.Global, "cancelIdleCallback", cancelIdle);
         }
     }
 
-    private void RegisterNavigatorObject(JSContext context, JSObject window)
+    private void RegisterNavigatorObject(JsValue window)
     {
+        var realm = Realm;
+
         // TODO-G3: navigator object with sendBeacon, userAgent, language, etc.
-        var navigatorObj = new JSObject();
+        var navigatorObj = realm.NewObject();
         // The same string the network sees, rather than a second copy of it: a page that compares
         // what it was told with what its own fetches report is entitled to one answer.
-        navigatorObj.FastAddValue("userAgent", new JSString(Layout.Net.BroilerUserAgent.Value), JSPropertyAttributes.EnumerableConfigurableValue);
-        navigatorObj.FastAddValue("language", new JSString("en-US"), JSPropertyAttributes.EnumerableConfigurableValue);
-        navigatorObj.FastAddValue("languages", new JSArray([new JSString("en-US"), new JSString("en")]), JSPropertyAttributes.EnumerableConfigurableValue);
-        navigatorObj.FastAddValue("cookieEnabled", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-        navigatorObj.FastAddValue("onLine", JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-        navigatorObj.FastAddValue("platform", new JSString("Win32"), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(navigatorObj, "userAgent", JsValue.String(Layout.Net.BroilerUserAgent.Value));
+        realm.DefineValue(navigatorObj, "language", JsValue.String("en-US"));
+        realm.DefineValue(navigatorObj, "languages", realm.NewArray([JsValue.String("en-US"), JsValue.String("en")]));
+        realm.DefineValue(navigatorObj, "cookieEnabled", JsValue.True);
+        realm.DefineValue(navigatorObj, "onLine", JsValue.True);
+        realm.DefineValue(navigatorObj, "platform", JsValue.String("Win32"));
         // Conforming and truthful: §8.9 allows exactly "", "Apple Computer, Inc." or "Google Inc.",
         // and Broiler's user agent does not claim to be Chrome. See NavigatorIdentityBinding.
-        navigatorObj.FastAddValue("vendor", new JSString(""), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(navigatorObj, "vendor", JsValue.String(""));
 
         // Who the browser is and what the machine underneath it has — the legacy identity constants
         // §8.9 mandates for every user agent, `webdriver`, and the measured hardware members. Takes
         // the same user-agent string registered above so `appVersion` cannot drift from `userAgent`.
-        Dom.Features.NavigatorIdentityBinding.Install(navigatorObj, Layout.Net.BroilerUserAgent.Value);
+        Dom.Features.NavigatorIdentityBinding.Install(realm, navigatorObj, Layout.Net.BroilerUserAgent.Value);
 
         // sendBeacon(url, data) — queues a fire-and-forget POST via fetch semantics
-        navigatorObj.FastAddValue("sendBeacon", new DomFunction((in a) => Dom.Features.BeaconBinding.Send(window, in a), "sendBeacon", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(navigatorObj, "sendBeacon", realm.NewMethod("sendBeacon", (in a) => Dom.Features.BeaconBinding.Send(window, in a), 2));
 
         // What the host machine can do — javaEnabled, plugins/mimeTypes, getGamepads, getBattery,
         // requestMediaKeySystemAccess — and the legacy storage-quota pair, each answering "no" in
         // its interface's own vocabulary rather than throwing. See NavigatorCapabilityBinding and
-        // StorageQuotaBinding.
-        Dom.Features.NavigatorCapabilityBinding.Install(navigatorObj, context);
-        Dom.Features.StorageQuotaBinding.Install(navigatorObj);
+        // StorageQuotaBinding. Both take the realm: the DOMException the first rejects with is minted
+        // through it, against the same global the script context reached.
+        Dom.Features.NavigatorCapabilityBinding.Install(realm, navigatorObj);
+        Dom.Features.StorageQuotaBinding.Install(realm, navigatorObj);
 
         // The object-valued surfaces that have a truthful answer: storage (zero usage, zero quota,
         // not persisted), permissions (denied, for every capability this engine gates) and
         // userAgentData (derived from the same user-agent string above). connection, mediaDevices
         // and mediaCapabilities stay absent — see NavigatorSurfacesBinding for each decision.
-        Dom.Features.NavigatorSurfacesBinding.Install(navigatorObj, context, Layout.Net.BroilerUserAgent.Value);
+        Dom.Features.NavigatorSurfacesBinding.Install(realm, navigatorObj, Layout.Net.BroilerUserAgent.Value);
 
-        window.FastAddValue("navigator", navigatorObj, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(window, "navigator", navigatorObj);
 
-        context["navigator"] = navigatorObj;
-        context["postMessage"] = window[(KeyString)"postMessage"];
+        realm.SetProperty(realm.Global, "navigator", navigatorObj);
+        realm.SetProperty(realm.Global, "postMessage", realm.GetProperty(window, "postMessage"));
     }
 
-    private void RegisterViewportObjects(JSContext context, JSObject window)
+    private void RegisterViewportObjects(JsValue window)
     {
+        var realm = Realm;
+
         // TODO-G4: window.innerWidth / innerHeight
         var vpWidth = _viewportWidth;
         var vpHeight = _viewportHeight;
 
-        window.FastAddProperty("innerWidth", new DomFunction((in _) => new JSNumber(vpWidth), "get innerWidth"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        window.FastAddProperty("innerHeight", new DomFunction((in _) => new JSNumber(vpHeight), "get innerHeight"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        window.FastAddProperty("outerWidth", new DomFunction((in _) => new JSNumber(vpWidth), "get outerWidth"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        window.FastAddProperty("outerHeight", new DomFunction((in _) => new JSNumber(vpHeight), "get outerHeight"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        window.FastAddProperty("scrollX", new DomFunction((in _) => new JSNumber(GetElementScrollOffset(DocumentElement, vertical: false)), "get scrollX"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        window.FastAddProperty("scrollY", new DomFunction((in _) => new JSNumber(GetElementScrollOffset(DocumentElement, vertical: true)), "get scrollY"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        window.FastAddProperty("pageXOffset", new DomFunction((in _) => new JSNumber(GetElementScrollOffset(DocumentElement, vertical: false)), "get pageXOffset"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        window.FastAddProperty("pageYOffset", new DomFunction((in _) => new JSNumber(GetElementScrollOffset(DocumentElement, vertical: true)), "get pageYOffset"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(window, "innerWidth", (in _) => JsValue.Number(vpWidth), null);
+        realm.DefineAccessor(window, "innerHeight", (in _) => JsValue.Number(vpHeight), null);
+        realm.DefineAccessor(window, "outerWidth", (in _) => JsValue.Number(vpWidth), null);
+        realm.DefineAccessor(window, "outerHeight", (in _) => JsValue.Number(vpHeight), null);
+        realm.DefineAccessor(window, "scrollX", (in _) => JsValue.Number(GetElementScrollOffset(DocumentElement, vertical: false)), null);
+        realm.DefineAccessor(window, "scrollY", (in _) => JsValue.Number(GetElementScrollOffset(DocumentElement, vertical: true)), null);
+        realm.DefineAccessor(window, "pageXOffset", (in _) => JsValue.Number(GetElementScrollOffset(DocumentElement, vertical: false)), null);
+        realm.DefineAccessor(window, "pageYOffset", (in _) => JsValue.Number(GetElementScrollOffset(DocumentElement, vertical: true)), null);
 
         // The window's position on the screen (CSSOM View §4). Zero, and not as a placeholder: the
         // capture's viewport IS its screen — `screen.width`/`height` below are the viewport's own
@@ -407,10 +430,10 @@ public sealed partial class DomBridge
         // older spelling of the same pair and must agree with it. Absent, all four read `undefined`,
         // and the popup-positioning arithmetic that reads them (`screenX + (outerWidth - w) / 2`, the
         // standard centre-on-parent idiom) produced NaN rather than a coordinate.
-        window.FastAddProperty("screenX", new DomFunction((in _) => new JSNumber(0), "get screenX"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        window.FastAddProperty("screenY", new DomFunction((in _) => new JSNumber(0), "get screenY"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        window.FastAddProperty("screenLeft", new DomFunction((in _) => new JSNumber(0), "get screenLeft"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        window.FastAddProperty("screenTop", new DomFunction((in _) => new JSNumber(0), "get screenTop"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(window, "screenX", (in _) => JsValue.Number(0), null);
+        realm.DefineAccessor(window, "screenY", (in _) => JsValue.Number(0), null);
+        realm.DefineAccessor(window, "screenLeft", (in _) => JsValue.Number(0), null);
+        realm.DefineAccessor(window, "screenTop", (in _) => JsValue.Number(0), null);
 
         // window.devicePixelRatio — physical pixels per CSS pixel. One, because that is what this
         // renderer does: it has no device-scale or backing-store-scale concept at all, so a CSS pixel
@@ -418,79 +441,93 @@ public sealed partial class DomBridge
         // `visualViewport.scale` below, which is where a page should read it.) Absent, the near-universal
         // `devicePixelRatio || 1` fallback happened to survive, but the equally common
         // `canvas.width = rect.width * devicePixelRatio` produced NaN and collapsed the canvas.
-        window.FastAddProperty("devicePixelRatio", new DomFunction((in _) => new JSNumber(1), "get devicePixelRatio"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(window, "devicePixelRatio", (in _) => JsValue.Number(1), null);
 
         // The six BarProp objects. See WindowBarPropBinding for why every one reports not-visible.
-        Dom.Features.WindowBarPropBinding.Install(window);
+        Dom.Features.WindowBarPropBinding.Install(realm, window);
 
         // window.offscreenBuffering — a legacy Netscape-era property that survives on the Window
         // interface and is still read by old feature-detection preambles. It has no standard
         // definition left to satisfy; `true` is the value the reference engine reports, and the point
         // of having it at all is that the read yields a boolean rather than `undefined`. Grouped with
         // the geometry above because it is the last member of that same audited block.
-        window.FastAddProperty("offscreenBuffering", new DomFunction((in _) => JSBoolean.True, "get offscreenBuffering"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(window, "offscreenBuffering", (in _) => JsValue.True, null);
 
-        // window scroll / scrollTo / scrollBy, co-located in the WindowScrollBinding feature module (Phase 3).
-        window.FastAddValue("scroll", new DomFunction((in a) => Dom.Features.WindowScrollBinding.Scroll(this, in a), "scroll", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("scrollTo", new DomFunction((in a) => Dom.Features.WindowScrollBinding.ScrollTo(this, in a), "scrollTo", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("scrollBy", new DomFunction((in a) => Dom.Features.WindowScrollBinding.ScrollBy(this, in a), "scrollBy", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        // window scroll / scrollTo / scrollBy, co-located in the WindowScrollBinding feature module
+        // (Phase 3). The reading that tells scrollTo(x, y) from scrollTo({ left, top }) is the one
+        // the sub-window contract already performs, shared rather than copied.
+        realm.DefineValue(window, "scroll", realm.NewMethod("scroll", (in c) => Dom.Features.WindowScrollBinding.Scroll(this, in c), 2));
+        realm.DefineValue(window, "scrollTo", realm.NewMethod("scrollTo", (in c) => Dom.Features.WindowScrollBinding.ScrollTo(this, in c), 2));
+        realm.DefineValue(window, "scrollBy", realm.NewMethod("scrollBy", (in c) => Dom.Features.WindowScrollBinding.ScrollBy(this, in c), 2));
         // window addEventListener / removeEventListener / dispatchEvent, co-located in the
         // WindowEventTargetBinding feature module (Phase 3). These reach the global object — so
         // the idiomatic unqualified `addEventListener("load", …)` registers a window listener,
         // as it does in a browser — through MirrorWindowMembersOntoGlobal, which shares the
-        // identical function objects so the two spellings address one listener store.
-        window.FastAddValue("addEventListener", new DomFunction((in a) => Dom.Features.WindowEventTargetBinding.AddEventListener(this, in a), "addEventListener", 3), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("removeEventListener", new DomFunction((in a) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in a), "removeEventListener", 3), JSPropertyAttributes.EnumerableConfigurableValue);
-        window.FastAddValue("dispatchEvent", new DomFunction((in a) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in a), "dispatchEvent", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // identical function objects so the two spellings address one listener store. The listener
+        // store still holds engine values; the host contract is where a handle becomes one.
+        realm.DefineValue(window, "addEventListener", realm.NewMethod("addEventListener", (in c) => Dom.Features.WindowEventTargetBinding.AddEventListener(this, in c), 3));
+        realm.DefineValue(window, "removeEventListener", realm.NewMethod("removeEventListener", (in c) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c), 3));
+        realm.DefineValue(window, "dispatchEvent", realm.NewMethod("dispatchEvent", (in c) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c), 1));
 
-        _messaging.RegisterWindowMessaging(window);
+        _messaging.RegisterWindowMessaging(Dom.Runtime.JsInterop.ToEngineObject(window));
 
         // `frames` is the one member registered twice with *different* shapes: a live getter on the
         // window and, historically, a static snapshot on the global for the unqualified spelling.
         // Now that the window IS the global the second write would simply overwrite the first,
         // freezing `frames` to whatever existed before any <iframe> was scripted. The accessor is
         // the correct one for both spellings, so it is the only registration.
-        window.FastAddProperty("frames", new DomFunction((in _) => BuildWindowFramesArray(), "get frames"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(
+            window, "frames",
+            (in _) => Dom.Runtime.JsInterop.FromEngineObject(BuildWindowFramesArray()), null);
 
         // window.screen — basic stub for screen dimensions
-        var screenObj = new JSObject();
-        screenObj.FastAddValue("width", new JSNumber(vpWidth), JSPropertyAttributes.EnumerableConfigurableValue);
-        screenObj.FastAddValue("height", new JSNumber(vpHeight), JSPropertyAttributes.EnumerableConfigurableValue);
-        screenObj.FastAddValue("availWidth", new JSNumber(vpWidth), JSPropertyAttributes.EnumerableConfigurableValue);
-        screenObj.FastAddValue("availHeight", new JSNumber(vpHeight), JSPropertyAttributes.EnumerableConfigurableValue);
+        var screenObj = realm.NewObject();
+        realm.DefineValue(screenObj, "width", JsValue.Number(vpWidth));
+        realm.DefineValue(screenObj, "height", JsValue.Number(vpHeight));
+        realm.DefineValue(screenObj, "availWidth", JsValue.Number(vpWidth));
+        realm.DefineValue(screenObj, "availHeight", JsValue.Number(vpHeight));
 
         // The origin of the available area (CSSOM View §5). Zero for the same reason the avail sizes
         // above equal the full screen: nothing — no dock, no taskbar — is reserved out of a capture's
         // screen, so the available rectangle starts at the screen origin. They complete the pair the
         // avail sizes belong to; a page computing `availLeft + availWidth` was getting NaN.
-        screenObj.FastAddValue("availLeft", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        screenObj.FastAddValue("availTop", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-        screenObj.FastAddValue("colorDepth", new JSNumber(24), JSPropertyAttributes.EnumerableConfigurableValue);
-        screenObj.FastAddValue("pixelDepth", new JSNumber(24), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(screenObj, "availLeft", JsValue.Number(0));
+        realm.DefineValue(screenObj, "availTop", JsValue.Number(0));
+        realm.DefineValue(screenObj, "colorDepth", JsValue.Number(24));
+        realm.DefineValue(screenObj, "pixelDepth", JsValue.Number(24));
 
         // screen.orientation — derived from the screen's own shape, so it stays consistent with the
         // width/height above rather than being a second, independent claim. See
         // ScreenOrientationBinding.
-        screenObj.FastAddValue("orientation", Dom.Features.ScreenOrientationBinding.Build(vpWidth, vpHeight), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(screenObj, "orientation", Dom.Features.ScreenOrientationBinding.Build(realm, vpWidth, vpHeight));
 
-        window.FastAddValue("screen", screenObj, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["screen"] = screenObj;
+        realm.DefineValue(window, "screen", screenObj);
+        realm.SetProperty(realm.Global, "screen", screenObj);
 
-        var visualViewport = new JSObject();
-        _visualViewportJSObject = visualViewport;
-        visualViewport.FastAddProperty("width", new DomFunction((in _) => new JSNumber(GetVisualViewportWidth()), "get width"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        visualViewport.FastAddProperty("height", new DomFunction((in _) => new JSNumber(GetVisualViewportHeight()), "get height"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        visualViewport.FastAddProperty("scale", new DomFunction((in _) => new JSNumber(GetVisualViewportScale()), "get scale"), new DomFunction((in a) => Dom.Features.WindowDocumentMiscBinding.SetVisualViewportScale(this, in a), "set scale"), JSPropertyAttributes.EnumerableConfigurableProperty);
-        visualViewport.FastAddProperty("pageLeft", new DomFunction((in _) => new JSNumber(GetVisualViewportPageOffset(vertical: false)), "get pageLeft"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        visualViewport.FastAddProperty("pageTop", new DomFunction((in _) => new JSNumber(GetVisualViewportPageOffset(vertical: true)), "get pageTop"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        var visualViewport = realm.NewObject();
+        // The one engine reference left in this file, and the wrapper-root field pins it: the field
+        // assigned below (declared in DomBridge.cs) is engine-typed because
+        // DomBridge/LayoutMetrics.Scrolling.cs reads it as one, and that file is not this group's.
+        // The handle and the object it carries are one instance, so the two names cannot drift.
+        _visualViewportJSObject = Dom.Runtime.JsInterop.ToEngineObject(visualViewport);
+        realm.DefineAccessor(visualViewport, "width", (in _) => JsValue.Number(GetVisualViewportWidth()), null);
+        realm.DefineAccessor(visualViewport, "height", (in _) => JsValue.Number(GetVisualViewportHeight()), null);
+        // `scale` is the one accessor of the five that has a setter; it coerces the assigned value
+        // through the realm, because `visualViewport.scale = "2"` is a page passing a string.
+        realm.DefineAccessor(
+            visualViewport, "scale",
+            (in _) => JsValue.Number(GetVisualViewportScale()),
+            (in c) => Dom.Features.WindowDocumentMiscBinding.SetVisualViewportScale(this, in c));
+        realm.DefineAccessor(visualViewport, "pageLeft", (in _) => JsValue.Number(GetVisualViewportPageOffset(vertical: false)), null);
+        realm.DefineAccessor(visualViewport, "pageTop", (in _) => JsValue.Number(GetVisualViewportPageOffset(vertical: true)), null);
 
         // visualViewport addEventListener / removeEventListener (scroll), co-located in the
         // VisualViewportEventTargetBinding feature module (Phase 3).
-        visualViewport.FastAddValue("addEventListener", new DomFunction((in a) => Dom.Features.VisualViewportEventTargetBinding.AddEventListener(this, in a), "addEventListener", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        visualViewport.FastAddValue("removeEventListener", new DomFunction((in a) => Dom.Features.VisualViewportEventTargetBinding.RemoveEventListener(this, in a), "removeEventListener", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(visualViewport, "addEventListener", realm.NewMethod("addEventListener", (in a) => Dom.Features.VisualViewportEventTargetBinding.AddEventListener(this, in a), 2));
+        realm.DefineValue(visualViewport, "removeEventListener", realm.NewMethod("removeEventListener", (in a) => Dom.Features.VisualViewportEventTargetBinding.RemoveEventListener(this, in a), 2));
 
-        window.FastAddValue("visualViewport", visualViewport, JSPropertyAttributes.EnumerableConfigurableValue);
-        context["visualViewport"] = visualViewport;
+        realm.DefineValue(window, "visualViewport", visualViewport);
+        realm.SetProperty(realm.Global, "visualViewport", visualViewport);
     }
 
 }

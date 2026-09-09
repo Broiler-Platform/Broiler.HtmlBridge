@@ -1,6 +1,4 @@
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Number;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -17,29 +15,42 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>JsRegistrationGetCurrentTime152Core</c>/<c>SetCurrentTime153Core</c>/<c>Then154Core</c> in the
 /// shared JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type;
+/// the realm arrives on the call frame, and the callbacks stay static with their state — the animation
+/// state and the <c>ready</c> object — captured by the bridge's closures exactly as before.
+/// </remarks>
 internal static class AnimationObjectBinding
 {
-    public static JSValue GetCurrentTime(AnimationRuntimeState state, in Arguments a)
+    public static JsValue GetCurrentTime(AnimationRuntimeState state, in JsCall call)
     {
         if (state.CurrentTimeMilliseconds.TryGet(out var value) && value is double currentTimeMs)
-            return new JSNumber(currentTimeMs);
+            return JsValue.Number(currentTimeMs);
 
-        return new JSNumber(0);
+        return JsValue.Number(0);
     }
 
-    public static JSValue SetCurrentTime(AnimationRuntimeState state, in Arguments a)
+    /// <remarks>
+    /// The realm's <c>ToNumber</c>, not the handle's <c>AsNumber</c>: the engine's <c>DoubleValue</c>
+    /// this replaces <em>is</em> the ECMAScript coercion, so <c>animation.currentTime = "500"</c> — and
+    /// an object with a <c>valueOf</c> — set the timeline rather than making it NaN, and a setter is
+    /// exactly the site a page assigns a non-number to.
+    /// </remarks>
+    public static JsValue SetCurrentTime(AnimationRuntimeState state, in JsCall call)
     {
-        if (a.Length > 0)
-            state.CurrentTimeMilliseconds.Set(a[0].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length > 0)
+            state.CurrentTimeMilliseconds.Set(call.Realm.ToNumber(call[0]));
+        return JsValue.Undefined;
     }
 
     // ready.then(cb): the layout is static, so the animation is already "ready" — run the callback
     // synchronously and return the ready object for chaining.
-    public static JSValue Then(JSObject? ready, in Arguments a)
+    public static JsValue Then(JsValue ready, in JsCall call)
     {
-        if (a.Length > 0 && a[0] is JSFunction fn)
-            fn.InvokeFunction(new Arguments(JSUndefined.Value, JSUndefined.Value));
+        // The callback is invoked with an undefined receiver and one undefined argument, which is what
+        // the engine-typed call frame (receiver, first argument) spelled before.
+        if (call.Length > 0 && call[0].IsFunction)
+            call.Realm.Invoke(call[0], JsValue.Undefined, [JsValue.Undefined]);
         return ready;
     }
 }

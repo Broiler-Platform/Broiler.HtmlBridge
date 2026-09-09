@@ -1,7 +1,10 @@
 using Broiler.JavaScript.Storage;
 using Broiler.JavaScript.Runtime;
+using Broiler.JavaScript.BuiltIns.Boolean;
 using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.HtmlBridge.Core.Diagnostics;
+using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 
@@ -17,6 +20,38 @@ public sealed partial class DomBridge
     // duplicate-registration check and match-by-listener+capture removal) moved to the Phase 3
     // EventListenerBinding feature module (Broiler.HtmlBridge.Dom.Features).
 
+    /// <summary>
+    /// Calls one registered listener — a function, or an object with a <c>handleEvent</c> — and
+    /// swallows what it throws into a warning, because a listener that fails must not abort the
+    /// dispatch of the ones after it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Still engine-typed, and the pin is not in this file.</b> Four firing paths reach it:
+    /// element/document dispatch (<c>EventDispatchBinding</c>), window dispatch
+    /// (<c>DomBridge.WindowLoad.cs</c>), form submit (<c>Features/FormSubmitBinding.cs</c>) and
+    /// messaging (<c>Features/MessagingBinding.cs</c>). All four hand over an
+    /// <c>EventListenerRegistration</c>'s listener field, which is a Broiler.JS value because that
+    /// record is declared in <c>DomBridge/RuntimeStates.cs</c> — a file no migration round has owned
+    /// yet. Narrowing the first parameter alone changes nothing: the three unowned firing paths would
+    /// still compile, because they only forward the field, and the field would still be the engine's.
+    /// So it migrates in the step that retypes the record, and not before.
+    /// </para>
+    /// <para>
+    /// <b>There is a second reason to move it deliberately rather than in passing, and it has since
+    /// been measured.</b> The call below enters the engine directly, taking the thread exactly as it
+    /// finds it. A listener can be invoked from a thread-pool thread — the messaging path routes one
+    /// into its owner window explicitly for that reason. <c>IJsCalls.Invoke</c> would bracket the
+    /// call in the provider's realm scope, and for <em>this</em> realm that is one difference and not
+    /// two: the bridge adopts the host's engine context rather than owning one, and the provider
+    /// deliberately leaves an adopted realm's synchronization context alone, so no job pump is
+    /// installed. What is installed is the engine's current-context slot — thread-static plus
+    /// async-local — for the duration of the listener, which on a pool thread that has none is a
+    /// change from "whatever the thread was carrying" to "this document's context". That is almost
+    /// certainly the right thing and it is still not the same thing, so it belongs in the commit that
+    /// moves the registration record and can be reasoned about across all four paths at once.
+    /// </para>
+    /// </remarks>
     internal static void InvokeEventListener(JSValue listener, JSObject evt, string logContext)
     {
         // Every DOM listener the page runs passes through here, which makes this the one place a
@@ -75,16 +110,27 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Dispatches a DOM event on the given element with full capture → target → bubble propagation.
-    /// The engine lives in the Phase 3 EventDispatchBinding feature module; this thin delegator keeps
-    /// the historical call sites (element/document dispatchEvent, form submit, XHR/layout-driven
-    /// synthetic events) source-compatible.
+    /// The engine lives in the Phase 3 EventDispatchBinding feature module.
     /// </summary>
+    /// <remarks>
+    /// The module speaks JSEAL now, so this is the engine-typed adapter over it rather than a bare
+    /// delegator: roughly a dozen call sites that have not migrated — form submit, the dialog and
+    /// script-insertion hosts, the window-load sequence, sub-documents, layout-driven scroll events —
+    /// still hold an engine object and none of their files belong to this round. The cast costs
+    /// nothing — a handle carries the engine's own object — and this signature narrows to the
+    /// module's own as those callers move.
+    /// </remarks>
     private JSValue DispatchEventOnElement(DomNode target, JSObject evt) =>
-        _eventDispatch.DispatchEventOnElement(target, evt);
+        // The result is the "not cancelled" boolean the DOM says dispatchEvent answers, so it
+        // re-materialises as one rather than round-tripping: a JSEAL handle carries no engine object
+        // for a primitive, and there is nothing else this call can return.
+        _eventDispatch.DispatchEventOnElement(target, JsInterop.FromEngineObject(evt)).AsBoolean
+            ? JSBoolean.True
+            : JSBoolean.False;
 
     /// <summary>
     /// Compiles all <c>on*</c> HTML attributes (e.g. <c>onclick="code"</c>) on the given
-    /// element into <see cref="JSFunction"/> instances stored in <see cref="bridge-owned inline event handler state"/>.
+    /// element into functions stored in the bridge-owned inline event handler state.
     /// Only compiles attributes that have not already been compiled.
     /// </summary>
     private void CompileInlineEventAttributes(DomElement element)
@@ -119,12 +165,25 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Compiles a single <c>on*</c> attribute value into a <see cref="JSFunction"/>
-    /// and stores it in <see cref="bridge-owned inline event handler state"/>.
+    /// Compiles a single <c>on*</c> attribute value into a function and stores it in the
+    /// bridge-owned inline event handler state.
     /// </summary>
+    /// <remarks>
+    /// <b>The compile goes through the realm; the store it writes into does not.</b>
+    /// <see cref="IJsSource.EvaluateHostScript"/> is the right call and not merely the available one:
+    /// an event-handler content attribute is source the <em>page</em> wrote, but the wrapper around it
+    /// is this repository's, and HTML §8.1.5.1 makes the attribute subject to the
+    /// <c>script-src</c>/<c>unsafe-inline</c> decision taken above rather than to <c>eval</c>'s — so
+    /// the Content-Security-Policy check stays where it is and the evaluation is unconditional, which
+    /// is exactly what the bare <c>Eval</c> it replaces did. The compiled handler is unwrapped to the
+    /// engine's own value because the map it lands in is keyed by name over the engine's value type,
+    /// declared in the unowned <c>DomBridge/RuntimeStates.cs</c> and read by the equally unowned
+    /// dispatch path; unwrapping is a cast over the object the handle already carries, so the function
+    /// a listener runs is the one compiled here.
+    /// </remarks>
     internal void CompileInlineEventAttribute(DomElement element, string attrName, string code)
     {
-        if (_jsContext == null || string.IsNullOrEmpty(code) || attrName.Length <= 2) return;
+        if (_realm is not { } realm || string.IsNullOrEmpty(code) || attrName.Length <= 2) return;
         var eventName = attrName[2..].ToLowerInvariant();
         if (Csp != null && !Csp.AllowsInlineEventHandler(code))
         {
@@ -145,9 +204,14 @@ public sealed partial class DomBridge
             // The alias is added for SVG content only. Binding `evt` on an HTML element would
             // shadow a page's own global of that name inside its handlers, which no browser does.
             var svgEventAlias = IsInSvgContent(element) ? "var evt = event; " : string.Empty;
-            var fn = _jsContext.Eval($"(function(event) {{ {svgEventAlias}{code} }})") as JSFunction;
-            if (fn != null)
-                GetInlineEventHandlers(element)[eventName] = fn;
+
+            // One constant label rather than one per handler: it is the location a stack frame
+            // reports, and a label that varied with the event name would give the engine's code
+            // cache a different key for every attribute compiling the same wrapper shape.
+            var fn = realm.EvaluateHostScript(
+                $"(function(event) {{ {svgEventAlias}{code} }})", "broiler:inline-event-handler");
+            if (fn.IsFunction)
+                GetInlineEventHandlers(element)[eventName] = JsInterop.ToEngineObject(fn);
         }
         catch (Exception ex)
         {

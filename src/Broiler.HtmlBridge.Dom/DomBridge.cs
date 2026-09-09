@@ -1,18 +1,12 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.String;
 using System.Net;
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.BuiltIns.Number;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 using Broiler.CSS.Dom;
 using Broiler.CSS;
@@ -21,9 +15,14 @@ namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// Registers a minimal <c>document</c> object on a <see cref="JSContext"/>
-/// so that JavaScript executed via YantraJS can perform basic DOM queries
+/// so that JavaScript executed against it can perform basic DOM queries
 /// against the current page HTML.
 /// </summary>
+/// <remarks>
+/// That parameter is what <c>IDomBridgeRuntime.Attach</c> hands over, and the interface lives in
+/// <c>Broiler.HtmlBridge.Core</c>. It is the last thing holding the bridge to one engine; see
+/// <c>DomBridge.Realm.cs</c> for the <see cref="Jseal.IJsRealm"/> that will replace it.
+/// </remarks>
 public sealed partial class DomBridge : IDomBridgeRuntime
 {
     /// <summary>
@@ -84,15 +83,69 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     // Per-element inline-style runtime state (the last concern de-globalized off the former process-static
     // ElementRuntimeState table, 2026-07-17); reached via InlineStyleStateFor.
     private readonly ConditionalWeakTable<DomNode, InlineStyleRuntimeState> _inlineStyleStates = [];
+    // The three wrapper roots: the JS objects for `document`, `window` and `window.visualViewport`.
+    //
+    // They are still the engine's own objects because fourteen other files in this assembly read
+    // them as such — the two Registration passes and Registration/Window.cs assign them; the eleven
+    // readers are DomBridge.EventDispatchHost / .MessagingHost / .SubWindowHost / .WindowContextHost
+    // / .WindowLoad, DomBridge/CharacterDataInterface, /DomBridge.CanvasHost, /DomBridge.EventTargetHost,
+    // /EventTargetInterface, /LayoutMetrics.Scrolling and /ShadowDom — and a field cannot be half a
+    // type. The JSEAL half of each is the sibling handle below: the same object asked for as a
+    // JsValue, so a migrated caller neither unwraps nor re-wraps, and the two halves cannot drift the
+    // way two separately-assigned fields would. Nine of those readers do nothing but wrap the field
+    // the way the sibling already does, so each becomes a one-line change when its owner migrates;
+    // when the last one goes, the field becomes the handle and the sibling goes with it.
     private JSObject? _documentJSObject;
     private JSObject? _windowJSObject;
     private JSObject? _visualViewportJSObject;
     private JSContext? _jsContext;
 
+    /// <summary>
+    /// The <c>document</c> wrapper as a handle, or <see cref="JsValue.Missing"/> before one exists.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Missing rather than null or undefined</b> because "the bridge has not registered a document
+    /// yet" is not a value any page can observe — every caller either tests it or coalesces it to the
+    /// JavaScript value its own contract promises (<c>INodeAccessorsHost.DocumentWrapper</c> answers
+    /// <c>null</c>, for instance). Choosing one of those here would hide the distinction from the
+    /// other.
+    /// </para>
+    /// <para>
+    /// The handle carries the engine object, so this is a cast rather than a conversion and the
+    /// wrapper identity — <c>document === document</c>, and the weak tables keyed on it — is the same
+    /// question either way.
+    /// </para>
+    /// </remarks>
+    internal JsValue DocumentHandle =>
+        _documentJSObject is { } document ? Dom.Runtime.JsInterop.FromEngineObject(document) : JsValue.Missing;
+
+    /// <inheritdoc cref="DocumentHandle"/>
+    internal JsValue WindowHandle =>
+        _windowJSObject is { } window ? Dom.Runtime.JsInterop.FromEngineObject(window) : JsValue.Missing;
+
+    /// <inheritdoc cref="DocumentHandle"/>
+    internal JsValue VisualViewportHandle =>
+        _visualViewportJSObject is { } viewport ? Dom.Runtime.JsInterop.FromEngineObject(viewport) : JsValue.Missing;
+
+    /// <summary>
+    /// Drops the three wrapper roots. Called from <see cref="Dispose"/>, which owns the teardown
+    /// order; the fields are cleared here because this file declares them.
+    /// </summary>
+    private void ClearWrapperRoots()
+    {
+        _documentJSObject = null;
+        _windowJSObject = null;
+        _visualViewportJSObject = null;
+    }
+
     // P2.4: the timer/interval/requestAnimationFrame/frame-action queues, their id counters and the
     // drain (FlushTimerStep/FlushTimers) now live in BrowserEventLoop, the single owner of the
     // document's task queues (was the eight scattered _timerIdCounter/_timeoutCallbacks/… fields).
-    private readonly Dom.Runtime.BrowserEventLoop _eventLoop = new();
+    // Built in the constructor rather than initialised in place because it takes the bridge's JSEAL
+    // realm accessor — a queued page callback is invoked through the realm, which is adopted at
+    // Attach and so does not exist when this field does.
+    private readonly Dom.Runtime.BrowserEventLoop _eventLoop;
     // Runs the <script> elements the page's own JavaScript inserts — nothing did, so the loader
     // idiom (inject a <script src>, poll until the global it defines appears) never terminated. See
     // ScriptInsertionRunner; fed by the document.createElement funnel below.
@@ -151,7 +204,12 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     /// <c>ReadableStream</c>, <c>ProgressEvent</c> and <c>FileReader</c>, plus the seam that mints a
     /// stream over bytes for <c>blob.stream()</c> and a fetch body.
     /// </summary>
-    private readonly Dom.Features.StreamsBinding _streams = new();
+    /// <remarks>
+    /// Built in the constructor rather than initialised in place because it now takes the bridge's
+    /// JSEAL realm accessor — a function, since the realm is adopted at Attach and this field exists
+    /// before that.
+    /// </remarks>
+    private readonly Dom.Features.StreamsBinding _streams;
     private readonly Dom.Features.SubDocumentBinding _subDocuments;
     // Phase 3 (P3.17): the nested-browsing-context `window` (sub-window) object — its
     // document/location/scroll/getComputedStyle surface and the sub-window-scoped helpers — lives in
@@ -256,6 +314,9 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     public DomBridge(DomBridgeSessionOptions? sessionOptions)
     {
         _layoutViewFactory = sessionOptions?.LayoutViewFactory;
+        // Null until Attach adopts one, and null again after teardown — states in which no page
+        // callback can be queued, because only script queues one and script needs that realm.
+        _eventLoop = new Dom.Runtime.BrowserEventLoop(() => _realm);
         _selectorMatcher = new CssSelectorMatcher(new BridgeSelectorStateProvider(this));
         _traversal = new Dom.Features.TraversalBinding(this);
         _mutations = new Dom.Features.MutationObserverBinding(this);
@@ -272,6 +333,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         _fetch = new Dom.Features.FetchBinding(this, _resources);
         _attributes = new Dom.Features.AttributesBinding(this);
         _blobs = new Dom.Features.BlobBinding();
+        _streams = new Dom.Features.StreamsBinding(() => Realm);
         _subDocuments = new Dom.Features.SubDocumentBinding(this);
         _subWindows = new Dom.Features.SubWindowBinding(this, _browsingContexts, _eventTargets, _messaging);
         _windowContext = new Dom.Runtime.WindowContextManager(this, _browsingContexts, _eventTargets);
@@ -713,6 +775,13 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     /// on the JS context, matching the HTML5 "named access on the Window
     /// object" behaviour (e.g. <c>window.myId</c> → element with id="myId").
     /// </summary>
+    /// <remarks>
+    /// <b>It takes a script context for the same reason <c>Attach</c> does, and it moves when that
+    /// does.</b> A host reaches this through the bridge as an object it built the context for, and
+    /// <c>IDomBridgeRuntime</c> — the sanctioned surface, and in another project — hands one over, so
+    /// a host holds a context and not a realm. Narrowing the parameter here would make the method
+    /// uncallable by the only kind of caller it has.
+    /// </remarks>
     public void RegisterNamedElementGlobals(JSContext context)
     {
         foreach (var el in Elements)

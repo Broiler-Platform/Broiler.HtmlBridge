@@ -1,8 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -59,37 +55,43 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal static class NavigatorIdentityBinding
 {
     /// <summary>Installs the identity constants, <c>webdriver</c>, and the hardware members.</summary>
+    /// <param name="realm">The realm the members are installed in.</param>
     /// <param name="navigator">The navigator object being built.</param>
     /// <param name="userAgent">The single user-agent string the rest of the bridge reports.</param>
-    public static void Install(JSObject navigator, string userAgent)
+    public static void Install(IJsRealm realm, JsValue navigator, string userAgent)
     {
         // HTML §8.9 pins these three for every user agent, whatever the engine.
-        Add(navigator, "appCodeName", new JSString("Mozilla"));
-        Add(navigator, "appName", new JSString("Netscape"));
-        Add(navigator, "product", new JSString("Gecko"));
+        Add(realm, navigator, "appCodeName", JsValue.String("Mozilla"));
+        Add(realm, navigator, "appName", JsValue.String("Netscape"));
+        Add(realm, navigator, "product", JsValue.String("Gecko"));
 
         // §8.9 permits "20030107" or "20100101" and nothing else; the former is what every
         // non-Gecko engine returns.
-        Add(navigator, "productSub", new JSString("20030107"));
+        Add(realm, navigator, "productSub", JsValue.String("20030107"));
 
         // "The user agent string with any leading "Mozilla/" removed" (§8.9). Derived so the two
         // cannot disagree.
-        Add(navigator, "appVersion", new JSString(
+        Add(realm, navigator, "appVersion", JsValue.String(
             userAgent.StartsWith("Mozilla/", StringComparison.Ordinal) ? userAgent["Mozilla/".Length..] : userAgent));
 
         // True: this user agent is driven by automation, which is what the attribute reports.
-        Add(navigator, "webdriver", JSBoolean.True);
+        Add(realm, navigator, "webdriver", JsValue.True);
 
         // A capture has no touch input.
-        Add(navigator, "maxTouchPoints", new JSNumber(0));
+        Add(realm, navigator, "maxTouchPoints", JsValue.Number(0));
 
         // Measured from the machine actually running the capture.
-        Add(navigator, "hardwareConcurrency", new JSNumber(Math.Max(1, Environment.ProcessorCount)));
-        Add(navigator, "deviceMemory", new JSNumber(ApproximateDeviceMemoryGiB()));
+        Add(realm, navigator, "hardwareConcurrency", JsValue.Number(Math.Max(1, Environment.ProcessorCount)));
+        Add(realm, navigator, "deviceMemory", JsValue.Number(ApproximateDeviceMemoryGiB()));
     }
 
-    private static void Add(JSObject navigator, string name, JSValue value)
-        => navigator.FastAddValue(name, value, JSPropertyAttributes.EnumerableConfigurableValue);
+    /// <summary>
+    /// One member, enumerable/configurable/writable — the WebIDL default the realm's
+    /// <see cref="JsPropertyFlags.Default"/> spells, and the same attributes these thirteen have
+    /// always carried.
+    /// </summary>
+    private static void Add(IJsRealm realm, JsValue navigator, string name, JsValue value)
+        => realm.DefineValue(navigator, name, value);
 
     /// <summary>
     /// The machine's memory in GiB, rounded down to the nearest power of two and clamped to

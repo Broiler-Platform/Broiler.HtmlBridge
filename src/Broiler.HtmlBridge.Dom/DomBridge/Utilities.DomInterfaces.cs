@@ -1,7 +1,6 @@
 using System.Text;
 
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -202,7 +201,7 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A bridge DOM object is a plain <c>JSObject</c> whose prototype is <c>Object.prototype</c>:
+    /// A bridge DOM object is a plain object whose prototype is <c>Object.prototype</c>:
     /// it carries its members directly rather than inheriting them from an interface prototype.
     /// So the ordinary <c>instanceof</c> walk — follow the operand's prototype chain looking for
     /// the constructor's <c>prototype</c> — can never succeed for one, which is why the
@@ -224,9 +223,9 @@ public sealed partial class DomBridge
     /// element?" — stop throwing <c>ReferenceError</c>.
     /// </para>
     /// </remarks>
-    private static void RegisterDomInterfaceConstructors(JSContext context)
+    private static void RegisterDomInterfaceConstructors(IJsRealm realm)
     {
-        context.Eval(@"
+        realm.EvaluateHostScript(@"
             // Calling one of these directly throws, as it does in a browser: these interfaces are
             // not constructible, and their objects come from document.createElement and friends.
             // Answering with a plain object instead would hand back something that looks like an
@@ -411,9 +410,9 @@ public sealed partial class DomBridge
                         Object.setPrototypeOf(child.prototype, parent.prototype);
                 }
             })();
-        ");
+        ", "interfaces:dom-constructors");
 
-        RegisterHtmlElementInterfaces(context);
+        RegisterHtmlElementInterfaces(realm);
 
         // NodeList and HTMLCollection are the exception to everything above: they get real
         // prototypes with real methods, and their instances really are instances of them, rather
@@ -424,13 +423,19 @@ public sealed partial class DomBridge
         // Handed to the custom-elements registration so its constructible HTMLElement can keep
         // this exact prototype object — every element wrapper is linked to it, so replacing it
         // with a fresh one would orphan them all.
-        if (context["HTMLElement"] is JSObject htmlElement)
-            context["__broilerHTMLElementPrototype"] = htmlElement[(Broiler.JavaScript.Storage.KeyString)"prototype"];
+        var htmlElement = realm.GetProperty(realm.Global, "HTMLElement");
+        if (htmlElement.IsObject)
+        {
+            realm.SetProperty(
+                realm.Global,
+                "__broilerHTMLElementPrototype",
+                realm.GetProperty(htmlElement, "prototype"));
+        }
 
-        Dom.Features.DomCollectionBinding.RegisterInterfaces(context);
+        Dom.Features.DomCollectionBinding.RegisterInterfaces(realm);
         // The five NamedNodeMap members that need the owning element are host functions, so they
         // are installed on the interface prototype after it exists.
-        Dom.Features.DomCollectionBinding.RegisterNamedNodeMapOperations(context);
+        Dom.Features.DomCollectionBinding.RegisterNamedNodeMapOperations(realm);
     }
 
     /// <summary>
@@ -469,7 +474,7 @@ public sealed partial class DomBridge
     /// throw the <c>Illegal constructor</c> they always did.
     /// </para>
     /// </remarks>
-    private static void RegisterHtmlElementInterfaces(JSContext context)
+    private static void RegisterHtmlElementInterfaces(IJsRealm realm)
     {
         var script = new StringBuilder();
 
@@ -608,6 +613,6 @@ public sealed partial class DomBridge
             })();
             """);
 
-        context.Eval(script.ToString());
+        realm.EvaluateHostScript(script.ToString(), "interfaces:html-elements");
     }
 }

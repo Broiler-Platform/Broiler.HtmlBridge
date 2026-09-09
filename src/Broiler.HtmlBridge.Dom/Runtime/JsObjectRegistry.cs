@@ -14,10 +14,36 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// sub-document-root document wrapper cache — behind one narrow surface.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Wrappers are keyed by reference identity (a DOM node's identity is its object identity), never
 /// by value, so a node whose contents change keeps its wrapper. Instance-scoped to the owning
 /// bridge/document; <see cref="Clear"/> runs on re-parse and disposal. Not thread-safe — wrapper
 /// creation happens on the document thread (Phase 2's P2.4 defines that threading model).
+/// </para>
+/// <para>
+/// <b>Still engine-typed, and it is the last table that can migrate rather than the first.</b> This
+/// is the wrapper-identity choke point, and every one of its six engine-typed members has a caller
+/// outside this group. <c>TryGet</c>: <c>DomBridge.CustomElementsHost.cs</c> and
+/// <c>DomBridge.SubDocumentHost.cs</c>. <c>Set</c>: <c>DomBridge/Registration/Registration.cs</c> and
+/// the sub-document host. <c>SetDocument</c>: the sub-document host. <c>TryGetDocument</c>:
+/// <c>DomBridge/DomBridge.NodeAccessorsHost.cs</c> and <c>DomBridge/Registration/CustomElements.cs</c>.
+/// <c>Entries</c>: the registration pass. <c>TryGetNode</c>: <c>DomBridge/ElementInterface.cs</c>,
+/// <c>DomBridge/EventTargetInterface.cs</c> and <c>DomBridge/Utilities.cs</c>. Nine files, none of
+/// them this group's, and each holds the engine's object because it is mid-frame in an engine call —
+/// so re-typing the surface is one commit across all nine rather than a file-by-file step, which is
+/// the opposite of what the incremental seam is for.
+/// </para>
+/// <para>
+/// <b>What that migration would and would not change.</b> The two dictionaries become
+/// <c>JsValue</c>-valued without changing a single answer: a handle carries the engine's own object,
+/// <c>JsValue.Equals</c> is reference identity for the object kinds, and its <c>GetHashCode</c> is
+/// <c>RuntimeHelpers.GetHashCode</c> of that payload — exactly what
+/// <c>ReferenceEqualityComparer</c> gives today. The <c>ConditionalWeakTable</c> below is the one
+/// member that cannot follow, and it is the clearest single measure of what the handle design costs:
+/// a weak table needs a <em>reference</em> key and a <c>JsValue</c> is a struct, so this table stays
+/// keyed on the engine object however far the rest of the bridge moves, and its two call sites —
+/// <see cref="Set"/> and <see cref="TryGetNode"/> — unwrap the handle on the way in.
+/// </para>
 /// </remarks>
 internal sealed class JsObjectRegistry
 {

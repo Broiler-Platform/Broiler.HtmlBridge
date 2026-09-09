@@ -1,12 +1,6 @@
 using System.Runtime.CompilerServices;
 using Broiler.Dom;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -52,27 +46,43 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the page just set would be an invention rather than a restoration.
 /// </para>
 /// <para>Every expectation is Chromium's measured answer over the same probe run against both.</para>
+/// <para>
+/// <b>The JavaScript vocabulary is JSEAL's</b> (<see cref="IJsRealm"/>). The two JavaScript assets
+/// this module installs are source this repository authored and ships, so they run through
+/// <see cref="IJsSource.EvaluateHostScript"/> rather than the guest-source entry point — a page's
+/// Content-Security-Policy has no say over them. No engine type is named anywhere in this file: the
+/// script context <see cref="RegisterInterfaces"/> used to be handed is gone (the module always
+/// reached its realm through its host and never read it), and <c>DomBridge.TryReadFormDataEntries</c>
+/// now takes a realm and a handle.
+/// </para>
 /// </remarks>
 internal sealed class ElementInternalsBinding(IElementInternalsHost host)
 {
     private readonly IElementInternalsHost _host = host;
 
-    private JSObject? _internalsPrototype;
-    private JSObject? _validityPrototype;
+    private JsValue _internalsPrototype;
+    private JsValue _validityPrototype;
 
     /// <summary>The factory for a <c>CustomStateSet</c>, held here rather than left on the global so
     /// a page cannot mint one out of band.</summary>
-    private JSObject? _customStateSetFactory;
+    private JsValue _customStateSetFactory;
 
     /// <summary>
     /// The state behind each <c>ElementInternals</c> — and behind its <c>ValidityState</c>, which is
     /// keyed into the same table so its flags read through to the internals that owns them.
     /// </summary>
-    private readonly ConditionalWeakTable<JSObject, InternalsState> _states = new();
+    /// <remarks>
+    /// Keyed on the object identity behind the handle (see <see cref="IdentityOf"/>) rather than on
+    /// the handle itself: a <see cref="JsValue"/> is a struct and cannot be a
+    /// <see cref="ConditionalWeakTable{TKey,TValue}"/> key, while the engine object it carries is the
+    /// same instance the rest of the bridge's wrapper tables are keyed on. The keys stay weak, so an
+    /// internals the page has dropped is not kept alive by this table.
+    /// </remarks>
+    private readonly ConditionalWeakTable<object, InternalsState> _states = new();
 
     /// <summary>The internals already attached to an element, so a second <c>attachInternals()</c>
     /// can refuse the way a browser does.</summary>
-    private readonly Dictionary<DomElement, JSObject> _byElement = [];
+    private readonly Dictionary<DomElement, JsValue> _byElement = [];
 
     /// <summary>
     /// The validity flag names, in the order <c>ValidityState</c> exposes them — measured from
@@ -102,20 +112,32 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
         /// element's own <c>name</c>/value pair rather than adding to it.</summary>
         public List<KeyValuePair<string, string>>? SubmissionEntries { get; set; }
 
-        public JSObject? Validity { get; set; }
+        public JsValue Validity { get; set; }
 
-        public JSObject? States { get; set; }
+        public JsValue States { get; set; }
     }
+
+    /// <summary>
+    /// The identity a weak per-object registry keys on: the engine's own object behind the handle.
+    /// </summary>
+    private static object IdentityOf(JsValue value) => Runtime.JsInterop.ToEngineObject(value);
 
     // -------- Registration --------
 
     /// <summary>
     /// Registers <c>ElementInternals</c>, <c>ValidityState</c> and <c>CustomStateSet</c>, and installs
-    /// their members. Runs once per context, with the other interface constructors.
+    /// their members. Runs once per realm, with the other interface constructors.
     /// </summary>
-    internal void RegisterInterfaces(JSContext context)
+    /// <remarks>
+    /// It takes nothing: the realm this installs into is the host's, which is the same realm the
+    /// registration hub is building when it calls this.
+    /// </remarks>
+    internal void RegisterInterfaces()
     {
-        context.Eval("""
+        var realm = _host.Realm;
+
+        realm.EvaluateHostScript(
+            """
             (function () {
                 // None of the three is constructible: they come from attachInternals() and from the
                 // members of the object it returns.
@@ -160,56 +182,64 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
                     return set;
                 };
             })();
-            """);
+            """,
+            "broiler:element-internals");
 
         // Captured and then deleted, so the factory is reachable from here and from nowhere a page
-        // can call.
-        _customStateSetFactory = context["__broilerMakeCustomStateSet"] as JSObject;
-        context.Eval("delete globalThis.__broilerMakeCustomStateSet;");
+        // can call. The deletion was a second evaluation of `delete globalThis.…`; the realm removes
+        // an own property directly, which is the same operation with no source to compile.
+        _customStateSetFactory = realm.GetProperty(realm.Global, "__broilerMakeCustomStateSet");
+        if (!_customStateSetFactory.IsObject)
+            _customStateSetFactory = JsValue.Missing;
+        realm.DeleteProperty(realm.Global, "__broilerMakeCustomStateSet");
 
-        if (context["ElementInternals"] is not JSObject internalsConstructor ||
-            internalsConstructor[(KeyString)"prototype"] is not JSObject internalsPrototype ||
-            context["ValidityState"] is not JSObject validityConstructor ||
-            validityConstructor[(KeyString)"prototype"] is not JSObject validityPrototype)
+        var internalsConstructor = realm.GetProperty(realm.Global, "ElementInternals");
+        var validityConstructor = realm.GetProperty(realm.Global, "ValidityState");
+        if (!internalsConstructor.IsObject || !validityConstructor.IsObject)
+            return;
+
+        var internalsPrototype = realm.GetProperty(internalsConstructor, "prototype");
+        var validityPrototype = realm.GetProperty(validityConstructor, "prototype");
+        if (!internalsPrototype.IsObject || !validityPrototype.IsObject)
             return;
 
         _internalsPrototype = internalsPrototype;
         _validityPrototype = validityPrototype;
 
         // The two members that answer for any custom element, form-associated or not.
-        Getter(internalsPrototype, "shadowRoot", state => _host.ShadowRootOf(state.Element), formOnly: false);
-        Getter(internalsPrototype, "states", StatesOf, formOnly: false);
+        Getter(realm, internalsPrototype, "shadowRoot", (_, state) => _host.ShadowRootOf(state.Element), formOnly: false);
+        Getter(realm, internalsPrototype, "states", StatesOf, formOnly: false);
 
-        Getter(internalsPrototype, "form", state =>
-            _host.FormOwnerOf(state.Element) is { } form ? _host.ToJSObject(form) : JSNull.Value);
-        Getter(internalsPrototype, "labels", state => _host.LabelsFor(state.Element));
-        Getter(internalsPrototype, "willValidate", state => Bool(!_host.IsDisabled(state.Element)));
-        Getter(internalsPrototype, "validity", ValidityOf);
-        Getter(internalsPrototype, "validationMessage", state => new JSString(state.ValidationMessage));
+        Getter(realm, internalsPrototype, "form", (_, state) =>
+            _host.FormOwnerOf(state.Element) is { } form ? _host.WrapNode(form) : JsValue.Null);
+        Getter(realm, internalsPrototype, "labels", (_, state) => _host.LabelsFor(state.Element));
+        Getter(realm, internalsPrototype, "willValidate", (_, state) => JsValue.Boolean(!_host.IsDisabled(state.Element)));
+        Getter(realm, internalsPrototype, "validity", ValidityOf);
+        Getter(realm, internalsPrototype, "validationMessage", (_, state) => JsValue.String(state.ValidationMessage));
 
-        Method(internalsPrototype, "setFormValue", 1, SetFormValue);
-        Method(internalsPrototype, "setValidity", 1, SetValidity);
-        Method(internalsPrototype, "checkValidity", 0, (InternalsState state, in Arguments _) => CheckValidity(state));
+        Method(realm, internalsPrototype, "setFormValue", 1, SetFormValue);
+        Method(realm, internalsPrototype, "setValidity", 1, SetValidity);
+        Method(realm, internalsPrototype, "checkValidity", 0, (InternalsState state, in JsCall _) => CheckValidity(state));
         // reportValidity would additionally surface the message to the user; there is no presentation
         // surface, so it is checkValidity's answer with the same invalid event, which is the part a
         // page observes.
-        Method(internalsPrototype, "reportValidity", 0, (InternalsState state, in Arguments _) => CheckValidity(state));
+        Method(realm, internalsPrototype, "reportValidity", 0, (InternalsState state, in JsCall _) => CheckValidity(state));
 
         foreach (var flag in ValidityFlags)
         {
             var name = flag;
-            validityPrototype.FastAddProperty(
+            realm.DefineAccessor(
+                validityPrototype,
                 name,
-                new DomFunction((in a) => Bool(StateForValidity(in a, name).Flags.Contains(name)), $"get {name}"),
-                null,
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+                (in call) => JsValue.Boolean(StateForValidity(in call, name).Flags.Contains(name)),
+                null);
         }
 
-        validityPrototype.FastAddProperty(
+        realm.DefineAccessor(
+            validityPrototype,
             "valid",
-            new DomFunction((in a) => Bool(StateForValidity(in a, "valid").Flags.Count == 0), "get valid"),
-            null,
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+            (in call) => JsValue.Boolean(StateForValidity(in call, "valid").Flags.Count == 0),
+            null);
     }
 
     // -------- attachInternals --------
@@ -219,31 +249,29 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
     /// where a browser puts it — on <c>HTMLElement.prototype</c>, refusing at call time rather than
     /// being absent on the elements it refuses for.
     /// </summary>
-    internal JSValue AttachInternals(DomElement element, in Arguments a)
+    internal JsValue AttachInternals(DomElement element)
     {
+        var realm = _host.Realm;
+
         if (_byElement.ContainsKey(element))
         {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                "Failed to execute 'attachInternals' on 'HTMLElement': ElementInternals for the specified element was already attached.",
-                "NotSupportedError");
-            return JSUndefined.Value;
+            throw realm.DomError(
+                "NotSupportedError",
+                "Failed to execute 'attachInternals' on 'HTMLElement': ElementInternals for the specified element was already attached.");
         }
 
         if (!_host.IsCustomElement(element))
         {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
-                "Failed to execute 'attachInternals' on 'HTMLElement': Unable to attach ElementInternals to non-custom elements.",
-                "NotSupportedError");
-            return JSUndefined.Value;
+            throw realm.DomError(
+                "NotSupportedError",
+                "Failed to execute 'attachInternals' on 'HTMLElement': Unable to attach ElementInternals to non-custom elements.");
         }
 
-        var internals = new JSObject();
-        if (_internalsPrototype is not null)
-            internals.BasePrototypeObject = _internalsPrototype;
+        var internals = realm.NewObject();
+        if (_internalsPrototype.IsObject)
+            realm.SetPrototype(internals, _internalsPrototype);
 
-        _states.Add(internals, new InternalsState(element));
+        _states.Add(IdentityOf(internals), new InternalsState(element));
         _byElement[element] = internals;
         return internals;
     }
@@ -256,7 +284,7 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
     /// </summary>
     internal IReadOnlyList<KeyValuePair<string, string>>? SubmissionEntriesFor(DomElement element, string? name)
     {
-        if (!_byElement.TryGetValue(element, out var internals) || !_states.TryGetValue(internals, out var state))
+        if (!TryGetState(element, out var state))
             return null;
 
         if (state.SubmissionEntries is { } entries)
@@ -272,43 +300,55 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
     /// <summary>Whether the element's own validity (as set through <c>setValidity</c>) is satisfied.
     /// A form's validity is the conjunction of its controls', so this is what a form asks.</summary>
     internal bool IsValid(DomElement element) =>
-        !_byElement.TryGetValue(element, out var internals) ||
-        !_states.TryGetValue(internals, out var state) ||
-        state.Flags.Count == 0;
+        !TryGetState(element, out var state) || state.Flags.Count == 0;
 
     /// <summary>Forgets an element's internals — used when its shadow of state must not outlive it in
     /// the by-element table.</summary>
     internal void Forget(DomElement element) => _byElement.Remove(element);
 
+    private bool TryGetState(DomElement element, out InternalsState state)
+    {
+        if (_byElement.TryGetValue(element, out var internals) &&
+            _states.TryGetValue(IdentityOf(internals), out var found))
+        {
+            state = found;
+            return true;
+        }
+
+        state = null!;
+        return false;
+    }
+
     // -------- members --------
 
-    private JSValue StatesOf(InternalsState state)
+    private JsValue StatesOf(IJsRealm realm, InternalsState state)
     {
-        if (state.States is { } existing)
-            return existing;
+        if (state.States.IsObject)
+            return state.States;
 
-        if (_customStateSetFactory is not { } factory)
-            return JSUndefined.Value;
+        if (!_customStateSetFactory.IsObject)
+            return JsValue.Undefined;
 
-        if (factory.InvokeFunction(new Arguments(JSUndefined.Value)) is not JSObject set)
-            return JSUndefined.Value;
+        var set = realm.Invoke(_customStateSetFactory, JsValue.Undefined);
+        if (!set.IsObject)
+            return JsValue.Undefined;
 
         state.States = set;
         return set;
     }
 
-    private JSValue ValidityOf(InternalsState state)
+    private JsValue ValidityOf(IJsRealm realm, InternalsState state)
     {
-        if (state.Validity is { } existing)
-            return existing;
+        if (state.Validity.IsObject)
+            return state.Validity;
 
-        var validity = new JSObject();
-        if (_validityPrototype is not null)
-            validity.BasePrototypeObject = _validityPrototype;
+        var validity = realm.NewObject();
+        if (_validityPrototype.IsObject)
+            realm.SetPrototype(validity, _validityPrototype);
 
         // Keyed into the same table as the internals, so the flag getters read the live state rather
         // than a copy taken when the object was built.
-        _states.Add(validity, state);
+        _states.Add(IdentityOf(validity), state);
         state.Validity = validity;
         return validity;
     }
@@ -318,23 +358,29 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
     /// through <c>formStateRestoreCallback</c>; this engine restores no state, so it is accepted and
     /// not retained rather than being rejected — a component that passes it must still work.
     /// </summary>
-    private JSValue SetFormValue(InternalsState state, in Arguments a)
+    private JsValue SetFormValue(InternalsState state, in JsCall call)
     {
-        var value = a.Length > 0 ? a[0] : JSUndefined.Value;
+        var value = call.Length > 0 ? call[0] : JsValue.Undefined;
         state.SubmissionValue = null;
         state.SubmissionEntries = null;
 
-        if (value.IsNull || value.IsUndefined)
-            return JSUndefined.Value;
+        if (value.IsNullish)
+            return JsValue.Undefined;
 
-        if (value is JSObject entrySource && DomBridge.TryReadFormDataEntries(entrySource, out var entries))
+        // FormData is recognised by shape, through the members the reader reaches on the object.
+        // The object test stays ahead of the call: it is what the engine-typed pattern match
+        // performed, and a primitive carries none of those members anyway.
+        if (value.IsObject &&
+            DomBridge.TryReadFormDataEntries(call.Realm, value, out var entries))
         {
             state.SubmissionEntries = entries;
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         }
 
-        state.SubmissionValue = value.ToString();
-        return JSUndefined.Value;
+        // The observable ECMAScript coercion: a submission value with its own toString participates,
+        // which is what a page passing a wrapper object around expects.
+        state.SubmissionValue = call.Realm.ToJsString(value);
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -342,22 +388,25 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
     /// message is then required — measured, an omitted message with a flag raised is a
     /// <c>TypeError</c> rather than an empty message.
     /// </summary>
-    private JSValue SetValidity(InternalsState state, in Arguments a)
+    private JsValue SetValidity(InternalsState state, in JsCall call)
     {
+        var realm = call.Realm;
         var raised = new HashSet<string>(StringComparer.Ordinal);
-        if (a.Length > 0 && a[0] is JSObject flags)
+        if (call.Length > 0 && call[0].IsObject)
         {
+            var flags = call[0];
             foreach (var flag in ValidityFlags)
             {
-                if (flags[(KeyString)flag] is { } value && value.BooleanValue)
+                if (realm.GetProperty(flags, flag).AsBoolean)
                     raised.Add(flag);
             }
         }
 
-        var message = a.Length > 1 && !a[1].IsUndefined && !a[1].IsNull ? a[1].ToString() : null;
+        var message = call.Length > 1 && !call[1].IsNullish ? realm.ToJsString(call[1]) : null;
         if (raised.Count > 0 && string.IsNullOrEmpty(message))
         {
-            return JSException.ThrowTypeError<JSValue>(
+            throw realm.Error(
+                JsErrorKind.TypeError,
                 "Failed to execute 'setValidity' on 'ElementInternals': " +
                 "The second argument should not be empty if one or more flags in the first argument are true.");
         }
@@ -366,7 +415,7 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
         foreach (var flag in raised)
             state.Flags.Add(flag);
         state.ValidationMessage = raised.Count > 0 ? message! : string.Empty;
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -374,65 +423,64 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
     /// message. An invalid element receives an <c>invalid</c> event first, which is how a page hears
     /// about the failure without polling every control.
     /// </summary>
-    private JSValue CheckValidity(InternalsState state)
+    private JsValue CheckValidity(InternalsState state)
     {
         if (state.Flags.Count == 0 || _host.IsDisabled(state.Element))
-            return JSBoolean.True;
+            return JsValue.True;
 
         _host.DispatchInvalidEvent(state.Element);
-        return JSBoolean.False;
+        return JsValue.False;
     }
-
-    private static JSValue Bool(bool value) => value ? JSBoolean.True : JSBoolean.False;
 
     // -------- plumbing --------
 
-    private delegate JSValue InternalsOperation(InternalsState state, in Arguments a);
+    private delegate JsValue InternalsOperation(InternalsState state, in JsCall call);
 
-    private void Method(JSObject prototype, string name, int length, InternalsOperation body) =>
-        prototype.FastAddValue(
+    private void Method(IJsRealm realm, JsValue prototype, string name, int length, InternalsOperation body) =>
+        realm.DefineValue(
+            prototype,
             name,
-            new DomFunction((in a) => body(StateFor(in a, name, execute: true), in a), name, length),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.NewMethod(name, (in call) => body(StateFor(in call, name, execute: true), in call), length));
 
-    private void Getter(JSObject prototype, string name, Func<InternalsState, JSValue> read, bool formOnly = true) =>
-        prototype.FastAddProperty(
+    private void Getter(IJsRealm realm, JsValue prototype, string name, Func<IJsRealm, InternalsState, JsValue> read, bool formOnly = true) =>
+        realm.DefineAccessor(
+            prototype,
             name,
-            new DomFunction((in a) => read(StateFor(in a, name, execute: false, formOnly: formOnly)), $"get {name}"),
-            null,
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+            (in call) => read(call.Realm, StateFor(in call, name, execute: false, formOnly: formOnly)),
+            null);
 
     /// <summary>
     /// The state behind the receiver, refusing for a receiver that is not an <c>ElementInternals</c>
     /// and — for every form-related member — for one whose element is not form-associated.
     /// </summary>
-    private InternalsState StateFor(in Arguments a, string member, bool execute, bool formOnly = true)
+    private InternalsState StateFor(in JsCall call, string member, bool execute, bool formOnly = true)
     {
-        if (a.This is not JSObject receiver || !_states.TryGetValue(receiver, out var state))
+        if (!call.This.IsObject || !_states.TryGetValue(IdentityOf(call.This), out var state))
         {
-            return JSException.ThrowTypeError<InternalsState>(
+            throw call.Realm.Error(
+                JsErrorKind.TypeError,
                 $"Failed to {(execute ? "execute" : "read")} '{member}' {(execute ? "on" : "from")} 'ElementInternals': Illegal invocation");
         }
 
         if (formOnly && !_host.IsFormAssociatedCustomElement(state.Element))
         {
-            DomBridge.ThrowDOMException(
-                _host.JsContext,
+            throw call.Realm.DomError(
+                "NotSupportedError",
                 execute
                     ? $"Failed to execute '{member}' on 'ElementInternals': The target element is not a form-associated custom element."
-                    : $"Failed to read the '{member}' property from 'ElementInternals': The target element is not a form-associated custom element.",
-                "NotSupportedError");
+                    : $"Failed to read the '{member}' property from 'ElementInternals': The target element is not a form-associated custom element.");
         }
 
         return state;
     }
 
-    private InternalsState StateForValidity(in Arguments a, string member)
+    private InternalsState StateForValidity(in JsCall call, string member)
     {
-        if (a.This is JSObject receiver && _states.TryGetValue(receiver, out var state))
+        if (call.This.IsObject && _states.TryGetValue(IdentityOf(call.This), out var state))
             return state;
 
-        return JSException.ThrowTypeError<InternalsState>(
+        throw call.Realm.Error(
+            JsErrorKind.TypeError,
             $"Failed to read the '{member}' property from 'ValidityState': Illegal invocation");
     }
 }

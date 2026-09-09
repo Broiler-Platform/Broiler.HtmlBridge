@@ -1,4 +1,4 @@
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -15,28 +15,46 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>JsJsObjectsInsertBefore080Core</c>, <c>AppendChild088Core</c>, <c>Append089Core</c>,
 /// <c>Prepend090Core</c>, <c>RemoveChild091Core</c> and <c>ReplaceChild092Core</c> callbacks.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>The module's two halves rejoined when its second installer moved.</b> The three
+/// <c>ParentNode</c> members are on <c>Element.prototype</c>, installed by
+/// <c>DomBridge/ElementInterface.cs</c>; the five <c>Node</c> members stay each wrapper's own property
+/// and are installed by <c>DomBridge/JsObjects.cs</c>. Both mint through the realm now, so every body
+/// here reads a <see cref="JsCall"/> and the module names no engine type. The script context the
+/// contract used to carry went with them: a call frame brings its own realm, and
+/// <see cref="IJsCalls.DomError"/> mints the <c>DOMException</c> from that. (The three variadic
+/// members below forward <see cref="JsCall"/>'s own span of handles, which is a JSEAL member and not
+/// the engine's argument frame, however alike the two read.)
+/// </para>
+/// <para>
+/// <b>Two <c>moveBefore</c> rejections are plain <c>Error</c>s whose message merely begins with
+/// <c>TypeError:</c>, and they stay that way.</b> That is what the engine-framed bodies threw —
+/// <c>new JSException(string)</c> builds an <c>Error</c>, not the constructor its message names — so
+/// <c>e instanceof TypeError</c> is false and <c>e.name</c> is <c>"Error"</c> where WebIDL says
+/// otherwise. Reproducing it exactly is what a refactor owes; correcting it is a behaviour change and
+/// belongs to whoever makes it deliberately.
+/// </para>
+/// </remarks>
 internal static class TreeMutationBinding
 {
     /// <summary>
-    /// Throws the <c>NotFoundError</c> <c>DOMException</c> that the pre-insert, pre-remove and replace
-    /// steps all require when the named child is not a child of this parent (DOM §4.2.3).
+    /// The <c>NotFoundError</c> <c>DOMException</c> that the pre-insert, pre-remove and replace steps
+    /// all require when the named child is not a child of this parent (DOM §4.2.3).
     /// </summary>
     /// <remarks>
     /// The circular-reference guard beside these call sites already minted a real
-    /// <c>HierarchyRequestError</c> through <c>DomBridge.ThrowDOMException</c>, so the machinery was
-    /// present and only the not-found branches were missing it — one throwing a plain error whose
-    /// message merely began with the name, the other two returning as if they had succeeded.
+    /// <c>HierarchyRequestError</c>, so the machinery was present and only the not-found branches were
+    /// missing it — one throwing a plain error whose message merely began with the name, the other two
+    /// returning as if they had succeeded.
+    /// <para>
+    /// The "no realm to mint a <c>DOMException</c> in" fallback the engine-framed version carried is
+    /// dropped rather than translated: it existed for a bridge not yet attached to a script context,
+    /// and a body reached through a <see cref="JsCall"/> is by construction running inside a realm.
+    /// </para>
     /// </remarks>
-    private static void ThrowNotFoundError(ITreeMutationHost host, string method, string detail)
-    {
-        var message = $"Failed to execute '{method}' on 'Node': {detail}";
-
-        if (host.JsContext is { } context)
-            DomBridge.ThrowDOMException(context, message, "NotFoundError");
-
-        // Only before the bridge is attached, when there is no realm to mint a DOMException in.
-        throw new JSException(message);
-    }
+    private static Exception NotFoundError(IJsRealm realm, string method, string detail) =>
+        realm.DomError("NotFoundError", $"Failed to execute '{method}' on 'Node': {detail}");
 
     /// <summary>
     /// The DOM <c>Node.moveBefore(node, child)</c> method: repositions an already-attached node
@@ -54,55 +72,57 @@ internal static class TreeMutationBinding
     /// function, so the document was never styled and rendered white against Chromium's green.
     /// </para>
     /// </summary>
-    public static JSValue MoveBefore(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue MoveBefore(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        if (a.Length == 0 || a[0] is not JSObject movedObj)
-            throw new JSException("TypeError: moveBefore requires a node to move.");
+        // JsErrorKind.Error with the name inside the message, not JsErrorKind.TypeError: see the note
+        // on this class for what these three rejections actually threw and why that is preserved.
+        if (call.Length == 0 || !call[0].IsObject)
+            throw call.Realm.Error(JsErrorKind.Error, "TypeError: moveBefore requires a node to move.");
 
-        var moved = host.FindDomNodeByJSObject(movedObj);
+        var moved = host.FindNode(call[0]);
         if (moved is null)
-            throw new JSException("TypeError: moveBefore's first argument is not a node.");
+            throw call.Realm.Error(JsErrorKind.Error, "TypeError: moveBefore's first argument is not a node.");
 
         DomNode? reference = null;
-        if (a.Length > 1 && !a[1].IsNull && !a[1].IsUndefined)
+        if (call.Length > 1 && !call[1].IsNull && !call[1].IsUndefined)
         {
-            if (a[1] is not JSObject referenceObj)
-                throw new JSException("TypeError: moveBefore's second argument is not a node.");
+            if (!call[1].IsObject)
+                throw call.Realm.Error(JsErrorKind.Error, "TypeError: moveBefore's second argument is not a node.");
 
-            reference = host.FindDomNodeByJSObject(referenceObj);
+            reference = host.FindNode(call[1]);
             if (reference is null)
-                throw new JSException("TypeError: moveBefore's second argument is not a node.");
+                throw call.Realm.Error(JsErrorKind.Error, "TypeError: moveBefore's second argument is not a node.");
         }
 
         host.MoveNodeBefore(element, moved, reference);
-        return a[0];
+        return call[0];
     }
 
-    public static JSValue InsertBefore(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue InsertBefore(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        if (a[0] is not JSObject newChildObj)
-            return JSUndefined.Value;
-        var newEl = host.FindDomNodeByJSObject(newChildObj);
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        if (!call[0].IsObject)
+            return JsValue.Undefined;
+        var newEl = host.FindNode(call[0]);
         if (newEl == null)
-            return a[0];
+            return call[0];
         // Prevent circular references (HierarchyRequestError per DOM spec)
         if (ReferenceEquals(newEl, element) || element.IsDescendantOf(newEl))
-            DomBridge.ThrowDOMException(host.JsContext!, "The new child element contains the parent.", "HierarchyRequestError");
-        if (a.Length < 2 || a[1].IsNull || a[1].IsUndefined)
+            throw call.Realm.DomError("HierarchyRequestError", "The new child element contains the parent.");
+        if (call.Length < 2 || call[1].IsNull || call[1].IsUndefined)
         {
             host.InsertNodeAt(element, newEl, element.ChildNodes.Count);
-            return a[0];
+            return call[0];
         }
 
-        if (a[1] is not JSObject refChildObj)
-            return a[0];
-        var refEl = host.FindDomNodeByJSObject(refChildObj);
+        if (!call[1].IsObject)
+            return call[0];
+        var refEl = host.FindNode(call[1]);
         if (refEl == null)
-            return a[0];
+            return call[0];
         if (ReferenceEquals(newEl, refEl))
-            return a[0];
+            return call[0];
         var idx = DomBridge.ChildIndexOf(element, refEl);
         if (idx < 0)
         {
@@ -110,51 +130,51 @@ internal static class TreeMutationBinding
             // NotFoundError DOMException." This threw a plain error whose message merely BEGAN with the
             // name, so `e instanceof DOMException` was false, `e.name` was "Error" and `e.code` was 0 —
             // the two things a caller tests. The HierarchyRequestError a few lines above was already
-            // minted properly through the same helper; this one simply was not reaching it.
-            ThrowNotFoundError(host, "insertBefore",
+            // minted properly; this one simply was not reaching the same machinery.
+            throw NotFoundError(call.Realm, "insertBefore",
                 "The node before which the new node is to be inserted is not a child of this node.");
         }
         host.InsertNodeAt(element, newEl, idx);
-        return a[0];
+        return call[0];
     }
 
-    public static JSValue AppendChild(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue AppendChild(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        if (a[0] is not JSObject childObj)
-            return JSUndefined.Value;
-        // Find the Broiler.Dom.DomElement for this child JSObject
-        var childEl = host.FindDomNodeByJSObject(childObj);
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        if (!call[0].IsObject)
+            return JsValue.Undefined;
+        // Find the Broiler.Dom.DomElement for this child wrapper
+        var childEl = host.FindNode(call[0]);
         if (childEl == null)
-            return a[0];
+            return call[0];
         // Prevent circular references (HierarchyRequestError per DOM spec)
         if (ReferenceEquals(childEl, element) || element.IsDescendantOf(childEl))
-            DomBridge.ThrowDOMException(host.JsContext!, "The new child element contains the parent.", "HierarchyRequestError");
+            throw call.Realm.DomError("HierarchyRequestError", "The new child element contains the parent.");
         host.InsertNodeAt(element, childEl, element.ChildNodes.Count);
-        return a[0];
+        return call[0];
     }
 
-    public static JSValue Append(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue Append(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        var nodes = host.BuildChildNodeArgumentNodes(a);
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        var nodes = host.BuildChildNodeArgumentNodes(call.Arguments);
         var insertIndex = element.ChildNodes.Count;
         foreach (var node in nodes)
             host.InsertNodeAt(element, node, insertIndex++);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    public static JSValue Prepend(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue Prepend(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        var nodes = host.BuildChildNodeArgumentNodes(a);
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        var nodes = host.BuildChildNodeArgumentNodes(call.Arguments);
         var insertIndex = 0;
         foreach (var node in nodes)
             host.InsertNodeAt(element, node, insertIndex++);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>
@@ -175,9 +195,9 @@ internal static class TreeMutationBinding
     /// set of mutation records.
     /// </para>
     /// </remarks>
-    public static JSValue ReplaceChildren(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue ReplaceChildren(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        var nodes = a.Length == 0 ? [] : host.BuildChildNodeArgumentNodes(a);
+        var nodes = call.Length == 0 ? [] : host.BuildChildNodeArgumentNodes(call.Arguments);
 
         for (var index = element.ChildNodes.Count - 1; index >= 0; index--)
         {
@@ -194,18 +214,18 @@ internal static class TreeMutationBinding
         foreach (var node in nodes)
             host.InsertNodeAt(element, node, insertIndex++);
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    public static JSValue RemoveChild(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue RemoveChild(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        if (a.Length == 0)
-            return JSUndefined.Value;
-        if (a[0] is not JSObject childObj)
-            return JSUndefined.Value;
-        var childEl = host.FindDomNodeByJSObject(childObj);
+        if (call.Length == 0)
+            return JsValue.Undefined;
+        if (!call[0].IsObject)
+            return JsValue.Undefined;
+        var childEl = host.FindNode(call[0]);
         if (childEl == null)
-            return a[0];
+            return call[0];
         var idx = DomBridge.ChildIndexOf(element, childEl);
         if (idx < 0)
         {
@@ -215,7 +235,7 @@ internal static class TreeMutationBinding
             // here told the caller the removal had happened. Code that removes a node and then
             // re-parents the returned value silently operated on a node still attached to its
             // original parent.
-            ThrowNotFoundError(host, "removeChild",
+            throw NotFoundError(call.Realm, "removeChild",
                 "The node to be removed is not a child of this node.");
         }
         host.NotifyNodeIteratorPreRemoval(childEl);
@@ -223,32 +243,32 @@ internal static class TreeMutationBinding
         DomBridge.SetParent(childEl, null);
         host.InvalidateStyleScope(element);
         host.NotifyChildRemoved(element, childEl, idx, null, null);
-        return a[0];
+        return call[0];
     }
 
-    public static JSValue ReplaceChild(ITreeMutationHost host, DomElement element, in Arguments a)
+    public static JsValue ReplaceChild(ITreeMutationHost host, DomElement element, in JsCall call)
     {
-        if (a.Length < 2)
-            return JSUndefined.Value;
-        if (a[0] is not JSObject newChildObj || a[1] is not JSObject oldChildObj)
-            return JSUndefined.Value;
-        var newEl = host.FindDomNodeByJSObject(newChildObj);
-        var oldEl = host.FindDomNodeByJSObject(oldChildObj);
+        if (call.Length < 2)
+            return JsValue.Undefined;
+        if (!call[0].IsObject || !call[1].IsObject)
+            return JsValue.Undefined;
+        var newEl = host.FindNode(call[0]);
+        var oldEl = host.FindNode(call[1]);
         if (newEl == null || oldEl == null)
-            return a[1];
+            return call[1];
         // Prevent circular references (HierarchyRequestError per DOM spec)
         if (ReferenceEquals(newEl, element) || element.IsDescendantOf(newEl))
-            DomBridge.ThrowDOMException(host.JsContext!, "The new child element contains the parent.", "HierarchyRequestError");
+            throw call.Realm.DomError("HierarchyRequestError", "The new child element contains the parent.");
         var idx = DomBridge.ChildIndexOf(element, oldEl);
         if (idx < 0)
         {
             // Same rule for replaceChild (DOM §4.2.3 replace: "If child's parent is not parent, then
             // throw a NotFoundError DOMException"), and the same misleading shape — it returned
-            // a[1], which is what a successful replaceChild returns. This check is before any
+            // call[1], which is what a successful replaceChild returns. This check is before any
             // mutation, which is where the specification puts the validation; the defensive re-check
             // further down runs after newEl has already been detached, so it keeps returning rather
             // than throwing out of a half-finished mutation.
-            ThrowNotFoundError(host, "replaceChild",
+            throw NotFoundError(call.Realm, "replaceChild",
                 "The node to be replaced is not a child of this node.");
         }
         var previousSibling = idx > 0 ? DomBridge.ChildAt(element, idx - 1) : null;
@@ -259,7 +279,7 @@ internal static class TreeMutationBinding
             DomBridge.RemoveChildFrom(element, newEl);
             idx = DomBridge.ChildIndexOf(element, oldEl);
             if (idx < 0)
-                return a[1];
+                return call[1];
         }
         else
         {
@@ -285,6 +305,6 @@ internal static class TreeMutationBinding
         host.InvalidateStyleScope(element);
         host.NotifyChildRemoved(element, oldEl, idx, previousSibling, nextSibling);
         host.NotifyChildAdded(element, newEl, idx);
-        return a[1]; // returns the old child
+        return call[1]; // returns the old child
     }
 }

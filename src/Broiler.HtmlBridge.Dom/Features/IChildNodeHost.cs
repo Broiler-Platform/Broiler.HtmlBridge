@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using Broiler.Dom;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -12,9 +12,22 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// (<c>ParentEl</c>, <c>ChildIndexOf</c>, <c>RemoveNthChild</c>, <c>SetParent</c>) stay the bridge's
 /// <c>internal static</c> helpers, called directly.
 /// </summary>
+/// <remarks>
+/// The argument builder is declared once. It was briefly a pair, because the mixin's three installers
+/// did not share a call frame — two minted through the realm and read a <see cref="JsCall"/> while
+/// <c>DomBridge/ElementInterface.cs</c> handed over the engine's own argument frame — and both
+/// overloads forwarded into one reading. That installer has migrated, so the engine overload is gone
+/// and every caller reads the span below.
+/// </remarks>
 internal interface IChildNodeHost
 {
-    List<DomNode> BuildChildNodeArgumentNodes(in Arguments arguments);
+    /// <summary>
+    /// The nodes a <c>before</c>/<c>after</c>/<c>replaceWith</c> argument list denotes: a node argument
+    /// is its own wrapper's node (a <c>DocumentFragment</c> contributing its children), and anything
+    /// else is coerced to a string and minted as a text node.
+    /// </summary>
+    List<DomNode> BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments);
+
     void InsertNodeAt(DomNode parent, DomNode node, int index);
     void InvalidateStyleScope(DomElement anchor);
     void NotifyNodeIteratorPreRemoval(DomNode node);

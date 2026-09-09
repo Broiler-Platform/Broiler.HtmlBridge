@@ -1,10 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Engine;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.Dom;
 
@@ -16,10 +10,19 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// authority) and co-locates the whole feature: the JS-side <c>MutationObserver</c> polyfill and
 /// its host bridge functions, the <c>observe()</c>/<c>disconnect()</c> registration callbacks, the
 /// option parsing, and the childList/attribute/characterData record delivery. It depends only on
-/// the narrow <see cref="IMutationObserverHost"/> contract (JS-wrapper identity + node lookup); the
-/// bridge's mutation path calls the three <c>Deliver…</c> methods, and lifetime reset calls
-/// <see cref="Clear"/>.
+/// the narrow <see cref="IMutationObserverHost"/> contract (realm + JS-wrapper identity + node
+/// lookup); the bridge's mutation path calls the three <c>Deliver…</c> methods, and lifetime reset
+/// calls <see cref="Clear"/>.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
+/// type. Two seams moved rather than disappeared: the polyfill is <em>host</em> script — this
+/// repository authored it and a page's Content-Security-Policy has no say over it — so it runs
+/// through <see cref="IJsSource.EvaluateHostScript"/> rather than the guest-source entry point; and
+/// the two <c>__broiler…MutationObserver</c> host functions are installed on
+/// <see cref="IJsRealm.Global"/>, which is the object the script context they were written against
+/// already is under this engine.
+/// </remarks>
 internal sealed class MutationObserverBinding(IMutationObserverHost host)
 {
     private readonly IMutationObserverHost _host = host;
@@ -42,14 +45,25 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
     /// (<c>__broilerRegisterMutationObserver</c>/<c>__broilerUnregisterMutationObserver</c>) it
     /// drives.
     /// </summary>
-    internal void RegisterDocumentApis(JSContext context)
+    internal void RegisterDocumentApis()
     {
-        var registerMutationObserverFn = new DomFunction((in a) => RegisterObserver(in a), "__broilerRegisterMutationObserver", 3);
-        var unregisterMutationObserverFn = new DomFunction((in a) => UnregisterObserver(in a), "__broilerUnregisterMutationObserver", 1);
-        context["__broilerRegisterMutationObserver"] = registerMutationObserverFn;
-        context["__broilerUnregisterMutationObserver"] = unregisterMutationObserverFn;
+        var realm = _host.Realm;
+
+        realm.SetProperty(realm.Global, "__broilerRegisterMutationObserver",
+            realm.NewMethod("__broilerRegisterMutationObserver", RegisterObserver, 3));
+        realm.SetProperty(realm.Global, "__broilerUnregisterMutationObserver",
+            realm.NewMethod("__broilerUnregisterMutationObserver", UnregisterObserver, 1));
+
         // MutationObserver — DOM Level 4
-        context.Eval(@"
+        realm.EvaluateHostScript(MutationObserverPolyfill, "polyfill:mutation-observer");
+    }
+
+    /// <summary>
+    /// The JS half of the feature: the constructor a page calls, the three prototype operations it
+    /// exposes, and the <c>_notify</c> hook the host delivery path invokes. Host script — authored
+    /// here, shipped here, and not subject to the page's Content-Security-Policy.
+    /// </summary>
+    private const string MutationObserverPolyfill = @"
                 function MutationObserver(callback) {
                     this._callback = callback;
                     this._targets = [];
@@ -84,20 +98,22 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
                         try { this._callback(pending, this); } catch(e) {}
                     }
                 };
-            ");
-    }
+            ";
 
-    private JSValue RegisterObserver(in Arguments a)
+    private JsValue RegisterObserver(in JsCall call)
     {
-        if (a.Length < 2 || a[0] is not JSObject observerObject || a[1] is not JSObject targetObject)
-            return JSUndefined.Value;
+        if (call.Length < 2 || !call[0].IsObject || !call[1].IsObject)
+            return JsValue.Undefined;
         // A MutationObserver can observe a character-data node (characterData mutations).
-        var target = _host.FindDomNodeByJSObject(targetObject);
+        var target = _host.FindNode(call[1]);
         if (target == null)
-            return JSUndefined.Value;
+            return JsValue.Undefined;
         EnsureSubscribed(target.OwnerDocument);
-        _hub.Register(observerObject, target, CreateMutationObserverOptions(a.Length > 2 ? a[2] : JSUndefined.Value));
-        return JSUndefined.Value;
+        // call[2] is Missing when observe() passed no options — which CreateMutationObserverOptions
+        // reads as "not an object" and answers with the all-false default, exactly as the explicit
+        // `a.Length > 2 ? a[2] : undefined` did.
+        _hub.Register(call[0], target, CreateMutationObserverOptions(call.Realm, call[2]));
+        return JsValue.Undefined;
     }
 
     // -------- Canonical mutation subscription --------
@@ -143,35 +159,37 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
         }
     }
 
-    private JSValue UnregisterObserver(in Arguments a)
+    private JsValue UnregisterObserver(in JsCall call)
     {
-        if (a.Length > 0 && a[0] is JSObject observerObject)
-            _hub.Unregister(observerObject);
-        return JSUndefined.Value;
+        if (call.Length > 0 && call[0].IsObject)
+            _hub.Unregister(call[0]);
+        return JsValue.Undefined;
     }
 
-    private static bool GetMutationObserverOption(JSObject optionsObject, string propertyName)
+    /// <summary>
+    /// One boolean member of a <c>MutationObserverInit</c>. Absent, <c>null</c> and <c>undefined</c>
+    /// all read false; anything else is ECMAScript truthiness, which the handle decides without
+    /// entering the engine — the same answer <c>BooleanValue</c> gave.
+    /// </summary>
+    private static bool GetMutationObserverOption(IJsRealm realm, JsValue optionsObject, string propertyName)
     {
-        var optionValue = optionsObject[(KeyString)propertyName];
-        return optionValue != null &&
-               !optionValue.IsUndefined &&
-               !optionValue.IsNull &&
-               optionValue.BooleanValue;
+        var optionValue = realm.GetProperty(optionsObject, propertyName);
+        return !optionValue.IsNullish && optionValue.AsBoolean;
     }
 
-    private static DomMutationObserverOptions CreateMutationObserverOptions(JSValue? value)
+    private static DomMutationObserverOptions CreateMutationObserverOptions(IJsRealm realm, JsValue value)
     {
-        if (value is not JSObject optionsObject)
+        if (!value.IsObject)
             return new DomMutationObserverOptions();
 
         return new DomMutationObserverOptions
         {
-            ChildList = GetMutationObserverOption(optionsObject, "childList"),
-            Attributes = GetMutationObserverOption(optionsObject, "attributes"),
-            AttributeOldValue = GetMutationObserverOption(optionsObject, "attributeOldValue"),
-            CharacterData = GetMutationObserverOption(optionsObject, "characterData"),
-            CharacterDataOldValue = GetMutationObserverOption(optionsObject, "characterDataOldValue"),
-            Subtree = GetMutationObserverOption(optionsObject, "subtree")
+            ChildList = GetMutationObserverOption(realm, value, "childList"),
+            Attributes = GetMutationObserverOption(realm, value, "attributes"),
+            AttributeOldValue = GetMutationObserverOption(realm, value, "attributeOldValue"),
+            CharacterData = GetMutationObserverOption(realm, value, "characterData"),
+            CharacterDataOldValue = GetMutationObserverOption(realm, value, "characterDataOldValue"),
+            Subtree = GetMutationObserverOption(realm, value, "subtree")
         };
     }
 
@@ -184,32 +202,34 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
         if (_hub.Count == 0)
             return;
 
+        var realm = _host.Realm;
         var mutation = new DomMutationRecord(DomMutationType.ChildList, target);
         foreach (var (observer, observedTarget, options) in _hub.Snapshot())
         {
             if (!DomMutationObserverFilter.Matches(mutation, observedTarget, options))
                 continue;
 
-            if (observer[(KeyString)"_notify"] is not JSFunction notifyFunction)
+            var notifyFunction = realm.GetProperty(observer, "_notify");
+            if (!notifyFunction.IsFunction)
                 continue;
 
-            var record = new JSObject();
-            record[(KeyString)"type"] = new JSString("childList");
-            record[(KeyString)"target"] = _host.ToJSObject(target);
-            record[(KeyString)"addedNodes"] = addedChild != null
-                ? new JSArray([_host.ToJSObject(addedChild)])
-                : new JSArray([]);
-            record[(KeyString)"removedNodes"] = removedChild != null
-                ? new JSArray([_host.ToJSObject(removedChild)])
-                : new JSArray([]);
-            record[(KeyString)"previousSibling"] = previousSibling != null
-                ? _host.ToJSObject(previousSibling)
-                : JSNull.Value;
-            record[(KeyString)"nextSibling"] = nextSibling != null
-                ? _host.ToJSObject(nextSibling)
-                : JSNull.Value;
+            var record = realm.NewObject();
+            realm.SetProperty(record, "type", JsValue.String("childList"));
+            realm.SetProperty(record, "target", _host.WrapNode(target));
+            realm.SetProperty(record, "addedNodes", addedChild != null
+                ? realm.NewArray([_host.WrapNode(addedChild)])
+                : realm.NewArray());
+            realm.SetProperty(record, "removedNodes", removedChild != null
+                ? realm.NewArray([_host.WrapNode(removedChild)])
+                : realm.NewArray());
+            realm.SetProperty(record, "previousSibling", previousSibling != null
+                ? _host.WrapNode(previousSibling)
+                : JsValue.Null);
+            realm.SetProperty(record, "nextSibling", nextSibling != null
+                ? _host.WrapNode(nextSibling)
+                : JsValue.Null);
 
-            notifyFunction.InvokeFunction(new Arguments(observer, new JSArray([record])));
+            realm.Invoke(notifyFunction, observer, [realm.NewArray([record])]);
         }
     }
 
@@ -219,24 +239,26 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
         if (_hub.Count == 0)
             return;
 
+        var realm = _host.Realm;
         var mutation = new DomMutationRecord(DomMutationType.Attributes, target, AttributeName: attributeName);
         foreach (var (observer, observedTarget, options) in _hub.Snapshot())
         {
             if (!DomMutationObserverFilter.Matches(mutation, observedTarget, options))
                 continue;
 
-            if (observer[(KeyString)"_notify"] is not JSFunction notifyFunction)
+            var notifyFunction = realm.GetProperty(observer, "_notify");
+            if (!notifyFunction.IsFunction)
                 continue;
 
-            var record = new JSObject();
-            record[(KeyString)"type"] = new JSString("attributes");
-            record[(KeyString)"target"] = _host.ToJSObject(target);
-            record[(KeyString)"attributeName"] = new JSString(attributeName);
-            record[(KeyString)"oldValue"] = options.AttributeOldValue && oldValue != null
-                ? new JSString(oldValue)
-                : JSNull.Value;
+            var record = realm.NewObject();
+            realm.SetProperty(record, "type", JsValue.String("attributes"));
+            realm.SetProperty(record, "target", _host.WrapNode(target));
+            realm.SetProperty(record, "attributeName", JsValue.String(attributeName));
+            realm.SetProperty(record, "oldValue", options.AttributeOldValue && oldValue != null
+                ? JsValue.String(oldValue)
+                : JsValue.Null);
 
-            notifyFunction.InvokeFunction(new Arguments(observer, new JSArray([record])));
+            realm.Invoke(notifyFunction, observer, [realm.NewArray([record])]);
         }
     }
 
@@ -246,23 +268,25 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
         if (_hub.Count == 0)
             return;
 
+        var realm = _host.Realm;
         var mutation = new DomMutationRecord(DomMutationType.CharacterData, target);
         foreach (var (observer, observedTarget, options) in _hub.Snapshot())
         {
             if (!DomMutationObserverFilter.Matches(mutation, observedTarget, options))
                 continue;
 
-            if (observer[(KeyString)"_notify"] is not JSFunction notifyFunction)
+            var notifyFunction = realm.GetProperty(observer, "_notify");
+            if (!notifyFunction.IsFunction)
                 continue;
 
-            var record = new JSObject();
-            record[(KeyString)"type"] = new JSString("characterData");
-            record[(KeyString)"target"] = _host.ToJSObject(target);
-            record[(KeyString)"oldValue"] = options.CharacterDataOldValue && oldValue != null
-                ? new JSString(oldValue)
-                : JSNull.Value;
+            var record = realm.NewObject();
+            realm.SetProperty(record, "type", JsValue.String("characterData"));
+            realm.SetProperty(record, "target", _host.WrapNode(target));
+            realm.SetProperty(record, "oldValue", options.CharacterDataOldValue && oldValue != null
+                ? JsValue.String(oldValue)
+                : JsValue.Null);
 
-            notifyFunction.InvokeFunction(new Arguments(observer, new JSArray([record])));
+            realm.Invoke(notifyFunction, observer, [realm.NewArray([record])]);
         }
     }
 

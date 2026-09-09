@@ -1,12 +1,5 @@
-using System;
-using System.Collections.Generic;
 using Broiler.Dom;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Array;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -14,11 +7,20 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// Phase 3 feature module for the DOM <c>Element</c> selector API — <c>querySelector</c>,
 /// <c>querySelectorAll</c>, <c>matches</c>, <c>closest</c> and <c>getElementsByTagName</c>. These were the
 /// bridge's <c>JsJsObjectsQuerySelector126Core</c>..<c>Closest129Core</c> and
-/// <c>GetElementsByTagName133Core</c> callbacks; the descendant selector search, the by-tag collector and
-/// the JS-wrapper factory reach the bridge through <see cref="ISelectorsHost"/>, while selector matching
-/// (<c>MatchesSelector</c>) and the element-parent walk (<c>ParentEl</c>) are the bridge's
-/// <c>internal static</c> helpers, called directly.
+/// <c>GetElementsByTagName133Core</c> callbacks; selector validation, the descendant selector search, the
+/// two live element collections and the JS-wrapper factory reach the bridge through
+/// <see cref="ISelectorsHost"/>, while selector matching (<c>MatchesSelector</c>) is a host member too
+/// and the element-parent walk (<c>ParentEl</c>) is the bridge's <c>internal static</c> helper, called
+/// directly.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type.
+/// The one thing that moved <em>out</em> is the argument read: each entry point takes the string its
+/// caller has already produced, because the registration site in <c>DomBridge.ElementInterface.cs</c>
+/// has not migrated and its call frame is still an engine one. The coercion is unchanged — it is the
+/// same ECMAScript <c>ToString</c> on the same argument — and it moves back in here as
+/// <c>call.Realm.ToJsString(call[0])</c> when that site migrates.
+/// </remarks>
 internal static class SelectorsBinding
 {
     /// <summary>
@@ -32,40 +34,38 @@ internal static class SelectorsBinding
     /// reached directly by the <c>DocumentFragment</c> forms and has to stand on its own; the second
     /// scan of a short string is not worth removing the redundancy for.
     /// </remarks>
-    private static string Selector(ISelectorsHost host, in Arguments a)
+    private static string Selector(ISelectorsHost host, string selector)
     {
-        var selector = a.Length > 0 ? a[0].ToString() : string.Empty;
-        DomBridge.ValidateSelector(selector, host.JsContext);
+        host.ValidateSelector(selector);
         return selector;
     }
 
-    public static JSValue QuerySelector(ISelectorsHost host, DomElement element, in Arguments a) =>
-        host.FindInDescendants(element, Selector(host, in a), false);
+    public static JsValue QuerySelector(ISelectorsHost host, DomElement element, string selector) =>
+        host.FindInDescendants(element, Selector(host, selector), false);
 
-    public static JSValue QuerySelectorAll(ISelectorsHost host, DomElement element, in Arguments a) =>
-        host.FindInDescendants(element, Selector(host, in a), true);
+    public static JsValue QuerySelectorAll(ISelectorsHost host, DomElement element, string selector) =>
+        host.FindInDescendants(element, Selector(host, selector), true);
 
-    public static JSValue Matches(ISelectorsHost host, DomElement element, in Arguments a)
+    public static JsValue Matches(ISelectorsHost host, DomElement element, string selector)
     {
-        var sel = Selector(host, in a);
-        return !DomApiSyntax.CarriesPseudoElement(sel) && host.MatchesSelector(element, sel, element)
-            ? JSBoolean.True
-            : JSBoolean.False;
+        var sel = Selector(host, selector);
+        return JsValue.Boolean(
+            !DomApiSyntax.CarriesPseudoElement(sel) && host.MatchesSelector(element, sel, element));
     }
 
-    public static JSValue Closest(ISelectorsHost host, DomElement element, in Arguments a)
+    public static JsValue Closest(ISelectorsHost host, DomElement element, string selector)
     {
-        var sel = Selector(host, in a);
+        var sel = Selector(host, selector);
         if (DomApiSyntax.CarriesPseudoElement(sel))
-            return JSNull.Value;
+            return JsValue.Null;
 
         for (DomElement? current = element; current != null && !current.TagName.StartsWith('#'); current = DomBridge.ParentEl(current))
         {
             if (host.MatchesSelector(current, sel, element))
-                return host.ToJSObject(current);
+                return host.ToWrapper(current);
         }
 
-        return JSNull.Value;
+        return JsValue.Null;
     }
 
     /// <summary>
@@ -74,43 +74,8 @@ internal static class SelectorsBinding
     /// <c>for (var i = 0; i &lt; items.length; i++)</c> over a list the body mutates — walked a
     /// different collection than a browser walks.
     /// </summary>
-    public static JSValue GetElementsByTagName(ISelectorsHost host, DomElement element, in Arguments a)
-    {
-        var tagSearch = a.Length > 0 ? a[0].ToString().ToLowerInvariant() : string.Empty;
-        return LiveCollection(host, () =>
-        {
-            var results = new List<JSValue>();
-            host.CollectElementsByTagName(element, tagSearch, results);
-            return results;
-        });
-    }
-
-    /// <summary>
-    /// An <c>HTMLCollection</c> over <paramref name="contents"/>, with the named getter DOM
-    /// §4.2.10.2 gives one: a lookup answers the first element whose <c>id</c> — or, for the
-    /// elements HTML names, whose <c>name</c> — matches.
-    /// </summary>
-    private static JSValue LiveCollection(ISelectorsHost host, Func<List<JSValue>> contents) =>
-        DomCollectionBinding.HtmlCollection(host.JsContext, contents, name => NamedItem(host, contents, name));
-
-    private static JSValue? NamedItem(ISelectorsHost host, Func<List<JSValue>> contents, string name)
-    {
-        if (name.Length == 0)
-            return null;
-
-        foreach (var candidate in contents())
-        {
-            if (candidate is JSObject wrapper &&
-                (Matches(wrapper, "id", name) || Matches(wrapper, "name", name)))
-                return wrapper;
-        }
-
-        return null;
-
-        static bool Matches(JSObject wrapper, string attribute, string name) =>
-            wrapper[(KeyString)attribute] is JSString value &&
-            string.Equals(value.ToString(), name, StringComparison.Ordinal);
-    }
+    public static JsValue GetElementsByTagName(ISelectorsHost host, DomElement element, string name) =>
+        host.ElementsByTagName(element, name.ToLowerInvariant());
 
     /// <summary>
     /// <c>element.getElementsByClassName(names)</c> — DOM §4.9 defines it on <c>Element</c> as well as
@@ -119,14 +84,6 @@ internal static class SelectorsBinding
     /// whole script. google.com's One-Google-bar bundle scopes its lookups to a container that way —
     /// <c>d.getElementsByClassName("gb_C")[0]||d</c> — so it died there.
     /// </summary>
-    public static JSValue GetElementsByClassName(ISelectorsHost host, DomElement element, in Arguments a)
-    {
-        var classNames = a.Length > 0 ? a[0].ToString() : string.Empty;
-        return LiveCollection(host, () =>
-        {
-            var results = new List<JSValue>();
-            host.CollectElementsByClassName(element, classNames, results);
-            return results;
-        });
-    }
+    public static JsValue GetElementsByClassName(ISelectorsHost host, DomElement element, string classNames) =>
+        host.ElementsByClassName(element, classNames);
 }

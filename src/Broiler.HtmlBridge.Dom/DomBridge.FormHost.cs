@@ -1,6 +1,7 @@
-using Broiler.JavaScript.Runtime;
-using Broiler.HtmlBridge.Dom.Features;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Dom.Features;
+using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -10,9 +11,18 @@ namespace Broiler.HtmlBridge;
 /// (HtmlBridge complexity-reduction roadmap Phase 3, P3.9). Explicit interface member, so it does not
 /// widen the public <c>DomBridge</c> surface.
 /// </summary>
+/// <remarks>
+/// This is the half-migrated seam for the form slice: the module speaks JSEAL, the rest of the bridge
+/// still holds engine objects, and <see cref="Dom.Runtime.JsInterop"/> is the cast between them. It
+/// is a cast and not a conversion — a JSEAL object handle carries the engine's own object — so
+/// wrapper identity (<c>form.q === form.elements.q</c>, and the weak tables keyed on it) is the same
+/// question it was before.
+/// </remarks>
 public sealed partial class DomBridge : IFormHost
 {
-    JSObject IFormHost.ToJSObject(DomNode node) => ToJSObject(node);
+    IJsRealm IFormHost.Realm => Realm;
+
+    JsValue IFormHost.WrapNode(DomNode node) => JsInterop.FromEngineObject(ToJSObject(node));
 
     void IFormHost.ResetForm(DomElement form) => ResetFormControls(form);
 

@@ -1,12 +1,10 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.Dom;
 using Broiler.CSS;
+using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
+
+// Engine-typed only for the BuildStyleSheetObject adapter at the foot of this file, whose return type is
+// fixed by the unmigrated IDocumentCollectionHost / ISubDocumentHost contracts (neither owned this round).
+using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -21,7 +19,7 @@ namespace Broiler.HtmlBridge;
 public sealed partial class DomBridge
 {
     /// <summary>Cache for stylesheet objects, keyed by the owning style element.</summary>
-    private readonly Dictionary<DomElement, JSObject> _styleSheetCache = [];
+    private readonly Dictionary<DomElement, JsValue> _styleSheetCache = [];
 
     /// <summary>
     /// Whether the element has an associated CSS style sheet, and so belongs in a document's
@@ -98,45 +96,62 @@ public sealed partial class DomBridge
     /// <c>&lt;base href&gt;</c>. An inline <c>&lt;style&gt;</c>, and a <c>&lt;link&gt;</c> with a
     /// blank href, have no location and answer <c>null</c>.
     /// </summary>
-    private JSValue StyleSheetHrefValue(DomElement element) =>
+    private JsValue StyleSheetHrefValue(DomElement element) =>
         IsExternalStylesheet(element) &&
         TryGetAttribute(element, "href", out var href) &&
         !string.IsNullOrWhiteSpace(href)
-            ? new JSString(ResolveStyleSheetLinkUrl(href))
-            : JSNull.Value;
+            ? JsValue.String(ResolveStyleSheetLinkUrl(href))
+            : JsValue.Null;
 
     /// <summary>
-    /// Builds a CSSStyleSheet JSObject for a style element.
+    /// The <c>CSSStyleSheet</c> for a style element, for a caller that still holds engine objects.
+    /// </summary>
+    /// <remarks>
+    /// The adapter that keeps <c>Features/IDocumentCollectionHost.cs</c>,
+    /// <c>Features/ISubDocumentHost.cs</c> and their implementations compiling untouched — none is owned
+    /// this round, and all three declare this return type. It is a cast and not a conversion (see
+    /// <see cref="Dom.Runtime.JsInterop"/>), so the object handed over is the cached one and sheet
+    /// identity is the same question it was.
+    /// </remarks>
+    private JSObject BuildStyleSheetObject(DomElement styleElement) =>
+        Dom.Runtime.JsInterop.ToEngineObject(BuildStyleSheet(styleElement));
+
+    /// <summary>
+    /// Builds a CSSStyleSheet object for a style element.
     /// Cached per style element to ensure identity (the same object is returned
     /// each time, making cssRules a live collection per the CSSOM spec).
     /// </summary>
-    private JSObject BuildStyleSheetObject(DomElement styleElement)
+    private JsValue BuildStyleSheet(DomElement styleElement)
     {
         if (_styleSheetCache.TryGetValue(styleElement, out var cached))
             return cached;
 
-        var sheet = new JSObject();
+        var realm = Realm;
+        var sheet = realm.NewObject();
 
-        // ownerNode
-        sheet.FastAddProperty("ownerNode", new DomFunction((in _) => ToJSObject(styleElement), "get ownerNode"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        // ownerNode — the wrapper factory keeps its engine-shaped name because DomBridge/Utilities.cs,
+        // which owns the wrapper cache, has not migrated; the handle over what it returns is the same
+        // object, so sheet.ownerNode === el still holds.
+        realm.DefineAccessor(sheet, "ownerNode",
+            (in _) => Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(styleElement)), null);
 
         // href — CSSOM §2.1 StyleSheet.href: the location of the sheet, null for an inline
         // <style>. It was null for a linked sheet too, so a <link> presented itself in
         // document.styleSheets as an inline sheet that happened to have no rules. A live getter
         // rather than a captured value: the sheet object is cached per element for identity, and a
         // script can re-point the link at another href afterwards.
-        sheet.FastAddProperty("href",
-            new DomFunction((in _) => StyleSheetHrefValue(styleElement), "get href"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(sheet, "href", (in _) => StyleSheetHrefValue(styleElement), null);
 
         // disabled — CSSOM StyleSheet.disabled. A true value prevents the sheet from
         // applying (CSSOM §2.3). Getting reads the effective state (script flag, else the
         // <link disabled> content attribute); setting stores the script flag and re-cascades.
-        sheet.FastAddProperty("disabled",
-            new DomFunction((in _) => IsStyleSheetDisabled(styleElement) ? JSBoolean.True : JSBoolean.False, "get disabled"),
-            new DomFunction((in a) => { SetStyleSheetDisabledFlag(styleElement, a.Length > 0 && a[0].BooleanValue); return JSUndefined.Value; }, "set disabled"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(sheet, "disabled",
+            (in _) => JsValue.Boolean(IsStyleSheetDisabled(styleElement)),
+            (in call) =>
+            {
+                SetStyleSheetDisabledFlag(styleElement, call.Length > 0 && call[0].AsBoolean);
+                return JsValue.Undefined;
+            });
 
         // Internal rules storage for this stylesheet — the single shared, mutable
         // Broiler.CSS rule model held in the element's runtime state (Phase 6 store
@@ -147,16 +162,15 @@ public sealed partial class DomBridge
         void MarkRulesMutated() => StyleSheetStateFor(styleElement).RulesMutated = true;
 
         // Live cssRules object — single instance that always reflects current state
-        var liveCssRules = new JSObject();
+        var liveCssRules = realm.NewObject();
         var lastSyncedRuleCount = 0;
         // length is a live getter that always reflects the current rule count
-        liveCssRules.FastAddProperty("length",
-            new DomFunction((in _) => Dom.Features.StyleSheetBinding.JsStyleSheetsGetLength002Core(CurrentRules, in _), "get length"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(liveCssRules, "length",
+            (in _) => Dom.Features.StyleSheetBinding.JsStyleSheetsGetLength002Core(CurrentRules), null);
 
-        liveCssRules.FastAddValue("item",
-            new DomFunction((in a) => Dom.Features.StyleSheetBinding.JsStyleSheetsItem003Core(SyncLiveCssRulesIndices, liveCssRules, CurrentRules, in a), "item", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(liveCssRules, "item",
+            realm.NewMethod("item",
+                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsItem003Core(SyncLiveCssRulesIndices, liveCssRules, CurrentRules, in call), 1));
 
         // Syncs indexed properties on the live cssRules object with the shared model
         void SyncLiveCssRulesIndices()
@@ -164,31 +178,32 @@ public sealed partial class DomBridge
             var rules = CurrentRules();
             for (var i = 0; i < rules.Count; i++)
             {
-                var ruleObj = Dom.Features.StyleSheetBinding.BuildCssRuleObject(rules[i], sheet);
-                liveCssRules[(uint)i] = ruleObj;
+                var ruleObj = Dom.Features.StyleSheetBinding.BuildCssRuleObject(realm, rules[i], sheet);
+                realm.DefineIndex(liveCssRules, (uint)i, ruleObj);
             }
 
+            // Retiring an index is the one CSSOM operation JSEAL cannot express; see
+            // StyleSheetBinding.RetireIndex, which is where the reasoning lives.
             for (var i = rules.Count; i < lastSyncedRuleCount; i++)
-                liveCssRules.GetElements().RemoveAt((uint)i);
+                Dom.Features.StyleSheetBinding.RetireIndex(liveCssRules, (uint)i);
 
             lastSyncedRuleCount = rules.Count;
         }
 
         // cssRules — returns the live collection, syncing indices on access
-        sheet.FastAddProperty("cssRules",
-            new DomFunction((in _) => Dom.Features.StyleSheetBinding.JsStyleSheetsGetCssRules004Core(SyncLiveCssRulesIndices, liveCssRules, in _), "get cssRules"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(sheet, "cssRules",
+            (in _) => Dom.Features.StyleSheetBinding.JsStyleSheetsGetCssRules004Core(SyncLiveCssRulesIndices, liveCssRules), null);
 
         // insertRule(rule, index) — mutates the shared model (marking it mutated so
         // the renderer/engine serialize from it) and resyncs the live collection
-        sheet.FastAddValue("insertRule",
-            new DomFunction((in a) => Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in a), "insertRule", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(sheet, "insertRule",
+            realm.NewMethod("insertRule",
+                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call), 2));
 
         // deleteRule(index) — removes a rule from the shared model
-        sheet.FastAddValue("deleteRule",
-            new DomFunction((in a) => Dom.Features.StyleSheetBinding.JsStyleSheetsDeleteRule006Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in a), "deleteRule", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(sheet, "deleteRule",
+            realm.NewMethod("deleteRule",
+                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsDeleteRule006Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call), 1));
 
         _styleSheetCache[styleElement] = sheet;
         return sheet;

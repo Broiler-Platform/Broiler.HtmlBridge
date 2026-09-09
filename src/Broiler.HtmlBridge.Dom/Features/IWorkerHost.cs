@@ -1,5 +1,5 @@
 using System;
-using Broiler.JavaScript.Engine;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -16,8 +16,18 @@ internal readonly record struct WorkerScript(string Source, string? BaseDirector
 /// </summary>
 internal interface IWorkerHost
 {
-    /// <summary>The page's JS execution context (<c>null</c> before attach).</summary>
-    JSContext? JsContext { get; }
+    /// <summary>
+    /// The page's realm (<see langword="null"/> before attach, and again after teardown).
+    /// </summary>
+    /// <remarks>
+    /// It replaces the former <c>JsContext</c> seam, which the module used for two things:
+    /// raising a <c>DOMException</c>, which <see cref="IJsCalls.DomError"/> now owns, and telling
+    /// "attached" from "not attached". Nullable rather than throwing, because the second use is
+    /// load-bearing here in a way it is not for the other feature modules: a worker thread can call
+    /// back while the bridge is tearing down, and a message that arrives then is dropped rather than
+    /// turned into an exception on a thread that has nowhere to report it.
+    /// </remarks>
+    IJsRealm? Realm { get; }
 
     /// <summary>
     /// Queues <paramref name="callback"/> on the page's event loop. Called from worker threads, so

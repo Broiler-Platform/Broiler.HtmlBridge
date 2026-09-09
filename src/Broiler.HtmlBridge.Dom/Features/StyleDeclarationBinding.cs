@@ -1,11 +1,6 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.Dom;
 using Broiler.CSS;
+using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -19,16 +14,40 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// It is the cleanest kind of slice: pure CSSOM-IDL logic over an inline-style dictionary and the
 /// canonical <see cref="Broiler.CSS.CssPropertyNames"/>/<see cref="Broiler.CSS.CssPriority"/> helpers, so
-/// — like <see cref="ClassListBinding"/> — it is an <b>internal static class with no host contract</b>.
-/// The map <em>production</em> (the inline-style store, the engine cascade for computed style) and the
-/// invalidation side effects stay in the bridge: callers pass the computed map, an <c>onMutation</c>
-/// callback and (for inline declarations) an <c>onPositionAreaInvalidate</c> callback that clears the
-/// bridge-instance position-area memo, and the module reaches the shared inline-style store and the
-/// "set via JS" bookkeeping through the neutral static <c>DomBridge</c> helpers (<c>InlineStyle</c>,
-/// <c>ParseStyle</c>, <c>IsAcceptableInlineValue</c>, <c>ExpandCssShorthands</c>,
-/// <c>Mark/Unmark/Clear/InlineStylePropsSetByJs</c>).
+/// — like <see cref="ClassListBinding"/> — it is an <b>internal static class with no host contract</b>
+/// beyond <see cref="IInlineStyleHost"/>. The map <em>production</em> (the inline-style store, the
+/// engine cascade for computed style) and the invalidation side effects stay in the bridge: callers pass
+/// the computed map, an <c>onMutation</c> callback and (for inline declarations) an
+/// <c>onPositionAreaInvalidate</c> callback that clears the bridge-instance position-area memo, and the
+/// module reaches the shared inline-style store and the "set via JS" bookkeeping through the neutral
+/// static <c>DomBridge</c> helpers (<c>InlineStyle</c>, <c>ParseStyle</c>, <c>IsAcceptableInlineValue</c>,
+/// <c>ExpandCssShorthands</c>, <c>Mark/Unmark/Clear/InlineStylePropsSetByJs</c>).
 /// </para>
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>The two writable declarations are <see cref="IJsExotic"/> handlers rather than engine
+/// subclasses.</b> <c>el.style.backgroundColor</c> and <c>el.style["background-color"]</c> address the
+/// same CSS property, which no fixed list of members can express, so the declaration used to derive from
+/// the engine's own object type and override its lookup protocol. It now declares the hook instead:
+/// <see cref="IJsRealm.NewExotic"/> takes the handler and the provider owns the protocol. The ordering
+/// the subclasses established is the ordering the contract mandates — <b>ordinary properties are
+/// consulted first and the handler answers only what they did not</b>, so a CSS property can never
+/// shadow <c>setProperty</c> — and a named <em>write</em> is offered to the handler first, because the
+/// declaration has to see the value before it becomes an ordinary property.
+/// </para>
+/// <para>
+/// <b>One widening, deliberate and reported.</b> The old <c>GetValue</c> answered the empty string for
+/// <em>any</em> name it did not otherwise resolve, so <c>el.style.notAProperty</c> is <c>""</c> rather
+/// than <c>undefined</c> — which is what a page's feature detection reads. Preserving that means
+/// <see cref="IJsExotic.TryGetNamed"/> always answers, and the same hook also backs <c>in</c> and
+/// <c>Object.getOwnPropertyDescriptor</c>, which the subclass did not override. Those two now answer for
+/// any name where they used to answer only for the declaration's own members. The alternative — declining
+/// unknown names — would turn every unresolved read into <c>undefined</c>, which is the far more
+/// load-bearing of the two. Enumeration is unaffected: <see cref="IJsExotic.SupportedNames"/> is empty,
+/// exactly as the subclass supplied no keys of its own.
+/// </para>
+/// </remarks>
 internal static partial class StyleDeclarationBinding
 {
     // Names that are JS methods / special properties on a declaration object, not CSS properties.
@@ -67,97 +86,82 @@ internal static partial class StyleDeclarationBinding
         return CssPropertyNames.ToCssPropertyName(domName);
     }
 
-    /// <summary>Builds the writable <c>element.style</c> CSSStyleDeclaration. Was
-    /// <c>DomBridge.BuildStyleObject(element, onMutation, parentRule)</c>.</summary>
-    internal static JSObject BuildInlineDeclaration(IInlineStyleHost host, DomElement element, Action? onMutation = null, JSValue? parentRule = null,
+    // -------- element.style (writable, inline-style store) --------
+
+    /// <summary>Builds the writable <c>element.style</c> CSSStyleDeclaration.</summary>
+    internal static JsValue BuildInlineDeclaration(IJsRealm realm, IInlineStyleHost host, DomElement element,
+        Action? onMutation = null, JsValue parentRule = default,
         Action<DomElement>? onPositionAreaInvalidate = null)
     {
-        var style = new CssStyleDeclaration(host, element, onMutation, onPositionAreaInvalidate);
+        var style = realm.NewExotic(new InlineDeclaration(realm, host, element, onMutation, onPositionAreaInvalidate));
 
-        style.FastAddProperty("cssText",
-            new DomFunction((in a) => InlineGetCssText(host, element, in a), "get cssText"),
-            new DomFunction((in a) => InlineSetCssText(host, element, onMutation, in a), "set cssText"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(style, "cssText",
+            (in _) => InlineGetCssText(host, element),
+            (in call) => InlineSetCssText(host, element, onMutation, in call));
 
-        style.FastAddValue("setProperty",
-            new DomFunction((in a) => InlineSetProperty(host, element, onMutation, in a), "setProperty", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(style, "setProperty",
+            realm.NewMethod("setProperty", (in call) => InlineSetProperty(host, element, onMutation, in call), 2));
 
-        style.FastAddValue("getPropertyValue",
-            new DomFunction((in a) => InlineGetPropertyValue(host, element, in a), "getPropertyValue", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(style, "getPropertyValue",
+            realm.NewMethod("getPropertyValue", (in call) => InlineGetPropertyValue(host, element, in call), 1));
 
-        style.FastAddValue("removeProperty",
-            new DomFunction((in a) => InlineRemoveProperty(host, element, onMutation, in a), "removeProperty", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(style, "removeProperty",
+            realm.NewMethod("removeProperty", (in call) => InlineRemoveProperty(host, element, onMutation, in call), 1));
 
-        style.FastAddProperty("cssFloat",
-            new DomFunction((in a) => InlineGetCssFloat(host, element, in a), "get cssFloat"),
-            new DomFunction((in a) => InlineSetCssFloat(host, element, onMutation, in a), "set cssFloat"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(style, "cssFloat",
+            (in _) => InlineGetCssFloat(host, element),
+            (in call) => InlineSetCssFloat(host, element, onMutation, in call));
 
-        style.FastAddProperty("length",
-            new DomFunction((in _) => new JSNumber(GetStylePropertyNames(host, element).Count), "get length"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(style, "length",
+            (in _) => JsValue.Number(GetStylePropertyNames(host, element).Count), null);
 
-        style.FastAddValue("item",
-            new DomFunction((in a) => InlineItem(host, element, in a), "item", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(style, "item",
+            realm.NewMethod("item", (in call) => InlineItem(host, element, in call), 1));
 
-        style.FastAddValue("getPropertyPriority",
-            new DomFunction((in a) => InlineGetPropertyPriority(host, element, in a), "getPropertyPriority", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(style, "getPropertyPriority",
+            realm.NewMethod("getPropertyPriority", (in call) => InlineGetPropertyPriority(host, element, in call), 1));
 
-        style.FastAddProperty("parentRule",
-            new DomFunction((in _) => parentRule ?? JSNull.Value, "get parentRule"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(style, "parentRule",
+            (in _) => parentRule.IsMissing ? JsValue.Null : parentRule, null);
 
         return style;
     }
 
     /// <summary>Builds the writable rule (<c>CSSRule.style</c>) CSSStyleDeclaration over a property map.
     /// Was <c>DomBridge.BuildStyleObject(styleMap, parentRule)</c>.</summary>
-    internal static JSObject BuildRuleDeclaration(Dictionary<string, string> styleMap, JSValue? parentRule = null)
+    internal static JsValue BuildRuleDeclaration(IJsRealm realm, Dictionary<string, string> styleMap,
+        JsValue parentRule = default)
     {
-        var style = new CssRuleStyleDeclaration(styleMap);
+        var style = realm.NewExotic(new RuleDeclaration(realm, styleMap));
 
-        style.FastAddProperty("cssText",
-            new DomFunction((in _) => RuleGetCssText(styleMap, in _), "get cssText"),
-            new DomFunction((in a) => RuleSetCssText(styleMap, in a), "set cssText"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(style, "cssText",
+            (in _) => RuleGetCssText(styleMap),
+            (in call) => RuleSetCssText(styleMap, in call));
 
-        style.FastAddValue("setProperty",
-            new DomFunction((in a) => RuleSetProperty(styleMap, in a), "setProperty", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(style, "setProperty",
+            realm.NewMethod("setProperty", (in call) => RuleSetProperty(styleMap, in call), 2));
 
-        style.FastAddValue("getPropertyValue",
-            new DomFunction((in a) => RuleGetPropertyValue(styleMap, in a), "getPropertyValue", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(style, "getPropertyValue",
+            realm.NewMethod("getPropertyValue", (in call) => RuleGetPropertyValue(styleMap, in call), 1));
 
-        style.FastAddValue("removeProperty",
-            new DomFunction((in a) => RuleRemoveProperty(styleMap, in a), "removeProperty", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(style, "removeProperty",
+            realm.NewMethod("removeProperty", (in call) => RuleRemoveProperty(styleMap, in call), 1));
 
-        style.FastAddProperty("cssFloat",
-            new DomFunction((in _) => RuleGetCssFloat(styleMap, in _), "get cssFloat"),
-            new DomFunction((in a) => RuleSetCssFloat(styleMap, in a), "set cssFloat"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(style, "cssFloat",
+            (in _) => RuleGetCssFloat(styleMap),
+            (in call) => RuleSetCssFloat(styleMap, in call));
 
-        style.FastAddProperty("length",
-            new DomFunction((in _) => new JSNumber(GetStylePropertyNames(styleMap).Count), "get length"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(style, "length",
+            (in _) => JsValue.Number(GetStylePropertyNames(styleMap).Count), null);
 
-        style.FastAddValue("item",
-            new DomFunction((in a) => RuleItem(styleMap, in a), "item", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(style, "item",
+            realm.NewMethod("item", (in call) => RuleItem(styleMap, in call), 1));
 
-        style.FastAddValue("getPropertyPriority",
-            new DomFunction((in a) => RuleGetPropertyPriority(styleMap, in a), "getPropertyPriority", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(style, "getPropertyPriority",
+            realm.NewMethod("getPropertyPriority", (in call) => RuleGetPropertyPriority(styleMap, in call), 1));
 
-        style.FastAddProperty("parentRule",
-            new DomFunction((in _) => parentRule ?? JSNull.Value, "get parentRule"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(style, "parentRule",
+            (in _) => parentRule.IsMissing ? JsValue.Null : parentRule, null);
 
         return style;
     }
@@ -165,131 +169,185 @@ internal static partial class StyleDeclarationBinding
     /// <summary>Builds the read-only <c>getComputedStyle</c> declaration from an engine-produced
     /// <paramref name="computed"/> map (the bridge still produces the map). Was the object-construction
     /// half of <c>DomBridge.BuildComputedStyleObject</c>.</summary>
-    internal static JSObject BuildComputedDeclaration(Dictionary<string, string> computed)
+    /// <remarks>
+    /// An ordinary object, not an exotic: a computed declaration is a snapshot, so every property it
+    /// answers is installed up front and nothing has to complete a lookup. That is what it always was.
+    /// </remarks>
+    internal static JsValue BuildComputedDeclaration(IJsRealm realm, Dictionary<string, string> computed)
     {
         var propertyNames = computed.Keys.ToList();
-        var obj = new JSObject();
+        var obj = realm.NewObject();
 
         // Expose all computed properties as both camelCase and kebab-case
         foreach (var kv in computed)
         {
             var camel = CssPropertyNames.ToDomPropertyName(kv.Key);
             var normalized = CssPriority.Strip(kv.Value);
-            obj.FastAddValue(kv.Key, new JSString(normalized), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(obj, kv.Key, JsValue.String(normalized));
             if (camel != kv.Key)
-                obj.FastAddValue(camel, new JSString(normalized), JSPropertyAttributes.EnumerableConfigurableValue);
+                realm.DefineValue(obj, camel, JsValue.String(normalized));
         }
 
         // getPropertyValue method (supports both kebab-case and camelCase lookups)
-        obj.FastAddValue("getPropertyValue", new DomFunction((in a) => ComputedGetPropertyValue(computed, in a), "getPropertyValue", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        obj.FastAddProperty("length", new DomFunction((in _) => new JSNumber(propertyNames.Count), "get length"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineValue(obj, "getPropertyValue",
+            realm.NewMethod("getPropertyValue", (in call) => ComputedGetPropertyValue(computed, in call), 1));
+        realm.DefineAccessor(obj, "length", (in _) => JsValue.Number(propertyNames.Count), null);
 
-        obj.FastAddValue("item", new DomFunction((in a) => ComputedItem(propertyNames, in a), "item", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        obj.FastAddValue("getPropertyPriority", new DomFunction((in _) => new JSString(string.Empty), "getPropertyPriority", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(obj, "item",
+            realm.NewMethod("item", (in call) => ComputedItem(propertyNames, in call), 1));
+        realm.DefineValue(obj, "getPropertyPriority",
+            realm.NewMethod("getPropertyPriority", (in _) => JsValue.String(string.Empty), 1));
 
-        obj.FastAddProperty("parentRule", DomBridge.NullFunction("get parentRule"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(obj, "parentRule", (in _) => JsValue.Null, null);
 
         return obj;
     }
 
-    // -------- declaration JS object types --------
+    // -------- declaration lookup handlers --------
 
-    private sealed class CssStyleDeclaration(IInlineStyleHost host, DomElement element, Action? onMutation = null,
-        Action<DomElement>? onPositionAreaInvalidate = null) : JSObject
+    /// <summary>
+    /// The <c>element.style</c> named-property hook: a CSS property read out of the inline-style store,
+    /// and a write that reaches the store before it becomes an ordinary property.
+    /// </summary>
+    private sealed class InlineDeclaration(
+        IJsRealm realm,
+        IInlineStyleHost host,
+        DomElement element,
+        Action? onMutation,
+        Action<DomElement>? onPositionAreaInvalidate) : IJsExotic
     {
-        protected override bool SetValue(KeyString name, JSValue value, JSValue receiver, bool throwError = true)
+        /// <inheritdoc />
+        /// <remarks>
+        /// Reached only for a name the ordinary properties did not answer, which is the whole of what
+        /// the old override's leading <c>base.GetValue</c> established. It always answers — with the
+        /// property's value when there is one and the empty string when there is not — because that is
+        /// what the override did; see the remarks on <see cref="StyleDeclarationBinding"/>.
+        /// </remarks>
+        public bool TryGetNamed(string name, out JsValue value)
         {
-            var nameStr = name.ToString();
-            if (!NonCssNames.Contains(nameStr))
+            if (!NonCssNames.Contains(name) &&
+                TryGetStylePropertyRawValue(host, element, name, out var raw))
             {
-                var kebab = ToCssPropertyName(nameStr);
-                var val = value?.ToString() ?? string.Empty;
-                if (string.IsNullOrEmpty(val))
-                {
-                    host.InlineStyle(element).Remove(kebab);
-                    host.UnmarkInlineStylePropSetByJs(element, kebab);
-                }
-                else if (DomBridge.IsAcceptableInlineValue(kebab, val))
-                {
-                    host.InlineStyle(element)[kebab] = val;
-                    host.MarkInlineStylePropSetByJs(element, kebab);
-                }
-                else
-                {
-                    // Invalid value: ignore it completely (CSSOM error handling). Return
-                    // without falling through to base.SetValue — the getter reads the JS
-                    // property first, so letting the base object keep the value would
-                    // resurface the rejected value. Any existing valid value is left intact.
-                    return true;
-                }
-
-                // Invalidate cached position-area resolution when relevant
-                // properties change so offset queries recompute. The memo is now a
-                // per-bridge-instance table, so the owning bridge threads its clear in
-                // via onPositionAreaInvalidate (was a static DomBridge.ClearPositionAreaResolution).
-                if (kebab is "position-area" or "position-anchor")
-                    onPositionAreaInvalidate?.Invoke(element);
-
-                onMutation?.Invoke();
+                value = JsValue.String(CssPriority.Strip(raw));
+                return true;
             }
 
-            return base.SetValue(name, value, receiver, throwError);
+            value = JsValue.String(string.Empty);
+            return true;
         }
 
-        protected override JSValue GetValue(KeyString key, JSValue receiver, bool throwError = true)
+        /// <summary>A declaration has no indexed properties — <c>item(i)</c> is the indexed read.</summary>
+        public bool TryGetIndex(uint index, out JsValue value)
         {
-            // Try normal lookup first (methods, explicit properties, etc.)
-            var result = base.GetValue(key, receiver, false);
-            if (result != null && !result.IsUndefined)
-                return result;
+            value = JsValue.Missing;
+            return false;
+        }
 
-            // Fall back to InlineStyle(element) lookup (kebab-case)
-            var nameStr = key.ToString();
-            if (!NonCssNames.Contains(nameStr))
+        /// <inheritdoc />
+        /// <remarks>
+        /// <b>Declining is the normal outcome, and it has to be.</b> The old override did its CSS work
+        /// and then fell through to <c>base.SetValue</c>, so the assigned value also landed as an
+        /// ordinary property and <c>getPropertyValue</c>'s receiver-read could find it. Answering
+        /// <see langword="false"/> here is exactly that fall-through. The one case that answers
+        /// <see langword="true"/> is a value CSSOM rejects: intercepting it is what keeps the rejected
+        /// value from being stored as an ordinary property and resurfacing from the getter.
+        /// </remarks>
+        public bool TrySetNamed(string name, JsValue value)
+        {
+            if (NonCssNames.Contains(name))
+                return false;
+
+            var kebab = ToCssPropertyName(name);
+
+            // The realm's ToString, not the handle's: an object assigned to a CSS property runs its own
+            // toString, and that is the coercion the page observes.
+            var val = value.IsMissing ? string.Empty : realm.ToJsString(value);
+            if (string.IsNullOrEmpty(val))
             {
-                if (TryGetStylePropertyRawValue(host, element, nameStr, out var val))
-                    return new JSString(CssPriority.Strip(val));
+                host.InlineStyle(element).Remove(kebab);
+                host.UnmarkInlineStylePropSetByJs(element, kebab);
+            }
+            else if (DomBridge.IsAcceptableInlineValue(kebab, val))
+            {
+                host.InlineStyle(element)[kebab] = val;
+                host.MarkInlineStylePropSetByJs(element, kebab);
+            }
+            else
+            {
+                // Invalid value: ignore it completely (CSSOM error handling). Intercepted rather than
+                // declined — the getter reads the JS property first, so letting the ordinary assignment
+                // keep the value would resurface the rejected value. Any existing valid value is left
+                // intact.
+                return true;
             }
 
-            return new JSString(string.Empty);
+            // Invalidate cached position-area resolution when relevant properties change so offset
+            // queries recompute. The memo is a per-bridge-instance table, so the owning bridge threads
+            // its clear in via onPositionAreaInvalidate (was a static DomBridge.ClearPositionAreaResolution).
+            if (kebab is "position-area" or "position-anchor")
+                onPositionAreaInvalidate?.Invoke(element);
+
+            onMutation?.Invoke();
+            return false;
         }
+
+        /// <summary>
+        /// None: the old subclass overrode no key enumeration, so a declaration enumerates its ordinary
+        /// properties and nothing else.
+        /// </summary>
+        public IReadOnlyList<string> SupportedNames => [];
+
+        /// <inheritdoc />
+        public uint IndexedLength => 0;
     }
 
-    private sealed class CssRuleStyleDeclaration(Dictionary<string, string> style) : JSObject
+    /// <summary>The <c>rule.style</c> named-property hook, over a plain property map.</summary>
+    private sealed class RuleDeclaration(IJsRealm realm, Dictionary<string, string> style) : IJsExotic
     {
-        protected override bool SetValue(KeyString name, JSValue value, JSValue receiver, bool throwError = true)
+        /// <inheritdoc />
+        public bool TryGetNamed(string name, out JsValue value)
         {
-            var nameStr = name.ToString();
-            if (!NonCssNames.Contains(nameStr))
+            if (!NonCssNames.Contains(name) &&
+                TryGetStylePropertyRawValue(style, name, out var raw))
             {
-                var kebab = ToCssPropertyName(nameStr);
-                var val = value?.ToString() ?? string.Empty;
-                if (string.IsNullOrEmpty(val))
-                    style.Remove(kebab);
-                else if (DomBridge.IsAcceptableInlineValue(kebab, val))
-                    style[kebab] = val;
-                else
-                    return true;   // invalid value ignored; don't store it as a JS property either
+                value = JsValue.String(CssPriority.Strip(raw));
+                return true;
             }
 
-            return base.SetValue(name, value, receiver, throwError);
+            value = JsValue.String(string.Empty);
+            return true;
         }
 
-        protected override JSValue GetValue(KeyString key, JSValue receiver, bool throwError = true)
+        /// <inheritdoc />
+        public bool TryGetIndex(uint index, out JsValue value)
         {
-            var result = base.GetValue(key, receiver, false);
-            if (result != null && !result.IsUndefined)
-                return result;
-
-            var nameStr = key.ToString();
-            if (!NonCssNames.Contains(nameStr) &&
-                TryGetStylePropertyRawValue(style, nameStr, out var val))
-            {
-                return new JSString(CssPriority.Strip(val));
-            }
-
-            return new JSString(string.Empty);
+            value = JsValue.Missing;
+            return false;
         }
+
+        /// <inheritdoc />
+        public bool TrySetNamed(string name, JsValue value)
+        {
+            if (NonCssNames.Contains(name))
+                return false;
+
+            var kebab = ToCssPropertyName(name);
+            var val = value.IsMissing ? string.Empty : realm.ToJsString(value);
+            if (string.IsNullOrEmpty(val))
+                style.Remove(kebab);
+            else if (DomBridge.IsAcceptableInlineValue(kebab, val))
+                style[kebab] = val;
+            else
+                return true;   // invalid value ignored; don't store it as an ordinary property either
+
+            return false;
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyList<string> SupportedNames => [];
+
+        /// <inheritdoc />
+        public uint IndexedLength => 0;
     }
 
     // -------- shared property-name / raw-value helpers (exclusive to the declaration surface) --------

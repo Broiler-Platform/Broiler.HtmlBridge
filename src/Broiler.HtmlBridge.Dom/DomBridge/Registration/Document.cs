@@ -1,17 +1,13 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    private void RegisterDocumentBasics(JSContext context, JSObject document)
+    private void RegisterDocumentBasics(JsValue document)
     {
+        var realm = Realm;
+
         // document.documentElement (the <html> element) — a getter, like the scrollingElement below
         // that answers with the same element, and like the accessor a browser has on
         // Document.prototype.
@@ -28,30 +24,28 @@ public sealed partial class DomBridge
         // Deferring the mint to the first read is what makes the fallback unreachable for it rather
         // than compensated for afterwards. It also stops a re-parse handing back the previous
         // document's wrapper: the registry is cleared, and the value property was not.
-        document.FastAddProperty("documentElement",
-            new JSFunction((in _) => ToJSObject(DocumentElement), "get documentElement"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "documentElement", (in _) => WrapNode(DocumentElement), null);
 
         // document.scrollingElement (getter — returns document.documentElement
         // in standards mode, or document.body in quirks mode; we always use
         // standards mode so it's always the <html> element).
-        document.FastAddProperty("scrollingElement", new JSFunction((in _) => ToJSObject(DocumentElement), "get scrollingElement"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "scrollingElement", (in _) => WrapNode(DocumentElement), null);
 
         // Fullscreen §document API. `fullscreenElement` is a getter over the per-element fullscreen
         // flag rather than a stored reference, so it stays correct when the element is exited or
         // detached. `fullscreenEnabled` is constant here: the runner has no user-permission model
         // and nothing in the corpus needs it to be false.
-        document.FastAddProperty("fullscreenElement",
-            new JSFunction((in _) => FindFullscreenElement() is { } el ? ToJSObject(el) : JSNull.Value, "get fullscreenElement"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        document.FastAddProperty("webkitFullscreenElement",
-            new JSFunction((in _) => FindFullscreenElement() is { } el ? ToJSObject(el) : JSNull.Value, "get webkitFullscreenElement"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        document.FastAddValue("fullscreenEnabled", JavaScript.BuiltIns.Boolean.JSBoolean.True, JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("exitFullscreen",
-            new JSFunction((in _) => _dialogs.ExitFullscreen(), "exitFullscreen", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("webkitExitFullscreen",
-            new JSFunction((in _) => _dialogs.ExitFullscreen(), "webkitExitFullscreen", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineAccessor(
+            document, "fullscreenElement",
+            (in _) => FindFullscreenElement() is { } el ? WrapNode(el) : JsValue.Null, null);
+        realm.DefineAccessor(
+            document, "webkitFullscreenElement",
+            (in _) => FindFullscreenElement() is { } el ? WrapNode(el) : JsValue.Null, null);
+        realm.DefineValue(document, "fullscreenEnabled", JsValue.True);
+        realm.DefineValue(document, "exitFullscreen",
+            realm.NewConstructor("exitFullscreen", (in _) => _dialogs.ExitFullscreenCore(), 0));
+        realm.DefineValue(document, "webkitExitFullscreen",
+            realm.NewConstructor("webkitExitFullscreen", (in _) => _dialogs.ExitFullscreenCore(), 0));
 
         // HTML §3.1.7 document.readyState: "loading" while parsing, "interactive" once parsing is
         // done, "complete" once the load event is about to fire. It is read, not just written to:
@@ -65,150 +59,173 @@ public sealed partial class DomBridge
         // a degraded rendering but a missing one: it is how MediaWiki's Vector skin starts, so on
         // www.mediawiki.org none of the skin's JavaScript ran, and the appearance panel it moves
         // into the header stayed in the page column, displacing the whole article.
-        document.FastAddProperty(
-            "readyState",
-            new JSFunction((in _) => new JSString(_documentReadyState), "get readyState"),
-            null,
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "readyState", (in _) => JsValue.String(_documentReadyState), null);
 
         // document structural accessors — body/head/title, co-located in the DocumentStructureBinding
-        // feature module (Phase 3).
-        document.FastAddProperty("body", new JSFunction((in a) => Dom.Features.DocumentStructureBinding.GetBody(this, in a), "get body"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        document.FastAddProperty("head", new JSFunction((in a) => Dom.Features.DocumentStructureBinding.GetHead(this, in a), "get head"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        document.FastAddProperty("title", new JSFunction((in a) => Dom.Features.DocumentStructureBinding.GetTitle(this, in a), "get title"), new JSFunction((in a) => Dom.Features.DocumentStructureBinding.SetTitle(this, in a), "set title"), JSPropertyAttributes.EnumerableConfigurableProperty);
+        // feature module (Phase 3), and written against JSEAL.
+        realm.DefineAccessor(
+            document, "body", (in c) => Dom.Features.DocumentStructureBinding.GetBody(this, in c), null);
+        realm.DefineAccessor(
+            document, "head", (in c) => Dom.Features.DocumentStructureBinding.GetHead(this, in c), null);
+        realm.DefineAccessor(
+            document, "title",
+            (in c) => Dom.Features.DocumentStructureBinding.GetTitle(this, in c),
+            (in c) => Dom.Features.DocumentStructureBinding.SetTitle(this, in c));
 
         // document element-query methods — getElementById/getElementsByTagName/getElementsByClassName/
         // getElementsByName/querySelector/querySelectorAll, co-located in the DocumentQueryBinding
-        // feature module (Phase 3).
-        document.FastAddValue("getElementById", new JSFunction((in a) => Dom.Features.DocumentQueryBinding.GetElementById(this, in a), "getElementById", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("getElementsByTagName", new JSFunction((in a) => Dom.Features.DocumentQueryBinding.GetElementsByTagName(this, in a), "getElementsByTagName", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("getElementsByClassName", new JSFunction((in a) => Dom.Features.DocumentQueryBinding.GetElementsByClassName(this, in a), "getElementsByClassName", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("getElementsByName", new JSFunction((in a) => Dom.Features.DocumentQueryBinding.GetElementsByName(this, in a), "getElementsByName", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("querySelector", new JSFunction((in a) => Dom.Features.DocumentQueryBinding.QuerySelector(this, in a), "querySelector", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("querySelectorAll", new JSFunction((in a) => Dom.Features.DocumentQueryBinding.QuerySelectorAll(this, in a), "querySelectorAll", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // feature module (Phase 3). The six keep the name, arity and constructable shape they had.
+        realm.DefineValue(document, "getElementById", realm.NewConstructor("getElementById", (in c) => Dom.Features.DocumentQueryBinding.GetElementById(this, in c), 1));
+        realm.DefineValue(document, "getElementsByTagName", realm.NewConstructor("getElementsByTagName", (in c) => Dom.Features.DocumentQueryBinding.GetElementsByTagName(this, in c), 1));
+        realm.DefineValue(document, "getElementsByClassName", realm.NewConstructor("getElementsByClassName", (in c) => Dom.Features.DocumentQueryBinding.GetElementsByClassName(this, in c), 1));
+        realm.DefineValue(document, "getElementsByName", realm.NewConstructor("getElementsByName", (in c) => Dom.Features.DocumentQueryBinding.GetElementsByName(this, in c), 1));
+        realm.DefineValue(document, "querySelector", realm.NewConstructor("querySelector", (in c) => Dom.Features.DocumentQueryBinding.QuerySelector(this, in c), 1));
+        realm.DefineValue(document, "querySelectorAll", realm.NewConstructor("querySelectorAll", (in c) => Dom.Features.DocumentQueryBinding.QuerySelectorAll(this, in c), 1));
         // document.elementFromPoint / elementsFromPoint (hit-testing), co-located in the HitTestBinding
-        // feature module (Phase 3).
-        document.FastAddValue("elementFromPoint", new JSFunction((in a) => Dom.Features.HitTestBinding.ElementFromPoint(this, in a), "elementFromPoint", 2), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("elementsFromPoint", new JSFunction((in a) => Dom.Features.HitTestBinding.ElementsFromPoint(this, in a), "elementsFromPoint", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        // feature module (Phase 3). The two keep the name, arity and constructable shape they had, and
+        // the module coerces its two coordinates through the realm.
+        realm.DefineValue(document, "elementFromPoint", realm.NewConstructor("elementFromPoint", (in c) => Dom.Features.HitTestBinding.ElementFromPoint(this, in c), 2));
+        realm.DefineValue(document, "elementsFromPoint", realm.NewConstructor("elementsFromPoint", (in c) => Dom.Features.HitTestBinding.ElementsFromPoint(this, in c), 2));
 
         // document.getAnimations() — minimal Web Animations API support used by WPT.
-        document.FastAddValue("getAnimations", new JSFunction((in _) => BuildAnimationList(null), "getAnimations", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "getAnimations", realm.NewConstructor("getAnimations", (in _) => BuildAnimationList(null), 0));
 
         // document node factories — createElement/createTextNode/createAttribute/createDocumentFragment,
-        // co-located in the DocumentFactoryBinding feature module (Phase 3).
-        document.FastAddValue("createElement", new JSFunction((in a) => Dom.Features.DocumentFactoryBinding.CreateElement(this, context, in a), "createElement", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("createTextNode", new JSFunction((in a) => Dom.Features.DocumentFactoryBinding.CreateTextNode(this, in a), "createTextNode", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("createAttribute", new JSFunction((in a) => Dom.Features.DocumentFactoryBinding.CreateAttribute(this, context, in a), "createAttribute", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("createDocumentFragment", new JSFunction((in a) => Dom.Features.DocumentFactoryBinding.CreateDocumentFragment(this, in a), "createDocumentFragment", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("importNode", new JSFunction((in a) => Dom.Features.DocumentFactoryBinding.ImportNode(this, context, in a), "importNode", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        // co-located in the DocumentFactoryBinding feature module (Phase 3). The script context that
+        // used to travel with each call is gone: the name validations are on the module's host
+        // contract, and its DOM exceptions are minted through the call's own realm.
+        realm.DefineValue(document, "createElement", realm.NewConstructor("createElement", (in c) => Dom.Features.DocumentFactoryBinding.CreateElement(this, in c), 1));
+        realm.DefineValue(document, "createTextNode", realm.NewConstructor("createTextNode", (in c) => Dom.Features.DocumentFactoryBinding.CreateTextNode(this, in c), 1));
+        realm.DefineValue(document, "createAttribute", realm.NewConstructor("createAttribute", (in c) => Dom.Features.DocumentFactoryBinding.CreateAttribute(this, in c), 1));
+        realm.DefineValue(document, "createDocumentFragment", realm.NewConstructor("createDocumentFragment", (in c) => Dom.Features.DocumentFactoryBinding.CreateDocumentFragment(this, in c), 0));
+        realm.DefineValue(document, "importNode", realm.NewConstructor("importNode", (in c) => Dom.Features.DocumentFactoryBinding.ImportNode(this, in c), 2));
         // adoptNode moves the node itself rather than copying it, which is the half importNode
         // cannot do and the one a custom element hears as adoptedCallback.
-        document.FastAddValue("adoptNode", new JSFunction((in a) => Dom.Features.DocumentFactoryBinding.AdoptNode(this, context, in a), "adoptNode", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "adoptNode", realm.NewConstructor("adoptNode", (in c) => Dom.Features.DocumentFactoryBinding.AdoptNode(this, in c), 1));
 
         // document.createEvent(type) — DOM Events Level 3 (Phase 3: co-located LegacyEventBinding module)
-        document.FastAddValue("createEvent", new JSFunction(Dom.Features.LegacyEventBinding.Create, "createEvent", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "createEvent", realm.NewConstructor("createEvent", Dom.Features.LegacyEventBinding.Create, 1));
 
         // document.startViewTransition(updateCallback | { update, types }) — CSS View Transitions
         // (see DomBridge.ViewTransition.cs). Runs the callback and returns a resolved ViewTransition;
-        // the pseudo tree is baked at serialize time.
-        document.FastAddValue("startViewTransition", new JSFunction((in a) => StartViewTransition(in a), "startViewTransition", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // the pseudo tree is baked at serialize time. The operation reads one argument — the update
+        // callback, or the dictionary carrying it — and a handle over it is the whole of that.
+        realm.DefineValue(document, "startViewTransition", realm.NewConstructor("startViewTransition", (in c) => StartViewTransition(c[0]), 1));
     }
 
-    private void RegisterDocumentWriting(JSObject document)
+    private void RegisterDocumentWriting(JsValue document)
     {
+        var realm = Realm;
+
         // document.write(html) — parse and insert at the current script position (Phase 3:
-        // co-located DocumentWriteBinding feature module).
-        document.FastAddValue("write", new JSFunction((in a) => Dom.Features.DocumentWriteBinding.Write(this, in a), "write", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // co-located DocumentWriteBinding feature module, migrated to JSEAL).
+        var writeFn = realm.NewConstructor("write", (in c) => Dom.Features.DocumentWriteBinding.Write(this, in c), 1);
+        realm.DefineValue(document, "write", writeFn);
 
-        // document.writeln(html) — same as write, with trailing newline
-        var writeFn = (JSFunction)document[(KeyString)"write"];
-        document.FastAddValue("writeln", new JSFunction((in a) => Dom.Features.DocumentWriteBinding.Writeln(writeFn, in a), "writeln", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        // document.writeln(html) — same as write, with trailing newline. It is handed the very
+        // function object installed above, which is what reading document["write"] back gave before.
+        realm.DefineValue(document, "writeln",
+            realm.NewConstructor("writeln", (in c) => Dom.Features.DocumentWriteBinding.Writeln(writeFn, in c), 1));
     }
 
-    private void RegisterDocumentNodeAndCollectionApis(JSContext context, JSObject document)
+    private void RegisterDocumentNodeAndCollectionApis(JsValue document)
     {
+        var realm = Realm;
+
         // Node interface constants on document (a Document IS a Node) — types and the
         // DOCUMENT_POSITION_* bits.
-        Dom.Features.NodeConstantsBinding.Install(document);
+        Dom.Features.NodeConstantsBinding.Install(realm, document);
 
         // document.nodeType = DOCUMENT_NODE (9)
-        document.FastAddProperty("nodeType", new JSFunction((in _) => new JSNumber(9), "get nodeType"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "nodeType", (in _) => JsValue.Number(9), null);
 
         // document.nodeName = "#document"
-        document.FastAddProperty("nodeName", new JSFunction((in _) => new JSString("#document"), "get nodeName"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "nodeName", (in _) => JsValue.String("#document"), null);
 
         // document.firstChild (getter — returns first child of document: DOCTYPE if present, else documentElement)
-        document.FastAddProperty("firstChild", new JSFunction((in _) => _document.ChildNodes.Count > 0 ? ToJSObject(ChildAt(_document, 0)) : JSNull.Value, "get firstChild"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "firstChild",
+            (in _) => _document.ChildNodes.Count > 0 ? WrapNode(ChildAt(_document, 0)) : JsValue.Null, null);
 
         // document.lastChild (getter — returns last child of document, typically documentElement)
-        document.FastAddProperty("lastChild", new JSFunction((in _) => _document.ChildNodes.Count > 0 ? ToJSObject(ChildAt(_document, ^1)) : JSNull.Value, "get lastChild"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "lastChild",
+            (in _) => _document.ChildNodes.Count > 0 ? WrapNode(ChildAt(_document, ^1)) : JsValue.Null, null);
 
         // document-node mutation — childNodes/removeChild/appendChild/insertBefore, co-located in the
-        // NodeMutationBinding feature module (Phase 3).
-        document.FastAddProperty("childNodes", new JSFunction((in a) => Dom.Features.NodeMutationBinding.GetChildNodes(this, in a), "get childNodes"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        document.FastAddValue("removeChild", new JSFunction((in a) => Dom.Features.NodeMutationBinding.RemoveChild(this, in a), "removeChild", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("appendChild", new JSFunction((in a) => Dom.Features.NodeMutationBinding.AppendChild(this, in a), "appendChild", 1), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("insertBefore", new JSFunction((in a) => Dom.Features.NodeMutationBinding.InsertBefore(this, in a), "insertBefore", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        // NodeMutationBinding feature module (Phase 3). The module raises its DOM exceptions through
+        // the call's own realm now, so it takes no script context.
+        realm.DefineAccessor(document, "childNodes", (in c) => Dom.Features.NodeMutationBinding.GetChildNodes(this, in c), null);
+        realm.DefineValue(document, "removeChild", realm.NewConstructor("removeChild", (in c) => Dom.Features.NodeMutationBinding.RemoveChild(this, in c), 1));
+        realm.DefineValue(document, "appendChild", realm.NewConstructor("appendChild", (in c) => Dom.Features.NodeMutationBinding.AppendChild(this, in c), 1));
+        realm.DefineValue(document, "insertBefore", realm.NewConstructor("insertBefore", (in c) => Dom.Features.NodeMutationBinding.InsertBefore(this, in c), 2));
 
         // Document includes the ParentNode mixin (DOM §4.2.6), so append/prepend/replaceChildren
         // exist on the document node just as they do on an element. Only the Node-level methods
         // above were bound, which made `document.append(x)` a TypeError mid-script.
-        document.FastAddValue("append", new JSFunction((in a) => Dom.Features.NodeMutationBinding.Append(this, in a), "append", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("prepend", new JSFunction((in a) => Dom.Features.NodeMutationBinding.Prepend(this, in a), "prepend", 0), JSPropertyAttributes.EnumerableConfigurableValue);
-        document.FastAddValue("replaceChildren", new JSFunction((in a) => Dom.Features.NodeMutationBinding.ReplaceChildren(this, in a), "replaceChildren", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "append", realm.NewConstructor("append", (in c) => Dom.Features.NodeMutationBinding.Append(this, in c), 0));
+        realm.DefineValue(document, "prepend", realm.NewConstructor("prepend", (in c) => Dom.Features.NodeMutationBinding.Prepend(this, in c), 0));
+        realm.DefineValue(document, "replaceChildren", realm.NewConstructor("replaceChildren", (in c) => Dom.Features.NodeMutationBinding.ReplaceChildren(this, in c), 0));
 
         // document.forms/images/links/anchors/scripts/embeds/plugins/styleSheets — the live
         // collections, each built once and closed over so the identity a browser guarantees holds.
-        RegisterDocumentCollections(context, document);
+        RegisterDocumentCollections(document);
 
         // document.doctype/dir/designMode — the metadata accessors DOM §4.5 and HTML §3.2 name.
         RegisterDocumentMetadata(document);
 
         // document.createElementNS(namespace, tagName)  — DocumentFactoryBinding (Phase 3)
-        document.FastAddValue("createElementNS", new JSFunction((in a) => Dom.Features.DocumentFactoryBinding.CreateElementNS(this, context, in a), "createElementNS", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "createElementNS", realm.NewConstructor("createElementNS", (in c) => Dom.Features.DocumentFactoryBinding.CreateElementNS(this, in c), 2));
 
         // document.createAttributeNS(namespace, qualifiedName)  — DocumentFactoryBinding (Phase 3)
-        document.FastAddValue("createAttributeNS", new JSFunction((in a) => Dom.Features.DocumentFactoryBinding.CreateAttributeNS(this, context, in a), "createAttributeNS", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "createAttributeNS", realm.NewConstructor("createAttributeNS", (in c) => Dom.Features.DocumentFactoryBinding.CreateAttributeNS(this, in c), 2));
 
         // document.currentScript — the <script> element being executed, null when none is. The
         // element the bridge already tracks for document.write's insertion point, read from the
         // property a loader script uses to find its own <src>.
-        document.FastAddProperty("currentScript", new JSFunction((in a) => Dom.Features.DocumentCollectionBinding.GetCurrentScript(this, in a), "get currentScript"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "currentScript", (in _) => Dom.Features.DocumentCollectionBinding.GetCurrentScript(this), null);
 
         // document.adoptedStyleSheets — the live array of constructed stylesheets applied to the
-        // document (CSSOM). Readable (supports .push) and assignable (= [sheet, …]).
-        document.FastAddProperty("adoptedStyleSheets",
-            new JSFunction((in _) => AdoptedStyleSheetsArray(), "get adoptedStyleSheets"),
-            new JSFunction((in a) => { SetAdoptedStyleSheets(a.Length > 0 ? a[0] : JSUndefined.Value); return JSUndefined.Value; }, "set adoptedStyleSheets"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        // document (CSSOM). Readable (supports .push) and assignable (= [sheet, …]). The assignment
+        // still copies the assigned array in engine terms — see SetAdoptedStyleSheets for the one
+        // thing JSEAL cannot yet express about an array's elements.
+        realm.DefineAccessor(
+            document,
+            "adoptedStyleSheets",
+            (in _) => AdoptedStyleSheets(),
+            (in c) =>
+            {
+                SetAdoptedStyleSheets(c[0]);
+                return JsValue.Undefined;
+            });
 
         // document.open() — for main document
-        document.FastAddValue("open", new JSFunction((in _) => document, "open", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "open", realm.NewConstructor("open", (in _) => document, 0));
 
         // document.close() — for main document
-        document.FastAddValue("close", UndefinedFunction("close", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "close", UndefinedMember("close", 0));
 
         // document.implementation — DOMImplementation
-        var implementation = new JSObject();
+        var implementation = realm.NewObject();
 
         // implementation.hasFeature() — always returns true per spec
-        implementation.FastAddValue("hasFeature", TrueFunction("hasFeature", 2), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(implementation, "hasFeature", TrueMember("hasFeature", 2));
 
         // document.implementation factories — createDocumentType/createDocument/createHTMLDocument,
         // co-located in the DocumentLevelFactoryBinding feature module (Phase 3).
-        implementation.FastAddValue("createDocumentType", new JSFunction((in a) => Dom.Features.DocumentLevelFactoryBinding.CreateDocumentType(this, context, in a), "createDocumentType", 3), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(implementation, "createDocumentType", realm.NewConstructor("createDocumentType", (in c) => Dom.Features.DocumentLevelFactoryBinding.CreateDocumentType(this, in c), 3));
 
         // implementation.createDocument(namespace, qualifiedName, doctype)
-        implementation.FastAddValue("createDocument", new JSFunction((in a) => Dom.Features.DocumentLevelFactoryBinding.CreateDocument(this, context, in a), "createDocument", 3), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(implementation, "createDocument", realm.NewConstructor("createDocument", (in c) => Dom.Features.DocumentLevelFactoryBinding.CreateDocument(this, in c), 3));
 
         // implementation.createHTMLDocument(title)
-        implementation.FastAddValue("createHTMLDocument", new JSFunction((in a) => Dom.Features.DocumentLevelFactoryBinding.CreateHTMLDocument(this, in a), "createHTMLDocument", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(implementation, "createHTMLDocument", realm.NewConstructor("createHTMLDocument", (in c) => Dom.Features.DocumentLevelFactoryBinding.CreateHTMLDocument(this, in c), 1));
 
-        document.FastAddValue("implementation", implementation, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "implementation", implementation);
     }
 
-    private void RegisterDocumentEventTargetAndMetadata(JSObject document)
+    private void RegisterDocumentEventTargetAndMetadata(JsValue document)
     {
+        var realm = Realm;
+
         // document-level addEventListener / removeEventListener / dispatchEvent, co-located in the
         // DocumentEventTargetBinding feature module (Phase 3).
         // On EventTarget.prototype now, routed by receiver — the document's wrapper is registered
@@ -216,48 +233,48 @@ public sealed partial class DomBridge
         // reaches exactly what these did (DomBridge.EventTargetInterface.cs).
         if (!_eventTargetRoutingReady)
         {
-            document.FastAddValue("addEventListener", new JSFunction((in a) => Dom.Features.DocumentEventTargetBinding.AddEventListener(this, in a), "addEventListener", 3), JSPropertyAttributes.EnumerableConfigurableValue);
-            document.FastAddValue("removeEventListener", new JSFunction((in a) => Dom.Features.DocumentEventTargetBinding.RemoveEventListener(this, in a), "removeEventListener", 3), JSPropertyAttributes.EnumerableConfigurableValue);
-            document.FastAddValue("dispatchEvent", new JSFunction((in a) => Dom.Features.DocumentEventTargetBinding.DispatchEvent(this, in a), "dispatchEvent", 1), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(document, "addEventListener", realm.NewConstructor("addEventListener", (in c) => Dom.Features.DocumentEventTargetBinding.AddEventListener(this, in c), 3));
+            realm.DefineValue(document, "removeEventListener", realm.NewConstructor("removeEventListener", (in c) => Dom.Features.DocumentEventTargetBinding.RemoveEventListener(this, in c), 3));
+            realm.DefineValue(document, "dispatchEvent", realm.NewConstructor("dispatchEvent", (in c) => Dom.Features.DocumentEventTargetBinding.DispatchEvent(this, in c), 1));
         }
 
         // document.contentType — returns the MIME type of the document
-        document.FastAddProperty("contentType", new JSFunction((in a) => Dom.Features.WindowDocumentMiscBinding.GetContentType(this, in a), "get contentType"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "contentType", (in c) => Dom.Features.WindowDocumentMiscBinding.GetContentType(this, in c), null);
 
         // document.URL — returns the document URL
-        document.FastAddProperty("URL", new JSFunction((in _) => new JSString(_pageUrl), "get URL"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "URL", (in _) => JsValue.String(_pageUrl), null);
 
         // document.documentURI — same as document.URL
-        document.FastAddProperty("documentURI", new JSFunction((in _) => new JSString(_pageUrl), "get documentURI"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "documentURI", (in _) => JsValue.String(_pageUrl), null);
 
         // document.compatMode — "CSS1Compat" for standards mode, "BackCompat" for quirks
-        document.FastAddProperty("compatMode", new JSFunction((in _) => new JSString("CSS1Compat"), "get compatMode"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "compatMode", (in _) => JsValue.String("CSS1Compat"), null);
 
         // document.characterSet — always UTF-8
-        document.FastAddProperty("characterSet", new JSFunction((in _) => new JSString("UTF-8"), "get characterSet"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "characterSet", (in _) => JsValue.String("UTF-8"), null);
 
         // document.inputEncoding — alias for characterSet
-        document.FastAddProperty("inputEncoding", new JSFunction((in _) => new JSString("UTF-8"), "get inputEncoding"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "inputEncoding", (in _) => JsValue.String("UTF-8"), null);
 
         // document.charset — the other historical alias of characterSet (DOM §4.5). It reads the same
         // value as the two above; it was simply not registered, so the oldest of the three spellings —
         // and the one legacy encoding-sniffing code reaches for first — was the one that answered
         // `undefined`.
-        document.FastAddProperty("charset", new JSFunction((in _) => new JSString("UTF-8"), "get charset"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "charset", (in _) => JsValue.String("UTF-8"), null);
 
         // document.referrer — the URL of the page that linked here (HTML §3.1.5). A capture navigates
         // to its URL directly, with no referring document, and the empty string is precisely what the
         // specification (and a browser following a typed URL or a bookmark) reports for that: "If the
         // document has no referrer, return the empty string." Analytics and same-site-entry checks read
         // it unguarded, where `undefined` stringifies into a bogus referrer rather than reading as none.
-        document.FastAddProperty("referrer", new JSFunction((in _) => new JSString(string.Empty), "get referrer"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "referrer", (in _) => JsValue.String(string.Empty), null);
 
         // document.domain — the origin's effective domain, i.e. this document's host.
-        document.FastAddProperty("domain", new JSFunction((in a) => Dom.Features.WindowDocumentMiscBinding.GetDocumentDomain(this, in a), "get domain"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "domain", (in c) => Dom.Features.WindowDocumentMiscBinding.GetDocumentDomain(this, in c), null);
 
         // document.lastModified — MM/DD/YYYY hh:mm:ss in local time; the current time when the source's
         // own modification date is unknown, which is the specification's stated fallback.
-        document.FastAddProperty("lastModified", new JSFunction((in a) => Dom.Features.WindowDocumentMiscBinding.GetLastModified(in a), "get lastModified"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "lastModified", (in c) => Dom.Features.WindowDocumentMiscBinding.GetLastModified(in c), null);
 
         // document.activeElement — the focused element, or, when nothing is focused, the body element:
         // HTML's algorithm ends "if candidate is null, set candidate to the body element", so `body` is
@@ -265,11 +282,12 @@ public sealed partial class DomBridge
         // always body. Returning it as a getter (not a stored reference) keeps it correct across
         // document mutation. Scripts commonly walk up from it — `document.activeElement.tagName`,
         // `.blur()` — which threw outright while the property was missing.
-        document.FastAddProperty("activeElement", new JSFunction((in a) => Dom.Features.DocumentStructureBinding.GetBody(this, in a), "get activeElement"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(
+            document, "activeElement", (in c) => Dom.Features.DocumentStructureBinding.GetBody(this, in c), null);
 
         // document.hasFocus() — true; see the binding for why a capture's one document is always the
         // focused one, matching visibilityState below.
-        document.FastAddValue("hasFocus", new JSFunction((in a) => Dom.Features.WindowDocumentMiscBinding.HasFocus(in a), "hasFocus", 0), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "hasFocus", realm.NewConstructor("hasFocus", (in c) => Dom.Features.WindowDocumentMiscBinding.HasFocus(in c), 0));
 
         // document.hidden / document.visibilityState (Page Visibility, HTML §6.6). A capture
         // renders one document in one viewport and never backgrounds it, so the answer is always
@@ -279,8 +297,8 @@ public sealed partial class DomBridge
         // true for `false` and false for `undefined`. A missing property does not read as
         // "not hidden"; it reads as a third state no page has a branch for. See
         // docs/google-search-post-consent-challenge.md.
-        document.FastAddProperty("hidden", new JSFunction((in _) => JavaScript.BuiltIns.Boolean.JSBoolean.False, "get hidden"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        document.FastAddProperty("visibilityState", new JSFunction((in _) => new JSString("visible"), "get visibilityState"), null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(document, "hidden", (in _) => JsValue.False, null);
+        realm.DefineAccessor(document, "visibilityState", (in _) => JsValue.String("visible"), null);
 
         // document.onvisibilitychange — the event handler IDL attribute that completes the pair above,
         // null until a page assigns one. Its event never fires here, and that is the accurate outcome
@@ -289,6 +307,6 @@ public sealed partial class DomBridge
         // `'onvisibilitychange' in document` is the feature test pages use to decide whether the Page
         // Visibility API is available at all — answering false sent them to legacy focus/blur polling
         // even though `visibilityState` above answers correctly.
-        document.FastAddValue("onvisibilitychange", JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(document, "onvisibilitychange", JsValue.Null);
     }
 }

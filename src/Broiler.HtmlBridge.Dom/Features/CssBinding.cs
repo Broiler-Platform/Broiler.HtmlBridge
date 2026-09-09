@@ -1,9 +1,5 @@
 using System.Text;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -19,19 +15,19 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal static class CssBinding
 {
     /// <summary>Builds the <c>CSS</c> object. Shared between <c>window.CSS</c> and the global.</summary>
-    public static JSObject Build()
+    /// <param name="realm">The realm the object and its two methods belong to.</param>
+    /// <remarks>
+    /// The two members are minted by the realm rather than wrapped in a function object here: naming
+    /// them, giving them their declared <c>length</c>, and making them non-constructable is the
+    /// provider's business now (it is what the engine function wrapper did here before), and the
+    /// enumerable/configurable data-property attributes are <see cref="JsPropertyFlags.Default"/>.
+    /// </remarks>
+    public static JsValue Build(IJsRealm realm)
     {
-        var css = new JSObject();
+        var css = realm.NewObject();
 
-        css.FastAddValue(
-            "supports",
-            new DomFunction(Supports, "supports", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
-        css.FastAddValue(
-            "escape",
-            new DomFunction(Escape, "escape", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(css, "supports", realm.NewMethod("supports", Supports, 2));
+        realm.DefineValue(css, "escape", realm.NewMethod("escape", Escape, 1));
 
         return css;
     }
@@ -53,18 +49,25 @@ internal static class CssBinding
     /// renders as nothing, whereas a page told it does not takes the fallback it already carries.
     /// </para>
     /// </remarks>
-    private static JSValue Supports(in Arguments arguments)
+    /// <remarks>
+    /// The arguments are stringified with the realm's <c>ToString</c>, which is the ECMAScript
+    /// coercion — a page may pass an object with its own <c>toString</c> here, and the engine's own
+    /// <c>ToString()</c> on the value, which this line called before the migration, ran it. The
+    /// handle's <c>ToString()</c> deliberately does not enter the engine, so it would answer
+    /// <c>[object]</c> and quietly change what <c>supports</c> is asked about.
+    /// </remarks>
+    private static JsValue Supports(in JsCall call)
     {
-        var condition = arguments.Length >= 2
+        var condition = call.Length >= 2
             // The two-argument form takes a property and a value that are *not* re-parsed as a
             // condition, so a value containing its own parentheses — linear(0, 1) — composes
             // correctly rather than closing the query early.
-            ? BuildDeclarationCondition(arguments[0].ToString(), arguments[1].ToString())
-            : arguments.Length == 1
-                ? arguments[0].ToString()
+            ? BuildDeclarationCondition(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]))
+            : call.Length == 1
+                ? call.Realm.ToJsString(call[0])
                 : null;
 
-        return condition is null ? JSBoolean.False : Evaluate(condition) ? JSBoolean.True : JSBoolean.False;
+        return condition is null ? JsValue.False : JsValue.Boolean(Evaluate(condition));
     }
 
     private static string BuildDeclarationCondition(string property, string value) =>
@@ -88,12 +91,14 @@ internal static class CssBinding
     /// identifier. A pure algorithm with no engine dependency, so it is exact rather than
     /// approximate.
     /// </summary>
-    private static JSValue Escape(in Arguments arguments)
+    private static JsValue Escape(in JsCall call)
     {
-        if (arguments.Length == 0)
-            return new JSString(string.Empty);
+        if (call.Length == 0)
+            return JsValue.String(string.Empty);
 
-        var value = arguments[0].ToString();
+        // The realm's ToString again: escape(obj) has always escaped what the object's own toString
+        // said, and that coercion is observable.
+        var value = call.Realm.ToJsString(call[0]);
         var result = new StringBuilder(value.Length);
 
         for (var i = 0; i < value.Length; i++)
@@ -138,6 +143,6 @@ internal static class CssBinding
             result.Append('\\').Append(c);
         }
 
-        return new JSString(result.ToString());
+        return JsValue.String(result.ToString());
     }
 }

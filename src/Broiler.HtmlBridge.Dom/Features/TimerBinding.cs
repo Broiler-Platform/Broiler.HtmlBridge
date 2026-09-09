@@ -1,11 +1,7 @@
 using System;
 using System.Diagnostics;
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.BuiltIns.Number;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -22,43 +18,77 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>JsRegistrationSetTimeout070Core</c>..<c>CancelAnimationFrame075Core</c> in the shared
 /// JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The JavaScript vocabulary is JSEAL's: arguments are read off the call frame, the callback wrapper
+/// and the <c>IdleDeadline</c> are minted by the realm, and a callback is invoked through it. The one
+/// exception is <see cref="ToEngineCallback"/>, and it is a boundary rather than an oversight —
+/// <see cref="BrowserEventLoop"/>'s queues hold the engine's own function type, and it is not part of
+/// this migration. What that queue needs in order to hold a <see cref="JsValue"/> instead is small
+/// and worth stating: its <c>TimerEntry.Fn</c>, its <c>_rafCallbacks</c> map and the four
+/// registration signatures would take a handle, its "no callback" test would become
+/// <c>!callback.IsFunction</c> in place of a null check, and its drain would call the realm's
+/// <c>Invoke</c> rather than the function's own — which also means the loop would have to be handed
+/// the realm it drains into, since a handle carries no way back to one.
+/// </para>
+/// </remarks>
 internal static class TimerBinding
 {
-    public static JSValue SetTimeout(BrowserEventLoop loop, WindowContextManager windows, in Arguments a) =>
-        new JSNumber(loop.SetTimeout(BindToRegisteringContext(windows, a.Length > 0 ? a[0] as JSFunction : null), ReadDelayMs(a)));
+    public static JsValue SetTimeout(BrowserEventLoop loop, WindowContextManager windows, in JsCall call) =>
+        JsValue.Number(loop.SetTimeout(
+            ToEngineCallback(BindToRegisteringContext(call.Realm, windows, call[0])), ReadDelayMs(in call)));
 
-    // The delay argument (a[1]) in ms; absent / NaN / negative are treated as 0 (the event loop clamps too).
-    private static double ReadDelayMs(in Arguments a) => a.Length > 1 ? a[1].DoubleValue : 0;
+    // The delay argument (call[1]) in ms; absent / NaN / negative are treated as 0 (the event loop
+    // clamps too). ToNumber rather than the handle's own reading: `setTimeout(f, "100")` is ordinary
+    // page code, and the string has to coerce the way the language says.
+    private static double ReadDelayMs(in JsCall call) => call.Length > 1 ? call.Realm.ToNumber(call[1]) : 0;
 
-    public static JSValue ClearTimeout(BrowserEventLoop loop, in Arguments a)
+    public static JsValue ClearTimeout(BrowserEventLoop loop, in JsCall call)
     {
-        if (a.Length > 0)
-            loop.ClearTimeout((int)a[0].DoubleValue);
+        if (call.Length > 0)
+            loop.ClearTimeout((int)call.Realm.ToNumber(call[0]));
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    public static JSValue SetInterval(BrowserEventLoop loop, WindowContextManager windows, in Arguments a) =>
-        new JSNumber(loop.SetInterval(BindToRegisteringContext(windows, a.Length > 0 ? a[0] as JSFunction : null), ReadDelayMs(a)));
+    public static JsValue SetInterval(BrowserEventLoop loop, WindowContextManager windows, in JsCall call) =>
+        JsValue.Number(loop.SetInterval(
+            ToEngineCallback(BindToRegisteringContext(call.Realm, windows, call[0])), ReadDelayMs(in call)));
 
-    public static JSValue ClearInterval(BrowserEventLoop loop, in Arguments a)
+    public static JsValue ClearInterval(BrowserEventLoop loop, in JsCall call)
     {
-        if (a.Length > 0)
-            loop.ClearInterval((int)a[0].DoubleValue);
+        if (call.Length > 0)
+            loop.ClearInterval((int)call.Realm.ToNumber(call[0]));
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    public static JSValue RequestAnimationFrame(BrowserEventLoop loop, WindowContextManager windows, in Arguments a) =>
-        new JSNumber(loop.RequestAnimationFrame(BindToRegisteringContext(windows, a.Length > 0 ? a[0] as JSFunction : null)));
+    public static JsValue RequestAnimationFrame(BrowserEventLoop loop, WindowContextManager windows, in JsCall call) =>
+        JsValue.Number(loop.RequestAnimationFrame(
+            ToEngineCallback(BindToRegisteringContext(call.Realm, windows, call[0]))));
 
-    public static JSValue CancelAnimationFrame(BrowserEventLoop loop, in Arguments a)
+    public static JsValue CancelAnimationFrame(BrowserEventLoop loop, in JsCall call)
     {
-        if (a.Length > 0)
-            loop.CancelAnimationFrame((int)a[0].DoubleValue);
+        if (call.Length > 0)
+            loop.CancelAnimationFrame((int)call.Realm.ToNumber(call[0]));
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
+
+    /// <summary>
+    /// The engine function behind a callback handle, for the queue that still holds one, and
+    /// <see langword="null"/> for anything that is not callable — which is what the loop's "an id was
+    /// allocated but nothing will run" case is spelled as.
+    /// </summary>
+    /// <remarks>
+    /// The one engine-typed helper in this file, and the seam described in this class's remarks: a
+    /// handle carries the engine's own function, so this is a cast and not a conversion, and the
+    /// identity <c>clearTimeout</c> and the drain depend on is the identity it always was.
+    /// </remarks>
+    private static JavaScript.BuiltIns.Function.JSFunction? ToEngineCallback(JsValue callback) =>
+        callback.IsFunction
+            ? JsInterop.ToEngineObject(callback) as JavaScript.BuiltIns.Function.JSFunction
+            : null;
 
     /// <summary>
     /// Ties a callback to the browsing context that registered it, so that when the queue drains it
@@ -82,28 +112,33 @@ internal static class TimerBinding
     /// plus <c>RunWithWindowContext</c>'s save/restore on every tick — on the one call busy pages
     /// make constantly. Only a frame pays for being a frame.
     /// </para>
+    /// <para>
+    /// A value that is not callable is handed back untouched, so the caller's
+    /// <see cref="ToEngineCallback"/> turns it into the null the loop reads as "allocate an id and
+    /// queue nothing" — the same answer the engine-typed <c>as</c> cast gave before.
+    /// </para>
     /// </remarks>
-    private static JSFunction? BindToRegisteringContext(WindowContextManager windows, JSFunction? callback)
+    private static JsValue BindToRegisteringContext(IJsRealm realm, WindowContextManager windows, JsValue callback)
     {
-        if (callback is null || windows.ResolveCurrentSubWindow() is not { } frameWindow)
+        if (!callback.IsFunction || windows.ResolveCurrentSubWindow() is not { } frameWindow)
             return callback;
 
-        return new DomFunction((in a) =>
+        return realm.NewMethod("callback", (in call) =>
         {
             // A queued callback is invoked with at most one real argument — a rAF timestamp, an
-            // IdleDeadline — and `in` parameters cannot be captured, so the call is read out into
-            // locals here. Arguments' first constructor parameter is `this`; Length and the indexer
-            // count only the real arguments, so the one to forward is a[0].
-            var thisValue = a.This ?? JSUndefined.Value;
-            var argument = a.Length > 0 ? a[0] : null;
+            // IdleDeadline — and a call frame cannot be captured by the closure below, so the call is
+            // read out into locals here. `This` is already `undefined` rather than absent when the
+            // caller supplied no receiver, so it forwards as it stands.
+            var thisValue = call.This;
+            var argument = call[0];
 
-            JSValue result = JSUndefined.Value;
+            JsValue result = JsValue.Undefined;
             windows.RunWithWindowContext(frameWindow, () =>
-                result = callback.InvokeFunction(argument is null
-                    ? new Arguments(thisValue)
-                    : new Arguments(thisValue, argument)));
+                result = argument.IsMissing
+                    ? realm.Invoke(callback, thisValue)
+                    : realm.Invoke(callback, thisValue, [argument]));
             return result;
-        }, "callback", 0);
+        });
     }
 
     /// <summary>
@@ -128,48 +163,52 @@ internal static class TimerBinding
     /// <see cref="ReadDelayMs"/> read <c>NaN</c> off the object and scheduled at 0 regardless of what
     /// the page asked for; <c>timeout</c> is read out of it properly here.
     /// </remarks>
-    public static JSValue RequestIdleCallback(BrowserEventLoop loop, WindowContextManager windows, in Arguments a)
+    public static JsValue RequestIdleCallback(BrowserEventLoop loop, WindowContextManager windows, in JsCall call)
     {
-        if (a.Length == 0 || BindToRegisteringContext(windows, a[0] as JSFunction) is not { } callback)
-            return new JSNumber(loop.SetTimeout(null));
+        var realm = call.Realm;
+        var callback = BindToRegisteringContext(realm, windows, call[0]);
+        if (!callback.IsFunction)
+            return JsValue.Number(loop.SetTimeout(null));
 
         // A timeout means "run by then at the latest". There is no idle period here for the callback
         // to have been run in earlier, so a callback that carries one is always running because that
         // deadline arrived — which is what didTimeout reports.
-        var timeoutMs = ReadIdleTimeoutMs(a);
+        var timeoutMs = ReadIdleTimeoutMs(in call);
         var didTimeout = timeoutMs > 0;
 
         // The deadline is minted when the callback runs, not when it is registered: the budget is the
         // time this invocation has used, so a re-registered callback gets a fresh one each time.
-        var withDeadline = new DomFunction((in _) =>
+        var withDeadline = realm.NewMethod("requestIdleCallback callback", (in _) =>
         {
-            callback.InvokeFunction(new Arguments(JSUndefined.Value, CreateIdleDeadline(didTimeout)));
-            return JSUndefined.Value;
-        }, "requestIdleCallback callback", 0);
+            realm.Invoke(callback, JsValue.Undefined, [CreateIdleDeadline(realm, didTimeout)]);
+            return JsValue.Undefined;
+        });
 
         // Scheduling it on the timer queue is what keeps the handle cancellable: the id comes from the
         // same space clearTimeout/cancelIdleCallback act on.
-        return new JSNumber(loop.SetTimeout(withDeadline, timeoutMs));
+        return JsValue.Number(loop.SetTimeout(ToEngineCallback(withDeadline), timeoutMs));
     }
 
     /// <summary>
     /// <c>cancelIdleCallback</c> — the handle came from the timer id space, so this is
     /// <see cref="ClearTimeout"/> under the name Background Tasks gives it.
     /// </summary>
-    public static JSValue CancelIdleCallback(BrowserEventLoop loop, in Arguments a) => ClearTimeout(loop, in a);
+    public static JsValue CancelIdleCallback(BrowserEventLoop loop, in JsCall call) => ClearTimeout(loop, in call);
 
-    // The `timeout` member of the options dictionary (a[1]), in ms. Absent, non-numeric or
-    // non-positive means the page asked for no deadline at all.
-    private static double ReadIdleTimeoutMs(in Arguments a)
+    // The `timeout` member of the options dictionary (call[1]), in ms. Absent, non-numeric or
+    // non-positive means the page asked for no deadline at all. An argument that was never supplied
+    // is Missing rather than undefined, and IsNullish covers all three of those the way the old
+    // null / IsNull / IsUndefined trio did.
+    private static double ReadIdleTimeoutMs(in JsCall call)
     {
-        if (a.Length < 2 || a[1] is not JSObject options)
+        if (call.Length < 2 || !call[1].IsObject)
             return 0;
 
-        var timeout = options[(KeyString)"timeout"];
-        if (timeout is null || timeout.IsNull || timeout.IsUndefined)
+        var timeout = call.Realm.GetProperty(call[1], "timeout");
+        if (timeout.IsNullish)
             return 0;
 
-        var ms = timeout.DoubleValue;
+        var ms = call.Realm.ToNumber(timeout);
         return double.IsNaN(ms) || ms <= 0 ? 0 : ms;
     }
 
@@ -180,19 +219,15 @@ internal static class TimerBinding
     /// call, which the virtual clock knows nothing about — and because a budget that never runs down
     /// is a page's `while (deadline.timeRemaining() > n)` loop that never yields.
     /// </summary>
-    private static JSObject CreateIdleDeadline(bool didTimeout)
+    private static JsValue CreateIdleDeadline(IJsRealm realm, bool didTimeout)
     {
         var enteredAt = Stopwatch.GetTimestamp();
 
-        var deadline = new JSObject();
-        deadline.FastAddValue("didTimeout",
-            didTimeout ? JSBoolean.True : JSBoolean.False,
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        deadline.FastAddValue("timeRemaining",
-            new DomFunction((in _) => new JSNumber(
-                Math.Max(0, IdleBudgetMs - Stopwatch.GetElapsedTime(enteredAt).TotalMilliseconds)),
-                "timeRemaining", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        var deadline = realm.NewObject();
+        realm.DefineValue(deadline, "didTimeout", JsValue.Boolean(didTimeout));
+        realm.DefineValue(deadline, "timeRemaining",
+            realm.NewMethod("timeRemaining", (in _) => JsValue.Number(
+                Math.Max(0, IdleBudgetMs - Stopwatch.GetElapsedTime(enteredAt).TotalMilliseconds)), 0));
         return deadline;
     }
 }

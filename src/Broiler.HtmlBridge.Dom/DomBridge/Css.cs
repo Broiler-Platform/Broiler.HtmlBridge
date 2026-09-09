@@ -1,12 +1,7 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -261,8 +256,10 @@ public sealed partial class DomBridge
     }
 
     // The getComputedStyle result object is built by the Phase 3 (P3.14) StyleDeclarationBinding
-    // feature module; the bridge still produces the engine-cascaded computed map here.
-    private JSObject BuildComputedStyleObject(DomElement? element, string? pseudoElement = null)
+    // feature module; the bridge still produces the engine-cascaded computed map here. The name keeps
+    // saying "object" because that is what it builds — the JSEAL handle is over the realm's own object,
+    // and both host contracts that reach this (IComputedStyleHost, ISubWindowHost) name it that way.
+    private JsValue BuildComputedStyleObject(DomElement? element, string? pseudoElement = null)
     {
         var map = BuildComputedStyleMap(element, pseudoElement);
         // `overlay` (CSS Position 4) is UA-controlled — it is not in the author cascade, so the
@@ -278,7 +275,7 @@ public sealed partial class DomBridge
             ApplyUserAgentDisplayToComputedStyle(element, map);
         }
 
-        return Dom.Features.StyleDeclarationBinding.BuildComputedDeclaration(map);
+        return Dom.Features.StyleDeclarationBinding.BuildComputedDeclaration(Realm, map);
     }
 
     private Dictionary<string, string> BuildComputedStyleMap(DomElement? element, string? pseudoElement = null)
@@ -771,11 +768,14 @@ public sealed partial class DomBridge
 
         try
         {
-            var evt = new JSObject();
-            evt.FastAddValue("type",
-                new JSString(loaded ? "load" : "error"), JSPropertyAttributes.EnumerableConfigurableValue);
-            evt.FastAddValue("bubbles", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-            DispatchEventOnElement(element, evt);
+            // The event object is built through the realm (JSEAL); the two members keep the
+            // enumerable/configurable data-property attributes they had, which is what
+            // JsPropertyFlags.Default spells. Dispatch is still engine-typed, so the handle is
+            // unwrapped at that one call through the JsInterop seam.
+            var evt = Realm.NewObject();
+            Realm.DefineValue(evt, "type", JsValue.String(loaded ? "load" : "error"));
+            Realm.DefineValue(evt, "bubbles", JsValue.False);
+            DispatchEventOnElement(element, JsInterop.ToEngineObject(evt));
         }
         catch (Exception ex)
         {

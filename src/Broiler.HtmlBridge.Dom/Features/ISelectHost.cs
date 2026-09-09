@@ -1,5 +1,5 @@
-using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -10,15 +10,28 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// read/write — the select's dirty selected index, an option's IDL value, an option's
 /// default-selected flag — lives on the bridge's <c>ElementRuntimeState.FormControl</c>. It is
 /// exposed here as named primitives (the P3.7 pattern) so the module never touches the runtime-state
-/// object, plus JS-wrapper identity/lookup for the <c>add()</c> and <c>options</c> members.
+/// object, plus the realm and JS-wrapper identity/lookup for the <c>add()</c> and <c>options</c>
+/// members.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
+/// type. <see cref="WrapNode"/> and <see cref="FindElement"/> were <c>ToJSObject</c> and
+/// <c>FindDomElementByJSObject</c>: a name that says <em>JSObject</em> is an engine reference too, so
+/// it moves with the type it named.
+/// </remarks>
 internal interface ISelectHost
 {
+    /// <summary>
+    /// The realm the select's <c>options</c> array and its members are built in, and which the
+    /// installed members' bodies run against.
+    /// </summary>
+    IJsRealm Realm { get; }
+
     /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JSObject ToJSObject(DomNode node);
+    JsValue WrapNode(DomNode node);
 
     /// <summary>Resolves the canonical element behind a JS wrapper, or null.</summary>
-    DomElement? FindDomElementByJSObject(JSObject? jsObj);
+    DomElement? FindElement(JsValue wrapper);
 
     /// <summary>The select's explicitly-set ("dirty") selected index, if any.</summary>
     bool TryGetSelectedIndex(DomElement select, out int index);

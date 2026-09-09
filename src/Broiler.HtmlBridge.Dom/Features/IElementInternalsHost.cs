@@ -1,6 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -9,11 +8,21 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// two questions (is this element custom, and did its definition declare <c>formAssociated</c>), the
 /// form-association reads an <c>ElementInternals</c> answers with, and the one event it fires.
 /// </summary>
+/// <remarks>
+/// The whole contract is spelled in JSEAL (<see cref="IJsRealm"/>), so nothing here names an engine
+/// type. The script context it used to carry beside the realm was there for one thing — raising the
+/// two <c>NotSupportedError</c>s <c>attachInternals</c> and the form-only members produce — and
+/// <see cref="IJsCalls.DomError"/> owns that now. The realm stays because the module mints its two
+/// interface prototypes, its per-instance objects and its coercions in it, and because
+/// <c>RegisterInterfaces</c> runs with no call frame to carry one.
+/// </remarks>
 internal interface IElementInternalsHost
 {
-    JSContext JsContext { get; }
+    /// <summary>The realm the three interfaces and every object they hand back are minted in.</summary>
+    IJsRealm Realm { get; }
 
-    JSObject ToJSObject(DomNode node);
+    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
+    JsValue WrapNode(DomNode node);
 
     /// <summary>Whether the element is a custom element — the gate on <c>attachInternals</c>, which
     /// a browser refuses for an ordinary one.</summary>
@@ -31,10 +40,10 @@ internal interface IElementInternalsHost
     bool IsDisabled(DomElement element);
 
     /// <summary>The element's live <c>labels</c> list.</summary>
-    JSValue LabelsFor(DomElement element);
+    JsValue LabelsFor(DomElement element);
 
-    /// <summary>The element's shadow root, or <c>null</c>.</summary>
-    JSValue ShadowRootOf(DomElement element);
+    /// <summary>The element's shadow root, or <see cref="JsValue.Null"/>.</summary>
+    JsValue ShadowRootOf(DomElement element);
 
     /// <summary>Fires a non-bubbling cancelable <c>invalid</c> event at the element, which is what
     /// <c>checkValidity</c> does when the element is invalid.</summary>

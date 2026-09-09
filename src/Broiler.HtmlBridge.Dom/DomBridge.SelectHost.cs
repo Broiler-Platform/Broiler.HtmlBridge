@@ -1,8 +1,8 @@
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.Runtime;
+using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Features;
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -14,6 +14,13 @@ namespace Broiler.HtmlBridge;
 /// stays on the per-element <see cref="ElementRuntimeState"/>; these named accessors are the seam a
 /// future runtime-state consolidation re-homes.
 /// </summary>
+/// <remarks>
+/// This is the half-migrated seam for the select slice: the module speaks JSEAL, the rest of the
+/// bridge still holds engine objects, and <see cref="Dom.Runtime.JsInterop"/> is the cast between
+/// them. It is a cast and not a conversion — a JSEAL object handle carries the engine's own object —
+/// so wrapper identity (<c>option === option</c>, and the weak tables keyed on it) is the same
+/// question it was before.
+/// </remarks>
 public sealed partial class DomBridge : ISelectHost
 {
     // Phase 2 item 4 (de-globalization, 2026-07-17): the per-element form-control runtime state
@@ -29,10 +36,12 @@ public sealed partial class DomBridge : ISelectHost
     private FormControlRuntimeState FormControlStateFor(DomElement element) =>
         _formControlRuntimeStates.GetValue(element, static _ => new FormControlRuntimeState());
 
-    JSObject ISelectHost.ToJSObject(DomNode node) => ToJSObject(node);
+    IJsRealm ISelectHost.Realm => Realm;
 
-    DomElement? ISelectHost.FindDomElementByJSObject(JSObject? jsObj) =>
-        jsObj is null ? null : FindDomElementByJSObject(jsObj);
+    JsValue ISelectHost.WrapNode(DomNode node) => JsInterop.FromEngineObject(ToJSObject(node));
+
+    DomElement? ISelectHost.FindElement(JsValue wrapper) =>
+        wrapper.IsObject ? FindDomElementByJSObject(JsInterop.ToEngineObject(wrapper)) : null;
 
     bool ISelectHost.TryGetSelectedIndex(DomElement select, out int index)
     {

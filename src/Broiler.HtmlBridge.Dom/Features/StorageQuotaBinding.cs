@@ -1,6 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -37,28 +35,41 @@ internal static class StorageQuotaBinding
     /// objects because they are separate storage types — a page may hold a reference to one — even
     /// though both currently report the same pair.
     /// </summary>
-    public static void Install(JSObject navigator)
+    /// <param name="realm">The realm the two objects and their method belong to.</param>
+    /// <param name="navigator">The navigator to install them on.</param>
+    public static void Install(IJsRealm realm, JsValue navigator)
     {
-        navigator.FastAddValue("webkitTemporaryStorage", BuildStorageQuota(), JSPropertyAttributes.EnumerableConfigurableValue);
-        navigator.FastAddValue("webkitPersistentStorage", BuildStorageQuota(), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(navigator, "webkitTemporaryStorage", BuildStorageQuota(realm));
+        realm.DefineValue(navigator, "webkitPersistentStorage", BuildStorageQuota(realm));
     }
 
-    private static JSObject BuildStorageQuota()
+    private static JsValue BuildStorageQuota(IJsRealm realm)
     {
-        var quota = new JSObject();
+        var quota = realm.NewObject();
 
-        quota.FastAddValue("queryUsageAndQuota",
-            new DomFunction(QueryUsageAndQuota, "queryUsageAndQuota", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(quota, "queryUsageAndQuota",
+            realm.NewMethod("queryUsageAndQuota", QueryUsageAndQuota, 2));
 
         return quota;
     }
 
-    private static JSValue QueryUsageAndQuota(in Arguments a)
+    /// <summary>
+    /// <c>queryUsageAndQuota(success, error)</c> — reports zero used of zero available, to the
+    /// success callback if one was passed. The error callback is never reached; there is no failure
+    /// this can report.
+    /// </summary>
+    /// <remarks>
+    /// The success callback is called with <c>undefined</c> as its receiver and the two numbers as
+    /// its arguments — the same call the engine was making directly before, now asked of the realm so
+    /// that the callback runs under whatever a provider needs around a re-entry into script.
+    /// </remarks>
+    private static JsValue QueryUsageAndQuota(in JsCall call)
     {
-        if (a.Length > 0 && a[0].IsFunction)
-            a[0].InvokeFunction(new Arguments(JSUndefined.Value, new JSNumber(0), new JSNumber(0)));
+        if (call.Length > 0 && call[0].IsFunction)
+        {
+            call.Realm.Invoke(call[0], JsValue.Undefined, [JsValue.Number(0), JsValue.Number(0)]);
+        }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 }

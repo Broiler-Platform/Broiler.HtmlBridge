@@ -1,14 +1,6 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.Dom;
 using Broiler.CSS;
 using Broiler.CSS.Cssom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -24,7 +16,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal static partial class StyleSheetBinding
 {
     /// <summary>
-    /// Builds a CSSRule JSObject from a CSS rule string.
+    /// Builds a CSSRule object from a CSS rule string.
     /// Sets <c>type</c> (1 = CSSStyleRule, 2 = CSSCharsetRule, 3 = CSSImportRule,
     /// 4 = CSSMediaRule, 5 = CSSFontFaceRule, 6 = CSSPageRule, 7 = CSSKeyframesRule,
     /// 9 = CSSNamespaceRule, 10 = CSSCounterStyleRule, 11 = CSSSupportsRule,
@@ -37,42 +29,44 @@ internal static partial class StyleSheetBinding
     /// and <c>style</c> properties as appropriate.
     /// </summary>
     /// <summary>
-    /// Builds a CSSRule JSObject from a shared <see cref="CssRule"/>
+    /// Builds a CSSRule object from a shared <see cref="CssRule"/>
     /// model object. Rule kind and metadata (selector text, prelude-derived
     /// media/condition/name/href/prefix values, keyframe keys, and descriptors)
     /// are read from the neutral <see cref="CSS.Cssom.CssomRuleMetadata"/>
     /// projection and the declaration model rather than by serializing the rule and
     /// re-parsing the text. Declaration blocks still feed the JavaScript
-    /// <c>CSSStyleDeclaration</c> wrapper through <see cref="ParseStyle"/> on the
+    /// <c>CSSStyleDeclaration</c> wrapper through <c>DomBridge.ParseStyle</c> on the
     /// serialized block, which is unchanged. Unrecognized at-rules (for example
     /// <c>@container</c> or a vendor-prefixed <c>@-webkit-keyframes</c>) fall back to
     /// the legacy string builder, preserving their current behavior.
     /// </summary>
-    internal static JSObject BuildCssRuleObject(CssRule rule, JSObject parentStyleSheet, JSObject? parentRule = null)
+    /// <remarks>
+    /// A missing <paramref name="parentRule"/> is <see cref="JsValue.Missing"/> rather than a CLR
+    /// <see langword="null"/>, and the <c>parentRule</c> getter still answers <c>null</c> for it — the
+    /// distinction the contract draws in the direction it is observed.
+    /// </remarks>
+    internal static JsValue BuildCssRuleObject(IJsRealm realm, CssRule rule, JsValue parentStyleSheet, JsValue parentRule = default)
     {
         var kind = CssomRuleMetadata.GetRuleType(rule);
         if (kind == CssomRuleType.Unknown)
-            return BuildCssRuleObject(CssSerializer.Serialize(rule), parentStyleSheet, parentRule);
+            return BuildCssRuleObject(realm, CssSerializer.Serialize(rule), parentStyleSheet, parentRule);
 
-        var ruleObj = new JSObject();
-        ruleObj.FastAddProperty("parentStyleSheet",
-            new DomFunction((in _) => parentStyleSheet, "get parentStyleSheet"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        ruleObj.FastAddProperty("parentRule",
-            new DomFunction((in _) => parentRule ?? JSNull.Value, "get parentRule"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        var ruleObj = realm.NewObject();
+        realm.DefineAccessor(ruleObj, "parentStyleSheet", (in _) => parentStyleSheet, null);
+        realm.DefineAccessor(ruleObj, "parentRule",
+            (in _) => parentRule.IsMissing ? JsValue.Null : parentRule, null);
 
-        ruleObj.FastAddValue("type", new JSNumber((int)kind), JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(ruleObj, "type", JsValue.Number((int)kind));
 
         // Builds the JS CSSStyleDeclaration for a declaration-bodied rule from the
         // model's declaration block — identical to the legacy substring path because
         // ParseStyle sees the same declarations, just serialized from the block.
-        JSObject StyleFromBlock(CssDeclarationBlock? block)
+        JsValue StyleFromBlock(CssDeclarationBlock? block)
         {
             var map = block is null
                 ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 : DomBridge.ParseStyle(CssSerializer.Serialize(block));
-            return StyleDeclarationBinding.BuildRuleDeclaration(map, ruleObj);
+            return StyleDeclarationBinding.BuildRuleDeclaration(realm, map, ruleObj);
         }
 
         switch (kind)
@@ -80,21 +74,19 @@ internal static partial class StyleSheetBinding
             case CssomRuleType.Charset:
                 {
                     var encoding = CssomRuleMetadata.GetCharsetEncoding((CssAtRule)rule);
-                    ruleObj.FastAddValue("encoding", new JSString(encoding), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => new JSString($"@charset \"{encoding}\";"), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                    realm.DefineValue(ruleObj, "encoding", JsValue.String(encoding));
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsValue.String($"@charset \"{encoding}\";"), null);
                     break;
                 }
 
             case CssomRuleType.Import:
                 {
                     var import = CssomRuleMetadata.GetImport((CssAtRule)rule);
-                    ruleObj.FastAddValue("href", new JSString(import.Href), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddValue("media", new JSString(import.Media), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => JsStyleSheetsGetCssText017Core(import.Href, import.Media, in _), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                    realm.DefineValue(ruleObj, "href", JsValue.String(import.Href));
+                    realm.DefineValue(ruleObj, "media", JsValue.String(import.Media));
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsStyleSheetsGetCssText017Core(import.Href, import.Media), null);
                     break;
                 }
 
@@ -102,26 +94,25 @@ internal static partial class StyleSheetBinding
                 {
                     var atRule = (CssAtRule)rule;
                     var mediaText = atRule.Prelude;
-                    var nestedRuleObjects = BuildNestedRuleObjects(string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
+                    var nestedRuleObjects = BuildNestedRuleObjects(realm, string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
                     var nestedCssRules = BuildCssRuleListObject(
+                        realm,
                         nestedRuleObjects,
-                        text => BuildCssRuleObject(text, parentStyleSheet, ruleObj));
+                        text => BuildCssRuleObject(realm, text, parentStyleSheet, ruleObj));
 
-                    ruleObj.FastAddValue("media", new JSString(mediaText), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddValue("cssRules", nestedCssRules, JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => JsStyleSheetsGetCssText018Core(mediaText, nestedRuleObjects, in _), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                    realm.DefineValue(ruleObj, "media", JsValue.String(mediaText));
+                    realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsStyleSheetsGetCssText018Core(realm, mediaText, nestedRuleObjects), null);
                     break;
                 }
 
             case CssomRuleType.FontFace:
                 {
                     var styleObj = StyleFromBlock(((CssAtRule)rule).Declarations);
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => JsStyleSheetsGetCssText019Core(styleObj, in _), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
-                    ruleObj.FastAddValue("style", styleObj, JSPropertyAttributes.EnumerableConfigurableValue);
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsStyleSheetsGetCssText019Core(realm, styleObj), null);
+                    realm.DefineValue(ruleObj, "style", styleObj);
                     break;
                 }
 
@@ -129,15 +120,14 @@ internal static partial class StyleSheetBinding
                 {
                     var atRule = (CssAtRule)rule;
                     var name = CssomRuleMetadata.GetKeyframesName(atRule);
-                    var nestedRuleObjects = BuildNestedKeyframeObjects(string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
-                    var nestedCssRules = BuildCssRuleListObject(nestedRuleObjects,
-                        text => BuildCssKeyframeRuleObject(text, parentStyleSheet, ruleObj));
+                    var nestedRuleObjects = BuildNestedKeyframeObjects(realm, string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
+                    var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects,
+                        text => BuildCssKeyframeRuleObject(realm, text, parentStyleSheet, ruleObj));
 
-                    ruleObj.FastAddValue("name", new JSString(name), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddValue("cssRules", nestedCssRules, JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => JsStyleSheetsGetCssText020Core(name, nestedRuleObjects, in _), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                    realm.DefineValue(ruleObj, "name", JsValue.String(name));
+                    realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsStyleSheetsGetCssText020Core(realm, name, nestedRuleObjects), null);
                     break;
                 }
 
@@ -152,15 +142,13 @@ internal static partial class StyleSheetBinding
                         || !string.Equals(inheritsValue, "false", StringComparison.OrdinalIgnoreCase);
                     var initialValue = descriptors.GetValueOrDefault("initial-value");
 
-                    ruleObj.FastAddValue("name", new JSString(propertyName), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddValue("syntax", new JSString(syntax), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddValue("inherits", inherits ? JSBoolean.True : JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddValue("initialValue",
-                        string.IsNullOrEmpty(initialValue) ? JSNull.Value : new JSString(initialValue),
-                        JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => JsStyleSheetsGetCssText021Core(inherits, initialValue, propertyName, syntax, in _), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                    realm.DefineValue(ruleObj, "name", JsValue.String(propertyName));
+                    realm.DefineValue(ruleObj, "syntax", JsValue.String(syntax));
+                    realm.DefineValue(ruleObj, "inherits", JsValue.Boolean(inherits));
+                    realm.DefineValue(ruleObj, "initialValue",
+                        string.IsNullOrEmpty(initialValue) ? JsValue.Null : JsValue.String(initialValue));
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsStyleSheetsGetCssText021Core(inherits, initialValue, propertyName, syntax), null);
                     break;
                 }
 
@@ -170,7 +158,7 @@ internal static partial class StyleSheetBinding
                     var ruleName = atRule.Prelude;
                     var descriptors = DomBridge.ParseStyle(CssSerializer.Serialize(atRule.Declarations ?? new CssDeclarationBlock([])));
 
-                    ruleObj.FastAddValue("name", new JSString(ruleName), JSPropertyAttributes.EnumerableConfigurableValue);
+                    realm.DefineValue(ruleObj, "name", JsValue.String(ruleName));
 
                     var descriptorMap = new (string CssName, string JsName)[]
                     {
@@ -188,14 +176,12 @@ internal static partial class StyleSheetBinding
 
                     foreach (var (cssName, jsName) in descriptorMap)
                     {
-                        ruleObj.FastAddValue(jsName,
-                            descriptors.TryGetValue(cssName, out var value) ? new JSString(value) : JSUndefined.Value,
-                            JSPropertyAttributes.EnumerableConfigurableValue);
+                        realm.DefineValue(ruleObj, jsName,
+                            descriptors.TryGetValue(cssName, out var value) ? JsValue.String(value) : JsValue.Undefined);
                     }
 
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => JsStyleSheetsGetCssText022Core(descriptorMap, ruleName, ruleObj, in _), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsStyleSheetsGetCssText022Core(realm, descriptorMap, ruleName, ruleObj), null);
                     break;
                 }
 
@@ -203,16 +189,16 @@ internal static partial class StyleSheetBinding
                 {
                     var atRule = (CssAtRule)rule;
                     var conditionText = atRule.Prelude;
-                    var nestedRuleObjects = BuildNestedRuleObjects(string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
+                    var nestedRuleObjects = BuildNestedRuleObjects(realm, string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
                     var nestedCssRules = BuildCssRuleListObject(
+                        realm,
                         nestedRuleObjects,
-                        text => BuildCssRuleObject(text, parentStyleSheet, ruleObj));
+                        text => BuildCssRuleObject(realm, text, parentStyleSheet, ruleObj));
 
-                    ruleObj.FastAddValue("conditionText", new JSString(conditionText), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddValue("cssRules", nestedCssRules, JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => JsStyleSheetsGetCssText023Core(conditionText, nestedRuleObjects, in _), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                    realm.DefineValue(ruleObj, "conditionText", JsValue.String(conditionText));
+                    realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsStyleSheetsGetCssText023Core(realm, conditionText, nestedRuleObjects), null);
                     break;
                 }
 
@@ -222,28 +208,24 @@ internal static partial class StyleSheetBinding
                     var nameText = atRule.Prelude;
                     if (atRule.HasBlock)
                     {
-                        var nestedRuleObjects = BuildNestedRuleObjects(string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
-                        var nestedCssRules = BuildCssRuleListObject(nestedRuleObjects,
-                            text => BuildCssRuleObject(text, parentStyleSheet, ruleObj));
+                        var nestedRuleObjects = BuildNestedRuleObjects(realm, string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
+                        var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects,
+                            text => BuildCssRuleObject(realm, text, parentStyleSheet, ruleObj));
 
-                        ruleObj.FastAddValue("name",
-                            string.IsNullOrEmpty(nameText) ? JSNull.Value : new JSString(nameText),
-                            JSPropertyAttributes.EnumerableConfigurableValue);
-                        ruleObj.FastAddValue("cssRules", nestedCssRules, JSPropertyAttributes.EnumerableConfigurableValue);
-                        ruleObj.FastAddProperty("cssText",
-                            new DomFunction((in _) => JsStyleSheetsGetCssText024Core(nameText, nestedRuleObjects, in _), "get cssText"),
-                            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                        realm.DefineValue(ruleObj, "name",
+                            string.IsNullOrEmpty(nameText) ? JsValue.Null : JsValue.String(nameText));
+                        realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
+                        realm.DefineAccessor(ruleObj, "cssText",
+                            (in _) => JsStyleSheetsGetCssText024Core(realm, nameText, nestedRuleObjects), null);
                     }
                     else
                     {
                         // Statement form: `@layer a, b;` — no block, empty cssRules.
-                        ruleObj.FastAddValue("name",
-                            string.IsNullOrEmpty(nameText) ? JSNull.Value : new JSString(nameText),
-                            JSPropertyAttributes.EnumerableConfigurableValue);
-                        ruleObj.FastAddValue("cssRules", BuildCssRuleListObject([]), JSPropertyAttributes.EnumerableConfigurableValue);
-                        ruleObj.FastAddProperty("cssText",
-                            new DomFunction((in _) => JsStyleSheetsGetCssText025Core(nameText, in _), "get cssText"),
-                            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                        realm.DefineValue(ruleObj, "name",
+                            string.IsNullOrEmpty(nameText) ? JsValue.Null : JsValue.String(nameText));
+                        realm.DefineValue(ruleObj, "cssRules", BuildCssRuleListObject(realm, []));
+                        realm.DefineAccessor(ruleObj, "cssText",
+                            (in _) => JsStyleSheetsGetCssText025Core(nameText), null);
                     }
                     break;
                 }
@@ -251,13 +233,11 @@ internal static partial class StyleSheetBinding
             case CssomRuleType.Namespace:
                 {
                     var ns = CssomRuleMetadata.GetNamespace((CssAtRule)rule);
-                    ruleObj.FastAddValue("namespaceURI", new JSString(ns.Uri), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddValue("prefix",
-                        string.IsNullOrEmpty(ns.Prefix) ? JSUndefined.Value : new JSString(ns.Prefix),
-                        JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => JsStyleSheetsGetCssText026Core(ns.Uri, ns.Prefix, in _), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                    realm.DefineValue(ruleObj, "namespaceURI", JsValue.String(ns.Uri));
+                    realm.DefineValue(ruleObj, "prefix",
+                        string.IsNullOrEmpty(ns.Prefix) ? JsValue.Undefined : JsValue.String(ns.Prefix));
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsStyleSheetsGetCssText026Core(ns.Uri, ns.Prefix), null);
                     break;
                 }
 
@@ -266,11 +246,10 @@ internal static partial class StyleSheetBinding
                     var atRule = (CssAtRule)rule;
                     var selectorText = atRule.Prelude;
                     var styleObj = StyleFromBlock(atRule.Declarations);
-                    ruleObj.FastAddValue("selectorText", new JSString(selectorText), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddValue("style", styleObj, JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => JsStyleSheetsGetCssText027Core(selectorText, styleObj, in _), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                    realm.DefineValue(ruleObj, "selectorText", JsValue.String(selectorText));
+                    realm.DefineValue(ruleObj, "style", styleObj);
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsStyleSheetsGetCssText027Core(realm, selectorText, styleObj), null);
                     break;
                 }
 
@@ -279,12 +258,11 @@ internal static partial class StyleSheetBinding
                     // CSSStyleRule — type 1
                     var styleRule = (CssStyleRule)rule;
                     var selectorText = CssomRuleMetadata.GetSelectorText(styleRule);
-                    ruleObj.FastAddValue("selectorText", new JSString(selectorText), JSPropertyAttributes.EnumerableConfigurableValue);
-                    ruleObj.FastAddProperty("cssText",
-                        new DomFunction((in _) => JsStyleSheetsGetCssText028Core(ruleObj, selectorText, in _), "get cssText"),
-                        null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                    realm.DefineValue(ruleObj, "selectorText", JsValue.String(selectorText));
+                    realm.DefineAccessor(ruleObj, "cssText",
+                        (in _) => JsStyleSheetsGetCssText028Core(realm, ruleObj, selectorText), null);
                     var styleObj = StyleFromBlock(styleRule.Declarations);
-                    ruleObj.FastAddValue("style", styleObj, JSPropertyAttributes.EnumerableConfigurableValue);
+                    realm.DefineValue(ruleObj, "style", styleObj);
                     break;
                 }
         }
@@ -292,35 +270,30 @@ internal static partial class StyleSheetBinding
         return ruleObj;
     }
 
-    private static JSObject BuildCssRuleObject(string ruleText, JSObject parentStyleSheet, JSObject? parentRule = null, IReadOnlyList<CssRule>? nestedModelRules = null)
+    private static JsValue BuildCssRuleObject(IJsRealm realm, string ruleText, JsValue parentStyleSheet, JsValue parentRule = default, IReadOnlyList<CssRule>? nestedModelRules = null)
     {
-        var ruleObj = new JSObject();
-        ruleObj.FastAddProperty(
-            "parentStyleSheet",
-            new DomFunction((in _) => parentStyleSheet, "get parentStyleSheet"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
-        ruleObj.FastAddProperty("parentRule",
-            new DomFunction((in _) => parentRule ?? JSNull.Value, "get parentRule"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        var ruleObj = realm.NewObject();
+        realm.DefineAccessor(ruleObj, "parentStyleSheet", (in _) => parentStyleSheet, null);
+        realm.DefineAccessor(ruleObj, "parentRule",
+            (in _) => parentRule.IsMissing ? JsValue.Null : parentRule, null);
 
         var trimmedRuleText = ruleText.Trim();
 
         if (trimmedRuleText.StartsWith("@charset", StringComparison.OrdinalIgnoreCase))
         {
             // CSSCharsetRule — type 2
-            ruleObj.FastAddValue("type", new JSNumber(2), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(2));
 
             var charsetBody = trimmedRuleText[8..].Trim().TrimEnd(';').Trim();
             var encoding = charsetBody.Trim('"', '\'');
 
-            ruleObj.FastAddValue("encoding", new JSString(encoding), JSPropertyAttributes.EnumerableConfigurableValue);
-            ruleObj.FastAddProperty("cssText",
-                new DomFunction((in _) => new JSString($"@charset \"{encoding}\";"), "get cssText"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineValue(ruleObj, "encoding", JsValue.String(encoding));
+            realm.DefineAccessor(ruleObj, "cssText",
+                (in _) => JsValue.String($"@charset \"{encoding}\";"), null);
         }
         else if (trimmedRuleText.StartsWith("@import", StringComparison.OrdinalIgnoreCase))
         {
-            ruleObj.FastAddValue("type", new JSNumber(3), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(3));
 
             var importBody = trimmedRuleText[7..].Trim().TrimEnd(';').Trim();
             var href = string.Empty;
@@ -347,15 +320,14 @@ internal static partial class StyleSheetBinding
                 }
             }
 
-            ruleObj.FastAddValue("href", new JSString(href), JSPropertyAttributes.EnumerableConfigurableValue);
-            ruleObj.FastAddValue("media", new JSString(mediaText), JSPropertyAttributes.EnumerableConfigurableValue);
-            ruleObj.FastAddProperty("cssText",
-                new DomFunction((in _) => JsStyleSheetsGetCssText017Core(href, mediaText, in _), "get cssText"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineValue(ruleObj, "href", JsValue.String(href));
+            realm.DefineValue(ruleObj, "media", JsValue.String(mediaText));
+            realm.DefineAccessor(ruleObj, "cssText",
+                (in _) => JsStyleSheetsGetCssText017Core(href, mediaText), null);
         }
         else if (trimmedRuleText.StartsWith("@media", StringComparison.OrdinalIgnoreCase))
         {
-            ruleObj.FastAddValue("type", new JSNumber(4), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(4));
 
             int braceOpen = ruleText.IndexOf('{');
             int braceClose = ruleText.LastIndexOf('}');
@@ -363,22 +335,22 @@ internal static partial class StyleSheetBinding
             {
                 var mediaText = ruleText[6..braceOpen].Trim();
                 var nestedCss = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var nestedRuleObjects = BuildNestedRuleObjects(nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
+                var nestedRuleObjects = BuildNestedRuleObjects(realm, nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
                 var nestedCssRules = BuildCssRuleListObject(
+                    realm,
                     nestedRuleObjects,
-                    rule => BuildCssRuleObject(rule, parentStyleSheet, ruleObj));
+                    rule => BuildCssRuleObject(realm, rule, parentStyleSheet, ruleObj));
 
-                ruleObj.FastAddValue("media", new JSString(mediaText), JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddValue("cssRules", nestedCssRules, JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddProperty("cssText",
-                    new DomFunction((in _) => JsStyleSheetsGetCssText018Core(mediaText, nestedRuleObjects, in _), "get cssText"),
-                    null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                realm.DefineValue(ruleObj, "media", JsValue.String(mediaText));
+                realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
+                realm.DefineAccessor(ruleObj, "cssText",
+                    (in _) => JsStyleSheetsGetCssText018Core(realm, mediaText, nestedRuleObjects), null);
             }
         }
         else if (trimmedRuleText.StartsWith("@font-face", StringComparison.OrdinalIgnoreCase))
         {
             // CSSFontFaceRule — type 5
-            ruleObj.FastAddValue("type", new JSNumber(5), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(5));
 
             // Extract declarations from @font-face { ... }
             int braceOpen = ruleText.IndexOf('{');
@@ -387,17 +359,16 @@ internal static partial class StyleSheetBinding
             {
                 var declarations = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
                 var styleMap = DomBridge.ParseStyle(declarations);
-                var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(styleMap, ruleObj);
-                ruleObj.FastAddProperty("cssText",
-                    new DomFunction((in _) => JsStyleSheetsGetCssText019Core(styleObj, in _), "get cssText"),
-                    null, JSPropertyAttributes.EnumerableConfigurableProperty);
-                ruleObj.FastAddValue("style", styleObj, JSPropertyAttributes.EnumerableConfigurableValue);
+                var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(realm, styleMap, ruleObj);
+                realm.DefineAccessor(ruleObj, "cssText",
+                    (in _) => JsStyleSheetsGetCssText019Core(realm, styleObj), null);
+                realm.DefineValue(ruleObj, "style", styleObj);
             }
         }
         else if (trimmedRuleText.StartsWith("@keyframes", StringComparison.OrdinalIgnoreCase))
         {
             // CSSKeyframesRule — type 7
-            ruleObj.FastAddValue("type", new JSNumber(7), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(7));
 
             int braceOpen = ruleText.IndexOf('{');
             int braceClose = ruleText.LastIndexOf('}');
@@ -405,22 +376,22 @@ internal static partial class StyleSheetBinding
             {
                 var name = ruleText[10..braceOpen].Trim().Trim('"', '\'');
                 var nestedCss = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var nestedRuleObjects = BuildNestedKeyframeObjects(nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
+                var nestedRuleObjects = BuildNestedKeyframeObjects(realm, nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
                 var nestedCssRules = BuildCssRuleListObject(
+                    realm,
                     nestedRuleObjects,
-                    rule => BuildCssKeyframeRuleObject(rule, parentStyleSheet, ruleObj));
+                    rule => BuildCssKeyframeRuleObject(realm, rule, parentStyleSheet, ruleObj));
 
-                ruleObj.FastAddValue("name", new JSString(name), JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddValue("cssRules", nestedCssRules, JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddProperty("cssText",
-                    new DomFunction((in _) => JsStyleSheetsGetCssText020Core(name, nestedRuleObjects, in _), "get cssText"),
-                    null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                realm.DefineValue(ruleObj, "name", JsValue.String(name));
+                realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
+                realm.DefineAccessor(ruleObj, "cssText",
+                    (in _) => JsStyleSheetsGetCssText020Core(realm, name, nestedRuleObjects), null);
             }
         }
         else if (trimmedRuleText.StartsWith("@property", StringComparison.OrdinalIgnoreCase))
         {
             // CSSPropertyRule — type 25
-            ruleObj.FastAddValue("type", new JSNumber(25), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(25));
 
             var braceOpen = trimmedRuleText.IndexOf('{');
             var braceClose = trimmedRuleText.LastIndexOf('}');
@@ -436,21 +407,19 @@ internal static partial class StyleSheetBinding
                     || !string.Equals(inheritsValue, "false", StringComparison.OrdinalIgnoreCase);
                 var initialValue = descriptors.GetValueOrDefault("initial-value");
 
-                ruleObj.FastAddValue("name", new JSString(propertyName), JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddValue("syntax", new JSString(syntax), JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddValue("inherits", inherits ? JSBoolean.True : JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddValue("initialValue",
-                    string.IsNullOrEmpty(initialValue) ? JSNull.Value : new JSString(initialValue),
-                    JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddProperty("cssText",
-                    new DomFunction((in _) => JsStyleSheetsGetCssText021Core(inherits, initialValue, propertyName, syntax, in _), "get cssText"),
-                    null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                realm.DefineValue(ruleObj, "name", JsValue.String(propertyName));
+                realm.DefineValue(ruleObj, "syntax", JsValue.String(syntax));
+                realm.DefineValue(ruleObj, "inherits", JsValue.Boolean(inherits));
+                realm.DefineValue(ruleObj, "initialValue",
+                    string.IsNullOrEmpty(initialValue) ? JsValue.Null : JsValue.String(initialValue));
+                realm.DefineAccessor(ruleObj, "cssText",
+                    (in _) => JsStyleSheetsGetCssText021Core(inherits, initialValue, propertyName, syntax), null);
             }
         }
         else if (trimmedRuleText.StartsWith("@counter-style", StringComparison.OrdinalIgnoreCase))
         {
             // CSSCounterStyleRule — type 10
-            ruleObj.FastAddValue("type", new JSNumber(10), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(10));
 
             var braceOpen = trimmedRuleText.IndexOf('{');
             var braceClose = trimmedRuleText.LastIndexOf('}');
@@ -460,7 +429,7 @@ internal static partial class StyleSheetBinding
                 var descriptorsText = trimmedRuleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
                 var descriptors = DomBridge.ParseStyle(descriptorsText);
 
-                ruleObj.FastAddValue("name", new JSString(ruleName), JSPropertyAttributes.EnumerableConfigurableValue);
+                realm.DefineValue(ruleObj, "name", JsValue.String(ruleName));
 
                 var descriptorMap = new (string CssName, string JsName)[]
                 {
@@ -478,20 +447,18 @@ internal static partial class StyleSheetBinding
 
                 foreach (var (cssName, jsName) in descriptorMap)
                 {
-                    ruleObj.FastAddValue(jsName,
-                        descriptors.TryGetValue(cssName, out var value) ? new JSString(value) : JSUndefined.Value,
-                        JSPropertyAttributes.EnumerableConfigurableValue);
+                    realm.DefineValue(ruleObj, jsName,
+                        descriptors.TryGetValue(cssName, out var value) ? JsValue.String(value) : JsValue.Undefined);
                 }
 
-                ruleObj.FastAddProperty("cssText",
-                    new DomFunction((in _) => JsStyleSheetsGetCssText022Core(descriptorMap, ruleName, ruleObj, in _), "get cssText"),
-                    null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                realm.DefineAccessor(ruleObj, "cssText",
+                    (in _) => JsStyleSheetsGetCssText022Core(realm, descriptorMap, ruleName, ruleObj), null);
             }
         }
         else if (trimmedRuleText.StartsWith("@supports", StringComparison.OrdinalIgnoreCase))
         {
             // CSSSupportsRule — type 11
-            ruleObj.FastAddValue("type", new JSNumber(11), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(11));
 
             int braceOpen = ruleText.IndexOf('{');
             int braceClose = ruleText.LastIndexOf('}');
@@ -499,21 +466,20 @@ internal static partial class StyleSheetBinding
             {
                 var conditionText = ruleText[9..braceOpen].Trim();
                 var nestedCss = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var nestedRuleObjects = BuildNestedRuleObjects(nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
-                var nestedCssRules = BuildCssRuleListObject(nestedRuleObjects,
-                    rule => BuildCssRuleObject(rule, parentStyleSheet, ruleObj));
+                var nestedRuleObjects = BuildNestedRuleObjects(realm, nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
+                var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects,
+                    rule => BuildCssRuleObject(realm, rule, parentStyleSheet, ruleObj));
 
-                ruleObj.FastAddValue("conditionText", new JSString(conditionText), JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddValue("cssRules", nestedCssRules, JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddProperty("cssText",
-                    new DomFunction((in _) => JsStyleSheetsGetCssText023Core(conditionText, nestedRuleObjects, in _), "get cssText"),
-                    null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                realm.DefineValue(ruleObj, "conditionText", JsValue.String(conditionText));
+                realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
+                realm.DefineAccessor(ruleObj, "cssText",
+                    (in _) => JsStyleSheetsGetCssText023Core(realm, conditionText, nestedRuleObjects), null);
             }
         }
         else if (trimmedRuleText.StartsWith("@layer", StringComparison.OrdinalIgnoreCase))
         {
             // CSSLayerRule — type 12
-            ruleObj.FastAddValue("type", new JSNumber(12), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(12));
 
             var layerBody = ruleText[6..].Trim();
             var braceOpen = ruleText.IndexOf('{');
@@ -522,34 +488,30 @@ internal static partial class StyleSheetBinding
             {
                 var nameText = ruleText[6..braceOpen].Trim();
                 var nestedCss = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var nestedRuleObjects = BuildNestedRuleObjects(nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
-                var nestedCssRules = BuildCssRuleListObject(nestedRuleObjects,
-                    rule => BuildCssRuleObject(rule, parentStyleSheet, ruleObj));
+                var nestedRuleObjects = BuildNestedRuleObjects(realm, nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
+                var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects,
+                    rule => BuildCssRuleObject(realm, rule, parentStyleSheet, ruleObj));
 
-                ruleObj.FastAddValue("name",
-                    string.IsNullOrEmpty(nameText) ? JSNull.Value : new JSString(nameText),
-                    JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddValue("cssRules", nestedCssRules, JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddProperty("cssText",
-                    new DomFunction((in _) => JsStyleSheetsGetCssText024Core(nameText, nestedRuleObjects, in _), "get cssText"),
-                    null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                realm.DefineValue(ruleObj, "name",
+                    string.IsNullOrEmpty(nameText) ? JsValue.Null : JsValue.String(nameText));
+                realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
+                realm.DefineAccessor(ruleObj, "cssText",
+                    (in _) => JsStyleSheetsGetCssText024Core(realm, nameText, nestedRuleObjects), null);
             }
             else
             {
                 var nameText = layerBody.TrimEnd(';').Trim();
-                ruleObj.FastAddValue("name",
-                    string.IsNullOrEmpty(nameText) ? JSNull.Value : new JSString(nameText),
-                    JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddValue("cssRules", BuildCssRuleListObject([]), JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddProperty("cssText",
-                    new DomFunction((in _) => JsStyleSheetsGetCssText025Core(nameText, in _), "get cssText"),
-                    null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                realm.DefineValue(ruleObj, "name",
+                    string.IsNullOrEmpty(nameText) ? JsValue.Null : JsValue.String(nameText));
+                realm.DefineValue(ruleObj, "cssRules", BuildCssRuleListObject(realm, []));
+                realm.DefineAccessor(ruleObj, "cssText",
+                    (in _) => JsStyleSheetsGetCssText025Core(nameText), null);
             }
         }
         else if (trimmedRuleText.StartsWith("@namespace", StringComparison.OrdinalIgnoreCase))
         {
             // CSSNamespaceRule — type 9
-            ruleObj.FastAddValue("type", new JSNumber(9), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(9));
 
             var namespaceBody = trimmedRuleText[10..].Trim().TrimEnd(';').Trim();
             string? prefix = null;
@@ -566,18 +528,16 @@ internal static partial class StyleSheetBinding
                 namespaceUri = CssomRuleMetadata.ExtractNamespaceUri(parts[0]);
             }
 
-            ruleObj.FastAddValue("namespaceURI", new JSString(namespaceUri), JSPropertyAttributes.EnumerableConfigurableValue);
-            ruleObj.FastAddValue("prefix",
-                string.IsNullOrEmpty(prefix) ? JSUndefined.Value : new JSString(prefix),
-                JSPropertyAttributes.EnumerableConfigurableValue);
-            ruleObj.FastAddProperty("cssText",
-                new DomFunction((in _) => JsStyleSheetsGetCssText026Core(namespaceUri, prefix, in _), "get cssText"),
-                null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            realm.DefineValue(ruleObj, "namespaceURI", JsValue.String(namespaceUri));
+            realm.DefineValue(ruleObj, "prefix",
+                string.IsNullOrEmpty(prefix) ? JsValue.Undefined : JsValue.String(prefix));
+            realm.DefineAccessor(ruleObj, "cssText",
+                (in _) => JsStyleSheetsGetCssText026Core(namespaceUri, prefix), null);
         }
         else if (trimmedRuleText.StartsWith("@page", StringComparison.OrdinalIgnoreCase))
         {
             // CSSPageRule — type 6
-            ruleObj.FastAddValue("type", new JSNumber(6), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(6));
 
             var braceOpen = ruleText.IndexOf('{');
             var braceClose = ruleText.LastIndexOf('}');
@@ -586,42 +546,39 @@ internal static partial class StyleSheetBinding
                 var selectorText = ruleText[5..braceOpen].Trim();
                 var declarations = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
                 var styleMap = DomBridge.ParseStyle(declarations);
-                var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(styleMap, ruleObj);
+                var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(realm, styleMap, ruleObj);
 
-                ruleObj.FastAddValue("selectorText", new JSString(selectorText), JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddValue("style", styleObj, JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddProperty("cssText",
-                    new DomFunction((in _) => JsStyleSheetsGetCssText027Core(selectorText, styleObj, in _), "get cssText"),
-                    null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                realm.DefineValue(ruleObj, "selectorText", JsValue.String(selectorText));
+                realm.DefineValue(ruleObj, "style", styleObj);
+                realm.DefineAccessor(ruleObj, "cssText",
+                    (in _) => JsStyleSheetsGetCssText027Core(realm, selectorText, styleObj), null);
             }
         }
         else
         {
             // CSSStyleRule — type 1
-            ruleObj.FastAddValue("type", new JSNumber(1), JSPropertyAttributes.EnumerableConfigurableValue);
+            realm.DefineValue(ruleObj, "type", JsValue.Number(1));
 
             // Extract selector text
             int braceOpen = ruleText.IndexOf('{');
             if (braceOpen >= 0)
             {
                 var selectorText = ruleText[..braceOpen].Trim();
-                ruleObj.FastAddValue("selectorText", new JSString(selectorText), JSPropertyAttributes.EnumerableConfigurableValue);
-                ruleObj.FastAddProperty("cssText",
-                    new DomFunction((in _) => JsStyleSheetsGetCssText028Core(ruleObj, selectorText, in _), "get cssText"),
-                    null, JSPropertyAttributes.EnumerableConfigurableProperty);
+                realm.DefineValue(ruleObj, "selectorText", JsValue.String(selectorText));
+                realm.DefineAccessor(ruleObj, "cssText",
+                    (in _) => JsStyleSheetsGetCssText028Core(realm, ruleObj, selectorText), null);
 
                 int braceClose = ruleText.LastIndexOf('}');
                 if (braceClose > braceOpen)
                 {
                     var declarations = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
                     var styleMap = DomBridge.ParseStyle(declarations);
-                    var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(styleMap, ruleObj);
-                    ruleObj.FastAddValue("style", styleObj, JSPropertyAttributes.EnumerableConfigurableValue);
+                    var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(realm, styleMap, ruleObj);
+                    realm.DefineValue(ruleObj, "style", styleObj);
                 }
             }
         }
 
         return ruleObj;
     }
-
 }

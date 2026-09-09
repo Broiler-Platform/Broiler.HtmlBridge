@@ -1,10 +1,5 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -21,6 +16,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// internals. Was the bridge's box-model block in <c>DomBridge/ElementInterfaces.cs</c> and the
 /// <c>JsElementInterfacesGetScrollTop072Core</c>..<c>ScrollParent085Core</c> callbacks.
 /// </summary>
+/// <remarks>
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type:
+/// the members and the <c>DOMRect</c>-like objects come from the realm, and each body reads a
+/// <see cref="JsCall"/>. The two scroll-offset setters coerce with the realm's <c>ToNumber</c> rather
+/// than reading the handle's own number, because <c>el.scrollTop = "120"</c> is a string the engine was
+/// coercing before and <see cref="JsValue.AsNumber"/> deliberately answers NaN for one.
+/// </remarks>
 internal static class ElementGeometryBinding
 {
     /// <summary>
@@ -33,70 +35,59 @@ internal static class ElementGeometryBinding
     /// <c>&lt;body&gt;</c> whose wrapper was built before it was attached under <c>&lt;html&gt;</c> used
     /// to keep the answer it had then for the rest of the document's life.
     /// </remarks>
-    public static void InstallElementMembers(IElementGeometryHost host, JSObject target, ElementSource element)
+    public static void InstallElementMembers(IElementGeometryHost host, IJsRealm realm, JsValue target, JsElementSource element)
     {
         // -- TODO-G4 / TODO-G19: Box model properties for all elements --
         // clientWidth/clientHeight, scrollWidth/scrollHeight, scrollTop/scrollLeft, and
         // getBoundingClientRect()
-        target.FastAddProperty("clientTop",
-            new DomFunction((in a) => new JSNumber(host.GetClientTopForDomElement(element(in a, "clientTop"))), "get clientTop"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "clientTop",
+            (in call) => JsValue.Number(host.GetClientTopForDomElement(element(in call, "clientTop"))), null);
 
-        target.FastAddProperty("clientLeft",
-            new DomFunction((in a) => new JSNumber(host.GetClientLeftForDomElement(element(in a, "clientLeft"))), "get clientLeft"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "clientLeft",
+            (in call) => JsValue.Number(host.GetClientLeftForDomElement(element(in call, "clientLeft"))), null);
 
-        target.FastAddProperty("clientWidth",
-            new DomFunction((in a) => Metric(host, element(in a, "clientWidth"), host.GetClientWidthForDomElement), "get clientWidth"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "clientWidth",
+            (in call) => Metric(host, element(in call, "clientWidth"), host.GetClientWidthForDomElement), null);
 
-        target.FastAddProperty("clientHeight",
-            new DomFunction((in a) => Metric(host, element(in a, "clientHeight"), host.GetClientHeightForDomElement), "get clientHeight"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "clientHeight",
+            (in call) => Metric(host, element(in call, "clientHeight"), host.GetClientHeightForDomElement), null);
 
-        target.FastAddProperty("scrollWidth",
-            new DomFunction((in a) => Metric(host, element(in a, "scrollWidth"), host.GetScrollWidthForDomElement), "get scrollWidth"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "scrollWidth",
+            (in call) => Metric(host, element(in call, "scrollWidth"), host.GetScrollWidthForDomElement), null);
 
-        target.FastAddProperty("scrollHeight",
-            new DomFunction((in a) => Metric(host, element(in a, "scrollHeight"), host.GetScrollHeightForDomElement), "get scrollHeight"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "scrollHeight",
+            (in call) => Metric(host, element(in call, "scrollHeight"), host.GetScrollHeightForDomElement), null);
 
-        target.FastAddProperty("scrollTop",
-            new DomFunction((in a) => GetScrollTop(host, element(in a, "scrollTop")), "get scrollTop"),
-            new DomFunction((in a) => SetScrollTop(host, element(in a, "scrollTop"), in a), "set scrollTop"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "scrollTop",
+            (in call) => GetScrollTop(host, element(in call, "scrollTop")),
+            (in call) => SetScrollTop(host, element(in call, "scrollTop"), in call));
 
-        target.FastAddProperty("scrollLeft",
-            new DomFunction((in a) => GetScrollLeft(host, element(in a, "scrollLeft")), "get scrollLeft"),
-            new DomFunction((in a) => SetScrollLeft(host, element(in a, "scrollLeft"), in a), "set scrollLeft"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "scrollLeft",
+            (in call) => GetScrollLeft(host, element(in call, "scrollLeft")),
+            (in call) => SetScrollLeft(host, element(in call, "scrollLeft"), in call));
 
         // getBoundingClientRect() — returns DOMRect-like object
-        target.FastAddValue("getBoundingClientRect",
-            new DomFunction((in a) => Rect(host, element(in a, "getBoundingClientRect"), GetBoundingClientRect), "getBoundingClientRect", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(target, "getBoundingClientRect",
+            realm.NewMethod("getBoundingClientRect",
+                (in call) => Rect(call.Realm, host, element(in call, "getBoundingClientRect"), GetBoundingClientRect), 0));
 
         // getClientRects() — returns array with one DOMRect for root elements
-        target.FastAddValue("getClientRects",
-            new DomFunction((in a) => Rect(host, element(in a, "getClientRects"), GetClientRects), "getClientRects", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(target, "getClientRects",
+            realm.NewMethod("getClientRects",
+                (in call) => Rect(call.Realm, host, element(in call, "getClientRects"), GetClientRects), 0));
 
-        target.FastAddValue("scrollIntoView",
-            new DomFunction((in a) => ScrollIntoView(host, element(in a, "scrollIntoView"), in a), "scrollIntoView", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(target, "scrollIntoView",
+            realm.NewMethod("scrollIntoView",
+                (in call) => ScrollIntoView(host, element(in call, "scrollIntoView"), in call), 1));
 
-        target.FastAddValue("scroll",
-            new DomFunction((in a) => Scroll(host, element(in a, "scroll"), in a), "scroll", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(target, "scroll",
+            realm.NewMethod("scroll", (in call) => Scroll(host, element(in call, "scroll"), in call), 2));
 
-        target.FastAddValue("scrollTo",
-            new DomFunction((in a) => Scroll(host, element(in a, "scrollTo"), in a), "scrollTo", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(target, "scrollTo",
+            realm.NewMethod("scrollTo", (in call) => Scroll(host, element(in call, "scrollTo"), in call), 2));
 
-        target.FastAddValue("scrollBy",
-            new DomFunction((in a) => ScrollBy(host, element(in a, "scrollBy"), in a), "scrollBy", 2),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(target, "scrollBy",
+            realm.NewMethod("scrollBy", (in call) => ScrollBy(host, element(in call, "scrollBy"), in call), 2));
     }
 
     /// <summary>
@@ -104,139 +95,133 @@ internal static class ElementGeometryBinding
     /// <c>Element</c> half above, the viewport test is asked per call rather than snapshotted at
     /// install.
     /// </summary>
-    public static void InstallHtmlElementMembers(IElementGeometryHost host, JSObject target, ElementSource element)
+    public static void InstallHtmlElementMembers(IElementGeometryHost host, IJsRealm realm, JsValue target, JsElementSource element)
     {
-        target.FastAddProperty("offsetWidth",
-            new DomFunction((in a) => Metric(host, element(in a, "offsetWidth"), host.GetOffsetWidthForDomElement), "get offsetWidth"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "offsetWidth",
+            (in call) => Metric(host, element(in call, "offsetWidth"), host.GetOffsetWidthForDomElement), null);
 
-        target.FastAddProperty("offsetHeight",
-            new DomFunction((in a) => Metric(host, element(in a, "offsetHeight"), host.GetOffsetHeightForDomElement), "get offsetHeight"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "offsetHeight",
+            (in call) => Metric(host, element(in call, "offsetHeight"), host.GetOffsetHeightForDomElement), null);
 
-        target.FastAddProperty("offsetTop",
-            new DomFunction((in a) => new JSNumber(host.GetOffsetTopForDomElement(element(in a, "offsetTop"))), "get offsetTop"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "offsetTop",
+            (in call) => JsValue.Number(host.GetOffsetTopForDomElement(element(in call, "offsetTop"))), null);
 
-        target.FastAddProperty("offsetLeft",
-            new DomFunction((in a) => new JSNumber(host.GetOffsetLeftForDomElement(element(in a, "offsetLeft"))), "get offsetLeft"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "offsetLeft",
+            (in call) => JsValue.Number(host.GetOffsetLeftForDomElement(element(in call, "offsetLeft"))), null);
 
-        target.FastAddProperty("offsetParent",
-            new DomFunction((in a) => GetOffsetParent(host, element(in a, "offsetParent")), "get offsetParent"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+        realm.DefineAccessor(target, "offsetParent",
+            (in call) => GetOffsetParent(host, element(in call, "offsetParent")), null);
     }
 
     /// <summary>
     /// <c>scrollParent</c>, the bridge's own — on no browser's prototype at all, so it stays an own
     /// property of each element wrapper rather than being smuggled onto one.
     /// </summary>
-    public static void InstallBridgeMembers(IElementGeometryHost host, JSObject obj, DomElement element)
+    public static void InstallBridgeMembers(IElementGeometryHost host, IJsRealm realm, JsValue obj, DomElement element)
     {
-        obj.FastAddValue("scrollParent",
-            new DomFunction((in _) => GetScrollParent(host, element), "scrollParent", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(obj, "scrollParent",
+            realm.NewMethod("scrollParent", (in _) => GetScrollParent(host, element), 0));
     }
 
     /// <summary>One metric read, with the viewport test the metrics take resolved for this element.</summary>
-    private static JSValue Metric(IElementGeometryHost host, DomElement element, Func<DomElement, bool, double> read) =>
-        new JSNumber(read(element, host.IsViewportElementForMetrics(element)));
+    private static JsValue Metric(IElementGeometryHost host, DomElement element, Func<DomElement, bool, double> read) =>
+        JsValue.Number(read(element, host.IsViewportElementForMetrics(element)));
 
     /// <summary>The same, for the two rect readers.</summary>
-    private static JSValue Rect(IElementGeometryHost host, DomElement element,
-        Func<IElementGeometryHost, DomElement, bool, JSValue> read) =>
-        read(host, element, host.IsViewportElementForMetrics(element));
+    private static JsValue Rect(IJsRealm realm, IElementGeometryHost host, DomElement element,
+        Func<IJsRealm, IElementGeometryHost, DomElement, bool, JsValue> read) =>
+        read(realm, host, element, host.IsViewportElementForMetrics(element));
 
-    private static JSValue GetScrollTop(IElementGeometryHost host, DomElement element)
+    private static JsValue GetScrollTop(IElementGeometryHost host, DomElement element)
     {
         if (host.GetElementScrollOffset(element, vertical: true) is double sv)
-            return new JSNumber(sv);
-        return new JSNumber(0);
+            return JsValue.Number(sv);
+        return JsValue.Number(0);
     }
 
-    private static JSValue SetScrollTop(IElementGeometryHost host, DomElement element, in Arguments a)
+    private static JsValue SetScrollTop(IElementGeometryHost host, DomElement element, in JsCall call)
     {
-        if (a.Length > 0)
-            host.SetElementScrollOffsetsWithBehavior(element, top: a[0].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length > 0)
+            host.SetElementScrollOffsetsWithBehavior(element, top: call.Realm.ToNumber(call[0]));
+        return JsValue.Undefined;
     }
 
-    private static JSValue GetScrollLeft(IElementGeometryHost host, DomElement element)
+    private static JsValue GetScrollLeft(IElementGeometryHost host, DomElement element)
     {
         if (host.GetElementScrollOffset(element, vertical: false) is double sv)
-            return new JSNumber(sv);
-        return new JSNumber(0);
+            return JsValue.Number(sv);
+        return JsValue.Number(0);
     }
 
-    private static JSValue SetScrollLeft(IElementGeometryHost host, DomElement element, in Arguments a)
+    private static JsValue SetScrollLeft(IElementGeometryHost host, DomElement element, in JsCall call)
     {
-        if (a.Length > 0)
-            host.SetElementScrollOffsetsWithBehavior(element, left: a[0].DoubleValue);
-        return JSUndefined.Value;
+        if (call.Length > 0)
+            host.SetElementScrollOffsetsWithBehavior(element, left: call.Realm.ToNumber(call[0]));
+        return JsValue.Undefined;
     }
 
-    private static JSValue GetOffsetParent(IElementGeometryHost host, DomElement element)
+    private static JsValue GetOffsetParent(IElementGeometryHost host, DomElement element)
     {
         var offsetParent = host.GetOffsetParentForDomElement(element);
-        return offsetParent != null ? host.ToJSObject(offsetParent) : JSNull.Value;
+        return offsetParent != null ? host.WrapNode(offsetParent) : JsValue.Null;
     }
 
-    private static JSValue GetBoundingClientRect(IElementGeometryHost host, DomElement element, bool isViewportElement)
+    private static JsValue GetBoundingClientRect(IJsRealm realm, IElementGeometryHost host, DomElement element, bool isViewportElement)
     {
         var (Left, Top, Width, Height) = host.GetBoundingClientRectForDomElement(element, isViewportElement);
-        return BuildRect(Left, Top, Width, Height);
+        return BuildRect(realm, Left, Top, Width, Height);
     }
 
-    private static JSValue GetClientRects(IElementGeometryHost host, DomElement element, bool isViewportElement)
+    private static JsValue GetClientRects(IJsRealm realm, IElementGeometryHost host, DomElement element, bool isViewportElement)
     {
         var (Left, Top, Width, Height) = host.GetBoundingClientRectForDomElement(element, isViewportElement);
-        var rect = BuildRect(Left, Top, Width, Height);
-        return Width > 0 || Height > 0 || isViewportElement ? new JSArray([rect]) : new JSArray();
+        var rect = BuildRect(realm, Left, Top, Width, Height);
+        return Width > 0 || Height > 0 || isViewportElement ? realm.NewArray([rect]) : realm.NewArray();
     }
 
     // Builds the DOMRect-like object (x/y/top/left/right/bottom/width/height) shared by
     // getBoundingClientRect() and getClientRects().
-    private static JSObject BuildRect(double left, double top, double width, double height)
+    private static JsValue BuildRect(IJsRealm realm, double left, double top, double width, double height)
     {
-        var rect = new JSObject();
-        rect.FastAddValue("x", new JSNumber(left), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("y", new JSNumber(top), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("top", new JSNumber(top), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("left", new JSNumber(left), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("right", new JSNumber(left + width), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("bottom", new JSNumber(top + height), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("width", new JSNumber(width), JSPropertyAttributes.EnumerableConfigurableValue);
-        rect.FastAddValue("height", new JSNumber(height), JSPropertyAttributes.EnumerableConfigurableValue);
+        var rect = realm.NewObject();
+        realm.DefineValue(rect, "x", JsValue.Number(left));
+        realm.DefineValue(rect, "y", JsValue.Number(top));
+        realm.DefineValue(rect, "top", JsValue.Number(top));
+        realm.DefineValue(rect, "left", JsValue.Number(left));
+        realm.DefineValue(rect, "right", JsValue.Number(left + width));
+        realm.DefineValue(rect, "bottom", JsValue.Number(top + height));
+        realm.DefineValue(rect, "width", JsValue.Number(width));
+        realm.DefineValue(rect, "height", JsValue.Number(height));
         return rect;
     }
 
-    private static JSValue ScrollIntoView(IElementGeometryHost host, DomElement element, in Arguments a)
+    private static JsValue ScrollIntoView(IElementGeometryHost host, DomElement element, in JsCall call)
     {
-        var (Block, Inline, Behavior) = host.GetScrollIntoViewOptions(a);
+        var (Block, Inline, Behavior) = host.GetScrollIntoViewOptions(in call);
         host.ScrollElementIntoView(element, Block, Inline, Behavior);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     // scroll() / scrollTo() — absolute scroll to (left, top).
-    private static JSValue Scroll(IElementGeometryHost host, DomElement element, in Arguments a)
+    private static JsValue Scroll(IElementGeometryHost host, DomElement element, in JsCall call)
     {
-        var (left, top, behavior) = host.GetScrollArguments(a);
+        var (left, top, behavior) = host.GetScrollOptions(in call);
         // Clamped to the scrolling area — see the note in WindowScrollBinding.
         host.SetElementScrollOffsetsWithBehavior(element, left, top, clamp: true, behavior: behavior);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     // scrollBy() — relative scroll.
-    private static JSValue ScrollBy(IElementGeometryHost host, DomElement element, in Arguments a)
+    private static JsValue ScrollBy(IElementGeometryHost host, DomElement element, in JsCall call)
     {
-        var (left, top, behavior) = host.GetScrollArguments(a);
+        var (left, top, behavior) = host.GetScrollOptions(in call);
         host.SetElementScrollOffsetsWithBehavior(element, left, top, relative: true, clamp: true, behavior: behavior);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue GetScrollParent(IElementGeometryHost host, DomElement element)
+    private static JsValue GetScrollParent(IElementGeometryHost host, DomElement element)
     {
         var scrollParent = host.GetScrollParentForDomElement(element);
-        return scrollParent != null ? host.ToJSObject(scrollParent) : JSNull.Value;
+        return scrollParent != null ? host.WrapNode(scrollParent) : JsValue.Null;
     }
 }

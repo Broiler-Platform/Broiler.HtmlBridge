@@ -1,10 +1,5 @@
 using Broiler.Dom;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -34,9 +29,17 @@ public sealed partial class DomBridge
     /// collection prototype-less and <c>document.forms instanceof HTMLCollection</c> false. A context
     /// is single-threaded by construction, so the null check needs no guard.
     /// </para>
+    /// <para>
+    /// The cached local is a <see cref="JsValue"/> and the accessor is the realm's: the module's
+    /// collection builders are JSEAL's, and a handle is what "built once and closed over" now holds.
+    /// <see cref="JsValue.Missing"/> is the not-yet-built state rather than a nullable, because a
+    /// built collection is always an object and Missing is a kind no builder can answer with.
+    /// </para>
     /// </remarks>
-    private void RegisterDocumentCollections(JSContext context, JSObject document)
+    private void RegisterDocumentCollections(JsValue document)
     {
+        var realm = Realm;
+
         Live("forms", Dom.Features.DocumentCollectionBinding.Forms);
         Live("images", Dom.Features.DocumentCollectionBinding.Images);
         Live("links", Dom.Features.DocumentCollectionBinding.Links);
@@ -45,21 +48,30 @@ public sealed partial class DomBridge
         Live("styleSheets", Dom.Features.DocumentCollectionBinding.StyleSheets);
 
         // embeds and plugins are one collection under two names, not two collections that agree.
-        JSValue? embeds = null;
-        JSValue Embeds() => embeds ??= Dom.Features.DocumentCollectionBinding.Embeds(this, context);
+        var embeds = JsValue.Missing;
+        JsValue Embeds()
+        {
+            if (embeds.IsMissing)
+                embeds = Dom.Features.DocumentCollectionBinding.Embeds(this);
+            return embeds;
+        }
+
         Getter("embeds", Embeds);
         Getter("plugins", Embeds);
 
-        void Live(string name, Func<Dom.Features.IDocumentCollectionHost, JSContext?, JSValue> build)
+        void Live(string name, Func<Dom.Features.IDocumentCollectionHost, JsValue> build)
         {
-            JSValue? collection = null;
-            Getter(name, () => collection ??= build(this, context));
+            var collection = JsValue.Missing;
+            Getter(name, () =>
+            {
+                if (collection.IsMissing)
+                    collection = build(this);
+                return collection;
+            });
         }
 
-        void Getter(string name, Func<JSValue> read) =>
-            document.FastAddProperty(
-                name, new DomFunction((in _) => read(), $"get {name}"), null,
-                JSPropertyAttributes.EnumerableConfigurableProperty);
+        void Getter(string name, Func<JsValue> read) =>
+            realm.DefineAccessor(document, name, (in _) => read(), null);
     }
 
     /// <summary>
@@ -74,44 +86,51 @@ public sealed partial class DomBridge
     /// by name.
     /// </para>
     /// </remarks>
-    private void RegisterDocumentMetadata(JSObject document)
+    private void RegisterDocumentMetadata(JsValue document)
     {
-        document.FastAddProperty(
+        var realm = Realm;
+
+        realm.DefineAccessor(
+            document,
             "doctype",
-            new DomFunction((in _) => DocumentTypeNode() is { } doctype ? ToJSObject(doctype) : JSNull.Value, "get doctype"),
-            null, JSPropertyAttributes.EnumerableConfigurableProperty);
+            (in _) => DocumentTypeNode() is { } doctype ? WrapNode(doctype) : JsValue.Null,
+            null);
 
         // HTML §3.2.6: `dir` reflects the document element's dir attribute *limited to only known
         // values* — the getter answers the canonical lower-case keyword or the empty string, while
         // the setter writes through unchanged. So `document.dir = 'LTR'` reads back as "ltr" with
         // the attribute still spelled "LTR", and an unknown value reads back as "" with the
         // attribute set to whatever was assigned.
-        document.FastAddProperty(
+        //
+        // The setter's coercion is the realm's ToJsString, not the handle's diagnostic rendering:
+        // `document.dir = {toString(){return 'rtl'}}` is entitled to run that toString, which is what
+        // the engine's own value-to-string did here before.
+        realm.DefineAccessor(
+            document,
             "dir",
-            new DomFunction((in _) => new JSString(DocumentDirection()), "get dir"),
-            new DomFunction((in a) =>
+            (in _) => JsValue.String(DocumentDirection()),
+            (in c) =>
             {
-                SetAttr(DocumentElement, "dir", a.Length > 0 ? a[0].ToString() : string.Empty);
-                return JSUndefined.Value;
-            }, "set dir"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+                SetAttr(DocumentElement, "dir", c.Length > 0 ? c.Realm.ToJsString(c[0]) : string.Empty);
+                return JsValue.Undefined;
+            });
 
         // HTML §3.2.7: an enumerated document state, not an attribute, so it lives on the bridge.
         // Assigning anything but "on"/"off" (ASCII case-insensitively) is ignored rather than
         // stored — `document.designMode = 'zzz'` leaves the previous value in place.
-        document.FastAddProperty(
+        realm.DefineAccessor(
+            document,
             "designMode",
-            new DomFunction((in _) => new JSString(_designMode), "get designMode"),
-            new DomFunction((in a) =>
+            (in _) => JsValue.String(_designMode),
+            (in c) =>
             {
-                var requested = a.Length > 0 ? a[0].ToString() : string.Empty;
+                var requested = c.Length > 0 ? c.Realm.ToJsString(c[0]) : string.Empty;
                 if (string.Equals(requested, "on", StringComparison.OrdinalIgnoreCase))
                     _designMode = "on";
                 else if (string.Equals(requested, "off", StringComparison.OrdinalIgnoreCase))
                     _designMode = "off";
-                return JSUndefined.Value;
-            }, "set designMode"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+                return JsValue.Undefined;
+            });
     }
 
     private string _designMode = "off";

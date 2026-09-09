@@ -1,14 +1,6 @@
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.Dom;
 using Broiler.CSS;
 using Broiler.CSS.Cssom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -18,36 +10,83 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>deleteRule</c> operations (driven by closures the bridge's <c>BuildStyleSheetObject</c> supplies)
 /// and the per-rule-kind <c>cssText</c> serializers. Pure functions over their arguments — no state.
 /// </summary>
+/// <remarks>
+/// An index argument goes through <see cref="IJsValues.ToNumber"/> rather than reading the handle,
+/// because <c>deleteRule("0")</c> is a call a page makes and the string has to coerce the way the
+/// language says. The <c>cssText</c> serializers read a nested object's <c>cssText</c> through
+/// <see cref="CssTextOf"/>, which keeps the null-tolerance the engine-typed originals had.
+/// </remarks>
 internal static partial class StyleSheetBinding
 {
-    internal static JSValue JsStyleSheetsGetLength002Core(Func<List<CssRule>> currentRules, in Arguments _) => new JSNumber(currentRules().Count);
+    /// <summary>
+    /// The index argument at <paramref name="position"/>, or <paramref name="whenAbsent"/> when the call
+    /// did not supply one — with NaN folded to zero exactly as the engine-typed originals did.
+    /// </summary>
+    private static int IndexArgument(in JsCall call, int position, int whenAbsent)
+    {
+        if (call.Length <= position)
+            return whenAbsent;
+
+        // ToNumber, not the handle's AsNumber: a page may pass "1", and the observable coercion is the
+        // engine's. NaN was folded rather than rejected before, and a rejected index is a different
+        // outcome from index zero, so the fold stays.
+        var value = call.Realm.ToNumber(call[position]);
+        return double.IsNaN(value) ? whenAbsent : (int)value;
+    }
+
+    /// <summary>
+    /// <paramref name="target"/>'s <c>cssText</c> as a string — the migrated form of the
+    /// doubly-null-conditional property read the engine-typed originals used, falling back to the empty
+    /// string.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="JsValue.Missing"/> stands where the engine handed back a CLR <see langword="null"/>, so
+    /// both null-conditionals become an <c>IsMissing</c> test and an absent nested object still answers
+    /// the empty string rather than the word "undefined".
+    /// </remarks>
+    private static string CssTextOf(IJsRealm realm, JsValue target)
+    {
+        if (target.IsMissing)
+            return string.Empty;
+
+        var text = realm.GetProperty(target, "cssText");
+        return text.IsMissing ? string.Empty : realm.ToJsString(text);
+    }
+
+    /// <summary>The joined <c>cssText</c> of an at-rule's nested rule objects, empties dropped.</summary>
+    private static string NestedCssTextOf(IJsRealm realm, List<JsValue> nestedRuleObjects) =>
+        string.Join(" ", nestedRuleObjects
+            .Select(rule => CssTextOf(realm, rule))
+            .Where(text => !string.IsNullOrEmpty(text)));
+
+    internal static JsValue JsStyleSheetsGetLength002Core(Func<List<CssRule>> currentRules) =>
+        JsValue.Number(currentRules().Count);
 
 
-    internal static JSValue JsStyleSheetsItem003Core(Action syncLiveCssRulesIndices, JSObject? liveCssRules, Func<List<CssRule>> currentRules, in Arguments a)
+    internal static JsValue JsStyleSheetsItem003Core(Action syncLiveCssRulesIndices, JsValue liveCssRules, Func<List<CssRule>> currentRules, in JsCall call)
     {
         syncLiveCssRulesIndices();
-        var dv = a.Length > 0 ? a[0].DoubleValue : 0;
-        var idx = double.IsNaN(dv) ? 0 : (int)dv;
-        return idx >= 0 && idx < currentRules().Count ? liveCssRules[(uint)idx] : JSNull.Value;
+        var idx = IndexArgument(in call, 0, 0);
+        return idx >= 0 && idx < currentRules().Count
+            ? call.Realm.GetIndex(liveCssRules, (uint)idx)
+            : JsValue.Null;
     }
 
 
-    internal static JSValue JsStyleSheetsGetCssRules004Core(Action syncLiveCssRulesIndices, JSObject? liveCssRules, in Arguments _)
+    internal static JsValue JsStyleSheetsGetCssRules004Core(Action syncLiveCssRulesIndices, JsValue liveCssRules)
     {
         syncLiveCssRulesIndices();
         return liveCssRules;
     }
 
 
-    internal static JSValue JsStyleSheetsInsertRule005Core(Func<List<CssRule>> currentRules, Action markRulesMutated, Action syncLiveCssRulesIndices, in Arguments a)
+    internal static JsValue JsStyleSheetsInsertRule005Core(Func<List<CssRule>> currentRules, Action markRulesMutated, Action syncLiveCssRulesIndices, in JsCall call)
     {
-        var ruleText = a.Length > 0 ? a[0].ToString() : string.Empty;
+        var ruleText = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         // currentRules() reparses on any pending textContent change before we mutate,
         // so the index is clamped against the up-to-date shared model.
         var rules = currentRules();
-        var dv = a.Length > 1 ? a[1].DoubleValue : rules.Count;
-        var index = double.IsNaN(dv) ? rules.Count : (int)dv;
-        index = Math.Clamp(index, 0, rules.Count);
+        var index = Math.Clamp(IndexArgument(in call, 1, rules.Count), 0, rules.Count);
         // Route the mutation through the shared model: parse the inserted text
         // into a CssRule rather than storing the raw string (Phase 6).
         var parsed = new CssParser().ParseStyleSheet(ruleText).Rules;
@@ -58,17 +97,16 @@ internal static partial class StyleSheetBinding
         }
 
         syncLiveCssRulesIndices();
-        return new JSNumber(index);
+        return JsValue.Number(index);
     }
 
 
-    internal static JSValue JsStyleSheetsDeleteRule006Core(Func<List<CssRule>> currentRules, Action markRulesMutated, Action syncLiveCssRulesIndices, in Arguments a)
+    internal static JsValue JsStyleSheetsDeleteRule006Core(Func<List<CssRule>> currentRules, Action markRulesMutated, Action syncLiveCssRulesIndices, in JsCall call)
     {
         var rules = currentRules();
-        if (a.Length > 0)
+        if (call.Length > 0)
         {
-            var dv = a[0].DoubleValue;
-            var idx = double.IsNaN(dv) ? 0 : (int)dv;
+            var idx = IndexArgument(in call, 0, 0);
             if (idx >= 0 && idx < rules.Count)
             {
                 rules.RemoveAt(idx);
@@ -78,82 +116,69 @@ internal static partial class StyleSheetBinding
             syncLiveCssRulesIndices();
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
 
-    private static JSValue JsStyleSheetsItem008Core(List<JSObject> rules, in Arguments a)
+    private static JsValue JsStyleSheetsItem008Core(List<JsValue> rules, in JsCall call)
     {
-        var dv = a.Length > 0 ? a[0].DoubleValue : 0;
-        var index = double.IsNaN(dv) ? 0 : (int)dv;
-        return index >= 0 && index < rules.Count ? rules[index] : JSNull.Value;
+        var index = IndexArgument(in call, 0, 0);
+        return index >= 0 && index < rules.Count ? rules[index] : JsValue.Null;
     }
 
 
-    private static JSValue JsStyleSheetsInsertRule009Core(Action syncIndices, Func<string, JSObject>? ruleFactory, List<JSObject> rules, in Arguments a)
+    private static JsValue JsStyleSheetsInsertRule009Core(Action syncIndices, Func<string, JsValue>? ruleFactory, List<JsValue> rules, in JsCall call)
     {
         if (ruleFactory is null)
-            return new JSNumber(0);
-        var ruleText = a.Length > 0 ? a[0].ToString() : string.Empty;
-        var dv = a.Length > 1 ? a[1].DoubleValue : rules.Count;
-        var index = double.IsNaN(dv) ? rules.Count : (int)dv;
-        index = Math.Clamp(index, 0, rules.Count);
+            return JsValue.Number(0);
+        var ruleText = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+        var index = Math.Clamp(IndexArgument(in call, 1, rules.Count), 0, rules.Count);
         rules.Insert(index, ruleFactory(ruleText));
         syncIndices();
-        return new JSNumber(index);
+        return JsValue.Number(index);
     }
 
 
-    private static JSValue JsStyleSheetsDeleteRule010Core(Action syncIndices, List<JSObject> rules, in Arguments a)
+    private static JsValue JsStyleSheetsDeleteRule010Core(Action syncIndices, List<JsValue> rules, in JsCall call)
     {
-        var dv = a.Length > 0 ? a[0].DoubleValue : 0;
-        var index = double.IsNaN(dv) ? 0 : (int)dv;
+        var index = IndexArgument(in call, 0, 0);
         if (index >= 0 && index < rules.Count)
         {
             rules.RemoveAt(index);
             syncIndices();
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    private static JSValue JsStyleSheetsGetCssText013Core(string? keyText, JSObject? ruleObj, in Arguments _)
+    private static JsValue JsStyleSheetsGetCssText013Core(IJsRealm realm, string? keyText, JsValue ruleObj)
     {
-        var styleObj = ruleObj[(KeyString)"style"];
-        var styleText = styleObj?[(KeyString)"cssText"]?.ToString() ?? string.Empty;
-        return new JSString($"{keyText} {{ {styleText} }}");
+        var styleObj = realm.GetProperty(ruleObj, "style");
+        var styleText = CssTextOf(realm, styleObj);
+        return JsValue.String($"{keyText} {{ {styleText} }}");
     }
 
 
-    private static JSValue JsStyleSheetsGetCssText017Core(string? href, string? mediaText, in Arguments _)
+    private static JsValue JsStyleSheetsGetCssText017Core(string? href, string? mediaText)
     {
         var mediaSuffix = string.IsNullOrEmpty(mediaText) ? string.Empty : $" {mediaText}";
-        return new JSString($"@import url(\"{href}\"){mediaSuffix};");
+        return JsValue.String($"@import url(\"{href}\"){mediaSuffix};");
     }
 
 
-    private static JSValue JsStyleSheetsGetCssText018Core(string? mediaText, List<JSObject>? nestedRuleObjects, in Arguments _)
-    {
-        var nestedCssText = string.Join(" ", nestedRuleObjects.Select(rule => rule[(KeyString)"cssText"]?.ToString()).Where(text => !string.IsNullOrEmpty(text)));
-        return new JSString($"@media {mediaText} {{ {nestedCssText} }}");
-    }
+    private static JsValue JsStyleSheetsGetCssText018Core(IJsRealm realm, string? mediaText, List<JsValue> nestedRuleObjects) =>
+        JsValue.String($"@media {mediaText} {{ {NestedCssTextOf(realm, nestedRuleObjects)} }}");
 
 
-    private static JSValue JsStyleSheetsGetCssText019Core(JSObject? styleObj, in Arguments _)
-    {
-        var cssText = styleObj[(KeyString)"cssText"]?.ToString() ?? string.Empty;
-        return new JSString($"@font-face {{ {cssText} }}");
-    }
+    private static JsValue JsStyleSheetsGetCssText019Core(IJsRealm realm, JsValue styleObj) =>
+        JsValue.String($"@font-face {{ {CssTextOf(realm, styleObj)} }}");
 
 
-    private static JSValue JsStyleSheetsGetCssText020Core(string? name, List<JSObject>? nestedRuleObjects, in Arguments _)
-    {
-        var nestedCssText = string.Join(" ", nestedRuleObjects.Select(rule => rule[(KeyString)"cssText"]?.ToString()).Where(text => !string.IsNullOrEmpty(text)));
-        return new JSString($"@keyframes {name} {{ {nestedCssText} }}");
-    }
+    private static JsValue JsStyleSheetsGetCssText020Core(IJsRealm realm, string? name, List<JsValue> nestedRuleObjects) =>
+        JsValue.String($"@keyframes {name} {{ {NestedCssTextOf(realm, nestedRuleObjects)} }}");
 
 
-    private static JSValue JsStyleSheetsGetCssText021Core(bool inherits, string? initialValue, string? propertyName, string? syntax, in Arguments _)
+    private static JsValue JsStyleSheetsGetCssText021Core(bool inherits, string? initialValue, string? propertyName, string? syntax)
     {
         var serialized = new List<string>
                         {
@@ -161,68 +186,63 @@ internal static partial class StyleSheetBinding
                             $"inherits: {(inherits ? "true" : "false")}"};
         if (!string.IsNullOrEmpty(initialValue))
             serialized.Add($"initial-value: {initialValue}");
-        return new JSString($"@property {propertyName} {{ {string.Join("; ", serialized)}; }}");
+        return JsValue.String($"@property {propertyName} {{ {string.Join("; ", serialized)}; }}");
     }
 
 
-    private static JSValue JsStyleSheetsGetCssText022Core((string CssName, string JsName)[]? descriptorMap, string? ruleName, JSObject? ruleObj, in Arguments _)
+    private static JsValue JsStyleSheetsGetCssText022Core(IJsRealm realm, (string CssName, string JsName)[] descriptorMap, string? ruleName, JsValue ruleObj)
     {
         var serialized = new List<string>();
         foreach (var (cssName, jsName) in descriptorMap)
         {
-            var value = ruleObj[(KeyString)jsName];
-            if (value is null || value == JSUndefined.Value)
+            var value = realm.GetProperty(ruleObj, jsName);
+            if (value.IsMissing || value.IsUndefined)
                 continue;
-            var text = value.ToString();
+            var text = realm.ToJsString(value);
             if (!string.IsNullOrEmpty(text))
                 serialized.Add($"{cssName}: {text}");
         }
 
-        return new JSString($"@counter-style {ruleName} {{ {string.Join("; ", serialized)}; }}");
+        return JsValue.String($"@counter-style {ruleName} {{ {string.Join("; ", serialized)}; }}");
     }
 
 
-    private static JSValue JsStyleSheetsGetCssText023Core(string? conditionText, List<JSObject>? nestedRuleObjects, in Arguments _)
-    {
-        var nestedCssText = string.Join(" ", nestedRuleObjects.Select(rule => rule[(KeyString)"cssText"]?.ToString()).Where(text => !string.IsNullOrEmpty(text)));
-        return new JSString($"@supports {conditionText} {{ {nestedCssText} }}");
-    }
+    private static JsValue JsStyleSheetsGetCssText023Core(IJsRealm realm, string? conditionText, List<JsValue> nestedRuleObjects) =>
+        JsValue.String($"@supports {conditionText} {{ {NestedCssTextOf(realm, nestedRuleObjects)} }}");
 
 
-    private static JSValue JsStyleSheetsGetCssText024Core(string? nameText, List<JSObject>? nestedRuleObjects, in Arguments _)
+    private static JsValue JsStyleSheetsGetCssText024Core(IJsRealm realm, string? nameText, List<JsValue> nestedRuleObjects)
     {
-        var nestedCssText = string.Join(" ", nestedRuleObjects.Select(rule => rule[(KeyString)"cssText"]?.ToString()).Where(text => !string.IsNullOrEmpty(text)));
         var namePrefix = string.IsNullOrEmpty(nameText) ? string.Empty : $"{nameText} ";
-        return new JSString($"@layer {namePrefix}{{ {nestedCssText} }}");
+        return JsValue.String($"@layer {namePrefix}{{ {NestedCssTextOf(realm, nestedRuleObjects)} }}");
     }
 
 
-    private static JSValue JsStyleSheetsGetCssText025Core(string? nameText, in Arguments _)
+    private static JsValue JsStyleSheetsGetCssText025Core(string? nameText)
     {
         var nameSuffix = string.IsNullOrEmpty(nameText) ? string.Empty : $" {nameText}";
-        return new JSString($"@layer{nameSuffix};");
+        return JsValue.String($"@layer{nameSuffix};");
     }
 
 
-    private static JSValue JsStyleSheetsGetCssText026Core(string? namespaceUri, string? prefix, in Arguments _)
+    private static JsValue JsStyleSheetsGetCssText026Core(string? namespaceUri, string? prefix)
     {
         var prefixPart = string.IsNullOrEmpty(prefix) ? string.Empty : $"{prefix} ";
-        return new JSString($"@namespace {prefixPart}\"{namespaceUri}\";");
+        return JsValue.String($"@namespace {prefixPart}\"{namespaceUri}\";");
     }
 
 
-    private static JSValue JsStyleSheetsGetCssText027Core(string? selectorText, JSObject? styleObj, in Arguments _)
+    private static JsValue JsStyleSheetsGetCssText027Core(IJsRealm realm, string? selectorText, JsValue styleObj)
     {
-        var styleText = styleObj[(KeyString)"cssText"]?.ToString() ?? string.Empty;
         var selectorSuffix = string.IsNullOrEmpty(selectorText) ? string.Empty : $" {selectorText}";
-        return new JSString($"@page{selectorSuffix} {{ {styleText} }}");
+        return JsValue.String($"@page{selectorSuffix} {{ {CssTextOf(realm, styleObj)} }}");
     }
 
 
-    private static JSValue JsStyleSheetsGetCssText028Core(JSObject? ruleObj, string? selectorText, in Arguments _)
+    private static JsValue JsStyleSheetsGetCssText028Core(IJsRealm realm, JsValue ruleObj, string? selectorText)
     {
-        var styleObj = ruleObj[(KeyString)"style"];
-        var styleText = styleObj?[(KeyString)"cssText"]?.ToString() ?? string.Empty;
-        return new JSString($"{selectorText} {{ {styleText} }}");
+        var styleObj = realm.GetProperty(ruleObj, "style");
+        var styleText = CssTextOf(realm, styleObj);
+        return JsValue.String($"{selectorText} {{ {styleText} }}");
     }
 }

@@ -1,14 +1,9 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Array.Typed;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Promise;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+
+using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -50,22 +45,49 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// U+0020–U+007E is discarded entirely rather than kept or escaped; and <c>slice</c> without a
 /// content type gives the result an <em>empty</em> type rather than inheriting the source's.
 /// </para>
+/// <para>
+/// <b>Two engine types survive the JSEAL migration here, and both are named where they occur.</b>
+/// The blob store is keyed on the engine object a handle carries, because <see cref="JsValue"/> is a
+/// struct and a weak table needs a reference to key on — object identity is the whole of what makes
+/// a blob a blob, and JSEAL exposes no identity handle a table can hold. And binary data has no
+/// <see cref="IJsValues"/> vocabulary at all, which is the same line <c>StreamsBinding</c> and
+/// <c>FetchBinding</c> record.
+/// </para>
+/// <para>
+/// <b>What a binary-data contract would have to say, measured against this file.</b> Three
+/// operations, not one: <em>mint</em> an <c>ArrayBuffer</c> over a byte array (what
+/// <see cref="ToArrayBuffer"/> needs, and the only thing the other two modules need); <em>test</em>
+/// whether a handle is an <c>ArrayBuffer</c>, because <c>new Blob([buf])</c> has to distinguish a
+/// buffer from an object it must stringify and there is no JS-visible property that answers it; and
+/// <em>read</em> a buffer's bytes back out. A view — a typed array or a <c>DataView</c> — needs no
+/// contract of its own: <see cref="PartBytes"/> reaches its <c>buffer</c>, <c>byteOffset</c> and
+/// <c>byteLength</c> through the ordinary property reads a script would use, and only the buffer at
+/// the end of that chain is untypeable. Minting alone would leave the test and the read here, so a
+/// contract that offers only a factory does not retire this file's engine reference.
+/// </para>
 /// </remarks>
 internal sealed class BlobBinding
 {
-    private JSObject? _blobPrototype;
-    private JSObject? _filePrototype;
+    private JsValue _blobPrototype;
+    private JsValue _filePrototype;
 
     /// <summary>The bytes and metadata behind each blob object. Weak, so a blob a page has dropped is
     /// not kept alive by this table.</summary>
-    private readonly ConditionalWeakTable<JSObject, BlobData> _blobs = new();
+    /// <remarks>
+    /// Keyed on the engine object rather than on a handle: a <see cref="JsValue"/> is a struct, so it
+    /// cannot be a <see cref="ConditionalWeakTable{TKey,TValue}"/> key, and the reference it carries
+    /// is the only identity the object has. <see cref="JsInterop"/> is the sanctioned way to reach
+    /// it, and it is reached in exactly one place —
+    /// <see cref="TryDataFor"/>, which is the one place a handle is unwrapped for it.
+    /// </remarks>
+    private readonly ConditionalWeakTable<Broiler.JavaScript.Runtime.JSObject, BlobData> _blobs = new();
 
     /// <summary>
     /// The live object URLs, newest last. An entry keeps its blob alive deliberately — that is what
     /// <c>createObjectURL</c> promises until <c>revokeObjectURL</c> is called, and the leak it implies
     /// is the page's to manage, exactly as in a browser.
     /// </summary>
-    private readonly Dictionary<string, JSObject> _objectUrls = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, JsValue> _objectUrls = new(StringComparer.Ordinal);
 
     private int _nextObjectUrl;
 
@@ -84,17 +106,29 @@ internal sealed class BlobBinding
     // -------- Registration --------
 
     /// <summary>
-    /// Registers <c>Blob</c> and <c>File</c> and installs their members. Runs once per context, with
+    /// Registers <c>Blob</c> and <c>File</c> and installs their members. Runs once per realm, with
     /// the other interface constructors.
     /// </summary>
-    internal void RegisterInterfaces(JSContext context)
+    /// <remarks>
+    /// <b>The realm is the bridge's own, and the overload that used to make one here is gone.</b>
+    /// This module is built as <c>new BlobBinding()</c> rather than against a host contract, so it
+    /// used to be handed the script context and adopt it — which minted a <em>second</em>
+    /// <see cref="IJsRealm"/> over the one context, with a job queue of its own that nothing drained.
+    /// The objects were the right ones (a handle carries the engine's own value), but a promise
+    /// settled through the second realm reported to a queue no event loop pumped. The call site in
+    /// <c>DomBridge/Registration/Polyfills.cs</c> passes the bridge's realm now, so there is one
+    /// realm and one queue.
+    /// </remarks>
+    internal void RegisterInterfaces(IJsRealm realm)
     {
         // The host halves of the two constructors, captured into a closure and deleted from the
         // global so a page cannot mint one out of band.
-        context["__broilerCreateBlob"] = new DomFunction((in a) => CreateBlob(in a, file: false), "createBlob", 2);
-        context["__broilerCreateFile"] = new DomFunction((in a) => CreateBlob(in a, file: true), "createFile", 3);
+        realm.SetProperty(realm.Global, "__broilerCreateBlob",
+            realm.NewMethod("createBlob", (in call) => CreateBlob(in call, file: false), 2));
+        realm.SetProperty(realm.Global, "__broilerCreateFile",
+            realm.NewMethod("createFile", (in call) => CreateBlob(in call, file: true), 3));
 
-        context.Eval("""
+        realm.EvaluateHostScript("""
             (function () {
                 var createBlob = __broilerCreateBlob;
                 var createFile = __broilerCreateFile;
@@ -135,32 +169,38 @@ internal sealed class BlobBinding
                 globalThis.Blob = Blob;
                 globalThis.File = File;
             })();
-            """);
+            """, "polyfill:blob");
 
-        if (context.Eval("Blob") is not JSObject blobConstructor ||
-            blobConstructor[(KeyString)"prototype"] is not JSObject blobPrototype ||
-            context.Eval("File") is not JSObject fileConstructor ||
-            fileConstructor[(KeyString)"prototype"] is not JSObject filePrototype)
+        // Read back off the global rather than re-evaluated: the two names were just published
+        // there, and a property read is the same answer the second Eval was asking for.
+        var blobConstructor = realm.GetProperty(realm.Global, "Blob");
+        var fileConstructor = realm.GetProperty(realm.Global, "File");
+        if (!blobConstructor.IsObject || !fileConstructor.IsObject)
+            return;
+
+        var blobPrototype = realm.GetProperty(blobConstructor, "prototype");
+        var filePrototype = realm.GetProperty(fileConstructor, "prototype");
+        if (!blobPrototype.IsObject || !filePrototype.IsObject)
             return;
 
         _blobPrototype = blobPrototype;
         _filePrototype = filePrototype;
 
-        Getter(blobPrototype, "size", static data => new JSNumber(data.Bytes.Length));
-        Getter(blobPrototype, "type", static data => new JSString(data.Type));
-        Method(blobPrototype, "slice", 0, Slice);
-        Method(blobPrototype, "text", 0, static (BlobData data, in Arguments _) =>
-            new JSPromise((resolve, _) => resolve(new JSString(DecodeUtf8(data.Bytes)))));
-        Method(blobPrototype, "arrayBuffer", 0, static (BlobData data, in Arguments _) =>
-            new JSPromise((resolve, _) => resolve(new JSArrayBuffer((byte[])data.Bytes.Clone()))));
+        Getter(realm, blobPrototype, "size", static data => JsValue.Number(data.Bytes.Length));
+        Getter(realm, blobPrototype, "type", static data => JsValue.String(data.Type));
+        Method(realm, blobPrototype, "slice", 0, Slice);
+        Method(realm, blobPrototype, "text", 0, static (BlobData data, in JsCall call) =>
+            Settled(call.Realm, JsValue.String(DecodeUtf8(data.Bytes))));
+        Method(realm, blobPrototype, "arrayBuffer", 0, static (BlobData data, in JsCall call) =>
+            Settled(call.Realm, ToArrayBuffer((byte[])data.Bytes.Clone())));
 
         // File's own three attributes. `lastModifiedDate` is legacy and a browser still carries it.
-        Getter(filePrototype, "name", static data => new JSString(data.Name ?? string.Empty));
-        Getter(filePrototype, "lastModified", static data => new JSNumber(data.LastModified));
-        Getter(filePrototype, "webkitRelativePath", static _ => new JSString(string.Empty));
-        Getter(filePrototype, "lastModifiedDate", static data => new JSNumber(data.LastModified));
+        Getter(realm, filePrototype, "name", static data => JsValue.String(data.Name ?? string.Empty));
+        Getter(realm, filePrototype, "lastModified", static data => JsValue.Number(data.LastModified));
+        Getter(realm, filePrototype, "webkitRelativePath", static _ => JsValue.String(string.Empty));
+        Getter(realm, filePrototype, "lastModifiedDate", static data => JsValue.Number(data.LastModified));
 
-        RegisterObjectUrls(context);
+        RegisterObjectUrls(realm);
     }
 
     /// <summary>
@@ -168,47 +208,67 @@ internal sealed class BlobBinding
     /// polyfill asset defines. They are statics on the interface object rather than members of a URL,
     /// so they go on after that constructor exists.
     /// </summary>
-    private void RegisterObjectUrls(JSContext context)
+    private void RegisterObjectUrls(IJsRealm realm)
     {
-        if (context.Eval("typeof URL === 'function' ? URL : null") is not JSObject url)
+        var url = realm.EvaluateHostScript("typeof URL === 'function' ? URL : null", "polyfill:blob-object-urls");
+        if (!url.IsObject)
             return;
 
-        url.FastAddValue(
-            "createObjectURL",
-            new DomFunction((in a) => CreateObjectUrl(in a), "createObjectURL", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        url.FastAddValue(
-            "revokeObjectURL",
-            new DomFunction((in a) => RevokeObjectUrl(in a), "revokeObjectURL", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(url, "createObjectURL", realm.NewMethod("createObjectURL", CreateObjectUrl, 1));
+        realm.DefineValue(url, "revokeObjectURL", realm.NewMethod("revokeObjectURL", RevokeObjectUrl, 1));
     }
+
 
     // -------- Construction --------
 
-    private JSValue CreateBlob(in Arguments a, bool file)
+    private JsValue CreateBlob(in JsCall call, bool file)
     {
-        // File's own arguments are (parts, name, options); Blob's are (parts, options).
-        var partsValue = a.Length > 0 ? a[0] : null;
-        var name = file ? (a.Length > 1 ? a[1].ToString() : string.Empty) : null;
-        var options = (file ? (a.Length > 2 ? a[2] : null) : (a.Length > 1 ? a[1] : null)) as JSObject;
+        var realm = call.Realm;
 
-        var bytes = CollectParts(partsValue, file ? "File" : "Blob");
-        var data = new BlobData(bytes, NormalizeType(options?[(KeyString)"type"]?.ToString()))
+        // File's own arguments are (parts, name, options); Blob's are (parts, options).
+        var partsValue = call[0];
+        var name = file ? (call.Length > 1 ? realm.ToJsString(call[1]) : string.Empty) : null;
+        var options = file ? call[2] : call[1];
+        if (!options.IsObject)
+            options = JsValue.Missing;
+
+        var bytes = CollectParts(realm, partsValue, file ? "File" : "Blob");
+        var data = new BlobData(bytes, NormalizeType(TypeOption(realm, options)))
         {
             Name = name,
-            LastModified = file ? ReadLastModified(options) : 0,
+            LastModified = file ? ReadLastModified(realm, options) : 0,
         };
 
-        return Mint(data, file);
+        return Mint(realm, data, file);
     }
 
-    private JSObject Mint(BlobData data, bool file)
+    /// <summary>
+    /// The <c>type</c> member of an options bag, or <see langword="null"/> when there is no bag or no
+    /// such property.
+    /// </summary>
+    /// <remarks>
+    /// Absent and <c>undefined</c> are deliberately different: the engine's indexer answered a CLR
+    /// null for a property that is not there and this coerced only what it found, so
+    /// <c>new Blob([], {type: undefined})</c> normalises the string <c>"undefined"</c> while
+    /// <c>new Blob([], {})</c> normalises nothing. <see cref="JsValue.IsMissing"/> is that same
+    /// absence, and preserving the difference is what keeps both answers what they were.
+    /// </remarks>
+    private static string? TypeOption(IJsRealm realm, JsValue options)
     {
-        var blob = new JSObject();
-        _blobs.Add(blob, data);
+        if (!options.IsObject)
+            return null;
+
+        var type = realm.GetProperty(options, "type");
+        return type.IsMissing ? null : realm.ToJsString(type);
+    }
+
+    private JsValue Mint(IJsRealm realm, BlobData data, bool file)
+    {
+        var blob = realm.NewObject();
+        _blobs.Add(JsInterop.ToEngineObject(blob), data);
         var prototype = file ? _filePrototype : _blobPrototype;
-        if (prototype is { } p)
-            blob.BasePrototypeObject = p;
+        if (prototype.IsObject)
+            realm.SetPrototype(blob, prototype);
         return blob;
     }
 
@@ -216,26 +276,34 @@ internal sealed class BlobBinding
     /// The one seam other bindings mint blobs through — today <c>response.blob()</c>, which used to
     /// hand back a plain object of its own making.
     /// </summary>
-    internal JSValue CreateBlobFromBytes(byte[] bytes, string contentType) =>
-        Mint(new BlobData(bytes, NormalizeType(contentType)), file: false);
+    /// <param name="realm">The realm the blob object is minted in — the caller's, since it is the
+    /// one whose <c>Blob</c> the page will compare against.</param>
+    internal JsValue CreateBlobFromBytes(IJsRealm realm, byte[] bytes, string contentType) =>
+        Mint(realm, new BlobData(bytes, NormalizeType(contentType)), file: false);
 
     /// <summary>
     /// The bytes behind a blob object, or <see langword="null"/> for anything that is not one. The
     /// seam the streams asset reads a blob through — its hook is captured into that closure and
     /// deleted from the global, so this does not become a way for a page to reach bytes out of band.
     /// </summary>
-    internal byte[]? BytesOf(JSValue candidate) =>
-        candidate is JSObject blob && _blobs.TryGetValue(blob, out var data) ? data.Bytes : null;
+    /// <remarks>
+    /// It takes a handle like everything else on this class; the unwrap to the object the weak table
+    /// keys on happens in <see cref="TryDataFor"/>, in one place.
+    /// </remarks>
+    internal byte[]? BytesOf(JsValue candidate) =>
+        TryDataFor(candidate, out var data) ? data.Bytes : null;
 
-    private static double ReadLastModified(JSObject? options)
+    private static double ReadLastModified(IJsRealm realm, JsValue options)
     {
-        var value = options?[(KeyString)"lastModified"];
-        if (value is null || value.IsUndefined)
+        var value = options.IsObject ? realm.GetProperty(options, "lastModified") : JsValue.Missing;
+        if (value.IsMissing || value.IsUndefined)
             // A File with no explicit timestamp reports "now"; the capture has no wall clock of its
             // own to prefer, so it uses the same one everything else here does.
             return Math.Floor((System.DateTime.UtcNow - System.DateTime.UnixEpoch).TotalMilliseconds);
 
-        var number = value.DoubleValue;
+        // The realm's ToNumber, not the handle's: this is the engine coercion the property read
+        // performed, and a page may pass a string or an object with a valueOf.
+        var number = realm.ToNumber(value);
         return double.IsNaN(number) ? 0 : Math.Truncate(number);
     }
 
@@ -245,19 +313,20 @@ internal sealed class BlobBinding
     /// <c>new Blob('abc')</c> is a <c>TypeError</c> and not a three-byte blob, which is the trap this
     /// argument sets for anyone reading the signature rather than measuring it.
     /// </summary>
-    private byte[] CollectParts(JSValue? partsValue, string interfaceName)
+    private byte[] CollectParts(IJsRealm realm, JsValue partsValue, string interfaceName)
     {
-        if (partsValue is null || partsValue.IsUndefined)
+        if (partsValue.IsMissing || partsValue.IsUndefined)
             return [];
 
-        if (partsValue is not JSArray parts)
-            return JSException.ThrowTypeError<byte[]>(
+        if (!partsValue.IsArray)
+            throw realm.Error(
+                JsErrorKind.TypeError,
                 $"Failed to construct '{interfaceName}': The provided value cannot be converted to a sequence.");
 
         var buffer = new List<byte>();
-        var length = (int)(parts[(KeyString)"length"]?.DoubleValue ?? 0);
+        var length = (int)NumberOrZero(realm, realm.GetProperty(partsValue, "length"));
         for (var i = 0; i < length; i++)
-            buffer.AddRange(PartBytes(parts[(uint)i]));
+            buffer.AddRange(PartBytes(realm, realm.GetIndex(partsValue, (uint)i)));
         return [.. buffer];
     }
 
@@ -266,22 +335,30 @@ internal sealed class BlobBinding
     /// anything else — including a number — is stringified and encoded as UTF-8, which is why
     /// <c>new Blob([123]).size</c> is 3.
     /// </summary>
-    private byte[] PartBytes(JSValue? part)
+    /// <remarks>
+    /// The two <c>BufferSource</c> arms ask the engine's own type, because "is this an ArrayBuffer"
+    /// is not a question JSEAL can put — the contract mints no buffers and tests for none. The
+    /// view's offset and length are still read through the JS-visible attributes a script would use,
+    /// as they were.
+    /// </remarks>
+    private byte[] PartBytes(IJsRealm realm, JsValue part)
     {
-        if (part is JSObject candidate)
+        if (part.IsObject)
         {
-            if (_blobs.TryGetValue(candidate, out var nested))
+            if (TryDataFor(part, out var nested))
                 return nested.Bytes;
 
-            if (candidate is JSArrayBuffer arrayBuffer)
+            if (JsInterop.ToEngineObject(part) is Broiler.JavaScript.BuiltIns.Array.Typed.JSArrayBuffer arrayBuffer)
                 return arrayBuffer.Buffer;
 
             // A typed array or DataView, read through the same JS-visible attributes a script would
             // use rather than through engine internals.
-            if (candidate[(KeyString)"buffer"] is JSArrayBuffer viewBuffer)
+            var buffer = realm.GetProperty(part, "buffer");
+            if (buffer.IsObject &&
+                JsInterop.ToEngineObject(buffer) is Broiler.JavaScript.BuiltIns.Array.Typed.JSArrayBuffer viewBuffer)
             {
-                var offset = (int)(candidate[(KeyString)"byteOffset"]?.DoubleValue ?? 0);
-                var byteLength = (int)(candidate[(KeyString)"byteLength"]?.DoubleValue ?? 0);
+                var offset = (int)NumberOrZero(realm, realm.GetProperty(part, "byteOffset"));
+                var byteLength = (int)NumberOrZero(realm, realm.GetProperty(part, "byteLength"));
                 var source = viewBuffer.Buffer;
                 offset = Math.Clamp(offset, 0, source.Length);
                 byteLength = Math.Clamp(byteLength, 0, source.Length - offset);
@@ -289,7 +366,7 @@ internal sealed class BlobBinding
             }
         }
 
-        return Encoding.UTF8.GetBytes(part?.ToString() ?? string.Empty);
+        return Encoding.UTF8.GetBytes(part.IsMissing ? string.Empty : realm.ToJsString(part));
     }
 
     /// <summary>
@@ -312,28 +389,29 @@ internal sealed class BlobBinding
 
     // -------- Members --------
 
-    private JSValue Slice(BlobData data, in Arguments a)
+    private JsValue Slice(BlobData data, in JsCall call)
     {
+        var realm = call.Realm;
         var length = data.Bytes.Length;
-        var start = ClampRelative(a.Length > 0 ? a[0] : null, 0, length);
-        var end = ClampRelative(a.Length > 1 ? a[1] : null, length, length);
+        var start = ClampRelative(realm, call[0], 0, length);
+        var end = ClampRelative(realm, call[1], length, length);
 
         // A content type is only what the caller passes: the slice does NOT inherit the source's, so
         // `new Blob(['a'], {type: 'text/plain'}).slice(0, 1).type` is the empty string.
-        var contentType = a.Length > 2 && !a[2].IsUndefined ? NormalizeType(a[2].ToString()) : string.Empty;
+        var contentType = call.Length > 2 && !call[2].IsUndefined ? NormalizeType(realm.ToJsString(call[2])) : string.Empty;
 
         var count = Math.Max(0, end - start);
-        return Mint(new BlobData(data.Bytes.AsSpan(start, count).ToArray(), contentType), file: false);
+        return Mint(realm, new BlobData(data.Bytes.AsSpan(start, count).ToArray(), contentType), file: false);
     }
 
     /// <summary>A slice bound: absent means the default, negative counts back from the end, and
     /// everything is clamped into the blob.</summary>
-    private static int ClampRelative(JSValue? value, int fallback, int length)
+    private static int ClampRelative(IJsRealm realm, JsValue value, int fallback, int length)
     {
-        if (value is null || value.IsUndefined)
+        if (value.IsMissing || value.IsUndefined)
             return fallback;
 
-        var number = value.DoubleValue;
+        var number = realm.ToNumber(value);
         if (double.IsNaN(number))
             return 0;
 
@@ -345,24 +423,25 @@ internal sealed class BlobBinding
 
     // -------- Object URLs --------
 
-    private JSValue CreateObjectUrl(in Arguments a)
+    private JsValue CreateObjectUrl(in JsCall call)
     {
-        if (a.Length == 0 || a[0] is not JSObject candidate || !_blobs.TryGetValue(candidate, out _))
-            return JSException.ThrowTypeError<JSValue>(
+        if (call.Length == 0 || !TryDataFor(call[0], out _))
+            throw call.Realm.Error(
+                JsErrorKind.TypeError,
                 "Failed to execute 'createObjectURL' on 'URL': Overload resolution failed.");
 
         // A browser's is `blob:<origin>/<uuid>`. The uuid is opaque by design — nothing may parse it
         // — so a counter is as good as a random one and keeps a capture reproducible.
         var url = $"blob:broiler/{++_nextObjectUrl:x8}-0000-4000-8000-000000000000";
-        _objectUrls[url] = candidate;
-        return new JSString(url);
+        _objectUrls[url] = call[0];
+        return JsValue.String(url);
     }
 
-    private JSValue RevokeObjectUrl(in Arguments a)
+    private JsValue RevokeObjectUrl(in JsCall call)
     {
-        if (a.Length > 0)
-            _objectUrls.Remove(a[0].ToString());
-        return JSUndefined.Value;
+        if (call.Length > 0)
+            _objectUrls.Remove(call.Realm.ToJsString(call[0]));
+        return JsValue.Undefined;
     }
 
     /// <summary>The blob a live object URL names, for a fetch or a navigation that resolves one.
@@ -370,7 +449,7 @@ internal sealed class BlobBinding
     internal bool TryGetObjectUrlText(string url, out string text)
     {
         text = string.Empty;
-        if (!_objectUrls.TryGetValue(url, out var blob) || !_blobs.TryGetValue(blob, out var data))
+        if (!_objectUrls.TryGetValue(url, out var blob) || !TryDataFor(blob, out var data))
             return false;
 
         text = DecodeUtf8(data.Bytes);
@@ -379,29 +458,70 @@ internal sealed class BlobBinding
 
     // -------- Plumbing --------
 
-    private delegate JSValue BlobOperation(BlobData data, in Arguments a);
+    private delegate JsValue BlobOperation(BlobData data, in JsCall call);
 
-    private void Method(JSObject prototype, string name, int length, BlobOperation body) =>
-        prototype.FastAddValue(
-            name,
-            new DomFunction((in a) => body(DataFor(in a, name), in a), name, length),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+    private void Method(IJsRealm realm, JsValue prototype, string name, int length, BlobOperation body) =>
+        realm.DefineValue(prototype, name, realm.NewMethod(name, (in call) => body(DataFor(in call, name), in call), length));
 
-    private void Getter(JSObject prototype, string name, Func<BlobData, JSValue> read) =>
-        prototype.FastAddProperty(
-            name,
-            new DomFunction((in a) => read(DataFor(in a, name)), $"get {name}"),
-            null,
-            JSPropertyAttributes.EnumerableConfigurableProperty);
+    private void Getter(IJsRealm realm, JsValue prototype, string name, Func<BlobData, JsValue> read) =>
+        realm.DefineAccessor(prototype, name, (in call) => read(DataFor(in call, name)), null);
 
-    private BlobData DataFor(in Arguments a, string member)
+    private BlobData DataFor(in JsCall call, string member)
     {
-        if (a.This is JSObject receiver && _blobs.TryGetValue(receiver, out var data))
+        if (TryDataFor(call.This, out var data))
             return data;
 
-        return JSException.ThrowTypeError<BlobData>(
+        throw call.Realm.Error(
+            JsErrorKind.TypeError,
             $"Failed to execute '{member}' on 'Blob': Illegal invocation");
     }
+
+    /// <summary>
+    /// A number read off an object, or zero when the property is not there at all.
+    /// </summary>
+    /// <remarks>
+    /// The <c>?? 0</c> these reads carried applied to the engine indexer's CLR null — an absent
+    /// property — and not to the coercion, so a property that is present and not numeric still
+    /// answers NaN here exactly as it did. <see cref="JsValue.IsMissing"/> is that same absence.
+    /// </remarks>
+    private static double NumberOrZero(IJsRealm realm, JsValue value) =>
+        value.IsMissing ? 0d : realm.ToNumber(value);
+
+    /// <summary>The blob data behind a handle, for the receiver and argument tests.</summary>
+    private bool TryDataFor(JsValue candidate, [MaybeNullWhen(false)] out BlobData data)
+    {
+        if (candidate.IsObject)
+            return _blobs.TryGetValue(JsInterop.ToEngineObject(candidate), out data);
+
+        data = null;
+        return false;
+    }
+
+    /// <summary>A promise already fulfilled with <paramref name="value"/>.</summary>
+    /// <remarks>
+    /// The realm hands back the settle functions rather than running an executor, so the promise is
+    /// resolved here instead of inside a callback that only happened to run synchronously — the
+    /// difference <see cref="IJsJobs.NewPromise"/> exists to remove.
+    /// </remarks>
+    private static JsValue Settled(IJsRealm realm, JsValue value)
+    {
+        var promise = realm.NewPromise(out var resolve, out _);
+        resolve(value);
+        return promise;
+    }
+
+    /// <summary>
+    /// <paramref name="bytes"/> as an <c>ArrayBuffer</c>, for <c>blob.arrayBuffer()</c>.
+    /// </summary>
+    /// <remarks>
+    /// <b>The one line JSEAL cannot express</b>, as <c>StreamsBinding</c> records at its own copy:
+    /// <see cref="IJsValues"/> mints objects, arrays and functions and has no ArrayBuffer member and
+    /// no capability flag for one, so the buffer is built with the engine's own type and handed
+    /// across as a handle. The caller clones, as it did — a page mutating the buffer must not be able
+    /// to rewrite the blob it came from, because blobs are immutable.
+    /// </remarks>
+    private static JsValue ToArrayBuffer(byte[] bytes) =>
+        JsInterop.FromEngineObject(new Broiler.JavaScript.BuiltIns.Array.Typed.JSArrayBuffer(bytes));
 
     private static string DecodeUtf8(byte[] bytes) => new UTF8Encoding(false).GetString(bytes);
 }

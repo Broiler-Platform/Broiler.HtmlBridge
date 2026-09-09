@@ -1,42 +1,76 @@
 using System.Text;
-using Broiler.JavaScript.Storage;
+using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
+// The three engine namespaces are for GetNodeTextValue alone — the one adapter left in this file, and
+// pinned by a caller outside it; see its remarks.
+using Broiler.JavaScript.BuiltIns.Null;
 using Broiler.JavaScript.BuiltIns.String;
 using Broiler.JavaScript.Runtime;
-using Broiler.Dom;
-using Broiler.JavaScript.BuiltIns.Null;
 
 namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    private JSValue GetNodeTextValue(DomNode node)
+    /// <summary>
+    /// A node's <c>textContent</c>, or <see langword="null"/> for the two node kinds DOM §4.4 gives no
+    /// text at all.
+    /// </summary>
+    /// <remarks>
+    /// The algorithm is engine-neutral and always was — it walks the tree and concatenates strings —
+    /// so it is stated here in CLR terms and the two callers that still want a JavaScript value make
+    /// one from it. <see cref="JsValue.String(string?)"/> turns the <see langword="null"/> into
+    /// JavaScript <c>null</c>, which is exactly the distinction the next paragraph is about.
+    /// </remarks>
+    private string? NodeTextOrNull(DomNode node)
     {
         // RF-BRIDGE-1c Phase F (F3c part 2d): character-data nodes expose their data as textContent;
         // an element's textContent is the concatenation of its descendant text.
         if (node is DomCharacterData characterData)
-            return new JSString(characterData.Data);
+            return characterData.Data;
 
         // DOM §4.4: `textContent` is *null* for a document and for a doctype — they are the two node
         // kinds the algorithm has no text for, rather than kinds whose text happens to be empty.
         // Both answered the empty string, so `document.textContent` was `""` where Chromium says
         // null, and a page distinguishing the two with `=== null` read the wrong branch.
         if (node is DomDocument or DomDocumentType)
-            return JSNull.Value;
+            return null;
 
         if (node is not DomElement element)
-            return new JSString(string.Empty);
+            return string.Empty;
 
         if (element.ChildNodes.Count > 0)
         {
             var sb = new StringBuilder();
             CollectTextContent(element, sb);
-            return new JSString(sb.ToString());
+            return sb.ToString();
         }
 
         // A childless element has empty textContent (its content, if any, is canonical DomText
         // children handled above — Phase 4 item 3 removed the parallel InnerHtml fallback).
-        return new JSString(string.Empty);
+        return string.Empty;
     }
+
+    /// <summary>
+    /// <see cref="NodeTextOrNull"/> as the engine value the unmigrated wrappers install.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the adapter, and it names the engine because a primitive cannot cross the seam.</b>
+    /// <c>JsInterop</c> carries an object across without converting it — the handle holds the engine's
+    /// own object — and a string or a <c>null</c> is not an object, so the two arms are spelled out.
+    /// <para>
+    /// <b>One site outside this file still takes the engine value, and it does not want one.</b>
+    /// <c>DomBridge.ElementContentHost.cs</c> asks for it and immediately unpicks it again —
+    /// <c>GetNodeTextValue(node) is JSString text ? text.ToString() : null</c> — which is
+    /// <see cref="NodeTextOrNull"/> spelled the long way round through two allocations. That file is
+    /// another group's, so the round trip stays and this adapter with it; the three sites that used to
+    /// join it (<c>DomBridge/ElementInterfaces.cs</c>'s <c>text</c>,
+    /// <c>DomBridge/CharacterDataInterface.cs</c>'s <c>Node.prototype.textContent</c>, and
+    /// <c>DomBridge/JsObjects.NonElementNodes.cs</c>) all read the CLR answer above and let
+    /// <see cref="JsValue.String(string?)"/> make the same distinction.
+    /// </para>
+    /// </remarks>
+    private JSValue GetNodeTextValue(DomNode node) =>
+        NodeTextOrNull(node) is { } text ? new JSString(text) : JSNull.Value;
 
 
     private bool IsCurrentIframeCrossOrigin(DomElement element)

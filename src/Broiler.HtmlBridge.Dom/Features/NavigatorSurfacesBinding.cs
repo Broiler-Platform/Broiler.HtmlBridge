@@ -1,11 +1,4 @@
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.BuiltIns.Promise;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -61,6 +54,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// per-instance state is needed for them at all; only a <c>PermissionStatus</c>, of which there is
 /// one per query, carries its own.
 /// </para>
+/// <para>
+/// <b>The four interface objects are declared in host-authored JavaScript.</b> That is the one
+/// <see cref="IJsSource.EvaluateHostScript"/> site in this file, and it is host script by every test
+/// the contract states: the source is written here, ships with this repository, and is not subject to
+/// the page's content policy. It is script rather than four <c>NewConstructor</c> calls because what
+/// it declares is the <em>illegal-constructor</em> throw each interface object must perform, which is
+/// three lines of JavaScript and would be four host functions plus their prototypes otherwise.
+/// </para>
 /// </remarks>
 internal static class NavigatorSurfacesBinding
 {
@@ -79,15 +80,9 @@ internal static class NavigatorSurfacesBinding
         "top-level-storage-access", "window-management", "xr-spatial-tracking",
     };
 
-    /// <summary>
-    /// The per-query state behind a <c>PermissionStatus</c>. Only the name varies — the state is
-    /// <c>"denied"</c> for every capability this engine has.
-    /// </summary>
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<JSObject, JSString> StatusNames = new();
-
-    public static void Install(JSObject navigator, JSContext context, string userAgent)
+    public static void Install(IJsRealm realm, JsValue navigator, string userAgent)
     {
-        context.Eval("""
+        realm.EvaluateHostScript("""
             (function () {
                 // None of the four is constructible: they come from navigator, and from query().
                 function StorageManager() { throw new TypeError("Failed to construct 'StorageManager': Illegal constructor"); }
@@ -99,86 +94,105 @@ internal static class NavigatorSurfacesBinding
                 globalThis.PermissionStatus = PermissionStatus;
                 globalThis.NavigatorUAData = NavigatorUAData;
             })();
-            """);
+            """, "polyfill:navigator-surfaces");
 
-        var storage = InstanceOf(context, "StorageManager", out var storagePrototype);
-        var permissions = InstanceOf(context, "Permissions", out var permissionsPrototype);
-        var userAgentData = InstanceOf(context, "NavigatorUAData", out var userAgentDataPrototype);
-        if (storage is null || permissions is null || userAgentData is null ||
-            storagePrototype is null || permissionsPrototype is null || userAgentDataPrototype is null ||
-            context["PermissionStatus"] is not JSObject statusConstructor ||
-            statusConstructor[(KeyString)"prototype"] is not JSObject statusPrototype)
+        var hasStorage = TryInstanceOf(realm, "StorageManager", out var storage, out var storagePrototype);
+        var hasPermissions = TryInstanceOf(realm, "Permissions", out var permissions, out var permissionsPrototype);
+        var hasUserAgentData = TryInstanceOf(realm, "NavigatorUAData", out var userAgentData, out var userAgentDataPrototype);
+        if (!hasStorage || !hasPermissions || !hasUserAgentData ||
+            !TryPrototypeOf(realm, "PermissionStatus", out var statusPrototype))
             return;
 
-        InstallStorageManager(storagePrototype);
-        InstallPermissions(permissionsPrototype, statusPrototype, context);
-        InstallUserAgentData(userAgentDataPrototype, userAgent);
+        InstallStorageManager(realm, storagePrototype);
+        InstallPermissions(realm, permissionsPrototype, statusPrototype);
+        InstallUserAgentData(realm, userAgentDataPrototype, userAgent);
 
-        Add(navigator, "storage", storage);
-        Add(navigator, "permissions", permissions);
-        Add(navigator, "userAgentData", userAgentData);
+        Add(realm, navigator, "storage", storage);
+        Add(realm, navigator, "permissions", permissions);
+        Add(realm, navigator, "userAgentData", userAgentData);
     }
 
     // -------- StorageManager --------
 
-    private static void InstallStorageManager(JSObject prototype)
+    private static void InstallStorageManager(IJsRealm realm, JsValue prototype)
     {
         // estimate() — the origin's quota-managed usage and quota. Both zero: nothing is stored
         // because none of the backends this interface counts exists. localStorage, sessionStorage
         // and document.cookie all work and have never been counted here by any browser.
-        Method(prototype, "estimate", 0, static (in Arguments _) =>
+        Method(realm, prototype, "estimate", 0, static (in call) =>
         {
-            var estimate = new JSObject();
-            estimate.FastAddValue("usage", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-            estimate.FastAddValue("quota", new JSNumber(0), JSPropertyAttributes.EnumerableConfigurableValue);
-            return Resolved(estimate);
+            var estimate = call.Realm.NewObject();
+            call.Realm.DefineValue(estimate, "usage", JsValue.Number(0));
+            call.Realm.DefineValue(estimate, "quota", JsValue.Number(0));
+            return Resolved(call.Realm, estimate);
         });
 
         // persisted() / persist() — whether the origin's storage is exempt from eviction, and a
         // request to make it so. False and false: there is no storage to persist, and a persist()
         // that resolved true would promise durability for nothing.
-        Method(prototype, "persisted", 0, static (in Arguments _) => Resolved(JSBoolean.False));
-        Method(prototype, "persist", 0, static (in Arguments _) => Resolved(JSBoolean.False));
+        Method(realm, prototype, "persisted", 0, static (in call) => Resolved(call.Realm, JsValue.False));
+        Method(realm, prototype, "persist", 0, static (in call) => Resolved(call.Realm, JsValue.False));
     }
 
     // -------- Permissions --------
 
-    private static void InstallPermissions(JSObject prototype, JSObject statusPrototype, JSContext context)
+    /// <summary>
+    /// Installs <c>query()</c> and the two <c>PermissionStatus</c> accessors.
+    /// </summary>
+    /// <remarks>
+    /// <b>The per-status name is held in a table keyed by the status object, and that table is no
+    /// longer weak.</b> It was a <c>ConditionalWeakTable</c> keyed on the engine object, which a
+    /// handle cannot key — a <see cref="JsValue"/> is a struct, and such a table needs a class key.
+    /// The dictionary here is created per <see cref="Install"/>, so it is per realm rather than
+    /// process-wide, and its entries live as long as the document does instead of as long as the
+    /// status object does. Nothing script can observe changes: what changes is that a page which
+    /// queries permissions in a loop keeps one small entry per query until its document is torn down.
+    /// It goes away when a status can carry host state of its own.
+    /// </remarks>
+    private static void InstallPermissions(IJsRealm realm, JsValue prototype, JsValue statusPrototype)
     {
-        Method(prototype, "query", 1, (in Arguments a) =>
+        var statusNames = new Dictionary<JsValue, string>();
+
+        Method(realm, prototype, "query", 1, (in call) =>
         {
-            var name = a.Length > 0 && a[0] is JSObject descriptor && descriptor[(KeyString)"name"] is { } requested
-                ? requested.ToString()
+            var callRealm = call.Realm;
+
+            // The descriptor's `name` is coerced through the realm, not rendered from the handle: a
+            // page may pass anything with a toString, and what it stringifies to is the enum value
+            // being asked for.
+            var descriptor = call[0];
+            var name = descriptor.IsObject && callRealm.GetProperty(descriptor, "name") is { IsMissing: false } requested
+                ? callRealm.ToJsString(requested)
                 : string.Empty;
 
             if (!PermissionNames.Contains(name))
             {
                 // Rejected rather than thrown, and a TypeError rather than a denial: the enum is
                 // validated before the permission is looked at, so a typo is reported as a typo.
-                return Rejected(context,
+                return Rejected(callRealm,
                     "Failed to execute 'query' on 'Permissions': Failed to read the 'name' property " +
                     $"from 'PermissionDescriptor': The provided value '{name}' is not a valid enum value " +
                     "of type PermissionName.");
             }
 
-            var status = new JSObject { BasePrototypeObject = statusPrototype };
-            StatusNames.Add(status, new JSString(name));
-            return Resolved(status);
+            var status = callRealm.NewObject();
+            callRealm.SetPrototype(status, statusPrototype);
+            statusNames[status] = name;
+            return Resolved(callRealm, status);
         });
 
-        Getter(statusPrototype, "name", static status =>
-            StatusNames.TryGetValue(status, out var name) ? name : new JSString(string.Empty));
+        Getter(realm, statusPrototype, "name", status =>
+            JsValue.String(statusNames.TryGetValue(status, out var name) ? name : string.Empty));
 
         // Denied, for every capability. Broiler grants none of them and has no surface to prompt on,
         // so "prompt" — which is what a browser answers before the user has been asked — would
         // promise a dialog that never comes. This is the state Notification.permission already
         // reports, for the same reason.
-        Getter(statusPrototype, "state", static _ => new JSString("denied"));
+        Getter(realm, statusPrototype, "state", static _ => JsValue.String("denied"));
 
         // The state never changes, so this handler is never called — which is the correct behaviour
         // rather than a missing one. It is present because a page assigns to it unconditionally.
-        statusPrototype.FastAddValue("onchange",
-            JavaScript.BuiltIns.Null.JSNull.Value, JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(statusPrototype, "onchange", JsValue.Null);
     }
 
     // -------- NavigatorUAData --------
@@ -187,7 +201,7 @@ internal static class NavigatorSurfacesBinding
     /// Installs the User-Agent Client Hints members, every one derived from
     /// <paramref name="userAgent"/> so the structured identity and the string cannot disagree.
     /// </summary>
-    private static void InstallUserAgentData(JSObject prototype, string userAgent)
+    private static void InstallUserAgentData(IJsRealm realm, JsValue prototype, string userAgent)
     {
         var (brand, version) = ProductFrom(userAgent);
         var majorVersion = version.Split('.')[0];
@@ -200,76 +214,90 @@ internal static class NavigatorSurfacesBinding
         // The low-entropy trio, readable without a permission. `brands` carries the major version
         // only, which is what makes it low-entropy; the full version is behind
         // getHighEntropyValues.
-        Getter(prototype, "brands", _ => BrandList(brand, majorVersion));
-        Getter(prototype, "mobile", static _ => JSBoolean.False);
-        Getter(prototype, "platform", _ => new JSString(platform));
+        //
+        // Each getter mints its answer in the realm the read is happening in — which is this one, and
+        // is why the accessor takes the receiver rather than closing over a realm handed in here.
+        GetterInRealm(realm, prototype, "brands", (callRealm, _) => BrandList(callRealm, brand, majorVersion));
+        Getter(realm, prototype, "mobile", static _ => JsValue.False);
+        Getter(realm, prototype, "platform", _ => JsValue.String(platform));
 
         // One GREASE brand is what a browser adds here to keep sites from hard-coding the list.
         // Broiler reports its own brand and nothing else: an invented second entry would be a claim
         // about a product that does not exist, and the anti-ossification argument is a browser-market
         // one rather than a correctness one.
-        Method(prototype, "toJSON", 0, (in Arguments _) => LowEntropyObject(brand, majorVersion, platform));
+        Method(realm, prototype, "toJSON", 0,
+            (in call) => LowEntropyObject(call.Realm, brand, majorVersion, platform));
 
-        Method(prototype, "getHighEntropyValues", 1, (in Arguments a) =>
+        Method(realm, prototype, "getHighEntropyValues", 1, (in call) =>
         {
-            var result = LowEntropyObject(brand, majorVersion, platform);
-            var hints = RequestedHints(a);
+            var callRealm = call.Realm;
+            var result = LowEntropyObject(callRealm, brand, majorVersion, platform);
+            var hints = RequestedHints(in call);
 
             // Each hint is answered from the user agent string or from a fact about this engine.
             // A hint that is not asked for is absent, which is the interface's own shape: the
             // caller names what it wants and gets exactly that.
             if (hints.Contains("architecture"))
-                result.FastAddValue("architecture", new JSString("x86"), JSPropertyAttributes.EnumerableConfigurableValue);
+                callRealm.DefineValue(result, "architecture", JsValue.String("x86"));
             if (hints.Contains("bitness"))
-                result.FastAddValue("bitness", new JSString(is64Bit ? "64" : "32"), JSPropertyAttributes.EnumerableConfigurableValue);
+                callRealm.DefineValue(result, "bitness", JsValue.String(is64Bit ? "64" : "32"));
             if (hints.Contains("model"))
-                result.FastAddValue("model", new JSString(string.Empty), JSPropertyAttributes.EnumerableConfigurableValue);
+                callRealm.DefineValue(result, "model", JsValue.String(string.Empty));
             if (hints.Contains("platformVersion"))
-                result.FastAddValue("platformVersion", new JSString(platformVersion), JSPropertyAttributes.EnumerableConfigurableValue);
+                callRealm.DefineValue(result, "platformVersion", JsValue.String(platformVersion));
             if (hints.Contains("uaFullVersion"))
-                result.FastAddValue("uaFullVersion", new JSString(version), JSPropertyAttributes.EnumerableConfigurableValue);
+                callRealm.DefineValue(result, "uaFullVersion", JsValue.String(version));
             if (hints.Contains("fullVersionList"))
-                result.FastAddValue("fullVersionList", BrandList(brand, version), JSPropertyAttributes.EnumerableConfigurableValue);
+                callRealm.DefineValue(result, "fullVersionList", BrandList(callRealm, brand, version));
             if (hints.Contains("wow64"))
-                result.FastAddValue("wow64", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
+                callRealm.DefineValue(result, "wow64", JsValue.False);
             if (hints.Contains("formFactors"))
             {
-                result.FastAddValue("formFactors",
-                    new JSArray([new JSString("Desktop")]), JSPropertyAttributes.EnumerableConfigurableValue);
+                callRealm.DefineValue(result, "formFactors",
+                    callRealm.NewArray([JsValue.String("Desktop")]));
             }
 
-            return Resolved(result);
+            return Resolved(callRealm, result);
         });
     }
 
-    private static JSObject LowEntropyObject(string brand, string majorVersion, string platform)
+    private static JsValue LowEntropyObject(IJsRealm realm, string brand, string majorVersion, string platform)
     {
-        var result = new JSObject();
-        result.FastAddValue("brands", BrandList(brand, majorVersion), JSPropertyAttributes.EnumerableConfigurableValue);
-        result.FastAddValue("mobile", JSBoolean.False, JSPropertyAttributes.EnumerableConfigurableValue);
-        result.FastAddValue("platform", new JSString(platform), JSPropertyAttributes.EnumerableConfigurableValue);
+        var result = realm.NewObject();
+        realm.DefineValue(result, "brands", BrandList(realm, brand, majorVersion));
+        realm.DefineValue(result, "mobile", JsValue.False);
+        realm.DefineValue(result, "platform", JsValue.String(platform));
         return result;
     }
 
-    private static JSArray BrandList(string brand, string version)
+    private static JsValue BrandList(IJsRealm realm, string brand, string version)
     {
-        var entry = new JSObject();
-        entry.FastAddValue("brand", new JSString(brand), JSPropertyAttributes.EnumerableConfigurableValue);
-        entry.FastAddValue("version", new JSString(version), JSPropertyAttributes.EnumerableConfigurableValue);
-        return new JSArray([entry]);
+        var entry = realm.NewObject();
+        realm.DefineValue(entry, "brand", JsValue.String(brand));
+        realm.DefineValue(entry, "version", JsValue.String(version));
+        return realm.NewArray([entry]);
     }
 
-    private static HashSet<string> RequestedHints(in Arguments a)
+    private static HashSet<string> RequestedHints(in JsCall call)
     {
         var hints = new HashSet<string>(StringComparer.Ordinal);
-        if (a.Length == 0 || a[0] is not JSObject list)
+        if (call.Length == 0 || !call[0].IsObject)
             return hints;
 
-        var length = list[(KeyString)"length"] is { } lengthValue ? (int)lengthValue.DoubleValue : 0;
+        var realm = call.Realm;
+        var list = call[0];
+
+        // `length` is read and coerced rather than assumed: the argument is a sequence<DOMString> in
+        // WebIDL, so an array-like with a string length is a legitimate caller.
+        var length = (int)realm.ToNumber(realm.GetProperty(list, "length"));
         for (var index = 0; index < length; index++)
         {
-            if (list[(uint)index] is { } hint && !hint.IsUndefined && !hint.IsNull)
-                hints.Add(hint.ToString());
+            var hint = realm.GetIndex(list, (uint)index);
+
+            // A hole, a null and an undefined are all skipped, as before — IsNullish is the three of
+            // them in one question.
+            if (!hint.IsNullish)
+                hints.Add(realm.ToJsString(hint));
         }
 
         return hints;
@@ -325,37 +353,82 @@ internal static class NavigatorSurfacesBinding
     // -------- plumbing --------
 
     /// <summary>Mints the one instance of a singleton interface, linked to its prototype.</summary>
-    private static JSObject? InstanceOf(JSContext context, string interfaceName, out JSObject? prototype)
+    private static bool TryInstanceOf(IJsRealm realm, string interfaceName, out JsValue instance, out JsValue prototype)
     {
-        prototype = context[interfaceName] is JSObject constructor
-            ? constructor[(KeyString)"prototype"] as JSObject
-            : null;
+        instance = JsValue.Undefined;
+        if (!TryPrototypeOf(realm, interfaceName, out prototype))
+            return false;
 
-        return prototype is null ? null : new JSObject { BasePrototypeObject = prototype };
+        // A fresh ordinary object re-pointed at the interface prototype — what the engine-typed
+        // object initialiser with its base-prototype assignment said before, in the realm's
+        // vocabulary.
+        instance = realm.NewObject();
+        realm.SetPrototype(instance, prototype);
+        return true;
     }
 
-    private static void Method(JSObject prototype, string name, int length, JSFunctionDelegate body) =>
-        prototype.FastAddValue(name, new DomFunction(body, name, length),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
-    private static void Getter(JSObject prototype, string name, Func<JSObject, JSValue> read) =>
-        prototype.FastAddProperty(
-            name,
-            new DomFunction((in a) => a.This is JSObject receiver ? read(receiver) : JSUndefined.Value, $"get {name}"),
-            null,
-            JSPropertyAttributes.EnumerableConfigurableProperty);
-
-    private static JSValue Resolved(JSValue value) => new JSPromise((resolve, _) => resolve(value));
-
-    private static JSValue Rejected(JSContext context, string message)
+    /// <summary>The <c>prototype</c> object of a global interface function, if it has one.</summary>
+    private static bool TryPrototypeOf(IJsRealm realm, string interfaceName, out JsValue prototype)
     {
-        var error = context["TypeError"] is JavaScript.BuiltIns.Function.JSFunction typeError
-            ? typeError.CreateInstance(new Arguments(typeError, new JSString(message)))
-            : new JSString($"TypeError: {message}");
+        prototype = JsValue.Undefined;
 
-        return new JSPromise((_, reject) => reject(error));
+        var constructor = realm.GetProperty(realm.Global, interfaceName);
+        if (!constructor.IsObject)
+            return false;
+
+        var candidate = realm.GetProperty(constructor, "prototype");
+        if (!candidate.IsObject)
+            return false;
+
+        prototype = candidate;
+        return true;
     }
 
-    private static void Add(JSObject navigator, string name, JSValue value) =>
-        navigator.FastAddValue(name, value, JSPropertyAttributes.EnumerableConfigurableValue);
+    private static void Method(IJsRealm realm, JsValue prototype, string name, int length, JsNativeFunction body) =>
+        realm.DefineValue(prototype, name, realm.NewMethod(name, body, length));
+
+    /// <summary>
+    /// A read-only accessor on an interface prototype, whose getter is handed the receiver.
+    /// </summary>
+    /// <remarks>
+    /// A non-object receiver answers <c>undefined</c> rather than throwing, which is what the
+    /// engine-typed receiver test did: these are read off the singleton instances, and a page that
+    /// calls the getter on something else gets nothing rather than an exception it did not provoke.
+    /// The realm names the function <c>get {name}</c> and makes it non-constructable itself.
+    /// </remarks>
+    private static void Getter(IJsRealm realm, JsValue prototype, string name, Func<JsValue, JsValue> read) =>
+        realm.DefineAccessor(prototype, name, (in call) => call.This.IsObject ? read(call.This) : JsValue.Undefined, null);
+
+    /// <summary>As <see cref="Getter"/>, for an answer that has to be minted in the calling realm.</summary>
+    private static void GetterInRealm(IJsRealm realm, JsValue prototype, string name, Func<IJsRealm, JsValue, JsValue> read) =>
+        realm.DefineAccessor(prototype, name,
+            (in call) => call.This.IsObject ? read(call.Realm, call.This) : JsValue.Undefined, null);
+
+    /// <summary>A promise already fulfilled with <paramref name="value"/>.</summary>
+    /// <remarks>
+    /// The realm hands back the settle functions rather than running an executor, so the promise is
+    /// resolved here instead of inside a callback that only happened to run synchronously — the
+    /// difference <see cref="IJsJobs.NewPromise"/> exists to remove.
+    /// </remarks>
+    private static JsValue Resolved(IJsRealm realm, JsValue value)
+    {
+        var promise = realm.NewPromise(out var resolve, out _);
+        resolve(value);
+        return promise;
+    }
+
+    private static JsValue Rejected(IJsRealm realm, string message)
+    {
+        var typeError = realm.GetProperty(realm.Global, "TypeError");
+        var error = typeError.IsFunction
+            ? realm.Construct(typeError, [JsValue.String(message)])
+            : JsValue.String($"TypeError: {message}");
+
+        var promise = realm.NewPromise(out _, out var reject);
+        reject(error);
+        return promise;
+    }
+
+    private static void Add(IJsRealm realm, JsValue navigator, string name, JsValue value) =>
+        realm.DefineValue(navigator, name, value);
 }
