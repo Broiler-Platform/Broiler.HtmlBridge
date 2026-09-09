@@ -39,9 +39,11 @@ namespace Broiler.HtmlBridge;
 /// <c>Broiler.JavaScript</c> references still left in <c>Broiler.HtmlBridge.Dom</c> mean its
 /// unmigrated bindings have nothing else to build on — so a page can only be attached to a realm of
 /// that engine, whatever a second engine is now able to express.
-/// <see cref="InteractiveSession"/> says the same thing in one line: its constructor is internal
-/// and takes a <c>JSContext</c>. When <c>Attach</c> takes an <c>IJsRealm</c>, these overloads stop
-/// being delegations; until then the delegation is the honest behaviour and not a shortcut.
+/// <see cref="InteractiveSession"/> used to say the same thing in one line — its constructor took a
+/// <c>JSContext</c> — and it no longer does: it takes an <c>IDisposable</c>, because the context was
+/// read exactly once in that class and only to dispose it. So <c>Attach</c> is now the whole of the
+/// reason rather than half of it. When it takes an <c>IJsRealm</c>, these overloads stop being
+/// delegations; until then the delegation is the honest behaviour and not a shortcut.
 /// </para>
 /// <para>
 /// <b>So Broiler.JS is in the graph under the VM configurations too, and this class does not
