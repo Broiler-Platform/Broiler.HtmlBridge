@@ -176,13 +176,13 @@ internal sealed class SubWindowBinding(
         // navigation methods together, because a framed page calls location.replace() as readily
         // as a top-level one and a missing method is a TypeError that takes its caller with it.
         //
-        // LocationBinding still mints that object with the engine's own types and its Build takes no
-        // realm, so the result crosses back through the seam here. `realm` is already in hand three
-        // lines above, so the day Build takes one this becomes
-        // `realm.DefineValue(window, "location", LocationBinding.Build(realm, locationHref))` and the
-        // unwrapping goes — nothing else on this side has to move.
+        // The realm builder, which is now the only one. Its predecessor took no realm and answered
+        // an engine object this line converted back; both are gone, and with them the second
+        // navigation surface that existed only to install the same six members in engine terms.
+        // Held in a local because the frame's DOCUMENT shares this exact object with its window,
+        // below -- two DefineValue calls over one Location, not two Locations.
         var locationHref = GetSubWindowLocationHref(containerElement);
-        var iframeLocation = JsInterop.FromEngineObject(LocationBinding.Build(locationHref));
+        var iframeLocation = LocationBinding.Build(realm, locationHref);
         realm.DefineValue(window, "location", iframeLocation);
 
         realm.DefineAccessor(window, "scrollX",

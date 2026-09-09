@@ -113,16 +113,7 @@ public class FrameLocationTests
                 """));
     }
 
-    [Fact(Skip =
-        "The two setters on a frame's Location are DomFunctions built with that type's default " +
-        "length of 0 (Features/LocationBinding.cs:267 and :273 over DomBridge/DomFunction.cs:40), " +
-        "where Web IDL gives an attribute setter one required argument. The realm builder that is " +
-        "about to replace them already declares it — DefineAccessor mints the setter with length 1 " +
-        "(src/Broiler.HtmlBridge.Jseal.BroilerJs/BroilerJsRealm.Members.cs:102-103) — which is why " +
-        "the top-level Location answers 1 in DomEnumerationAndArityTests and a frame's answers 0 on " +
-        "an object that is otherwise identical. This is the ONE member-shape difference between the " +
-        "two builders, so un-skip it in the commit that points SubWindowBinding.cs:185 at " +
-        "LocationBinding.Build(IJsRealm, string).")]
+    [Fact]
     public void AFramesAttributeSettersDeclareTheArgumentTheyTake()
     {
         Assert.Equal(

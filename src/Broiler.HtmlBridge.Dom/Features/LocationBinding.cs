@@ -4,9 +4,6 @@ using Broiler.HtmlBridge.Logging;
 
 // Engine-typed only for the Build(string) overload and the installer beneath it, which exist for one
 // caller that asks for an engine object from a static — see the last paragraph of the class remarks.
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -222,93 +219,6 @@ internal static class LocationBinding
         return JsValue.Undefined;
     }
 
-    // ── the engine-typed builder, for the one caller that does not hand its realm over ──────────
-    //
-    // Features/SubWindowBinding.cs asks Build() for a frame's Location as an engine object and calls
-    // it as a static with no realm passed, so this overload mints the object and installs the same
-    // components and the same six navigation members in engine terms, over the same DocumentUrl and
-    // through the same NavigateTo/Request pair the realm-framed pair above uses — the installation is
-    // what differs, not the behaviour, and the two are kept in the same member order because
-    // Object.getOwnPropertyNames on a frame's location reports it.
-    //
-    // This whole section is deleted, not adapted, the moment that call site passes the _host.Realm it
-    // already holds three lines above the call: `Build(realm, href)` above is that caller's
-    // replacement, and it is why this one is a duplicate rather than the only builder.
-
-    /// <inheritdoc cref="Build(IJsRealm, string)"/>
-    internal static JSObject Build(string href)
-    {
-        var location = new JSObject();
-
-        if (Uri.TryCreate(href, UriKind.Absolute, out var uri))
-        {
-            Add(location, "protocol", uri.Scheme + ":");
-            Add(location, "host", Scripting.Origin.HostOf(uri));
-            Add(location, "hostname", uri.Host);
-            Add(location, "port", uri.IsDefaultPort ? string.Empty : uri.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            Add(location, "pathname", uri.AbsolutePath);
-            Add(location, "search", uri.Query);
-            Add(location, "origin", Scripting.Origin.Of(uri));
-        }
-        else
-        {
-            Add(location, "search", string.Empty);
-        }
-
-        AddNavigationSurface(location, new DocumentUrl(href), null);
-        return location;
-    }
-
-    private static void AddNavigationSurface(JSObject location, DocumentUrl url, ILocationHost? host)
-    {
-        location.FastAddProperty(
-            "href",
-            new DomFunction((in _) => new JSString(url.Href), "get href"),
-            new DomFunction((in a) => EngineNavigate(url, host, "href", in a), "set href"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
-
-        location.FastAddProperty(
-            "hash",
-            new DomFunction((in _) => new JSString(url.Fragment), "get hash"),
-            new DomFunction((in a) => EngineSetHash(url, host, in a), "set hash"),
-            JSPropertyAttributes.EnumerableConfigurableProperty);
-
-        location.FastAddValue(
-            "assign",
-            new DomFunction((in a) => EngineNavigate(url, host, "assign", in a), "assign", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        location.FastAddValue(
-            "replace",
-            new DomFunction((in a) => EngineNavigate(url, host, "replace", in a), "replace", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        location.FastAddValue(
-            "reload",
-            new DomFunction((in _) =>
-            {
-                Request(host, NavigationKind.Reload, "location.reload()", url.Href);
-                return JSUndefined.Value;
-            }, "reload", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
-        location.FastAddValue(
-            "toString",
-            new DomFunction((in _) => new JSString(url.Href), "toString", 0),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-    }
-
-    private static JSValue EngineSetHash(DocumentUrl url, ILocationHost? host, in Arguments a)
-    {
-        var value = a.Length > 0 ? a[0].ToString() : string.Empty;
-        NavigateTo(url, host, "hash", value.StartsWith('#') ? value : "#" + value);
-        return JSUndefined.Value;
-    }
-
-    private static JSValue EngineNavigate(DocumentUrl url, ILocationHost? host, string method, in Arguments a)
-    {
-        NavigateTo(url, host, method, a.Length > 0 ? a[0].ToString() : string.Empty);
-        return JSUndefined.Value;
-    }
-
     private static void NavigateTo(DocumentUrl url, ILocationHost? host, string method, string requested)
     {
         var target = requested;
@@ -438,7 +348,4 @@ internal static class LocationBinding
     /// <summary>One URL component, enumerable and configurable as every Location component is.</summary>
     private static void Add(IJsRealm realm, JsValue location, string name, string value)
         => realm.DefineValue(location, name, JsValue.String(value));
-
-    private static void Add(JSObject location, string name, string value)
-        => location.FastAddValue(name, new JSString(value), JSPropertyAttributes.EnumerableConfigurableValue);
 }
