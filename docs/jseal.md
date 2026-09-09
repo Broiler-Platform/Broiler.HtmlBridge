@@ -58,8 +58,9 @@ it as the reason no page load runs on the VM.
               ┌─────────────────────────┴─────────────────────────┐
               │                                                   │
   ┌───────────▼──────────────┐                    ┌───────────────▼──────────────┐
-  │ …Jseal.BroilerJs         │                    │ …Jseal.<NextEngine>          │
-  │   over Broiler.JavaScript│                    │   (none yet — see below)     │
+  │ …Jseal.BroilerJs         │                    │ …Jseal.Vm                    │
+  │   over Broiler.JavaScript│                    │   over Broiler.VM's profile  │
+  │   the default engine     │                    │   -VM builds only, see below │
   └──────────────────────────┘                    └──────────────────────────────┘
 ```
 
@@ -325,11 +326,11 @@ reached a page.
 
 ## Broiler.VM: the second engine
 
-There is still no `Broiler.HtmlBridge.Jseal.Vm`. What has changed is why: **the reason used to be
-that no JSEAL of any shape could serve a page on that engine, and that is no longer true.** This
-section used to say so at length, and the argument it made was wrong in a specific and instructive
-way. It is worth keeping the shape of the mistake, because the same shape is available to anyone
-reasoning about a second engine from its contracts rather than from a probe.
+There is a `Broiler.HtmlBridge.Jseal.Vm`, and it declares `JsCapabilities.Document`. **This section
+twice said that was impossible, and was twice wrong in the same shape** — a true statement about one
+mechanism, read as a statement about every mechanism. Both are kept below rather than deleted,
+because the shape is available to anyone reasoning about a second engine from its contracts rather
+than from a probe, and the second one survived a whole section written to correct the first.
 
 **The argument that was wrong.** A DOM accessor returns an object; a Broiler.VM value capability
 answers a `long` or a `VmOpaqueRef`; an opaque reference is by construction not dereferenceable;
@@ -393,13 +394,30 @@ linked under the `-VM` configurations only, through the same conditional referen
 | `ExoticObjects` | yes | The profile's exotic object consults ordinary storage first, which is the order WebIDL requires |
 | `GlobalIsVariableScope` | yes | Measured, not assumed: a top-level `var` becomes an own property of the global |
 | `ReentrantHostCalls` | yes | A host method calling a guest listener is the interpreter's own call path and meets no lifecycle gate |
-| `Promises` | **no** | There is no seam for settling a promise from outside the guest. `NewPromise` throws `JsCapabilityUnavailableException` |
+| `Promises` | yes | The realm's own `Promise` is read off the global, an executor is minted with `NewMethod`, and `Construct` runs it — so the pair a host settles is the pair the language made |
 | `WorkerRealms` | **no** | One realm per instance, and no agent model to clone between. `IJsClone`'s members exist and refuse |
 | `Modules`, `DynamicImport` | **no** | JSEAL has no module-graph contract to implement against yet |
 
-**So `JsCapabilities.Document` is still not declarable, and the gap is one bit: `Promises`.** A host
-branching on `Document` correctly declines to load a page on this engine, and gets that answer
-without building a realm to find out.
+**So `JsCapabilities.Document` is declarable, and the bit that used to be missing was `Promises`.**
+
+**The argument that kept it missing is the second instructive mistake in this section.** `NewPromise`
+refused, and the reason it gave was that the only way to fake a settleable promise is to *evaluate* a
+snippet capturing the resolvers — so a page whose Content-Security-Policy forbids evaluation would be
+handed a `fetch` promise built out of the capability it had just refused. That objection is correct
+about the route it names. It is not correct about the engine, because evaluation is not the only way
+to reach a constructor: `GetProperty`, `NewMethod` and `Construct` are three ordinary crossings of
+the host surface and none of them compiles a character. The profile's own hosting roadmap said as
+much in the clause bounding what its promise stage would add — *"an embedder can already build one
+out of `Construct`"* — and this repository did not read it.
+
+`JsealConformanceTests.APromiseIsStillAvailableInARealmThatForbidsGuestEvaluation` is that claim
+turned into an assertion: a realm built with `AllowGuestEval: false` refuses the page's source and
+still hands back a promise that settles. It runs against both engines.
+
+**What declaring `Document` does and does not say.** It says a host may build a document-bearing page
+in a realm this provider made. It does not say the browser does — `IDomBridgeRuntime.Attach` still
+takes a `JSContext`, so the realm a page load adopts is still Broiler.JS's. That gap is the
+migration's and is the row below.
 
 ### What writing it found
 
@@ -426,10 +444,14 @@ The first five are the seam's; the last is the profile's lowering, and it is the
 reached a page.
 
 **The measurement that answers "is this working" has moved again, and this is now the honest one.**
-It was never "the bridge no longer names Broiler.JS" — that is relocation. It was "how many DOM
+It was never "the bridge no longer names Broiler.JS" — that is relocation. Then it was "how many DOM
 operations are expressible without a host→guest re-entry and without a host capability returning an
-object", and both of those constraints are gone. What it is now: **how much of a page loads on a
-realm that declares everything except `Promises`**, and what breaks first when it does not.
+object", and both of those constraints are gone. Then it was "how much of a page loads on a realm
+that declares everything except `Promises`", and that qualifier is gone too. What it is now:
+**`Attach` takes a `JSContext`, so no page has ever loaded on this provider's realm — the measurement
+is what happens the first time one does.** Until `Attach` takes an `IJsRealm`, every claim in this
+section is a claim about a conformance suite and not about a page, and the section says so rather
+than letting a reader infer a browser from a green test run.
 
 **The upstream ask that is left.** One row remains genuinely blocked, and it is not about the DOM:
 the VM's capability channel still cannot answer a guest with bytes, so a global the *guest* reaches

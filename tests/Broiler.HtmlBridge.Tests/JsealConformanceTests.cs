@@ -750,6 +750,92 @@ public class JsealConformanceTests
         Assert.Equal("caught:nope", Eval(realm, "failure", "test:catch-after"));
     }
 
+    /// <summary>
+    /// A promise does not depend on the capability a page's Content-Security-Policy takes away.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the case that decides whether a provider's promise is real or is a snippet.</b>
+    /// A page whose policy forbids evaluation is the page most likely to reach for <c>fetch</c>,
+    /// and a provider that built its promises by evaluating source would hand that page a promise
+    /// assembled out of the one thing it had just refused — or refuse the <c>fetch</c>, which is
+    /// worse, because the policy said nothing about network access.
+    /// </para>
+    /// <para>
+    /// The Broiler.VM provider's <c>NewPromise</c> refused for exactly this reason until the
+    /// argument was found to be about a route rather than about the engine. So the two claims are
+    /// asserted together here: guest source is still refused, and a promise is still made.
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// A page cannot make the host build its deferred results out of a constructor the page wrote.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>Promise</c> is a writable global, which is the language's rule and not an engine's
+    /// choice.</b> So <c>globalThis.Promise = MyThing</c> is a thing a page may legally do, and a
+    /// provider that read the global at the moment the bridge asked for a promise would hand that
+    /// page every <c>fetch</c> result, every <c>whenDefined</c> and every stream the bridge is
+    /// about to resolve — with the page's own code deciding what happens to each.
+    /// </para>
+    /// <para>
+    /// The fix is to capture the intrinsic before any page script runs, and this is the assertion
+    /// that the capture happened. It is a theory because it is a claim about every provider.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void APageThatReplacesPromiseDoesNotCaptureTheHostsPromises(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.Promises))
+            return;
+
+        // The page replaces the global, exactly as it is entitled to.
+        realm.EvaluateHostScript(
+            "var hijacked = false;" +
+            "globalThis.Promise = function (executor) { hijacked = true; this.then = function () {}; };",
+            "test:hijack");
+
+        var promise = realm.NewPromise(out var resolve, out _);
+        realm.DefineValue(realm.Global, "deferred", promise);
+        realm.EvaluateHostScript(
+            "var reached = 'none'; deferred.then(function (v) { reached = 'got:' + v; });",
+            "test:hijack-then");
+
+        resolve(JsValue.String("value"));
+        realm.DrainJobs();
+
+        Assert.Equal("false", Eval(realm, "String(hijacked)", "test:hijack-flag"));
+        Assert.Equal("got:value", Eval(realm, "reached", "test:hijack-after"));
+    }
+
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void APromiseIsStillAvailableInARealmThatForbidsGuestEvaluation(string engine)
+    {
+        using var realm = NewRealm(engine, new JsRealmOptions { AllowGuestEval = false });
+
+        if (Lacks(realm, JsCapabilities.Promises))
+            return;
+
+        Assert.False(realm.Capabilities.HasFlag(JsCapabilities.GuestEval));
+        Assert.Throws<JsCapabilityUnavailableException>(
+            () => realm.EvaluateGuestSource("1", "test:guest-refused"));
+
+        var promise = realm.NewPromise(out var resolve, out _);
+        realm.DefineValue(realm.Global, "restricted", promise);
+        realm.EvaluateHostScript(
+            "var got = 'none'; restricted.then(function (v) { got = 'got:' + v; });",
+            "test:restricted-then");
+
+        resolve(JsValue.String("value"));
+        realm.DrainJobs();
+
+        Assert.Equal("got:value", Eval(realm, "got", "test:restricted-after"));
+    }
+
     // ── source ─────────────────────────────────────────────────────────────────────────────────
 
     [Theory]

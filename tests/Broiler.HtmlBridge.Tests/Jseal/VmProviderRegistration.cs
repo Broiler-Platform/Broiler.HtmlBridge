@@ -24,10 +24,12 @@ namespace Broiler.Browser.Core.Tests;
 /// <para>
 /// <b>It names the hosting type rather than the provider, so the ordering lives in one place.</b>
 /// <c>VmJsealHosting</c> is what a browser build uses too, and it registers the VM provider second
-/// on purpose - the registry makes the first registration the process default, and the VM provider
-/// declares less than <c>Document</c>. Naming it here rather than the provider means the test build
-/// and the browser build agree about ordering because they run the same code, not because two
-/// places were written to match.
+/// on purpose - the registry makes the first registration the process default, and Broiler.JS is
+/// the reference engine rather than a better one. Naming it here rather than the provider means the
+/// test build and the browser build agree about ordering because they run the same code, not
+/// because two places were written to match. (This used to say the VM provider declares less than
+/// <c>Document</c>; it declares exactly <c>Document</c> now, and <c>VmJsealHosting</c> carries the
+/// reason the ordering survives that.)
 /// </para>
 /// </remarks>
 internal static class VmProviderRegistration

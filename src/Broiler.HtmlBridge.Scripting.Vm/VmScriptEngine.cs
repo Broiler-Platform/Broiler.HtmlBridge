@@ -24,15 +24,24 @@ namespace Broiler.HtmlBridge;
 /// is forwarded verbatim to the Broiler.JS engine passed to the constructor.
 /// </para>
 /// <para>
-/// <b>The delegation is a property of the VM's host boundary, not a shortcut taken here.</b> A
-/// host capability of the JavaScript profile is a call over opaque bytes —
-/// <c>VmHostBytesCapabilityHandler</c> takes a <c>VmBytes</c> and answers a <c>VmOpaqueRef</c> —
-/// and a DOM is not a byte string. Broiler.HtmlBridge.Dom projects the document by defining
-/// JavaScript objects whose accessors are CLR delegates over live nodes, across 250 files of
-/// <c>Broiler.JavaScript</c> types, and there is no surface on the profile through which that
-/// could be re-expressed today. <see cref="InteractiveSession"/> settles it independently: its
-/// constructor is internal and takes a <c>JSContext</c>, so an engine outside Broiler.JS cannot
-/// produce one at all.
+/// <b>The delegation is a property of THIS repository's DOM bridge, and this paragraph used to
+/// blame the VM for it.</b> What it said was that a host capability of the JavaScript profile is a
+/// call over opaque bytes, that a DOM is not a byte string, and that therefore no surface on the
+/// profile could carry one. Every clause of that is true and the conclusion does not follow: it
+/// assumes a host object has to travel through the capability channel, and it does not. The
+/// profile publishes an in-realm host surface, and <c>Broiler.HtmlBridge.Jseal.Vm</c> is a JSEAL
+/// provider over it that declares <c>JsCapabilities.Document</c> and passes the conformance suite
+/// in full. <c>docs/jseal.md</c> records the mistake, which this file made a third time.
+/// </para>
+/// <para>
+/// <b>What actually keeps the document-bearing overloads here is the bridge's own signature.</b>
+/// <c>IDomBridgeRuntime.Attach</c> takes a <c>JSContext</c>, and the hundred-odd
+/// <c>Broiler.JavaScript</c> references still left in <c>Broiler.HtmlBridge.Dom</c> mean its
+/// unmigrated bindings have nothing else to build on — so a page can only be attached to a realm of
+/// that engine, whatever a second engine is now able to express.
+/// <see cref="InteractiveSession"/> says the same thing in one line: its constructor is internal
+/// and takes a <c>JSContext</c>. When <c>Attach</c> takes an <c>IJsRealm</c>, these overloads stop
+/// being delegations; until then the delegation is the honest behaviour and not a shortcut.
 /// </para>
 /// <para>
 /// <b>So Broiler.JS is in the graph under the VM configurations too, and this class does not
@@ -298,16 +307,24 @@ public sealed class VmScriptEngine : IScriptEngine
     /// Names the delegation in the log once per call and hands back the engine that will serve it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// It logs at debug rather than warning: this is the designed behaviour of the configuration
     /// and not a fault, but a reader looking at a <c>Debug-VM</c> session and wondering which
     /// engine rendered the page is entitled to find the answer in the log rather than in this file.
+    /// </para>
+    /// <para>
+    /// <b>The message used to say the profile cannot host a document, and that is no longer the
+    /// reason.</b> It is the sentence a reader of a <c>-VM</c> session log would have taken away,
+    /// so it names the bridge's signature now — which is what actually decides this — rather than
+    /// a limit of the engine it is not serving.
+    /// </para>
     /// </remarks>
     private IScriptEngine Delegated(string member)
     {
         RenderLogger.LogDebug(
             LogCategory.JavaScript,
             LogContext,
-            $"{member} needs a document, which the Broiler.VM JavaScript profile cannot host; " +
+            $"{member} needs a document, and DomBridge.Attach takes a Broiler.JS context; " +
             "serving it from the Broiler.JS engine.");
 
         return _documentEngine;
