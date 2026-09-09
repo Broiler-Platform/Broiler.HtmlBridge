@@ -12,14 +12,22 @@ namespace Broiler.HtmlBridge.Jseal.Vm;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>What it declares is narrower than <see cref="JsCapabilities.Document"/>, and the gap is
-/// stated rather than papered over.</b> The profile's host surface can mint objects, install
-/// members and accessors, call back into the guest synchronously, and complete a lookup for an
-/// object whose members are not a fixed list - which is most of what binding a document needs. What
-/// it has no seam for is a promise a host can settle from outside the guest, and
-/// <see cref="JsCapabilities.Promises"/> is one of the five bits <c>Document</c> is made of. So a
-/// host branching on <c>Document</c> correctly declines to load a page on this engine today, and
-/// gets an honest answer rather than a page that half works.
+/// <b>What it declares now covers <see cref="JsCapabilities.Document"/>, and the last bit to
+/// arrive was <see cref="JsCapabilities.Promises"/>.</b> The profile's host surface can mint
+/// objects, install members and accessors, call back into the guest synchronously, and complete a
+/// lookup for an object whose members are not a fixed list - which is most of what binding a
+/// document needs. The fifth bit was believed to need a seam the profile does not have, and did
+/// not: a promise a host settles is built out of the realm's own <c>Promise</c> through
+/// <c>Construct</c>, which is three ordinary crossings and no evaluation. See
+/// <c>VmRealm.Jobs.cs</c>, which records the argument it replaced.
+/// </para>
+/// <para>
+/// <b>Declaring <c>Document</c> is a claim about this realm and not about the browser.</b> It says
+/// a host may build a document-bearing page in a realm this provider made; it does not say the
+/// bridge does so, and today it does not - <c>IDomBridgeRuntime.Attach</c> takes a Broiler.JS
+/// context, so the page a browser loads still adopts a realm of the other engine. The gap between
+/// those two sentences is the migration's, not this provider's, and <c>docs/jseal.md</c> is where
+/// it is tracked.
 /// </para>
 /// <para>
 /// <b>Every realm is its own runtime, artifact and instance, and that is the profile's shape rather
@@ -52,15 +60,27 @@ public sealed class VmEngineProvider : IJsEngineProvider
     /// rather than assumed.
     /// </para>
     /// <para>
-    /// <see cref="JsCapabilities.Promises"/>, <see cref="JsCapabilities.WorkerRealms"/>,
-    /// <see cref="JsCapabilities.Modules"/> and <see cref="JsCapabilities.DynamicImport"/> are
-    /// absent, and each absence is a member of this provider that refuses rather than a member that
-    /// misbehaves.
+    /// <see cref="JsCapabilities.Promises"/> is declarable because the realm's own <c>Promise</c>
+    /// constructor is reachable through the host surface and its executor runs synchronously, so
+    /// the resolving pair a host settles from outside the guest is the pair the language made.
+    /// </para>
+    /// <para>
+    /// <see cref="JsCapabilities.WorkerRealms"/>, <see cref="JsCapabilities.Modules"/> and
+    /// <see cref="JsCapabilities.DynamicImport"/> are absent, and each absence is a member of this
+    /// provider that refuses rather than a member that misbehaves. The first waits on a second realm
+    /// and a structured clone the profile does not have; the other two wait on a module-graph
+    /// contract JSEAL has not designed, which is a gap on the contract's side rather than this one's.
+    /// </para>
+    /// <para>
+    /// <b>The five that remain are exactly <see cref="JsCapabilities.Document"/>.</b> That is worth
+    /// stating as an identity rather than leaving a reader to add the flags up, because it is the
+    /// line a host branches on before it decides whether to load a page here.
     /// </para>
     /// </remarks>
     public JsCapabilities Capabilities =>
         JsCapabilities.HostScriptSource |
         JsCapabilities.GuestEval |
+        JsCapabilities.Promises |
         JsCapabilities.ExoticObjects |
         JsCapabilities.GlobalIsVariableScope |
         JsCapabilities.ReentrantHostCalls;

@@ -26,9 +26,16 @@ namespace Broiler.HtmlBridge;
 /// registration the process default and Broiler.JS registers from its own module initializer when
 /// <c>Broiler.HtmlBridge.Scripting</c> loads - which this assembly references, so that has already
 /// happened. Naming <see cref="JsEngineHosting.EnsureRegistered"/> here makes the ordering something
-/// this file states rather than something it inherits. The VM provider declares less than
-/// <c>Document</c>, so it must not become the default by accident; a host that wants it says so with
-/// <c>BROILER_JS_ENGINE=broiler-vm</c>.
+/// this file states rather than something it inherits.
+/// </para>
+/// <para>
+/// <b>The reason it must not become the default is no longer that it declares less than
+/// <c>Document</c>, because it no longer does.</b> The reason is that Broiler.JS is the reference
+/// engine: it is what every other configuration builds, what the bridge's unmigrated bindings are
+/// written against, and the only engine a page has ever loaded on. Selecting a second engine is a
+/// decision a host makes deliberately with <c>BROILER_JS_ENGINE=broiler-vm</c>, and a registration
+/// order is the wrong place to make it. Stated because the old reason has expired and a later
+/// reader finding an unexplained ordering line will be tempted to tidy it away.
 /// </para>
 /// </remarks>
 public static class VmJsealHosting
