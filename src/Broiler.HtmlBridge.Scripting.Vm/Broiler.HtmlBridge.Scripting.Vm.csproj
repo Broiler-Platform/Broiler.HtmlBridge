@@ -52,4 +52,15 @@
     <ProjectReference Include="..\Broiler.HtmlBridge.Scripting\Broiler.HtmlBridge.Scripting.csproj" />
   </ItemGroup>
 
+  <!--
+    THE JSEAL PROVIDER, so that a build carrying this assembly can also SELECT the VM engine rather
+    than only run the document-free entry points through it. The two are different integrations of
+    the same profile and both belong under the same configurations: this one implements IScriptEngine
+    and serves what a page load does not need a document for; the provider implements IJsRealm and is
+    what a realm is built from when BROILER_JS_ENGINE names it.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal.Vm\Broiler.HtmlBridge.Jseal.Vm.csproj" />
+  </ItemGroup>
+
 </Project>

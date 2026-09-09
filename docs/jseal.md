@@ -323,7 +323,7 @@ the thread's synchronization context, stranding the host's promise reactions —
 contract's own remarks during the worker migration. All four are fixed, and all four would have
 reached a page.
 
-## Broiler.VM: what changed, and what a provider would now cost
+## Broiler.VM: the second engine
 
 There is still no `Broiler.HtmlBridge.Jseal.Vm`. What has changed is why: **the reason used to be
 that no JSEAL of any shape could serve a page on that engine, and that is no longer true.** This
@@ -376,32 +376,62 @@ the operation still ends the way the core was told it would. **A provider that w
 `catch (Exception)`, which is ordinary defensive style, cannot turn a spent allowance into a
 completed page load.**
 
-### What a provider would cost, contract by contract
+### The provider
 
-| Contract | State on Broiler.VM |
-|---|---|
-| `IJsValues` | `NewObject`, `NewArray`, `NewMethod`, `NewConstructor`, `NewExotic`, `ToJsString` and `ToNumber` all have counterparts. The method/constructor split is the same boolean the Broiler.JS provider uses, so `el.setAttribute.prototype` is `undefined` for the same reason |
-| `IJsMembers` | `DefineValue`, `DefineAccessor`, `GetProperty`, `SetProperty`, `HasProperty` and `OwnPropertyNames` exist. `DefineIndex`, `GetIndex`, `DeleteProperty`, `SetPrototype` and `GetPrototype` do not yet, and are that roadmap's next stage |
-| `IJsCalls` | `Invoke` and `Construct` exist and route through the interpreter's call path, so the call-depth ceiling is charged. `Error` exists; `DomError` needs a `DOMException` constructor installed in the realm, which is the provider's own work |
-| `IJsJobs` | **Nothing.** The engine has a job queue and host-drivable drain and step entry points, but nothing on the seam reaches them |
-| `IJsSource` | Host script and guest source are not yet distinguishable there: the request payload is the source text and nothing else, so a provider cannot tell the engine that this evaluation is the bridge's own and not the page's |
-| `IJsClone` | **Nothing**, and no second realm to clone between |
-| `IJsExotic` | A host-completed lookup exists, consulted only after the object's own storage — the order this document's own remarks require |
+`src/Broiler.HtmlBridge.Jseal.Vm` exists and **passes the conformance suite in full**. It registers
+as `broiler-vm`, and a build that links it selects it with `BROILER_JS_ENGINE=broiler-vm`. It is
+linked under the `-VM` configurations only, through the same conditional reference
+`Broiler.HtmlBridge.Scripting.Vm` already carries — so the default build has one engine and the
+`-VM` build has two, which is what the suite's own totals show.
 
-`JsCapabilities.Document` needs `HostScriptSource | Promises | ExoticObjects | GlobalIsVariableScope
-| ReentrantHostCalls`. **`ReentrantHostCalls` and `ExoticObjects` are now honestly declarable**, and
-`GlobalIsVariableScope` holds because that engine's top-level `var` lands on the global object.
-`Promises` and `HostScriptSource` do not have a seam yet, so `Document` is not declarable and a
-provider written today would say so rather than claim it.
+**What it declares, and what it does not.**
 
-**The measurement that answers "is this working" has not changed, and it has moved.** It was never
-"the bridge no longer names Broiler.JS" — that is relocation, and any of these designs achieves it.
-It was how many DOM operations are expressible without a host→guest re-entry and without a host
-capability returning an object. Both of those constraints are gone, so the honest replacement is
-narrower and harder: **how much of a page loads on a realm whose provider declares less than
-`Document`**, and what the first missing capability turns out to be when it does not.
+| Flag | Declared | Why |
+|---|---|---|
+| `HostScriptSource` | yes | Through the realm's own indirect `eval`, which is the only thing that evaluates *into* an existing realm rather than making a second one |
+| `GuestEval` | yes, unless the realm was built without it | A realm built with `AllowGuestEval: false` keeps host script and refuses the page's, which the provider enforces by marking its own evaluations |
+| `ExoticObjects` | yes | The profile's exotic object consults ordinary storage first, which is the order WebIDL requires |
+| `GlobalIsVariableScope` | yes | Measured, not assumed: a top-level `var` becomes an own property of the global |
+| `ReentrantHostCalls` | yes | A host method calling a guest listener is the interpreter's own call path and meets no lifecycle gate |
+| `Promises` | **no** | There is no seam for settling a promise from outside the guest. `NewPromise` throws `JsCapabilityUnavailableException` |
+| `WorkerRealms` | **no** | One realm per instance, and no agent model to clone between. `IJsClone`'s members exist and refuse |
+| `Modules`, `DynamicImport` | **no** | JSEAL has no module-graph contract to implement against yet |
 
-**The upstream ask that is left.** One row remains genuinely blocked upstream, and it is not about
-the DOM: the VM's capability channel still cannot answer a guest with bytes, so a global the *guest*
-reaches without an embedder — a shell-shaped `read` — can exist and refuse and nothing more. That
-row is filed in that profile's amendment register and is unaffected by anything here.
+**So `JsCapabilities.Document` is still not declarable, and the gap is one bit: `Promises`.** A host
+branching on `Document` correctly declines to load a page on this engine, and gets that answer
+without building a realm to find out.
+
+### What writing it found
+
+Six defects, each caught by a contract the provider had to satisfy rather than by review.
+
+- **The step-jobs path did not open the host window.** A drain worked and a step did not, so a
+  promise reaction reaching a host method was refused — and the refusal named the realm rather than
+  the path that had failed to open it.
+- **A turn took no artifact-load mediator**, so an embedder's own script met "this composition
+  registered no artifact provider" in a composition that had registered one.
+- **A host constructor was handed no receiver.** The profile's built-in constructors make and return
+  their own object; an embedder describing an interface expects the language's behaviour, which is
+  an object created from `new.target.prototype` and passed as `this`.
+- **A member the realm installed reached the exotic handler as an assignment**, which made an
+  embedder unable to install a member whose name its own handler claimed — an `item()` method on a
+  collection containing something called `item` is the ordinary case, not a corner.
+- **Property attributes did not travel**, so a non-enumerable member was enumerable.
+- **Top-level declarations reached the global in the wrong order.** `GlobalDeclarationInstantiation`
+  creates every function binding before every var binding, and the lowering emitted vars first — so
+  a host recovering a frame's declarations by diffing the global's own names read them in an order
+  no other engine produces.
+
+The first five are the seam's; the last is the profile's lowering, and it is the one that would have
+reached a page.
+
+**The measurement that answers "is this working" has moved again, and this is now the honest one.**
+It was never "the bridge no longer names Broiler.JS" — that is relocation. It was "how many DOM
+operations are expressible without a host→guest re-entry and without a host capability returning an
+object", and both of those constraints are gone. What it is now: **how much of a page loads on a
+realm that declares everything except `Promises`**, and what breaks first when it does not.
+
+**The upstream ask that is left.** One row remains genuinely blocked, and it is not about the DOM:
+the VM's capability channel still cannot answer a guest with bytes, so a global the *guest* reaches
+without an embedder — a shell-shaped `read` — can exist and refuse and nothing more. That row is
+filed in that profile's amendment register and is unaffected by anything here.

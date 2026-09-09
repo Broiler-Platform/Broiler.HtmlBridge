@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Broiler.HtmlBridge.Jseal.Vm</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>A JSEAL provider backed by the Broiler.VM JavaScript profile's in-realm host surface.</Description>
+  </PropertyGroup>
+
+  <!--
+    THE CONTRACT AND THE ENGINE, AND NOTHING BETWEEN THEM.
+
+    A provider is the one kind of assembly that is allowed to name both, and it is the only kind:
+    Broiler.HtmlBridge.Jseal has no references at all by design, and the DOM bindings reach an
+    engine only through it. So this project's reference set is the whole of the coupling, and
+    eng/jseal-budget.json records it as a provider's rather than as a leak.
+
+    The five Broiler.VM projects are the same five Broiler.HtmlBridge.Scripting.Vm takes, for the
+    same reasons: Abstractions and Binary are the profile-neutral contracts, Runtime is the
+    lifecycle, Profile.JavaScript is the profile and the host surface this binds to, and
+    Profile.JavaScript.Compiler is what turns a source text into an artifact - which a realm needs
+    because IJsSource is a contract about evaluating source and a browser is handed source.
+
+    Deliberately absent: Broiler.HtmlBridge.Core and Broiler.HtmlBridge.Dom. A provider implements
+    contracts; it does not know what a document is.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Abstractions\Broiler.VM.Abstractions.csproj" />
+    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Binary\Broiler.VM.Binary.csproj" />
+    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Runtime\Broiler.VM.Runtime.csproj" />
+    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Profile.JavaScript\Broiler.VM.Profile.JavaScript.csproj" />
+    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Profile.JavaScript.Compiler\Broiler.VM.Profile.JavaScript.Compiler.csproj" />
+  </ItemGroup>
+
+</Project>
