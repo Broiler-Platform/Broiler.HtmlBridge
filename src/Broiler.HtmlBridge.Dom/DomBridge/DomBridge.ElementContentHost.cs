@@ -1,6 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.BuiltIns.String;
 
 namespace Broiler.HtmlBridge;
 
@@ -8,11 +7,10 @@ namespace Broiler.HtmlBridge;
 // innerHTML/outerHTML/textContent members route through the bridge's shared HTML parser/serializer and
 // canonical tree mutation, so each forwards to the existing private serialize/set helpers.
 //
-// This file is the engine-typed half of the seam and one member is still on it. The bridge's own
-// GetNodeTextValue (DomBridge/JsFunctionCallbacks/Common.cs) answers an engine string or engine null, and
-// it is shared with the wrappers that have not migrated; the contract asks for the two answers rather
-// than for the engine's rendering of them, so this is where the one is read as the other. It stops
-// naming an engine type when that helper does.
+// This file used to be the engine-typed half of the seam, for one member. It asked the bridge's
+// GetNodeTextValue for an engine string or engine null and unpicked it again into the string-or-null
+// the contract wants — which was NodeTextOrNull spelled the long way round through two allocations,
+// as that adapter's own remarks said. The adapter is gone and this asks NodeTextOrNull directly.
 public sealed partial class DomBridge : Dom.Features.IElementContentHost
 {
     IJsRealm Dom.Features.IElementContentHost.Realm => Realm;
@@ -22,12 +20,9 @@ public sealed partial class DomBridge : Dom.Features.IElementContentHost
     void Dom.Features.IElementContentHost.SetElementInnerHtml(DomElement element, string html) => SetElementInnerHtml(element, html);
     void Dom.Features.IElementContentHost.SetElementOuterHtml(DomElement element, string html) => SetElementOuterHtml(element, html);
 
-    // A JSString is the "this text" answer and anything else — which is only ever the engine's null,
-    // for a document or a doctype — is the "no text at all" one. ToString() on a JSString is the
-    // string it holds and enters nothing, so the trap that makes the coercion an engine operation
-    // elsewhere does not apply.
-    string? Dom.Features.IElementContentHost.NodeTextValue(DomNode node) =>
-        GetNodeTextValue(node) is JSString text ? text.ToString() : null;
+    // The two answers the contract asks for, which is what NodeTextOrNull has always returned: the
+    // text, or null for a node that has none — a document or a doctype.
+    string? Dom.Features.IElementContentHost.NodeTextValue(DomNode node) => NodeTextOrNull(node);
 
     void Dom.Features.IElementContentHost.SetElementTextContent(DomElement element, string? value) => SetElementTextContent(element, value);
 }

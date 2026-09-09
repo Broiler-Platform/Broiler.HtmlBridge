@@ -1,11 +1,6 @@
 using System.Text;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-// The three engine namespaces are for GetNodeTextValue alone — the one adapter left in this file, and
-// pinned by a caller outside it; see its remarks.
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -49,29 +44,6 @@ public sealed partial class DomBridge
         // children handled above — Phase 4 item 3 removed the parallel InnerHtml fallback).
         return string.Empty;
     }
-
-    /// <summary>
-    /// <see cref="NodeTextOrNull"/> as the engine value the unmigrated wrappers install.
-    /// </summary>
-    /// <remarks>
-    /// <b>This is the adapter, and it names the engine because a primitive cannot cross the seam.</b>
-    /// <c>JsInterop</c> carries an object across without converting it — the handle holds the engine's
-    /// own object — and a string or a <c>null</c> is not an object, so the two arms are spelled out.
-    /// <para>
-    /// <b>One site outside this file still takes the engine value, and it does not want one.</b>
-    /// <c>DomBridge.ElementContentHost.cs</c> asks for it and immediately unpicks it again —
-    /// <c>GetNodeTextValue(node) is JSString text ? text.ToString() : null</c> — which is
-    /// <see cref="NodeTextOrNull"/> spelled the long way round through two allocations. That file is
-    /// another group's, so the round trip stays and this adapter with it; the three sites that used to
-    /// join it (<c>DomBridge/ElementInterfaces.cs</c>'s <c>text</c>,
-    /// <c>DomBridge/CharacterDataInterface.cs</c>'s <c>Node.prototype.textContent</c>, and
-    /// <c>DomBridge/JsObjects.NonElementNodes.cs</c>) all read the CLR answer above and let
-    /// <see cref="JsValue.String(string?)"/> make the same distinction.
-    /// </para>
-    /// </remarks>
-    private JSValue GetNodeTextValue(DomNode node) =>
-        NodeTextOrNull(node) is { } text ? new JSString(text) : JSNull.Value;
-
 
     private bool IsCurrentIframeCrossOrigin(DomElement element)
     {
