@@ -29,7 +29,7 @@ public sealed partial class DomBridge : Dom.Features.IDocumentCollectionHost
     int Dom.Features.IDocumentCollectionHost.CurrentScriptIndex => CurrentScriptIndex;
 
     JsValue Dom.Features.IDocumentCollectionHost.BuildStyleSheetObject(DomElement styleElement)
-        => JsInterop.FromEngineObject(BuildStyleSheetObject(styleElement));
+        => BuildStyleSheet(styleElement);
 
     bool Dom.Features.IDocumentCollectionHost.HasAssociatedStyleSheet(DomElement element)
         => HasAssociatedStyleSheet(element);

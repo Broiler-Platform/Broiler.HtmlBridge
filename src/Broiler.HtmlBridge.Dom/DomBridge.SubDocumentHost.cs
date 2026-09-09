@@ -139,7 +139,7 @@ public sealed partial class DomBridge : ISubDocumentHost
         HitTestDocumentPoint(docRoot, x, y);
 
     JsValue ISubDocumentHost.BuildStyleSheetObject(DomElement styleElement) =>
-        Dom.Runtime.JsInterop.FromEngineObject(BuildStyleSheetObject(styleElement));
+        BuildStyleSheet(styleElement);
 
     bool ISubDocumentHost.HasAssociatedStyleSheet(DomElement element) => HasAssociatedStyleSheet(element);
 
