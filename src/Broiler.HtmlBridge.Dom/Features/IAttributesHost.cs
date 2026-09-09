@@ -22,18 +22,16 @@ internal interface IAttributesHost
     /// </summary>
     IJsRealm Realm { get; }
 
-    /// <summary>
-    /// The bridge's JS context, and the contract's one remaining engine reference.
-    /// </summary>
-    /// <remarks>
-    /// One consumer keeps it: the <c>InvalidCharacterError</c> an invalid <c>setAttribute</c>,
-    /// <c>setAttributeNS</c> or <c>toggleAttribute</c> name must throw (DOM §4.9.1). The bridge's name
-    /// validators — <c>DomBridge/Utilities.NameValidation.cs</c>, which this group does not own — mint
-    /// that <c>DOMException</c> from a context rather than from a realm, so a caller has to hold one.
-    /// It goes when they take an <see cref="IJsRealm"/> and reach <see cref="IJsCalls.DomError"/>
-    /// instead. The <see cref="DomCollectionBinding"/> half that also needed it has migrated.
-    /// </remarks>
-    Broiler.JavaScript.Engine.JSContext? JsContext { get; }
+    // THE JSCONTEXT MEMBER IS GONE, AND ITS OWN DOC COMMENT SAID WHEN IT WOULD BE.
+    //
+    // It read: "One consumer keeps it: the InvalidCharacterError an invalid setAttribute,
+    // setAttributeNS or toggleAttribute name must throw (DOM 4.9.1). The bridge's name validators
+    // -- DomBridge/Utilities.NameValidation.cs, which this group does not own -- mint that
+    // DOMException from a context rather than from a realm, so a caller has to hold one. It goes
+    // when they take an IJsRealm and reach IJsCalls.DomError instead."
+    //
+    // They do, so it went. This contract now has no engine reference of any kind, which is the
+    // state the note was written to be able to describe rather than to defer.
 
     /// <summary>Applies a <c>style</c> attribute value to the element's inline style declaration
     /// (clearing and reparsing it) and invalidates the element's style scope.</summary>

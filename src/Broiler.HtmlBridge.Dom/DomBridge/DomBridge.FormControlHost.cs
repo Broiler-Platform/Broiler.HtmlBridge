@@ -28,8 +28,12 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
         if (_fileLists.TryGetValue(element, out var existing))
             return existing;
 
-        var files = JsInterop.FromEngineObject(
-            (Broiler.JavaScript.Runtime.JSObject)Dom.Features.DomCollectionBinding.FileList(_jsContext, static () => []));
+        // The realm overload, which answers a JsValue rather than an engine object needing a cast.
+        // DomCollectionBinding's header named this call as the one keeping FileList(JSContext, ...)
+        // alive; it is migrated, so a file input no longer asks the bridge for a script context and
+        // no longer throws "asked for before the bridge was attached" when there is a realm but no
+        // context to hand it.
+        var files = Dom.Features.DomCollectionBinding.FileList(Realm, static () => []);
         _fileLists[element] = files;
         return files;
     }

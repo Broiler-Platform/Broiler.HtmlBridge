@@ -54,7 +54,7 @@ public sealed partial class DomBridge
     /// </summary>
     private void FireSubDocumentOnload(DomElement element)
     {
-        if (_jsContext == null) return;
+        if (_realm is null) return;
         if (_browsingContexts.HasOnloadFired(element)) return;
 
         var tag = element.TagName?.ToLowerInvariant();
@@ -341,7 +341,7 @@ public sealed partial class DomBridge
 
     private void ExecuteSubDocumentScripts(DomElement containerElement, string html)
     {
-        if (_jsContext == null || string.IsNullOrWhiteSpace(html))
+        if (_realm is null || string.IsNullOrWhiteSpace(html))
             return;
 
         // The scripts below are the page's own source, not this repository's, so they stay on the

@@ -100,13 +100,13 @@ public sealed partial class DomBridge : ISubDocumentHost
     DomDocument ISubDocumentHost.CreateBrowsingContextDocument() => CreateBrowsingContextDocument();
     DomDocumentType? ISubDocumentHost.ParseDocType(string html) => ParseDocType(html);
 
-    // The three validations raise their DOMException against the script context, which is what the
-    // module used to be handed so that it could pass it straight back here. The selector check is the
-    // one that tolerates a null context — it is a no-op before attach, as it always has been.
-    void ISubDocumentHost.ValidateElementName(string name) => ValidateElementName(name, _jsContext!);
+    // The three validations raise their DOMException against the realm, through IJsCalls.DomError.
+    // They took a script context until the validators did. The selector check is the one that
+    // tolerates having no realm — it is a no-op before attach, as it always has been.
+    void ISubDocumentHost.ValidateElementName(string name) => ValidateElementName(name, Realm);
 
     void ISubDocumentHost.ValidateQualifiedName(string qualifiedName, string? ns) =>
-        ValidateQualifiedName(qualifiedName, ns, _jsContext!);
+        ValidateQualifiedName(qualifiedName, ns, Realm);
 
     void ISubDocumentHost.ValidateSelector(string selector) => ValidateSelector(selector);
 

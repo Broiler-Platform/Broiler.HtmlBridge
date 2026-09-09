@@ -26,14 +26,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// contract is <see cref="JsNativeFunction"/> since its own migration.
 /// </para>
 /// <para>
-/// <b>Two engine references remain and neither is this module's to remove.</b>
+/// <b>One engine reference remains and it is not this module's to remove.</b>
 /// <see cref="BuildStandaloneAttrNode"/> answers an engine object because
 /// <c>DomBridge/DomBridge.DocumentFactoryHost.cs</c>, which reaches it for
-/// <c>document.createAttribute</c>, still holds one; and the <c>InvalidCharacterError</c> that
-/// <c>setAttribute</c> and <c>toggleAttribute</c> must throw is minted by the bridge's name validator,
-/// which takes a script context (<see cref="IAttributesHost.JsContext"/>). Both convert with
+/// <c>document.createAttribute</c>, still holds one. It converts with
 /// <see cref="Runtime.JsInterop"/> or not at all: it carries an object across without converting it —
 /// the handle holds the engine's own object — and cannot carry a primitive.
+/// <para>
+/// The second used to be the <c>InvalidCharacterError</c> that <c>setAttribute</c> and
+/// <c>toggleAttribute</c> must throw, which the bridge's name validator minted from a script context
+/// this contract had to carry. The validator takes a realm now, so the contract member is gone and
+/// the three call sites use <c>call.Realm</c> — the realm the call arrived through.
+/// </para>
 /// </para>
 /// </remarks>
 internal sealed class AttributesBinding(IAttributesHost host)
@@ -578,7 +582,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length >= 2)
         {
             var name = call.Realm.ToJsString(call[0]);
-            DomBridge.ValidateAttributeName(name, _host.JsContext);
+            DomBridge.ValidateAttributeName(name, call.Realm);
             SetAttributeLikeSetAttribute(element, name, call.Realm.ToJsString(call[1]));
         }
 
@@ -632,7 +636,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length == 0)
             return JsValue.False;
         var attrName = call.Realm.ToJsString(call[0]);
-        DomBridge.ValidateAttributeName(attrName, _host.JsContext);
+        DomBridge.ValidateAttributeName(attrName, call.Realm);
         var hasAttribute = DomBridge.HasAttr(element, attrName);
         var forceSpecified = call.Length > 1 && !call[1].IsUndefined;
         var shouldHaveAttribute = forceSpecified ? call[1].AsBoolean : !hasAttribute;
@@ -737,8 +741,11 @@ internal sealed class AttributesBinding(IAttributesHost host)
             var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
             var qName = call.Realm.ToJsString(call[1]);
             var val = call.Realm.ToJsString(call[2]);
-            if (_host.JsContext is { } context)
-                DomBridge.ValidateQualifiedName(qName, ns, context);
+            // The realm of the call rather than the host's, and the null check that used to
+            // guard this went with it: a JsCall exists only because guest code is running, so the
+            // realm it carries cannot be absent. What the old guard tolerated was a null script
+            // CONTEXT on an unattached bridge, which this path could never reach.
+            DomBridge.ValidateQualifiedName(qName, ns, call.Realm);
             var localName = qName.Contains(':') ? qName[(qName.IndexOf(':') + 1)..] : qName;
             SetAttributeLikeSetAttributeNS(element, ns, qName, localName, val);
         }
