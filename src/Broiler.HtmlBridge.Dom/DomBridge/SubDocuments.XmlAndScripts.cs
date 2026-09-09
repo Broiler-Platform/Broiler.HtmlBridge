@@ -114,7 +114,7 @@ public sealed partial class DomBridge
     /// </summary>
     private void ExecuteSubDocumentScripts(DomElement docRoot)
     {
-        if (_jsContext == null) return;
+        if (_realm is null) return;
 
         var scripts = new List<string>();
         CollectScriptContent(docRoot, scripts);

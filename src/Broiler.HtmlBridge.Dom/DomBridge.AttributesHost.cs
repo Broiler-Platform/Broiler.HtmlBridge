@@ -16,10 +16,6 @@ public sealed partial class DomBridge : IAttributesHost
 {
     IJsRealm IAttributesHost.Realm => Realm;
 
-    // The seam's last engine reference, and it is the name validators' rather than the module's: they
-    // mint the InvalidCharacterError DOMException from a script context. See IAttributesHost.JsContext.
-    Broiler.JavaScript.Engine.JSContext? IAttributesHost.JsContext => _jsContext;
-
     void IAttributesHost.ApplyStyleAttribute(DomElement element, string value)
     {
         InlineStyle(element).Clear();

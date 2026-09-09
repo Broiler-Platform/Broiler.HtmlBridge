@@ -98,13 +98,13 @@ internal sealed partial class TraversalBinding
     /// Registers the two interface globals and installs every member on their prototypes. Runs once
     /// per context, with the other DOM interface constructors.
     /// </summary>
-    /// <param name="context">
-    /// The engine context the unmigrated caller (<c>DomBridge/Registration/Polyfills.cs</c>) still
-    /// holds. Nothing here reads it: this module reaches the same realm through
-    /// <see cref="ITraversalHost.Realm"/>. The parameter stays only so that call site needs no edit
-    /// while it is another group's file, and goes when it is migrated.
-    /// </param>
-    internal void RegisterRangeInterface(Broiler.JavaScript.Engine.JSContext context)
+    /// <remarks>
+    /// <b>It took an engine context until its one caller was migrated, and never read it.</b> The
+    /// parameter's own doc comment said it stayed only so that call site needed no edit while it
+    /// was another group's file, and that it would go when that file moved. It has, so it did —
+    /// this module reaches the realm through <see cref="ITraversalHost.Realm"/> and always did.
+    /// </remarks>
+    internal void RegisterRangeInterface()
     {
         var realm = _host.Realm;
 

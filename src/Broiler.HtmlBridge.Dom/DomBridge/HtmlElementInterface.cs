@@ -235,10 +235,11 @@ public sealed partial class DomBridge
         if (_datasets.TryGetValue(element, out var cached))
             return cached.Value;
 
-        // The context guard is unchanged in effect — the realm and the context are adopted together
-        // and cleared together — and a realm with no Proxy still answers undefined rather than a map
-        // that would silently drop writes.
-        if (_jsContext is null ||
+        // The guard asks the realm now, which is what it always meant: the realm and the context
+        // are adopted together and cleared together, so this is the same question in the vocabulary
+        // that survives. A realm with no Proxy still answers undefined rather than a map that would
+        // silently drop writes.
+        if (_realm is null ||
             Dom.Features.DatasetBinding.Build(Realm, element, InvalidateStyleScope) is not { IsObject: true } dataset)
         {
             return JsValue.Undefined;

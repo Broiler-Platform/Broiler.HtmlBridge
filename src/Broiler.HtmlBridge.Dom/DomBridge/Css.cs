@@ -745,7 +745,7 @@ public sealed partial class DomBridge
     /// </summary>
     private void FireStylesheetLinkLoad(DomElement element)
     {
-        if (_jsContext == null || !IsExternalStylesheet(element))
+        if (_realm is null || !IsExternalStylesheet(element))
             return;
         if (!ReferenceEquals(GetTreeRoot(element), _document))
             return;

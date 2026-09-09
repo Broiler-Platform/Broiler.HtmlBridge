@@ -71,8 +71,8 @@ public sealed partial class DomBridge : Dom.Features.IDocumentFactoryHost
     // Both validations raise their DOMException against the script context, which is what the module
     // used to be handed so that it could pass it back here.
     void Dom.Features.IDocumentFactoryHost.ValidateElementName(string name)
-        => ValidateElementName(name, _jsContext!);
+        => ValidateElementName(name, Realm);
 
     void Dom.Features.IDocumentFactoryHost.ValidateQualifiedName(string qualifiedName, string? ns)
-        => ValidateQualifiedName(qualifiedName, ns, _jsContext!);
+        => ValidateQualifiedName(qualifiedName, ns, Realm);
 }

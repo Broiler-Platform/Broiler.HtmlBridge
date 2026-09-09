@@ -34,13 +34,6 @@ public sealed partial class DomBridge
     {
         var realm = Realm;
 
-        // The script context is still read below, and by exactly one line: the Range interface
-        // registration in Features/TraversalBinding.cs takes one and is not this group's to change.
-        // Everything else on this pass is handed `realm` — which matters beyond tidiness, because a
-        // module handed the context adopted it into a realm of its own, and a second realm over one
-        // context carries a second job queue that nothing drains.
-        var context = _jsContext!;
-
         // window.crypto — the getRandomValues/randomUUID subset (Phase 3: co-located CryptoBinding module)
         var cryptoObj = Dom.Features.CryptoBinding.Build(realm);
         realm.DefineValue(window, "crypto", cryptoObj);
@@ -87,7 +80,7 @@ public sealed partial class DomBridge
         // AbstractRange/Range — the one DOM interface here whose members really live on its
         // prototype, so it has to be registered before the first document.createRange() can link a
         // range to it.
-        _traversal.RegisterRangeInterface(context);
+        _traversal.RegisterRangeInterface();
 
         // Blob/File, and the URL.createObjectURL pair they need. After the content-rendering
         // polyfills, which is where the URL constructor these attach to comes from.

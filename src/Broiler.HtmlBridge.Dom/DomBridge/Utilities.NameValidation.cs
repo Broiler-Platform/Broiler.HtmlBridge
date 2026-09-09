@@ -1,13 +1,13 @@
-// Four engine namespaces, all of them for ThrowDOMException and the two validators that forward to
-// it. That helper reaches the page's DOMException constructor through the script context and raises
-// a JSException; five files outside this migration group hand it their context (the two document
-// factory hosts, the sub-document host, DomBridge/HtmlFragmentMutation.cs and
-// Features/AttributesBinding.cs), so the parameter type cannot change until they ask with a realm.
-// Everything else in this file — the three constructor-global installers — is the realm's now.
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.BuiltIns.Function;
+// NO ENGINE NAMESPACE. This file used to open with four of them, all for ThrowDOMException and the
+// validators that forward to it, and a note saying the parameter type could not change until the
+// five files handing it a context asked with a realm instead. They now do, so the four usings are
+// gone and this file is the realm's throughout.
+//
+// What made it a single commit rather than five is that the parameter is load-bearing in one
+// direction only: nothing here reads the context except to reach the page's DOMException
+// constructor, and IJsCalls.DomError reaches the same global on the same realm with the same
+// fallback. See the remarks on ThrowDOMException for why that is a rename and not a behaviour
+// change.
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
@@ -29,30 +29,35 @@ public sealed partial class DomBridge
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Throws a proper <c>DOMException</c> with the given name/code via the JS-registered constructor.
-    /// Constructs the DOMException object in C# and throws it as a <see cref="JSException"/>
-    /// so that JS try/catch blocks can intercept it with full <c>.code</c>, <c>.name</c>,
-    /// and <c>.message</c> properties intact.
+    /// Throws a proper <c>DOMException</c> with the given name/code via the JS-registered constructor,
+    /// so that JS try/catch blocks intercept it with full <c>.code</c>, <c>.name</c> and
+    /// <c>.message</c> properties intact.
     /// </summary>
-    internal static void ThrowDOMException(JSContext context, string message, string name)
-    {
-        if (context["DOMException"] is JSFunction domExCtor)
-        {
-            var exObj = domExCtor.CreateInstance(
-                new Arguments(domExCtor, new JSString(message), new JSString(name)));
-            throw new JSException(exObj);
-        }
-
-        // Fallback when DOMException constructor is unavailable
-        throw new JSException(new JSString($"DOMException: {message} ({name})"));
-    }
+    /// <remarks>
+    /// <para>
+    /// <b>This became a call to <see cref="IJsCalls.DomError"/> rather than a reimplementation of
+    /// one, and the two were already the same algorithm.</b> The body used to read
+    /// <c>context["DOMException"]</c>, construct through it and throw the result, falling back to a
+    /// bare string when the global was absent. The Broiler.JS provider's <c>DomError</c> does
+    /// exactly that, down to the fallback's wording — so what a page catches is unchanged, which is
+    /// the property that let five call sites move in one commit without a behavioural argument.
+    /// </para>
+    /// <para>
+    /// <b>The argument order flipped and that is the one hazard here.</b> This takes
+    /// <c>(message, name)</c>, the order its call sites were written in; the contract takes
+    /// <c>(name, message)</c>. Keeping this wrapper rather than inlining the contract call at each
+    /// site is what stops the two being transposed five times.
+    /// </para>
+    /// </remarks>
+    internal static void ThrowDOMException(IJsRealm realm, string message, string name) =>
+        throw realm.DomError(name, message);
 
     /// <summary>
     /// Validates an element/doctype name per the XML spec, marshalling a canonical
     /// <see cref="DomException"/> (InvalidCharacterError) into a JavaScript <c>DOMException</c>.
     /// The validation algorithm is owned by <see cref="DomNameValidation.ValidateElementName"/>.
     /// </summary>
-    internal static void ValidateElementName(string name, JSContext context)
+    internal static void ValidateElementName(string name, IJsRealm realm)
     {
         try
         {
@@ -60,7 +65,7 @@ public sealed partial class DomBridge
         }
         catch (DomException ex)
         {
-            ThrowDOMException(context, ex.Message, ex.Name);
+            ThrowDOMException(realm, ex.Message, ex.Name);
         }
     }
 
@@ -70,7 +75,7 @@ public sealed partial class DomBridge
     /// JavaScript <c>DOMException</c>. The validation algorithm is owned by
     /// <see cref="DomNameValidation.ValidateQualifiedName"/>.
     /// </summary>
-    internal static void ValidateQualifiedName(string qualifiedName, string? ns, JSContext context)
+    internal static void ValidateQualifiedName(string qualifiedName, string? ns, IJsRealm realm)
     {
         try
         {
@@ -78,7 +83,7 @@ public sealed partial class DomBridge
         }
         catch (DomException ex)
         {
-            ThrowDOMException(context, ex.Message, ex.Name);
+            ThrowDOMException(realm, ex.Message, ex.Name);
         }
     }
 
@@ -93,12 +98,12 @@ public sealed partial class DomBridge
     /// load-bearing one. Every call site is a scripted DOM entry point: the canonical
     /// <c>DomElement.SetAttribute</c> stays permissive because the HTML parser goes through it.
     /// </remarks>
-    internal static void ValidateAttributeName(string name, JSContext? context)
+    internal static void ValidateAttributeName(string name, IJsRealm? realm)
     {
-        if (context is not null && !Dom.Features.DomApiSyntax.IsValidAttributeName(name))
+        if (realm is not null && !Dom.Features.DomApiSyntax.IsValidAttributeName(name))
         {
             ThrowDOMException(
-                context,
+                realm,
                 $"Failed to execute 'setAttribute' on 'Element': '{name}' is not a valid attribute name.",
                 "InvalidCharacterError");
         }
@@ -115,14 +120,15 @@ public sealed partial class DomBridge
     /// from all of them identically, which was measured rather than assumed. The CSS cascade does not
     /// come through here and stays lenient, as CSS error handling requires.
     /// <para>
-    /// <b>This one takes no script context, where its three neighbours above still do.</b> Every
-    /// caller is a file in this migration's own group, so the nullable script-context parameter —
-    /// only ever forwarded to <see cref="ThrowDOMException"/> — could go, and the realm raises the
-    /// exception instead: <c>IJsCalls.DomError</c> constructs it through the same <c>DOMException</c>
-    /// global against the same realm, so what a page catches is unchanged. The parameter's
-    /// null-tolerance survives as the realm's: before <c>Attach</c> there is no realm and the check is
-    /// skipped, which is what a <see langword="null"/> context meant and is the state the bridge's own
-    /// pre-attach selector work runs in.
+    /// <b>This one takes no parameter at all, where its three neighbours above take a realm.</b> It
+    /// went first, when every one of its callers was already in the migrating group and the three
+    /// above still had callers holding a context — and the argument it made then is the one that
+    /// moved them since: the nullable parameter was only ever forwarded to
+    /// <see cref="ThrowDOMException"/>, and <c>IJsCalls.DomError</c> constructs through the same
+    /// <c>DOMException</c> global against the same realm, so what a page catches is unchanged. The
+    /// null-tolerance survives as the realm's: before <c>Attach</c> there is no realm and the check
+    /// is skipped, which is what a <see langword="null"/> context meant and is the state the
+    /// bridge's own pre-attach selector work runs in.
     /// </para>
     /// </remarks>
     internal void ValidateSelector(string selector)
