@@ -4,16 +4,18 @@ using System.Runtime.CompilerServices;
 
 using Broiler.HtmlBridge.Jseal;
 
-// The engine-typed remainder of this file, and it is down to one adapter and the machinery under it.
-// DomBridge/DomBridge.FormControlHost.cs is the last caller that builds a collection by handing over a
-// script context and a list of engine values — a file input's `files`, which it installs as an engine
-// object — so FileList(JSContext, …) and the four members below it stay until that one call migrates.
-// The other four adapters have gone with their callers: the interface-registration hub
+// THE ENGINE-TYPED REMAINDER OF THIS FILE IS ONE WEAK TABLE'S KEY. All five collection adapters that
+// took a script context have gone with their callers — the interface-registration hub
 // (DomBridge/Utilities.DomInterfaces.cs), the query/selector/form-association/node-accessor hosts,
-// DomBridge/Utilities.cs and the frame projection in DomBridge.SubDocumentHost.cs all pass a realm now.
-// The NamedNodeMap surface is JSEAL too — its supplier, Features/AttributesBinding.cs, migrated — and
-// the one engine type left under it is the weak table's key, which must be a reference type.
-using Broiler.JavaScript.Engine;
+// DomBridge/Utilities.cs, the frame projection in DomBridge.SubDocumentHost.cs, and last
+// DomBridge/DomBridge.FormControlHost.cs, whose file-input `files` was the call this file's previous
+// header said everything below it existed to serve. It did, and it went with it: 104 lines of
+// adapter, contents-marshalling and per-context realm adoption, none of it reachable once that caller
+// passed a realm.
+//
+// What is left is OperationsByMap, a ConditionalWeakTable keyed on the NamedNodeMap's own object. A
+// weak table needs a reference-typed key and a JSEAL handle is a struct, so this one is the value
+// design's cost rather than an unmigrated caller. It is one of three such tables in the assembly.
 using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -359,20 +361,6 @@ internal static class DomCollectionBinding
         public IReadOnlyList<string> SupportedNames => [];
     }
 
-    // ------------------------------------------------------------------
-    //  The one engine-typed adapter left, and the file that pins it.
-    // ------------------------------------------------------------------
-
-    /// <inheritdoc cref="FileList(IJsRealm, Func{List{JsValue}})" />
-    /// <remarks>
-    /// The engine-typed form, and the last of the five that stood here. Its one caller is
-    /// <c>DomBridge/DomBridge.FormControlHost.cs</c>, which holds a file input's <c>files</c> as an
-    /// engine object because the member it installs it on does; it is not this group's file. Everything
-    /// below this point exists to serve this one call, and goes with it.
-    /// </remarks>
-    public static JSValue FileList(JSContext? context, Func<List<JSValue>> contents) =>
-        ToEngineCollection(FileList(RealmFor(context), Adapt(contents)));
-
     /// <summary>
     /// A <c>NamedNodeMap</c> over <paramref name="contents"/> (DOM §4.9.1) — an element's
     /// <c>attributes</c> and nothing else. Live, with the qualified-name getter the interface
@@ -472,97 +460,5 @@ internal static class DomCollectionBinding
                         return pick(operations)(in call);
                     },
                     length));
-    }
-
-    /// <summary>The engine object a migrated collection builder minted, for an unmigrated caller.</summary>
-    /// <remarks>
-    /// <see cref="Runtime.JsInterop"/> is a cast and not a conversion — the handle carries the
-    /// engine's own object — so the object handed back is the object the realm minted, and the
-    /// <c>ConditionalWeakTable</c>s the bridge keys on collection identity keep finding it.
-    /// </remarks>
-    private static JSObject ToEngineCollection(JsValue collection) => Runtime.JsInterop.ToEngineObject(collection);
-
-    /// <summary>An engine-typed contents function as the JSEAL one the collection holds.</summary>
-    /// <remarks>
-    /// Re-wrapped on every read rather than once, because the function is what makes the collection
-    /// live: the list it answers with is different each time, and so are the wrappers in it. The one
-    /// caller left answers an empty list, and the two non-object arms below are kept anyway so that a
-    /// supplier which answered otherwise keeps answering what it answered rather than throwing on the
-    /// way through.
-    /// </remarks>
-    private static Func<List<JsValue>> Adapt(Func<List<JSValue>> contents) =>
-        () =>
-        {
-            var engineValues = contents();
-            var handles = new List<JsValue>(engineValues.Count);
-            foreach (var value in engineValues)
-                handles.Add(Handle(value));
-
-            return handles;
-        };
-
-    /// <summary>An engine value a collection holds, as the handle the handler answers with.</summary>
-    private static JsValue Handle(JSValue value) =>
-        value is JSObject @object ? Runtime.JsInterop.FromEngineObject(@object)
-        : value.IsNull ? JsValue.Null
-        : JsValue.Undefined;
-
-    /// <summary>
-    /// The realm the collection is minted in: the one the registered provider wraps
-    /// <paramref name="context"/> as.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Adopted here because the one call site left cannot pass a realm.</b> There were ten of them
-    /// handing over the bridge's script context; nine now pass a realm, and the tenth
-    /// (<c>DomBridge/DomBridge.FormControlHost.cs</c>) is not this group's to change. Adopting is what
-    /// the bridge itself does with the same object at <c>Attach</c> (see <c>DomBridge.Realm.cs</c>)
-    /// and what <c>Features/BlobBinding.cs</c> already does for the same reason: a provider that
-    /// recognises the context wraps it <em>without owning it</em>, and because every handle carries
-    /// the engine's own value a second wrapper over one context mints the objects the first would.
-    /// Still cached per context, because a collection factory runs per property read rather than once
-    /// per page and must not build a wrapper and its job queue each time.
-    /// </para>
-    /// <para>
-    /// <b>A null context is now a failure rather than a prototype-less collection.</b> The old
-    /// builder had nowhere to read the interface prototypes from and shrugged; there is no realm to
-    /// mint an <em>object</em> in, so shrugging is not available. The caller passes the bridge's
-    /// own context, which <c>Registration.cs</c> assigns on the first line of attach and before any
-    /// collection can be built, so this is a diagnosis rather than a path.
-    /// </para>
-    /// </remarks>
-    private static IJsRealm RealmFor(JSContext? context)
-    {
-        if (context is null)
-        {
-            throw new InvalidOperationException(
-                "A DOM collection was asked for before the bridge was attached to a script context, " +
-                "so there is no JavaScript realm to mint it in.");
-        }
-
-        return RealmsByContext.GetValue(context, AdoptRealm);
-    }
-
-    /// <summary>One adopted realm per context; weakly keyed, so it goes when the context does.</summary>
-    private static readonly ConditionalWeakTable<JSContext, IJsRealm> RealmsByContext = new();
-
-    /// <inheritdoc cref="RealmFor" />
-    private static IJsRealm AdoptRealm(JSContext context)
-    {
-        foreach (var provider in JsEngineRegistry.All)
-        {
-            if (provider is IJsRealmAdoption adoption &&
-                adoption.TryAdopt(context, out var realm) &&
-                realm is not null)
-            {
-                return realm;
-            }
-        }
-
-        throw new InvalidOperationException(
-            "No registered JavaScript engine provider recognised the script context the DOM " +
-            "collection builder was handed. A host must reference an engine provider assembly — " +
-            "Broiler.HtmlBridge.Jseal.BroilerJs for Broiler.JS — and that assembly registers itself " +
-            "when it is loaded.");
     }
 }
