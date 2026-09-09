@@ -197,6 +197,8 @@ for name, entry in sorted(projects.items()):
             emit("error", "%s: %s carries an unrecognised key '%s'. A misspelt metric budgets "
                           "nothing." % (budget_path, name, key))
 
+RELATIVE_ENGINE_NAMESPACE = re.compile(r"(?<![\w.])JavaScript\.[A-Z]")
+
 # ── Recount ──
 if not os.path.isdir(SRC):
     emit("error", "There is no src/ directory to measure. This check cannot pass vacuously.")
@@ -224,6 +226,25 @@ for name in on_disk:
         with open(path, encoding="utf-8", errors="replace") as handle:
             text = handle.read()
         engine_references += text.count("Broiler.JavaScript")
+        # AND THE SAME NAMESPACE SPELLED WITHOUT ITS ROOT, WHICH THIS CHECK COULD NOT SEE UNTIL 108
+        # TURNED OUT TO BE 129. Every project under src/ has a RootNamespace beginning `Broiler.`, so
+        # `JavaScript.Runtime.JSObject` compiles and means exactly what
+        # `Broiler.JavaScript.Runtime.JSObject` means -- and the substring count above matches only
+        # the second. Twenty-one real engine references were spelled the first way, in the files most
+        # likely to have them: the ones mid-migration, where somebody dropped a `using` and qualified
+        # what was left. A metric that a rename can walk out of is not a ratchet.
+        #
+        # The lookbehind is what keeps this from double-counting: in `Broiler.JavaScript.Runtime` the
+        # `JavaScript` is preceded by a dot, so only the bare spelling matches here. Text, not
+        # semantics, exactly as the count above -- a mention in a doc comment counts, and that is the
+        # deliberate bargain the budget file's header already explains.
+        #
+        # The trailing [A-Z] is not decoration. Without it the pattern matches the last word of
+        # "...source the page supplied, which is JavaScript." -- and it did, in four doc comments,
+        # two of them inside Broiler.HtmlBridge.Jseal, whose whole claim is that it contains no
+        # engine reference at all. A namespace segment never follows the dot with a space; an
+        # English sentence always does.
+        engine_references += len(RELATIVE_ENGINE_NAMESPACE.findall(text))
         guest_eval_sites += text.count(".Eval(")
 
     engine_project_refs = 0

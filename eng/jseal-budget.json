@@ -10,6 +10,17 @@
     "check reports every count that came in under budget for exactly that reason, because a ratchet",
     "nobody tightens is a ratchet that stops at whatever the worst day was.",
     "",
+    "THE ONE RISE THAT IS NOT A REGRESSION IS A CHANGE TO THE METRIC, AND THERE HAS BEEN ONE.",
+    "engineReferences used to count only the string 'Broiler.JavaScript'. Every project under src/",
+    "has a RootNamespace beginning 'Broiler.', so 'JavaScript.Runtime.JSObject' compiles and means",
+    "the same thing -- and 23 real references in Broiler.HtmlBridge.Dom were spelled that way,",
+    "invisible to the check, concentrated in exactly the files mid-migration where somebody had",
+    "dropped a using and qualified what was left. The count now sees both spellings. Dom's recorded",
+    "number therefore went 108 -> 111 in the commit that widened it while its actual coupling FELL by",
+    "18 in the same commit, and both halves of that sentence are the point: a number may rise when",
+    "the instrument improves, and it may never rise because the tree got worse. A commit doing the",
+    "first says so here.",
+    "",
     "The consequence worth stating plainly: a project whose budget is already 0 cannot gain an",
     "engine-coupled file at all. That is the state every entry here is travelling towards, and it",
     "is what lets the remaining migration land as a hundred small changes instead of one merge that",
@@ -78,10 +89,10 @@
       "note": "The one reference is Broiler.JavaScript.All, unconditional. No source here names the engine, so this is a link the head does not use directly -- it is here because BrowserApp.NewScriptEngine() still picks an engine with an #if rather than through JsEngineRegistry. It drops to 0 when it does; see the remarks on JsEngineRegistry. The sibling reference to Broiler.HtmlBridge.Scripting.Vm is conditional on the -VM build types and is not counted, because it points inside src/."
     },
     "Broiler.Browser.Core.Tests": {
-      "engineReferences": 0,
+      "engineReferences": 1,
       "engineProjectRefs": 0,
       "guestEvalSites": 0,
-      "note": "Already neutral, and reaches JSEAL internals through InternalsVisibleTo rather than a reference. VmScriptEngineTests compiles only under the -VM build types and gets the engine transitively; if a test ever needs to name one directly, that is a real budget increase and this file is where the argument for it belongs."
+      "note": "ONE, AND THE ARGUMENT THIS ENTRY ASKED FOR IS BELOW. It used to read: 'if a test ever needs to name one directly, that is a real budget increase and this file is where the argument for it belongs.' JsInteropSeamTests is that test. JsInterop is the seam between an engine object and a JSEAL handle, and its defect was that a function crossing it came back kind Object while the same function from the provider came back kind Function -- so two handles over one object compared unequal, which a handle-keyed map cannot survive. A test that could not name JSObject could not assert the correspondence; it could only assert that JSEAL agrees with itself. The increase is one using line and it buys the only check that would catch the defect returning. It falls back to 0 when JsInterop is deleted, which is the whole point of the programme this test serves. VmScriptEngineTests still compiles only under the -VM build types and gets the engine transitively."
     },
     "Broiler.Browser.Linux": {
       "engineReferences": 0,
@@ -100,10 +111,10 @@
       "note": "Two files: IDomBridgeRuntime.Attach takes a JSContext, and ScriptCompileAhead names the engine's compiler. The first is the seam JSEAL exists to move -- an Attach that takes an IJsRealm is what makes a second engine able to serve a page at all -- so this 3 is the highest-value one in the file despite being the smallest."
     },
     "Broiler.HtmlBridge.Dom": {
-      "engineReferences": 108,
+      "engineReferences": 111,
       "engineProjectRefs": 3,
       "guestEvalSites": 6,
-      "note": "The DOM bridge. Started at 891 when JSEAL landed, and reached 110 when the name-validation cluster moved -- ThrowDOMException and the three validators now take an IJsRealm and reach IJsCalls.DomError, which the Broiler.JS provider implements with the same algorithm and the same fallback wording, so no page sees a different exception. That commit also removed IAttributesHost.JsContext, whose own doc comment had named the condition for its removal. What remains is structural rather than unmigrated: the three wrapper-root fields DomBridge declares and ten files read; IDomBridgeRuntime.Attach, which takes a JSContext from another project; the ArrayBuffer mint, for which IJsValues has no member; the weak tables that need a reference-typed key a struct handle cannot be; BridgeModuleContext, which derives from the engine's module context because JSEAL has no module-graph contract; and the engine-frame halves of members whose installers still mint engine functions. Each occurrence names its own pin in its doc comment."
+      "note": "111 UNDER A WIDER METRIC THAN THE 108 IT REPLACES, AND THE TREE GOT BETTER, NOT WORSE. The count now also sees engine namespaces spelled without their Broiler. root -- 23 of them here -- while the same commit deleted 20 dead using lines from the four LayoutMetrics partials and added 2 that JsInterop needs to answer the kind a provider would. Real coupling fell by 18. The DOM bridge. Started at 891 when JSEAL landed, and the name-validation cluster moved -- ThrowDOMException and the three validators now take an IJsRealm and reach IJsCalls.DomError, which the Broiler.JS provider implements with the same algorithm and the same fallback wording, so no page sees a different exception. That commit also removed IAttributesHost.JsContext, whose own doc comment had named the condition for its removal. What remains is structural rather than unmigrated: the three wrapper-root fields DomBridge declares and ten files read; IDomBridgeRuntime.Attach, which takes a JSContext from another project; the ArrayBuffer mint, for which IJsValues has no member; the weak tables that need a reference-typed key a struct handle cannot be; BridgeModuleContext, which derives from the engine's module context because JSEAL has no module-graph contract; and the engine-frame halves of members whose installers still mint engine functions. Each occurrence names its own pin in its doc comment."
     },
     "Broiler.HtmlBridge.Jseal": {
       "engineReferences": 0,

@@ -1,6 +1,8 @@
+using Broiler.JavaScript.BuiltIns.Array;
+using Broiler.JavaScript.BuiltIns.Function;
+using Broiler.JavaScript.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Jseal.Providers;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
@@ -20,9 +22,14 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <para>
 /// <b>It costs nothing at run time and it is not a conversion.</b> Under the Broiler.JS provider a
 /// JSEAL object handle carries the engine's own <c>JSObject</c> — that is the provider's central
-/// design rule, and it is what keeps wrapper identity, the seven
-/// <c>ConditionalWeakTable&lt;JSObject, …&gt;</c> keyed on it, and <c>el === el</c> all working across
-/// a half-migrated bridge. So this is a cast, and the assertion it makes is that the realm the bridge
+/// design rule, and it is what keeps wrapper identity, the three
+/// <c>ConditionalWeakTable&lt;JSObject, …&gt;</c> keyed on it
+/// (<c>Runtime/JsObjectRegistry.cs</c>, <c>Features/BlobBinding.cs</c>,
+/// <c>Features/DomCollectionBinding.cs</c>), and <c>el === el</c> all working across
+/// a half-migrated bridge. This sentence said <em>seven</em> until they were counted; every other
+/// weak table in the assembly keys on a <c>DomNode</c> or a <c>DomElement</c> and is already
+/// engine-neutral, which makes the reference-key floor a third the size the number implied. So this
+/// is a cast, and the assertion it makes is that the realm the bridge
 /// is attached to is a Broiler.JS realm. On a build serving a different engine it would fail loudly at
 /// the first migrated binding, which is correct: the unmigrated half of the bridge cannot run on
 /// another engine, and finding that out at the seam is better than producing an object nothing can
@@ -54,5 +61,35 @@ internal static class JsInterop
     internal static JSValue? ToEngineValue(JsValue value) => JsProviderValue.ReferenceOf(value) as JSValue;
 
     /// <summary>A JSEAL handle over an engine object, for a migrated callee taking one from an unmigrated caller.</summary>
-    internal static JsValue FromEngineObject(JSObject value) => JsProviderValue.Object(value);
+    /// <remarks>
+    /// <para>
+    /// <b>It answers the kind the provider would have answered, and it used to answer
+    /// <see cref="JsValueKind.Object"/> for everything.</b> <c>JsProviderValue.Object</c> is the
+    /// wrapper for an engine object that is <em>neither callable nor an Array exotic</em> — its own
+    /// summary says so — while the provider's <c>BroilerJsMarshal.Wrap</c> tests for
+    /// <c>JSFunction</c> and <c>JSArray</c> first. So a handle minted here and a handle minted by the
+    /// provider over the same object disagreed about kind, and <see cref="JsValue"/> compares kind
+    /// <em>before</em> reference: <c>a == b</c> was false for two handles on one object.
+    /// </para>
+    /// <para>
+    /// <b>Nothing observed it yet, and the migration is what would have.</b> The two places that
+    /// could see it are guarded on the engine side — <c>window.frames</c> goes back through
+    /// <c>Unwrap</c>, which is kind-independent, and the event-dispatch path tests
+    /// <c>is JSFunction</c> before wrapping. What is not guarded is a map keyed on a handle:
+    /// <c>EventTargetRegistry</c>'s dictionaries are correct today only because every key it holds is
+    /// kind <c>Object</c>, which is exactly the invariant that ends when a listener record becomes a
+    /// handle. Fixing it here, before anything depends on it, is the cheap order.
+    /// </para>
+    /// <para>
+    /// The test order matters and mirrors the provider's: <c>JSArray</c> derives from
+    /// <c>JSObject</c>, and <c>JSFunction</c> is callable, so a plain <c>JSObject</c> arm placed
+    /// first would swallow both.
+    /// </para>
+    /// </remarks>
+    internal static JsValue FromEngineObject(JSObject value) => value switch
+    {
+        JSFunction function => JsProviderValue.Function(function),
+        JSArray array => JsProviderValue.Array(array),
+        _ => JsProviderValue.Object(value),
+    };
 }
