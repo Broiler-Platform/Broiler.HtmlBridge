@@ -1,10 +1,5 @@
 using System.Text;
 using System.Text.RegularExpressions;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.BuiltIns.Number;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Runtime;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 using Broiler.CSS;
