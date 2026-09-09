@@ -137,10 +137,10 @@
       "note": "The Broiler.VM provider. It is marked a provider for the same reason the Broiler.JS one is - naming an engine is what a provider is FOR - but its reference count reads 0 rather than a large number, and the zero is a fact about the METRIC and not about this assembly. engineReferences counts occurrences of the string Broiler.JavaScript, which is the Broiler.JS engine namespace; this provider names Broiler.VM.Profile.JavaScript instead, so the count does not see it. The five project references do see it, and they are the honest measure here: Abstractions, Binary, Runtime, the profile, and the profile compiler. Read the 0 as \"this assembly names no Broiler.JS type\", which is true and worth keeping true, and read the 5 as its engine coupling."
     },
     "Broiler.HtmlBridge.Scripting": {
-      "engineReferences": 10,
+      "engineReferences": 9,
       "engineProjectRefs": 3,
       "guestEvalSites": 6,
-      "note": "Six files: the Broiler.JS ScriptEngine and what it needs to build a realm. This is where the Broiler.JS provider will live once it is one, and the counts here move to a Jseal.BroilerJs assembly rather than to zero -- a provider naming its own engine is what a provider is for."
+      "note": "Five files now: the Broiler.JS ScriptEngine and what it needs to build a realm. InteractiveSession left the count when its constructor stopped taking a JSContext -- it read the context once, to dispose it, so the parameter is typed IDisposable and the class names no engine type at all. That reference was load-bearing for a reason unrelated to what it did: VmScriptEngine named the constructor as half of why the document-bearing overloads are forwarded. This is where the Broiler.JS provider will live once it is one, and the counts here move to a Jseal.BroilerJs assembly rather than to zero -- a provider naming its own engine is what a provider is for."
     },
     "Broiler.HtmlBridge.Scripting.Vm": {
       "engineReferences": 1,
