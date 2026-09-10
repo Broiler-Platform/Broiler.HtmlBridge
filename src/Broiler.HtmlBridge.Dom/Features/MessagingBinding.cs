@@ -655,17 +655,6 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
 
     // ==================== MessageChannel / MessagePort ====================
 
-    /// <summary>
-    /// A <c>MessageChannel</c> as the engine object the <c>MessageChannel</c> interface object in
-    /// <c>DomBridge/Registration/Registration.cs</c> hands back to a page.
-    /// </summary>
-    /// <remarks>
-    /// An adapter, not a second implementation: that registration is not this round's to change, so
-    /// the channel is built through the realm by <see cref="CreateChannel"/> and crosses here as the
-    /// engine's own object, which is what the handle already holds.
-    /// </remarks>
-    internal JSObject CreateMessageChannel() => JsInterop.ToEngineObject(CreateChannel());
-
     /// <summary>Constructs a <c>MessageChannel</c> with two entangled ports.</summary>
     internal JsValue CreateChannel()
     {

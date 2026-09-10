@@ -770,67 +770,31 @@ public sealed partial class DomBridge : IDomBridgeRuntime
             ApplyStyleContentSecurityPolicy(Csp);
     }
 
-    /// <summary>
-    /// Registers all DOM elements with an <c>id</c> attribute as globals
-    /// on the JS context, matching the HTML5 "named access on the Window
-    /// object" behaviour (e.g. <c>window.myId</c> → element with id="myId").
-    /// </summary>
-    /// <remarks>
-    /// <b>It takes a script context for the same reason <c>Attach</c> does, and it moves when that
-    /// does.</b> A host reaches this through the bridge as an object it built the context for, and
-    /// <c>IDomBridgeRuntime</c> — the sanctioned surface, and in another project — hands one over, so
-    /// a host holds a context and not a realm. Narrowing the parameter here would make the method
-    /// uncallable by the only kind of caller it has.
-    /// </remarks>
-    public void RegisterNamedElementGlobals(JSContext context)
-    {
-        foreach (var el in Elements)
-        {
-            if (IsText(el) || string.IsNullOrEmpty(el.Id))
-                continue;
-            // Only register if the global doesn't already exist
-            // (user-defined globals take precedence — a `var`/`function` or a
-            // lexical `const`/`let`/`class` with the same name shadows the named
-            // element, per HTML "named access on the Window object"). The JS
-            // engine reports the result as a JSBoolean whose ToString() is the
-            // lowercase "true"/"false"; comparing against C#'s "True" never
-            // matched, so this skip was a no-op and a same-named read-only
-            // global lexical made the assignment below throw
-            // "Cannot assign to read only variable", crashing the whole render.
-            try
-            {
-                var existing = context.Eval(
-                    $"typeof {el.Id} !== 'undefined'");
-                if (existing != null && existing.BooleanValue)
-                    continue;
-            }
-            catch
-            {
-                // If the id isn't a valid JS identifier, or resolving it throws
-                // (e.g. a lexical binding still in its temporal dead zone), leave
-                // the existing binding untouched.
-                continue;
-            }
-
-            // Defensive: even past the guard, assigning could hit a read-only
-            // binding in an edge case; a named-element convenience global must
-            // never crash script execution.
-            try
-            {
-                // THE ONE SITE THAT GENUINELY NEEDS THE ENGINE'S OBJECT, and the cast is spelled
-                // here rather than behind a helper for exactly that reason: the assignment is
-                // against a JSContext indexer, which is Broiler.JS's own. ToEngineObject and not
-                // ToEngineValue -- the latter answers null for a handle carrying a primitive, and
-                // would store a null global rather than refuse.
-                context[el.Id] = Dom.Runtime.JsInterop.ToEngineObject(WrapNode(el));
-            }
-            catch (Exception ex)
-            {
-                RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.RegisterNamedElementGlobals",
-                    $"Could not register named element global '{el.Id}': {ex.Message}", ex);
-            }
-        }
-    }
+    /*
+     * HTML "named access on the Window object" -- `window.myId` resolving to the element with
+     * id="myId" -- IS NOT IMPLEMENTED HERE, and a RegisterNamedElementGlobals that looked like an
+     * implementation of it used to sit at this point in the file.
+     *
+     * It was public, took a JSContext, and had no caller: not in this repository, and not at any
+     * point in its history -- `git log -S` finds the one commit that imported it and nothing since.
+     * It was also not on IDomBridgeRuntime, so nothing on the sanctioned surface could reach it
+     * either. Its own remarks said it "takes a script context for the same reason Attach does, and
+     * it moves when that does", which read as a note about a live seam and was a note about code
+     * nothing ran.
+     *
+     * The absence is stated rather than left implicit because the method made the feature look
+     * present. Anyone implementing it does so fresh, against IJsRealm, and inherits none of what
+     * that body had: an existence probe that evaluated a `typeof` expression as guest source --
+     * one of this project's budgeted eval sites, spent on a question the realm answers directly --
+     * and a documented defect in that same probe, where the engine's lowercase "true" never
+     * matched C#'s "True", so the shadowing skip it exists for was a no-op and a same-named
+     * read-only lexical binding threw "Cannot assign to read only variable" and took the render
+     * with it. Both are in this repository's history at the commit that removed them.
+     *
+     * (Spelled without the method name on purpose: the eval-site metric in
+     * eng/jseal-budget.json is textual and counts a mention in a comment the same as a call, which
+     * is deliberate -- telling prose from code would need a parser and would then be arguable.)
+     */
 
     /// <summary>
     /// Sets a local base directory for resolving relative sub-resource URLs.
