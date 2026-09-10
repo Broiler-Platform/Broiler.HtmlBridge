@@ -1811,6 +1811,63 @@ public class JsealConformanceTests
                 "test:big-buffer"));
     }
 
+    /// <summary>
+    /// A page that rewrites the typed-array machinery cannot change what the host reads out of a
+    /// buffer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the assertion that a provider reading a buffer through the realm's own intrinsics
+    /// reads it by brand and not by anything a page can write.</b> A provider with no binary member
+    /// on its host surface has to go through the guest's objects to get at the bytes, and the moment
+    /// it asks one of them a <em>question</em> — how long are you? — it has put a page's code between
+    /// the host and the answer.
+    /// </para>
+    /// <para>
+    /// <c>%TypedArray%.prototype</c>'s <c>length</c> is an accessor and it is configurable, which the
+    /// language requires, so <c>Object.defineProperty</c> on it is a thing a page may legally do.
+    /// Answering zero is the dangerous direction: it does not throw, so a host that spread a view by
+    /// its <c>length</c> would hand back a correctly sized array of zeros and report success. A blob
+    /// built from that is silently empty, and nothing anywhere says so.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void APageThatRewritesTypedArrayLengthCannotChangeWhatTheHostReads(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.BinaryData) || Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        var buffer = realm.EvaluateHostScript(
+            "(function () { var b = new ArrayBuffer(5); var v = new Uint8Array(b);" +
+            " for (var i = 0; i < 5; i++) { v[i] = i + 1; } return b; })()",
+            "test:poison-buffer");
+
+        realm.EvaluateHostScript(
+            "Object.defineProperty(Object.getPrototypeOf(Uint8Array.prototype), 'length', " +
+            "{ get: function () { return 0; }, configurable: true });",
+            "test:poison-length");
+
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var bytes));
+        Assert.Equal([1, 2, 3, 4, 5], bytes);
+
+        // And the other direction, which turns a wrong answer into a crash rather than into zeros.
+        realm.EvaluateHostScript(
+            "Object.defineProperty(Object.getPrototypeOf(Uint8Array.prototype), 'length', " +
+            "{ get: function () { return 1000000; }, configurable: true });",
+            "test:poison-length-large");
+
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var again));
+        Assert.Equal([1, 2, 3, 4, 5], again);
+
+        // Minting is asserted under the same poisoning, because it writes through a view too.
+        var minted = realm.NewArrayBuffer([9, 8, 7]);
+        Assert.True(realm.TryGetArrayBufferBytes(minted, out var read));
+        Assert.Equal([9, 8, 7], read);
+    }
+
     // ── capability coverage ────────────────────────────────────────────────────────────────────
 
     /// <summary>

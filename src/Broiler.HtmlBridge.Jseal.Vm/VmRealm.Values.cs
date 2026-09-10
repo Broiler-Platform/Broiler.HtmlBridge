@@ -246,12 +246,23 @@ internal sealed partial class VmRealm
     /// </para>
     /// <para>
     /// <b>The bytes come back through the one wide channel the host surface has, which is a
-    /// string.</b> Nothing here charges per character, so a chunk of the buffer converted to one
-    /// character per byte crosses in a single call; the alternative, a crossing per byte, would spend
-    /// the host-call allowance and abort. The conversion is
-    /// <c>String.fromCharCode.apply(null, view.subarray(...))</c> with every one of those four
-    /// functions captured before any page script ran, so a page that replaced <c>String</c>,
-    /// <c>Uint8Array</c> or either prototype member cannot reach it.
+    /// string.</b> A returned string crosses as a reference and costs nothing per character, so a
+    /// chunk of the buffer rendered as text crosses in a single call; the alternative, a crossing per
+    /// byte, would spend the host-call allowance and abort.
+    /// </para>
+    /// <para>
+    /// <b>The renderer is <c>join</c>, and the reason is not brevity - it is that <c>join</c> asks
+    /// the view nothing.</b> Its body walks the engine's own typed array by its CLR length and reads
+    /// each element off the CLR object, so no property of the view is consulted on the way.
+    /// <c>String.fromCharCode.apply(null, view)</c> would be the shorter spelling and is
+    /// <b>wrong</b>: spreading an array-like reads <c>length</c> as a property, and a typed array's
+    /// <c>length</c> is a <em>configurable accessor</em> on <c>%TypedArray%.prototype</c> - so
+    /// <c>Object.defineProperty(Object.getPrototypeOf(Uint8Array.prototype), 'length', ...)</c>,
+    /// which a page may legally do, would decide how many bytes the host reads. Answering zero is the
+    /// dangerous direction: it does not throw, so the host would hand back a correctly sized array of
+    /// zeros and report success, and a blob built from that is silently empty.
+    /// <c>APageThatRewritesTypedArrayLengthCannotChangeWhatTheHostReads</c> is that case, and it
+    /// failed before this line said <c>join</c>.
     /// </para>
     /// </remarks>
     public bool TryGetArrayBufferBytes(JsValue value, [NotNullWhen(true)] out byte[]? bytes)
@@ -297,13 +308,29 @@ internal sealed partial class VmRealm
                     view,
                     [JsHostValue.Number(offset), JsHostValue.Number(end)]);
 
-                var text = realm.Invoke(
-                    _bridge.FunctionApply,
-                    _bridge.StringFromCharCode,
-                    [JsHostValue.Undefined, part]).AsString();
+                var text = realm.Invoke(_bridge.TypedArrayJoin, part, [Separator]).AsString()
+                    ?? string.Empty;
 
-                for (var i = 0; i < text.Length; i++)
-                    read[offset + i] = (byte)text[i];
+                // Decimal and comma-separated, parsed in one pass rather than split: a chunk of eight
+                // thousand bytes renders as at most thirty-two thousand characters, and allocating a
+                // substring per byte would undo the point of moving them in bulk.
+                var at = offset;
+                var element = 0;
+
+                foreach (var character in text)
+                {
+                    if (character == ',')
+                    {
+                        read[at++] = (byte)element;
+                        element = 0;
+                    }
+                    else
+                    {
+                        element = (element * 10) + (character - '0');
+                    }
+                }
+
+                read[at] = (byte)element;
             }
 
             return read;
@@ -316,14 +343,19 @@ internal sealed partial class VmRealm
     /// How many bytes cross at a time, in both directions.
     /// </summary>
     /// <remarks>
-    /// <b>Bounded above by the argument count <c>Function.prototype.apply</c> will spread</b> - the
-    /// read path applies <c>String.fromCharCode</c> to a chunk, so a chunk is an argument list - and
-    /// bounded below by the host-call allowance, since every chunk costs two crossings in each
-    /// direction. Eight thousand is comfortably inside every engine's spread limit and puts a
-    /// thirty-two megabyte buffer at about eight thousand crossings against an allowance of a
-    /// million.
+    /// <b>Bounded above by the large-object heap and below by the host-call allowance.</b> Every
+    /// chunk costs two crossings in each direction, so a small chunk spends the allowance; and each
+    /// chunk builds a transient - an argument array going out, a joined string coming back - so a
+    /// large one puts that transient on the LOH, where it is not compacted and is collected only with
+    /// a generation two. Eight thousand bytes render as at most thirty-two thousand characters, which
+    /// is about sixty-four kilobytes and comfortably under the eighty-five thousand byte threshold,
+    /// and it puts a thirty-two megabyte buffer at roughly eight thousand crossings against an
+    /// allowance of a million.
     /// </remarks>
     private const int TransferChunk = 8000;
+
+    /// <summary>The separator <c>join</c> is asked for, hoisted so it is built once.</summary>
+    private static readonly JsHostValue Separator = JsHostValue.String(",");
 
     /// <inheritdoc />
     public string ToJsString(JsValue value)

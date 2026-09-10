@@ -118,10 +118,7 @@ internal sealed class VmHostBridge : IJsHostSurface
     internal JsHostValue TypedArraySubarray { get; private set; }
 
     /// <inheritdoc cref="ArrayBuffer"/>
-    internal JsHostValue StringFromCharCode { get; private set; }
-
-    /// <inheritdoc cref="ArrayBuffer"/>
-    internal JsHostValue FunctionApply { get; private set; }
+    internal JsHostValue TypedArrayJoin { get; private set; }
 
     /// <summary>Whether every binary intrinsic the provider needs was on the realm.</summary>
     internal bool HasBinary =>
@@ -130,8 +127,7 @@ internal sealed class VmHostBridge : IJsHostSurface
         ArrayBufferByteLength.Kind is JsHostValueKind.Function &&
         TypedArraySet.Kind is JsHostValueKind.Function &&
         TypedArraySubarray.Kind is JsHostValueKind.Function &&
-        StringFromCharCode.Kind is JsHostValueKind.Function &&
-        FunctionApply.Kind is JsHostValueKind.Function;
+        TypedArrayJoin.Kind is JsHostValueKind.Function;
 
     /// <summary>The one crossing waiting for a step.</summary>
     internal Action<JsHostRealm>? Pending { get; set; }
@@ -168,10 +164,7 @@ internal sealed class VmHostBridge : IJsHostSurface
         var viewPrototype = realm.GetProperty(Uint8Array, "prototype");
         TypedArraySet = realm.GetProperty(viewPrototype, "set");
         TypedArraySubarray = realm.GetProperty(viewPrototype, "subarray");
-        StringFromCharCode = realm.GetProperty(realm.GetProperty(realm.Global, "String"), "fromCharCode");
-        FunctionApply = realm.GetProperty(
-            realm.GetProperty(realm.GetProperty(realm.Global, "Function"), "prototype"),
-            "apply");
+        TypedArrayJoin = realm.GetProperty(viewPrototype, "join");
 
         // The getter itself, not the property: reading `ArrayBuffer.prototype.byteLength` would
         // INVOKE it with the prototype as `this`, which is exactly the case its brand check throws
