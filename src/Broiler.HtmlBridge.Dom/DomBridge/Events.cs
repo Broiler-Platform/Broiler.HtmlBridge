@@ -1,6 +1,5 @@
 using Broiler.JavaScript.Storage;
 using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Boolean;
 using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Jseal;
@@ -107,26 +106,6 @@ public sealed partial class DomBridge
 
     // Constraint validation (checkValidity/reportValidity) moved to the Phase 3 FormBinding feature
     // module (Broiler.HtmlBridge.Dom.Features).
-
-    /// <summary>
-    /// Dispatches a DOM event on the given element with full capture → target → bubble propagation.
-    /// The engine lives in the Phase 3 EventDispatchBinding feature module.
-    /// </summary>
-    /// <remarks>
-    /// The module speaks JSEAL now, so this is the engine-typed adapter over it rather than a bare
-    /// delegator: roughly a dozen call sites that have not migrated — form submit, the dialog and
-    /// script-insertion hosts, the window-load sequence, sub-documents, layout-driven scroll events —
-    /// still hold an engine object and none of their files belong to this round. The cast costs
-    /// nothing — a handle carries the engine's own object — and this signature narrows to the
-    /// module's own as those callers move.
-    /// </remarks>
-    private JSValue DispatchEventOnElement(DomNode target, JSObject evt) =>
-        // The result is the "not cancelled" boolean the DOM says dispatchEvent answers, so it
-        // re-materialises as one rather than round-tripping: a JSEAL handle carries no engine object
-        // for a primitive, and there is nothing else this call can return.
-        _eventDispatch.DispatchEventOnElement(target, JsInterop.FromEngineObject(evt)).AsBoolean
-            ? JSBoolean.True
-            : JSBoolean.False;
 
     /// <summary>
     /// Compiles all <c>on*</c> HTML attributes (e.g. <c>onclick="code"</c>) on the given

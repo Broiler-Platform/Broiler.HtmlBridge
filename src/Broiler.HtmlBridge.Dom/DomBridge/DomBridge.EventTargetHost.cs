@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.JavaScript.BuiltIns.Boolean;
 using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
@@ -40,8 +41,15 @@ public sealed partial class DomBridge : Dom.Features.IEventTargetHost
     JsValue Dom.Features.IEventTargetHost.DispatchEvent(DomNode element, JsValue evt)
         => JsValue.Boolean(_eventDispatch.DispatchEventOnElement(element, evt).AsBoolean);
 
+    // THE ONE PLACE THIS CONTRACT'S ENGINE SEAM ACTUALLY IS, now that the six callers who held a
+    // handle stopped asking a private adapter to convert it for them. Both ends here are genuinely
+    // the engine's: the JSObject was read out of an Arguments frame, and the JSValue answers back
+    // into one. The boolean is re-materialised rather than round-tripped, because a handle carries
+    // no engine object for a primitive and "not cancelled" is the only thing this can answer.
     JSValue Dom.Features.IEventTargetHost.DispatchEventOnElement(DomNode element, JSObject evt)
-        => DispatchEventOnElement(element, evt);
+        => _eventDispatch.DispatchEventOnElement(element, JsInterop.FromEngineObject(evt)).AsBoolean
+            ? JSBoolean.True
+            : JSBoolean.False;
 
     JsValue Dom.Features.IEventTargetHost.WindowWrapper =>
         _windowJSObject is null ? JsValue.Missing : JsInterop.FromEngineObject(_windowJSObject);
