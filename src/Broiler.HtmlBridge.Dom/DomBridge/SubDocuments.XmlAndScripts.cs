@@ -1,5 +1,6 @@
 using System.Text;
 using Broiler.HtmlBridge.Logging;
+using Broiler.HtmlBridge.Scripting;
 using Broiler.Dom;
 using System.Xml.Linq;
 
@@ -20,7 +21,11 @@ public sealed partial class DomBridge
     /// For XHTML with valid namespace, also executes embedded scripts.
     /// XML well-formedness errors result in an empty document.
     /// </summary>
-    private DomDocument BuildSubDocumentFromXml(string xmlContent, string contentType, DomElement containerElement)
+    private DomDocument BuildSubDocumentFromXml(
+        string xmlContent,
+        string contentType,
+        DomElement containerElement,
+        ContentSecurityPolicy? deliveredPolicy = null)
     {
         var document = CreateBrowsingContextDocument();
 
@@ -63,7 +68,9 @@ public sealed partial class DomBridge
             // Execute scripts in XHTML documents with correct namespace
             if (isXhtml && hasCorrectXhtmlNs)
             {
-                ExecuteSubDocumentScripts(rootEl);
+                ExecuteSubDocumentScripts(
+                    rootEl,
+                    new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(xmlContent)));
             }
         }
         catch (System.Xml.XmlException)
@@ -112,7 +119,21 @@ public sealed partial class DomBridge
     /// Finds and executes script elements within a sub-document tree.
     /// Scripts call parent.notify() etc. in the main JS context.
     /// </summary>
-    private void ExecuteSubDocumentScripts(DomElement docRoot)
+    /// <param name="policies">
+    /// Every Content-Security-Policy governing this sub-document: whatever its own markup declares,
+    /// plus the one delivered to it — its embedder's when the frame has a local scheme and inherits
+    /// it, or its response header's when it came off the network. Each script runs only if all of
+    /// them admit it.
+    /// </param>
+    /// <remarks>
+    /// <b>This path consulted no policy at all before, which is a different failure from consulting
+    /// one that turned out to be null.</b> The HTML path at least asked, and got <c>null</c> for a
+    /// frame that declared nothing; here nothing was ever looked for, so an XHTML frame ran its
+    /// scripts under any policy whatever. <c>SubDocumentContentSecurityPolicyTests</c> pins it, with
+    /// the control that says the same document still runs when nothing forbids it — without that
+    /// control the test would pass on a path where scripts never run.
+    /// </remarks>
+    private void ExecuteSubDocumentScripts(DomElement docRoot, ContentSecurityPolicySet policies = default)
     {
         if (_realm is null) return;
 
@@ -121,6 +142,11 @@ public sealed partial class DomBridge
 
         foreach (var scriptCode in scripts)
         {
+            // An XML sub-document's scripts are inline by construction -- CollectScriptContent takes
+            // an element's text and never a src -- so the inline directive is the one that decides.
+            if (!policies.AllowsInlineScript(scriptText: scriptCode))
+                continue;
+
             try
             {
                 _jsContext.Eval(scriptCode);

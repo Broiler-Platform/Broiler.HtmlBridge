@@ -124,7 +124,7 @@ public sealed partial class DomBridge
         if (string.IsNullOrWhiteSpace(resourceUrl))
             return false; // No data attribute → empty sub-document, not a failure
 
-        var (_, contentType) = TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(objectElement));
+        var (_, contentType, _) = TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(objectElement));
         if (string.Equals(contentType, FetchFailedContentType, StringComparison.Ordinal))
         {
             _browsingContexts.MarkObjectLoadFailed(objectElement);
@@ -160,12 +160,24 @@ public sealed partial class DomBridge
 
         var executeHtmlScripts = false;
         string? htmlToExecute = null;
+
+        // The policy this frame is bound by IN ADDITION to any it declares in its own markup.
+        //
+        // A document with a local scheme -- about:srcdoc, about:blank, data:, blob: -- has no
+        // response of its own to carry a policy, so it INHERITS ITS EMBEDDER'S, which is this
+        // bridge's own Csp. A document fetched over the network does not inherit; it is bound by
+        // what its own response delivered, which TryFetchSubResource now answers alongside the
+        // content. Either way this is a policy the document did not write, enforced ALONGSIDE any
+        // it did -- never instead of one.
+        ContentSecurityPolicy? deliveredPolicy = null;
+
         DomDocument? docRoot = GetContentDocument(containerElement);
         if (docRoot == null)
         {
             if (string.Equals(containerElement.TagName, "iframe", StringComparison.OrdinalIgnoreCase) &&
                 TryGetAttribute(containerElement, "srcdoc", out var srcDoc))
             {
+                deliveredPolicy = Csp;
                 _browsingContexts.SetLocation(containerElement, "about:srcdoc");
                 _browsingContexts.SetBaseUrl(containerElement, GetInheritedSubDocumentBaseUrl(containerElement));
                 docRoot = BuildSubDocumentFromHtml(srcDoc, containerElement);
@@ -183,13 +195,22 @@ public sealed partial class DomBridge
                     _browsingContexts.SetBaseUrl(containerElement, resolvedUrl);
                 }
 
-                var (fetchedContent, contentType) = TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(containerElement));
+                var localScheme = IsLocalSchemeSubResource(resourceUrl);
+                deliveredPolicy = localScheme ? Csp : null;
+
+                var (fetchedContent, contentType, responsePolicy) =
+                    TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(containerElement));
+
+                // A network document does not inherit, and is bound by what its response delivered.
+                // A local-scheme one has no response, so a policy from one would be a contradiction.
+                if (!localScheme)
+                    deliveredPolicy = responsePolicy;
 
                 if (!string.IsNullOrEmpty(fetchedContent) &&
                     IsXmlContentType(contentType))
                 {
                     // XML/SVG/XHTML content → parse with XML parser
-                    docRoot = BuildSubDocumentFromXml(fetchedContent, contentType, containerElement);
+                    docRoot = BuildSubDocumentFromXml(fetchedContent, contentType, containerElement, deliveredPolicy);
                 }
                 else if (!string.IsNullOrEmpty(fetchedContent) &&
                     (contentType.Contains("html", StringComparison.OrdinalIgnoreCase) ||
@@ -218,7 +239,7 @@ public sealed partial class DomBridge
         var doc = _subDocuments.Build(docRoot);
         _browsingContexts.SetSubDocument(containerElement, doc);
         if (executeHtmlScripts && !string.IsNullOrEmpty(htmlToExecute))
-            ExecuteSubDocumentScripts(containerElement, htmlToExecute);
+            ExecuteSubDocumentScripts(containerElement, htmlToExecute, deliveredPolicy);
         return doc;
     }
 
@@ -338,7 +359,16 @@ public sealed partial class DomBridge
         return File.Exists(localPath) ? localPath : null;
     }
 
-    private void ExecuteSubDocumentScripts(DomElement containerElement, string html)
+    /// <param name="deliveredPolicy">
+    /// A Content-Security-Policy this frame is bound by that its own markup did not declare: the
+    /// embedder's, when the frame has a local scheme and inherits it, or the one its response
+    /// header carried. It is enforced ALONGSIDE any policy the frame's markup declares, so a
+    /// permissive <c>&lt;meta&gt;</c> inside a <c>srcdoc</c> cannot widen what the page allowed.
+    /// </param>
+    private void ExecuteSubDocumentScripts(
+        DomElement containerElement,
+        string html,
+        ContentSecurityPolicy? deliveredPolicy = null)
     {
         if (_realm is null || string.IsNullOrWhiteSpace(html))
             return;
@@ -347,7 +377,8 @@ public sealed partial class DomBridge
         // context: JSEAL types them as guest source (IJsSource.EvaluateGuestSource) and the module
         // roots after them need a JSModuleContext the contract does not describe at all, so moving
         // half of one loop would split one evaluation path across two vocabularies for no gain.
-        var extraction = ScriptExtractionService.ExtractAll(html, GetSubDocumentBaseUrl(containerElement));
+        var extraction = ScriptExtractionService.ExtractAll(
+            html, GetSubDocumentBaseUrl(containerElement), deliveredPolicy);
         if (extraction.Scripts.Count == 0 &&
             extraction.AsyncScripts.Count == 0 &&
             extraction.DeferredScripts.Count == 0 &&
@@ -481,6 +512,21 @@ public sealed partial class DomBridge
     /// Returns true if the content type indicates XML-family content
     /// (application/xml, text/xml, image/svg+xml, application/xhtml+xml).
     /// </summary>
+    /// <summary>
+    /// Whether a sub-resource URL names a LOCAL SCHEME — one whose document has no response of its
+    /// own, and therefore inherits its embedder's Content-Security-Policy.
+    /// </summary>
+    /// <remarks>
+    /// An absent or blank <c>src</c> is <c>about:blank</c>, which is local, so it answers
+    /// <see langword="true"/> rather than being treated as a network document that happens to have
+    /// fetched nothing.
+    /// </remarks>
+    private static bool IsLocalSchemeSubResource(string? resourceUrl) =>
+        string.IsNullOrWhiteSpace(resourceUrl) ||
+        resourceUrl.StartsWith("about:", StringComparison.OrdinalIgnoreCase) ||
+        resourceUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+        resourceUrl.StartsWith("blob:", StringComparison.OrdinalIgnoreCase);
+
     private static bool IsXmlContentType(string contentType) =>
         string.Equals(contentType, "application/xml", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(contentType, "text/xml", StringComparison.OrdinalIgnoreCase) ||
@@ -576,15 +622,31 @@ public sealed partial class DomBridge
     /// about:blank, empty URLs, or when the fetch fails.
     /// Supports <c>data:</c> URIs, <c>file://</c> URLs, and <c>http(s)://</c> URLs.
     /// </summary>
-    private (string? content, string contentType) TryFetchSubResource(string resourceUrl, string? baseUrl = null)
+    /// <summary>
+    /// Fetches a sub-resource, answering its text, its content type, and any Content-Security-Policy
+    /// its response delivered.
+    /// </summary>
+    /// <remarks>
+    /// <b>The third element used not to exist, and its absence was a hole rather than a
+    /// simplification.</b> A document's policy reaches it in a response header as readily as in a
+    /// <c>&lt;meta&gt;</c>, and this method held the whole response and returned two strings out of
+    /// it — so a frame served with <c>Content-Security-Policy: script-src 'none'</c> ran its scripts,
+    /// and the code that filtered them looked as though it had asked. Only the HTTP branch can
+    /// deliver one: a file, a data URI and a local WPT mapping have no response to carry a header,
+    /// and answer <see langword="null"/> because that is true of them and not because it was not
+    /// looked for.
+    /// </remarks>
+    private (string? content, string contentType, ContentSecurityPolicy? policy) TryFetchSubResource(
+        string resourceUrl,
+        string? baseUrl = null)
     {
         resourceUrl = NormalizeWptPlaceholderUrl(resourceUrl);
         if (string.IsNullOrWhiteSpace(resourceUrl))
-            return (null, string.Empty);
+            return (null, string.Empty, null);
 
         // about:blank gets an empty document (default behavior)
         if (string.Equals(resourceUrl, "about:blank", StringComparison.OrdinalIgnoreCase))
-            return (null, "text/html");
+            return (null, "text/html", null);
 
         // Handle data: URIs — decode and return content directly
         if (resourceUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
@@ -593,9 +655,9 @@ public sealed partial class DomBridge
             if (string.Equals(mimeType, "text/html", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(mimeType, "application/xhtml+xml", StringComparison.OrdinalIgnoreCase) ||
                 string.IsNullOrEmpty(mimeType))
-                return (!string.IsNullOrEmpty(body) ? body : null, mimeType);
+                return (!string.IsNullOrEmpty(body) ? body : null, mimeType, null);
             // Non-HTML data URIs: return body with detected MIME type
-            return (!string.IsNullOrEmpty(body) ? body : null, mimeType);
+            return (!string.IsNullOrEmpty(body) ? body : null, mimeType, null);
         }
 
         // Detect content type from extension for non-HTML resources
@@ -606,7 +668,7 @@ public sealed partial class DomBridge
         {
             var localResult = TryReadLocalResource(resourceUrl, extensionMime);
             if (localResult.content != null || localResult.contentType != string.Empty)
-                return localResult;
+                return (localResult.content, localResult.contentType, null);
         }
 
         // Resolve relative URL against page URL. An absolute URL keeps its raw string so the scheme
@@ -623,24 +685,26 @@ public sealed partial class DomBridge
         }
         else
         {
-            return (null, extensionMime);
+            return (null, extensionMime, null);
         }
 
         // Handle file:// URLs — read directly from local filesystem
         if (resolvedUrl.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
         {
-            return TryReadFileResource(resolvedUrl, extensionMime);
+            var fileResult = TryReadFileResource(resolvedUrl, extensionMime);
+            return (fileResult.content, fileResult.contentType, null);
         }
 
         if (TryMapLocalWptHttpResource(resolvedUrl) is { } localWptPath)
         {
-            return TryReadFileResource(new Uri(localWptPath).AbsoluteUri, extensionMime);
+            var wptResult = TryReadFileResource(new Uri(localWptPath).AbsoluteUri, extensionMime);
+            return (wptResult.content, wptResult.contentType, null);
         }
 
         // Only fetch HTTP/HTTPS URLs
         if (!resolvedUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
             !resolvedUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            return (null, extensionMime);
+            return (null, extensionMime, null);
 
         // Off by default; see ResourceTrace. Traced at this level because the sub-document's decoded
         // text and its resolved content type are both known here, and a non-success status is a
@@ -652,19 +716,51 @@ public sealed partial class DomBridge
             if (!response.IsSuccessStatusCode)
             {
                 attempt.Completed(null, (int)response.StatusCode);
-                return (null, FetchFailedContentType);
+                return (null, FetchFailedContentType, null);
             }
 
             var contentType = response.Content.Headers.ContentType?.MediaType ?? extensionMime;
             var content = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
             attempt.Completed(content, (int)response.StatusCode, contentType);
-            return (content, contentType);
+            return (content, contentType, PolicyFromResponse(response));
         }
         catch (Exception ex)
         {
             attempt.Failed(ex);
-            return (null, FetchFailedContentType);
+            return (null, FetchFailedContentType, null);
         }
+    }
+
+    /// <summary>
+    /// The Content-Security-Policy a response delivered, or <see langword="null"/> when it carried
+    /// none.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only the first policy is honoured, and a response may deliver several.</b> CSP is a list:
+    /// every policy delivered is enforced, and each can only narrow the others. This bridge's
+    /// <see cref="ContentSecurityPolicy"/> parses one policy, and
+    /// <see cref="ContentSecurityPolicySet"/> holds a document's two sources rather than an
+    /// unbounded list, so a second header is dropped. Dropping one can only make this MORE
+    /// permissive than the response asked for, which is the wrong direction; it is recorded here
+    /// because a reader who assumes otherwise would be building on it. The report-only header is
+    /// deliberately not read: it enforces nothing.
+    /// </remarks>
+    private static ContentSecurityPolicy? PolicyFromResponse(HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues("Content-Security-Policy", out var values))
+            return null;
+
+        foreach (var value in values)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+
+            var policy = new ContentSecurityPolicy();
+            policy.Parse(value);
+            return policy;
+        }
+
+        return null;
     }
 
     /// <summary>Sentinel content type indicating a network/file fetch failure (404, connection refused, etc.).</summary>

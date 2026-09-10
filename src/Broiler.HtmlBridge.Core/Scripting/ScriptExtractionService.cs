@@ -75,23 +75,23 @@ public static partial class ScriptExtractionService
     /// external check, then is decoded / fetched. Returns <c>null</c> when blocked, empty, or unresolvable.
     /// </summary>
     private static string? ResolveModuleSource(
-        ScriptSourceKind kind, string? url, string rawContent, string? nonce, ContentSecurityPolicy? csp, string? pageUrl,
+        ScriptSourceKind kind, string? url, string rawContent, string? nonce, ContentSecurityPolicySet csp, string? pageUrl,
         SubResourcePrefetcher? prefetcher = null)
     {
         switch (kind)
         {
             case ScriptSourceKind.Inline:
                 var body = rawContent.Trim();
-                return !string.IsNullOrEmpty(body) && (csp == null || csp.AllowsInlineScript(nonce, body)) ? body : null;
+                return !string.IsNullOrEmpty(body) && csp.AllowsInlineScript(nonce, body) ? body : null;
 
             case ScriptSourceKind.DataUri:
-                if (csp != null && !csp.AllowsExternalScript(url!, pageUrl, nonce))
+                if (!csp.AllowsExternalScript(url!, pageUrl, nonce))
                     return null;
                 var decoded = DecodeDataUri(url!);
                 return string.IsNullOrEmpty(decoded) ? null : decoded;
 
             case ScriptSourceKind.External:
-                if (csp != null && !csp.AllowsExternalScript(url!, pageUrl, nonce))
+                if (!csp.AllowsExternalScript(url!, pageUrl, nonce))
                     return null;
                 var fetched = FetchExternalScript(url!, pageUrl, prefetcher);
                 return string.IsNullOrEmpty(fetched) ? null : fetched;
@@ -105,7 +105,7 @@ public static partial class ScriptExtractionService
     public static IReadOnlyList<string> Extract(string html)
     {
         var scripts = new List<string>();
-        var csp = ContentSecurityPolicy.FromHtml(html);
+        var csp = new ContentSecurityPolicySet(ContentSecurityPolicy.FromHtml(html));
 
         foreach (var tag in HtmlScriptScanner.EnumerateScripts(html))
         {
@@ -124,7 +124,7 @@ public static partial class ScriptExtractionService
             // Check for data: URI src attribute
             if (src != null && src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
             {
-                if (csp != null && !csp.AllowsExternalScript(src, pageUrl: null, nonce))
+                if (!csp.AllowsExternalScript(src, pageUrl: null, nonce))
                     continue;
 
                 var decoded = DecodeDataUri(src);
@@ -139,7 +139,7 @@ public static partial class ScriptExtractionService
 
             // Inline script
             var content = tag.RawContent.Trim();
-            if (!string.IsNullOrEmpty(content) && (csp == null || csp.AllowsInlineScript(nonce, content)))
+            if (!string.IsNullOrEmpty(content) && csp.AllowsInlineScript(nonce, content))
             {
                 scripts.Add(content);
             }
@@ -149,7 +149,25 @@ public static partial class ScriptExtractionService
     }
 
     /// <inheritdoc />
-    public static ScriptExtractionResult ExtractAll(string html, string? pageUrl = null)
+    /// <param name="html">The document's markup.</param>
+    /// <param name="pageUrl">The document's URL, which relative sources resolve against.</param>
+    /// <param name="deliveredPolicy">
+    /// A policy this document is bound by that its own markup did not declare, or
+    /// <see langword="null"/>. Two things arrive this way: a LOCAL-SCHEME document —
+    /// <c>about:srcdoc</c>, <c>about:blank</c>, <c>data:</c> — receives its embedder's policy,
+    /// having no response of its own to carry one; and a document fetched over the network receives
+    /// whatever its <c>Content-Security-Policy</c> response header delivered.
+    /// <para>
+    /// It is ADDITIONAL and never a replacement. A frame declaring a permissive <c>&lt;meta&gt;</c>
+    /// cannot buy back what its embedder forbade, because both policies are enforced — which is the
+    /// whole reason this is a <see cref="ContentSecurityPolicySet"/> below rather than a choice
+    /// between two nullable policies.
+    /// </para>
+    /// </param>
+    public static ScriptExtractionResult ExtractAll(
+        string html,
+        string? pageUrl = null,
+        ContentSecurityPolicy? deliveredPolicy = null)
     {
         var scripts = new List<string>();
         var deferredScripts = new List<string>();
@@ -158,7 +176,7 @@ public static partial class ScriptExtractionService
         var moduleMap = new ModuleMap();
         var moduleRoots = new List<ModuleRoot>();
         var moduleEntryKeys = new HashSet<string>(StringComparer.Ordinal);
-        var csp = ContentSecurityPolicy.FromHtml(html);
+        var csp = new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(html));
 
         // Prefetch pass (roadmap item #2): every external script this document will fetch is
         // requested now, concurrently and bounded per host. The walk below is untouched — it still
@@ -227,7 +245,7 @@ public static partial class ScriptExtractionService
             {
                 if (kind == ScriptSourceKind.DataUri)
                 {
-                    if (csp == null || csp.AllowsExternalScript(url!, pageUrl, nonce))
+                    if (csp.AllowsExternalScript(url!, pageUrl, nonce))
                     {
                         var decoded = DecodeDataUri(url!);
                         if (!string.IsNullOrEmpty(decoded))
@@ -236,7 +254,7 @@ public static partial class ScriptExtractionService
                 }
                 else if (kind == ScriptSourceKind.External)
                 {
-                    if (csp == null || csp.AllowsExternalScript(url!, pageUrl, nonce))
+                    if (csp.AllowsExternalScript(url!, pageUrl, nonce))
                     {
                         var fetched = FetchExternalScript(url!, pageUrl, prefetcher);
                         if (!string.IsNullOrEmpty(fetched))
@@ -246,7 +264,7 @@ public static partial class ScriptExtractionService
                 else
                 {
                     var content = tag.RawContent.Trim();
-                    if (!string.IsNullOrEmpty(content) && (csp == null || csp.AllowsInlineScript(nonce, content)))
+                    if (!string.IsNullOrEmpty(content) && csp.AllowsInlineScript(nonce, content))
                         scriptContent = content;
                 }
             }
@@ -411,7 +429,7 @@ public static partial class ScriptExtractionService
     internal static SubResourcePrefetcher? CreateScriptPrefetcher(
         string html,
         string? pageUrl,
-        ContentSecurityPolicy? csp)
+        ContentSecurityPolicySet csp)
     {
         var urls = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -428,7 +446,7 @@ public static partial class ScriptExtractionService
             if (src is null || src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (csp != null && !csp.AllowsExternalScript(src, pageUrl, GetNonce(tag.Attributes)))
+            if (!csp.AllowsExternalScript(src, pageUrl, GetNonce(tag.Attributes)))
                 continue;
 
             if (UrlResolver.Resolve(src, pageUrl) is { } resolved && seen.Add(resolved.AbsoluteUri))
