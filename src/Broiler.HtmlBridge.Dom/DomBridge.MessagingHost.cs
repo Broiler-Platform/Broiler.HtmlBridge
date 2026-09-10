@@ -46,8 +46,11 @@ public sealed partial class DomBridge : IMessagingHost
 
     JsValue IMessagingHost.ResolveOwnerWindow(JsValue target) => ResolveOwnerWindow(target);
 
+    // The unwrap this used to do bought one thing: it picked the engine-typed overload, which
+    // wrapped the same object straight back. That overload is gone and the handle travels as it
+    // stands, which is what the manager below has always taken.
     void IMessagingHost.RunWithWindowContext(JsValue targetWindow, Action callback) =>
-        RunWithWindowContext(JsInterop.ToEngineObject(targetWindow), callback);
+        RunWithWindowContext(targetWindow, callback);
 
     void IMessagingHost.QueueFrameAction(Action callback) => QueueFrameAction(callback);
 

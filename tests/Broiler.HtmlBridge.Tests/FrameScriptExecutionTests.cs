@@ -8,7 +8,7 @@ namespace Broiler.Browser.Core.Tests;
 /// window, document and Location it runs against.
 /// <para>
 /// <b>Nothing in this suite mentioned frames, which is why two ordinary changes could not land.</b>
-/// Retyping <c>SubWindowBinding.GetOrCreate</c> rebinds <c>DomBridge/SubDocuments.cs:366</c>'s
+/// Retyping <c>SubWindowBinding.GetOrCreate</c> rebinds <c>DomBridge/SubDocuments.cs:396</c>'s
 /// <c>RunWithWindowContext(subWindow, …)</c> from one overload to the other with no textual change
 /// to that line, and pointing the frame's Location at the realm-framed builder moves a live path
 /// onto a builder that has never executed. Neither failure is one a compiler sees: the first reads

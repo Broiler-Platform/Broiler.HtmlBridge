@@ -1,6 +1,5 @@
 using System;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -11,21 +10,28 @@ namespace Broiler.HtmlBridge;
 /// state from the P3.16 <c>BrowsingContextManager</c>). These forwarders keep the callers unchanged: the
 /// extracted <see cref="Broiler.HtmlBridge.Dom.Features.MessagingBinding"/> reaches them through the
 /// <see cref="Broiler.HtmlBridge.Dom.Features.IMessagingHost"/> contract, and the sub-document script
-/// runner calls the engine-typed <c>RunWithWindowContext</c> overload directly.
+/// runner calls <c>RunWithWindowContext</c> directly.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The owner speaks JSEAL and so, now, does everything here except one overload.</b> Two of these
-/// delegators used to answer the engine's own object while both the manager below them and the
-/// messaging host above them held handles, so a window was converted out and converted straight back
-/// for no reader. Those are gone. What remains engine-typed is
-/// <see cref="RunWithWindowContext(JSObject, Action)"/>, whose caller is the sub-document script
-/// runner in <c>DomBridge/SubDocuments.cs</c> — another group's file, and its turn is later.
+/// <b>Every delegator here speaks JSEAL now, and the last one that did not was held open by a
+/// comment naming a caller it did not have.</b> Several of these used to take or answer the engine's
+/// own object while both the manager below them and the callers above them held handles, so a window
+/// was converted out and converted straight back for no reader. The last of them was a second
+/// <c>RunWithWindowContext</c> overload taking the engine's object, and the remarks that kept it said
+/// its caller was the sub-document script runner in <c>DomBridge/SubDocuments.cs</c>. It was not:
+/// that call site is one unchanged line, and it has bound to the overload below ever since
+/// <c>SubWindowBinding.GetOrCreate</c> was re-typed to answer a handle — which
+/// <c>FrameScriptExecutionTests</c> states in its own header, having been written to cover exactly
+/// that rebinding.
 /// </para>
 /// <para>
-/// The <see cref="RunWithWindowContext(JsValue, Action)"/> overload is the same call for a caller that
-/// already holds a handle (<c>DomBridge.SubDocumentGlobals.cs</c>), and exists so that caller does not
-/// unwrap only for this file to wrap again.
+/// The only caller the deleted overload had was <c>DomBridge.MessagingHost.cs</c>, which unwrapped a
+/// handle to an engine object so that the overload could wrap the same object straight back before
+/// handing it to the manager, whose own <c>RunWithWindowContext</c> has taken a handle all along.
+/// All three callers of <see cref="RunWithWindowContext(JsValue, Action)"/> — that host,
+/// <c>DomBridge.SubDocumentGlobals.cs</c> and <c>DomBridge/SubDocuments.cs</c> — already hold
+/// one, so there is nothing left for an engine-typed spelling to save any of them.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -49,9 +55,6 @@ public sealed partial class DomBridge
         WindowOrNull(_windowContext.ResolveOwnerWindow(target));
 
     private JsValue GetCanonicalWindow(JsValue candidate) => _windowContext.GetCanonicalWindow(candidate);
-
-    private void RunWithWindowContext(JSObject targetWindow, Action callback) =>
-        _windowContext.RunWithWindowContext(Dom.Runtime.JsInterop.FromEngineObject(targetWindow), callback);
 
     private void RunWithWindowContext(JsValue targetWindow, Action callback) =>
         _windowContext.RunWithWindowContext(targetWindow, callback);
