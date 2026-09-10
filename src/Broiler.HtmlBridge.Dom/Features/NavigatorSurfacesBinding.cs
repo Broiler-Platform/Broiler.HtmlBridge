@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -140,18 +142,18 @@ internal static class NavigatorSurfacesBinding
     /// Installs <c>query()</c> and the two <c>PermissionStatus</c> accessors.
     /// </summary>
     /// <remarks>
-    /// <b>The per-status name is held in a table keyed by the status object, and that table is no
-    /// longer weak.</b> It was a <c>ConditionalWeakTable</c> keyed on the engine object, which a
-    /// handle cannot key — a <see cref="JsValue"/> is a struct, and such a table needs a class key.
-    /// The dictionary here is created per <see cref="Install"/>, so it is per realm rather than
-    /// process-wide, and its entries live as long as the document does instead of as long as the
-    /// status object does. Nothing script can observe changes: what changes is that a page which
-    /// queries permissions in a loop keeps one small entry per query until its document is torn down.
-    /// It goes away when a status can carry host state of its own.
+    /// <b>The per-status name is held in a weak table keyed by the status object, and it is weak
+    /// again.</b> It became a plain dictionary on the reasoning that a handle cannot key a
+    /// <c>ConditionalWeakTable</c> - a <see cref="JsValue"/> is a struct, and such a table needs a
+    /// class key - which cost a page that queries permissions in a loop one entry per query for the
+    /// life of its document. The struct was never the key: <see cref="JsValue.ObjectIdentity"/> is
+    /// the reference the handle carries, which a provider already has to make canonical per object.
+    /// The remark that stood here closed "it goes away when a status can carry host state of its
+    /// own", and this is that, arriving from the other direction.
     /// </remarks>
     private static void InstallPermissions(IJsRealm realm, JsValue prototype, JsValue statusPrototype)
     {
-        var statusNames = new Dictionary<JsValue, string>();
+        var statusNames = new ConditionalWeakTable<object, string>();
 
         Method(realm, prototype, "query", 1, (in call) =>
         {
@@ -177,12 +179,18 @@ internal static class NavigatorSurfacesBinding
 
             var status = callRealm.NewObject();
             callRealm.SetPrototype(status, statusPrototype);
-            statusNames[status] = name;
+            statusNames.AddOrUpdate(
+                status.ObjectIdentity ?? throw new InvalidOperationException(
+                    "a PermissionStatus registry was keyed on a handle that is not an object"),
+                name);
             return Resolved(callRealm, status);
         });
 
         Getter(realm, statusPrototype, "name", status =>
-            JsValue.String(statusNames.TryGetValue(status, out var name) ? name : string.Empty));
+            JsValue.String(
+                status.ObjectIdentity is { } identity && statusNames.TryGetValue(identity, out var name)
+                    ? name
+                    : string.Empty));
 
         // Denied, for every capability. Broiler grants none of them and has no surface to prompt on,
         // so "prompt" — which is what a browser answers before the user has been asked — would

@@ -61,6 +61,42 @@ public readonly struct JsValue : IEquatable<JsValue>
     /// </remarks>
     public object? Reference => _reference;
 
+    /// <summary>
+    /// The reference an OBJECT handle carries, for a host keeping a weak per-object table.
+    /// <see langword="null"/> for every other kind.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the member six doc comments in the bridge said could not exist, and the reasoning
+    /// was one noun off.</b> A <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/>
+    /// needs a reference KEY and a <see cref="JsValue"/> is a struct - but the thing a
+    /// <see cref="JsValue"/> CARRIES is a reference, and a provider is already required to make it
+    /// canonical per guest object, because <see cref="op_Equality"/> decides whether two handles are
+    /// the same object by comparing exactly this field. A table keyed on it is therefore as weak as,
+    /// and answers the same question as, one keyed on the engine's own object. Nothing here is new
+    /// capability: it is the identity the contract already promised, said out loud so a binding can
+    /// key on it without naming an engine.
+    /// </para>
+    /// <para>
+    /// <b>Kind-guarded, which is the whole reason it is a second member rather than a use of
+    /// <see cref="Reference"/>.</b> <see cref="String(string?)"/> stores its text in this same field,
+    /// so a table keyed on the raw reference would silently accept a string - and two equal literals
+    /// are usually one interned instance, which would make one string's entry answer for another's.
+    /// <see cref="JsValueKind.Symbol"/> and <see cref="JsValueKind.BigInt"/> carry references too and
+    /// are excluded for a narrower reason: no per-object table in the bridge is keyed on one, and a
+    /// member that admits a kind no caller wants is how the string case gets re-argued later.
+    /// </para>
+    /// <para>
+    /// <b>What a provider owes this member is what it already owes <see cref="op_Equality"/>.</b>
+    /// One handle per guest object, for the life of the realm, held no more strongly than the guest
+    /// holds the object. Both registered providers satisfy it without a line of change - one carries
+    /// the engine's own object, the other boxes once per identity against a weak table of its own -
+    /// and a provider that did not would already be failing
+    /// <c>TwoHandlesForOneObjectAreEqualAndHashTheSame</c>.
+    /// </para>
+    /// </remarks>
+    public object? ObjectIdentity => IsObject ? _reference : null;
+
     /// <summary>No value was supplied. The default, so <c>default(JsValue)</c> means it.</summary>
     public static JsValue Missing => default;
 

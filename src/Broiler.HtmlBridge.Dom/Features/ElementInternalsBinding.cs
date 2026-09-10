@@ -118,9 +118,20 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
     }
 
     /// <summary>
-    /// The identity a weak per-object registry keys on: the engine's own object behind the handle.
+    /// The identity a weak per-object registry keys on: the reference the handle carries.
     /// </summary>
-    private static object IdentityOf(JsValue value) => Runtime.JsInterop.ToEngineObject(value);
+    /// <remarks>
+    /// <b>This used to unwrap to the engine's own object, on the reasoning that a
+    /// <see cref="JsValue"/> is a struct and so cannot be a
+    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/> key.</b> The
+    /// struct is not the key; the reference it carries is, and
+    /// <see cref="JsValue.ObjectIdentity"/> is that reference. It is the same instance this table
+    /// was keyed on before, under the one provider that could reach it - so nothing about the
+    /// answers changes - and it is now an instance every provider supplies.
+    /// </remarks>
+    private static object IdentityOf(JsValue value) =>
+        value.ObjectIdentity ?? throw new InvalidOperationException(
+            "a per-object registry was keyed on a handle that is not an object");
 
     // -------- Registration --------
 

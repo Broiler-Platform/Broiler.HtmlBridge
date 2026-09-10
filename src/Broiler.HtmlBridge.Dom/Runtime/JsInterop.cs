@@ -22,13 +22,19 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <para>
 /// <b>It costs nothing at run time and it is not a conversion.</b> Under the Broiler.JS provider a
 /// JSEAL object handle carries the engine's own <c>JSObject</c> — that is the provider's central
-/// design rule, and it is what keeps wrapper identity, the three
-/// <c>ConditionalWeakTable&lt;JSObject, …&gt;</c> keyed on it
-/// (<c>Runtime/JsObjectRegistry.cs</c>, <c>Features/BlobBinding.cs</c>,
-/// <c>Features/DomCollectionBinding.cs</c>), and <c>el === el</c> all working across
-/// a half-migrated bridge. This sentence said <em>seven</em> until they were counted; every other
-/// weak table in the assembly keys on a <c>DomNode</c> or a <c>DomElement</c> and is already
-/// engine-neutral, which makes the reference-key floor a third the size the number implied. So this
+/// design rule, and it is what keeps wrapper identity and <c>el === el</c> working across a
+/// half-migrated bridge.
+/// </para>
+/// <para>
+/// <b>The weak tables are no longer among the things it keeps working, and the paragraph that used
+/// to count them here was wrong twice.</b> It said the reference-key floor was three tables and
+/// "a third the size the number implied"; the tree had six, because three more were typed
+/// <c>&lt;object, …&gt;</c> and fed by an <c>IdentityOf</c> that unwrapped through this class. All
+/// six now key on <see cref="JsValue.ObjectIdentity"/> — the reference the handle carries, which
+/// every provider already makes canonical per object because handle equality is defined by it — and
+/// <c>Runtime/JsObjectRegistry.cs</c> is the only per-object table left that still names an engine
+/// type, because re-typing its surface is one commit across ten files rather than a step. There is
+/// no reference-key floor. So this
 /// is a cast, and the assertion it makes is that the realm the bridge
 /// is attached to is a Broiler.JS realm. On a build serving a different engine it would fail loudly at
 /// the first migrated binding, which is correct: the unmigrated half of the bridge cannot run on

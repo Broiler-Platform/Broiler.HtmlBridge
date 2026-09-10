@@ -38,11 +38,20 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <c>JsValue</c>-valued without changing a single answer: a handle carries the engine's own object,
 /// <c>JsValue.Equals</c> is reference identity for the object kinds, and its <c>GetHashCode</c> is
 /// <c>RuntimeHelpers.GetHashCode</c> of that payload — exactly what
-/// <c>ReferenceEqualityComparer</c> gives today. The <c>ConditionalWeakTable</c> below is the one
-/// member that cannot follow, and it is the clearest single measure of what the handle design costs:
-/// a weak table needs a <em>reference</em> key and a <c>JsValue</c> is a struct, so this table stays
-/// keyed on the engine object however far the rest of the bridge moves, and its two call sites —
-/// <see cref="Set"/> and <see cref="TryGetNode"/> — unwrap the handle on the way in.
+/// <c>ReferenceEqualityComparer</c> gives today.
+/// </para>
+/// <para>
+/// <b>The <c>ConditionalWeakTable</c> below CAN follow, and the paragraph that stood here saying it
+/// could not was wrong in a way worth recording.</b> It said "a weak table needs a <em>reference</em>
+/// key and a <c>JsValue</c> is a struct, so this table stays keyed on the engine object however far
+/// the rest of the bridge moves" — and called that "the clearest single measure of what the handle
+/// design costs". The struct was never the key. <see cref="JsValue.ObjectIdentity"/> is the
+/// reference the handle carries, which a provider is already required to make canonical per guest
+/// object because handle equality is defined by it, and a table keyed on it is exactly as weak as
+/// one keyed on the engine's object. Five of the bridge's per-object tables crossed on that member
+/// without changing an answer. This one has not, and the reason is the one above rather than a
+/// structural cost: its surface is read by ten files that hold the engine's object mid-frame, so it
+/// moves in one commit or none.
 /// </para>
 /// </remarks>
 internal sealed class JsObjectRegistry
