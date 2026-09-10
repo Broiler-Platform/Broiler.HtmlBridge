@@ -1,6 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -27,12 +26,10 @@ public sealed partial class DomBridge : Dom.Features.INodeRelationshipsHost
 
     void Dom.Features.INodeRelationshipsHost.NormalizeNode(DomElement element) => NormalizeNode(element);
 
-    // ToJSRootNode answers a wrapper or the engine's null (a document with no wrapper yet), which is
-    // the same pair of arms FromEngineResult exists for in the selectors seam.
-    JsValue Dom.Features.INodeRelationshipsHost.WrapRootNode(DomNode root)
-        => ToJSRootNode(root) is JSObject wrapper
-            ? Dom.Runtime.JsInterop.FromEngineObject(wrapper)
-            : JsValue.Null;
+    // ToJSRootNode answers the handle or JsValue.Null (a document with no wrapper yet) directly. It
+    // used to answer an engine value that this line tested and re-wrapped, which was a round trip
+    // over one object rather than a conversion.
+    JsValue Dom.Features.INodeRelationshipsHost.WrapRootNode(DomNode root) => ToJSRootNode(root);
 
     DomNode Dom.Features.INodeRelationshipsHost.CloneDomElement(DomNode source, bool deep)
         => CloneDomElement(source, deep);

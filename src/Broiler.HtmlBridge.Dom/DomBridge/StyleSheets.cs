@@ -2,10 +2,6 @@ using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
-// Engine-typed only for the BuildStyleSheetObject adapter at the foot of this file, whose return type is
-// fixed by the unmigrated IDocumentCollectionHost / ISubDocumentHost contracts (neither owned this round).
-using Broiler.JavaScript.Runtime;
-
 namespace Broiler.HtmlBridge;
 
 /// <summary>
@@ -104,19 +100,6 @@ public sealed partial class DomBridge
             : JsValue.Null;
 
     /// <summary>
-    /// The <c>CSSStyleSheet</c> for a style element, for a caller that still holds engine objects.
-    /// </summary>
-    /// <remarks>
-    /// The adapter that keeps <c>Features/IDocumentCollectionHost.cs</c>,
-    /// <c>Features/ISubDocumentHost.cs</c> and their implementations compiling untouched — none is owned
-    /// this round, and all three declare this return type. It is a cast and not a conversion (see
-    /// <see cref="Dom.Runtime.JsInterop"/>), so the object handed over is the cached one and sheet
-    /// identity is the same question it was.
-    /// </remarks>
-    private JSObject BuildStyleSheetObject(DomElement styleElement) =>
-        Dom.Runtime.JsInterop.ToEngineObject(BuildStyleSheet(styleElement));
-
-    /// <summary>
     /// Builds a CSSStyleSheet object for a style element.
     /// Cached per style element to ensure identity (the same object is returned
     /// each time, making cssRules a live collection per the CSSOM spec).
@@ -133,7 +116,7 @@ public sealed partial class DomBridge
         // which owns the wrapper cache, has not migrated; the handle over what it returns is the same
         // object, so sheet.ownerNode === el still holds.
         realm.DefineAccessor(sheet, "ownerNode",
-            (in _) => Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(styleElement)), null);
+            (in _) => WrapNode(styleElement), null);
 
         // href — CSSOM §2.1 StyleSheet.href: the location of the sheet, null for an inline
         // <style>. It was null for a linked sheet too, so a <link> presented itself in

@@ -342,22 +342,6 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// A node's JS wrapper, as the engine object the unmigrated half of the bridge holds.
-    /// </summary>
-    /// <remarks>
-    /// <b>This is the engine-typed adapter and it stays one deliberately.</b> It is the most-called
-    /// method in the bridge — twenty-six files across this assembly reach for it, none of them this
-    /// one — so migrating its <em>return type</em> would ripple into every one of them at once, which
-    /// is the change this file-by-file port exists to avoid. It is a cast over
-    /// <see cref="WrapNode"/>, not a second wrapper: a JSEAL object handle carries the engine's own
-    /// object, so <c>el === el</c> holds across the seam and the weak tables keyed on wrapper identity
-    /// keep answering the question they always asked.
-    /// </remarks>
-    internal JSObject ToJSObject(DomNode node) =>
-        Dom.Runtime.JsInterop.ToEngineObject(WrapNode(node));
-
-
-    /// <summary>
     /// The <c>Node</c> members as own properties of one element wrapper — the shape every element
     /// had before they moved to <c>Node.prototype</c>, kept for the one case that cannot use them: a
     /// wrapper minted before the realm carried the interfaces, which inherits from nothing.

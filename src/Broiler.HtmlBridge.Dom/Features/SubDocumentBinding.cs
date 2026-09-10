@@ -35,21 +35,6 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     private readonly ISubDocumentHost _host = host;
 
     /// <summary>
-    /// <see cref="Build"/> as an engine object, for the one caller that still holds one:
-    /// <c>DomBridge/DomBridge.DocumentLevelFactoryHost.cs</c>, which unwraps it straight back into a
-    /// handle for <see cref="IDocumentLevelFactoryHost.BuildDocument"/> and is another group's file
-    /// this round.
-    /// </summary>
-    /// <remarks>
-    /// It is a cast and not a conversion — the handle carries the engine's own object — so the
-    /// document object that caller receives is the one this module built. It goes when that caller
-    /// reads the handle directly. The bridge's own sub-document cache has stopped needing it: it
-    /// stores what <see cref="Build"/> answers.
-    /// </remarks>
-    internal JavaScript.Runtime.JSObject BuildDocument(DomNode docRoot) =>
-        Runtime.JsInterop.ToEngineObject(Build(docRoot));
-
-    /// <summary>
     /// Builds the JS <c>document</c> object for the sub-document rooted at <paramref name="docRoot"/> and
     /// registers it as that root's wrapper identity. Was <c>DomBridge.BuildSubDocument</c>.
     /// </summary>

@@ -76,6 +76,6 @@ public sealed partial class DomBridge : IElementInternalsHost
         Realm.DefineValue(evt, "type", JsValue.String("invalid"));
         Realm.DefineValue(evt, "bubbles", JsValue.False);
         Realm.DefineValue(evt, "cancelable", JsValue.True);
-        DispatchEventOnElement(element, JsInterop.ToEngineObject(evt));
+        _eventDispatch.DispatchEventOnElement(element, evt);
     }
 }

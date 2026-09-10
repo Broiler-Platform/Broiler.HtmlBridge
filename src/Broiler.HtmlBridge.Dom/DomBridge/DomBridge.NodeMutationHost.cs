@@ -15,7 +15,7 @@ namespace Broiler.HtmlBridge;
 public sealed partial class DomBridge : Dom.Features.INodeMutationHost
 {
     JsValue Dom.Features.INodeMutationHost.WrapNode(DomNode node) =>
-        Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
+        WrapNode(node);
 
     DomNode Dom.Features.INodeMutationHost.DocumentNode => _document;
 

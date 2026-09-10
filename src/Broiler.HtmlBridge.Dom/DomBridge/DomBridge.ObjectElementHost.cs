@@ -18,5 +18,5 @@ public sealed partial class DomBridge : Dom.Features.IObjectElementHost
     bool Dom.Features.IObjectElementHost.IsObjectLoadFailed(DomElement objectElement) => IsObjectLoadFailed(objectElement);
 
     JsValue Dom.Features.IObjectElementHost.GetOrCreateSubDocument(DomElement containerElement)
-        => Dom.Runtime.JsInterop.FromEngineObject(GetOrCreateSubDocument(containerElement));
+        => GetOrCreateSubDocument(containerElement);
 }

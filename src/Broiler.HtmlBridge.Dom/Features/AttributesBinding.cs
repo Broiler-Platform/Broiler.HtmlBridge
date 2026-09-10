@@ -26,12 +26,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// contract is <see cref="JsNativeFunction"/> since its own migration.
 /// </para>
 /// <para>
-/// <b>One engine reference remains and it is not this module's to remove.</b>
-/// <see cref="BuildStandaloneAttrNode"/> answers an engine object because
+/// <b>No engine reference remains, and the last two went one commit apart.</b>
+/// <see cref="BuildStandaloneAttrNode"/> answered an engine object for
 /// <c>DomBridge/DomBridge.DocumentFactoryHost.cs</c>, which reaches it for
-/// <c>document.createAttribute</c>, still holds one. It converts with
-/// <see cref="Runtime.JsInterop"/> or not at all: it carries an object across without converting it —
-/// the handle holds the engine's own object — and cannot carry a primitive.
+/// <c>document.createAttribute</c> and converted it straight back — the shell is a handle either
+/// way, so the conversion named one <c>Attr</c> twice.
 /// <para>
 /// The second used to be the <c>InvalidCharacterError</c> that <c>setAttribute</c> and
 /// <c>toggleAttribute</c> must throw, which the bridge's name validator minted from a script context
@@ -295,12 +294,15 @@ internal sealed class AttributesBinding(IAttributesHost host)
         AttrNodeFor(element, name, ownerObj);
 
     /// <summary>
-    /// A parentless <c>Attr</c> (<c>document.createAttribute</c>). Engine-typed because its caller,
-    /// <c>DomBridge.DocumentFactoryHost.cs</c>, is not migrated.
+    /// A parentless <c>Attr</c> (<c>document.createAttribute</c>).
     /// </summary>
-    internal JavaScript.Runtime.JSObject BuildStandaloneAttrNode(string qualifiedName, string? namespaceUri) =>
-        Runtime.JsInterop.ToEngineObject(
-            BuildAttrNodeShell(qualifiedName, JsValue.Null, namespaceUri, null, JsValue.String(string.Empty), null));
+    /// <remarks>
+    /// It answered an engine object until its caller stopped asking for one. The shell it builds is
+    /// a handle either way — <c>DomBridge.DocumentFactoryHost.cs</c> converted it back on receipt —
+    /// so the conversion named one <c>Attr</c> twice and is gone.
+    /// </remarks>
+    internal JsValue BuildStandaloneAttrNode(string qualifiedName, string? namespaceUri) =>
+        BuildAttrNodeShell(qualifiedName, JsValue.Null, namespaceUri, null, JsValue.String(string.Empty), null);
 
     /// <summary>
     /// The <c>Attr</c> wrapper for an attribute that is <em>on</em> an element, so its <c>value</c>

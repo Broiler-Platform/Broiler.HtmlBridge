@@ -21,7 +21,7 @@ public sealed partial class DomBridge : IMutationObserverHost
 {
     IJsRealm IMutationObserverHost.Realm => Realm;
 
-    JsValue IMutationObserverHost.WrapNode(DomNode node) => JsInterop.FromEngineObject(ToJSObject(node));
+    JsValue IMutationObserverHost.WrapNode(DomNode node) => WrapNode(node);
 
     DomNode? IMutationObserverHost.FindNode(JsValue wrapper) =>
         wrapper.IsObject ? FindDomNodeByJSObject(JsInterop.ToEngineObject(wrapper)) : null;

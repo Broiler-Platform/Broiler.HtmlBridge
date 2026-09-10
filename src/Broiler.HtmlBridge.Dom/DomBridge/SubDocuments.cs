@@ -77,7 +77,7 @@ public sealed partial class DomBridge
             var evt = Realm.NewObject();
             Realm.DefineValue(evt, "type", JsValue.String("load"));
             Realm.DefineValue(evt, "bubbles", JsValue.False);
-            DispatchEventOnElement(element, Dom.Runtime.JsInterop.ToEngineObject(evt));
+            _eventDispatch.DispatchEventOnElement(element, evt);
         }
         catch (Exception ex)
         {
@@ -147,17 +147,16 @@ public sealed partial class DomBridge
     /// <see cref="Runtime.BrowsingContextManager"/> holds the handle it answered with.
     /// </para>
     /// <para>
-    /// The <em>return type</em> is the adapter, and it is pinned by four files this group does not own:
-    /// <c>DomBridge/DomBridge.IframeElementHost.cs</c>, <c>DomBridge/DomBridge.ObjectElementHost.cs</c>,
-    /// <c>DomBridge.SubWindowHost.cs</c> and <c>DomBridge.WindowContextHost.cs</c> each wrap the answer
-    /// with <c>JsInterop.FromEngineObject</c> before handing it to a JSEAL contract, so the one cast
-    /// left here is the one they undo. It goes when they read the handle directly.
+    /// The return type used to be the adapter, pinned by four files that each wrapped the answer
+    /// with <c>JsInterop.FromEngineObject</c> before handing it to a JSEAL contract — so the cast
+    /// here was the one they undid. They read the handle directly now, and the cache under this has
+    /// stored a <c>JsValue</c> throughout, so both ends of the round trip are gone.
     /// </para>
     /// </remarks>
-    internal JavaScript.Runtime.JSObject GetOrCreateSubDocument(DomElement containerElement)
+    internal JsValue GetOrCreateSubDocument(DomElement containerElement)
     {
         if (_browsingContexts.TryGetSubDocument(containerElement, out var cached))
-            return Dom.Runtime.JsInterop.ToEngineObject(cached);
+            return cached;
 
         var executeHtmlScripts = false;
         string? htmlToExecute = null;
@@ -220,7 +219,7 @@ public sealed partial class DomBridge
         _browsingContexts.SetSubDocument(containerElement, doc);
         if (executeHtmlScripts && !string.IsNullOrEmpty(htmlToExecute))
             ExecuteSubDocumentScripts(containerElement, htmlToExecute);
-        return Dom.Runtime.JsInterop.ToEngineObject(doc);
+        return doc;
     }
 
     private static DomElement? FindBodyElement(DomElement documentElement) =>

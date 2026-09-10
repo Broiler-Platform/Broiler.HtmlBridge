@@ -15,12 +15,12 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The owner speaks JSEAL; three of these delegators do not, and that is what this file is for.</b>
-/// <c>DomBridge.MessagingHost.cs</c> and <c>DomBridge/SubDocuments.cs</c> are other groups' files this
-/// round and hold a window as the engine's own object — the messaging host even unwraps a handle to
-/// call in — so the engine-typed forms below stay exactly as they were and convert at the boundary.
-/// A JSEAL handle carries the engine object, so each conversion is a cast and the window identity is
-/// unchanged either way.
+/// <b>The owner speaks JSEAL and so, now, does everything here except one overload.</b> Two of these
+/// delegators used to answer the engine's own object while both the manager below them and the
+/// messaging host above them held handles, so a window was converted out and converted straight back
+/// for no reader. Those are gone. What remains engine-typed is
+/// <see cref="RunWithWindowContext(JSObject, Action)"/>, whose caller is the sub-document script
+/// runner in <c>DomBridge/SubDocuments.cs</c> — another group's file, and its turn is later.
 /// </para>
 /// <para>
 /// The <see cref="RunWithWindowContext(JsValue, Action)"/> overload is the same call for a caller that
@@ -30,15 +30,23 @@ namespace Broiler.HtmlBridge;
 /// </remarks>
 public sealed partial class DomBridge
 {
-    /// <summary>The engine object behind a window handle, or <see langword="null"/> when the manager
-    /// answered "no window" — the CLR null these engine-typed forms have always returned.</summary>
-    private static JSObject? ToEngineWindow(JsValue window) =>
-        window.IsObject ? Dom.Runtime.JsInterop.ToEngineObject(window) : null;
+    /// <summary>
+    /// A window handle, or <see cref="JsValue.Null"/> when the manager answered "no window".
+    /// </summary>
+    /// <remarks>
+    /// <b>The CLR null these forms used to answer was the same answer spelled in a type only the
+    /// middle of this path used.</b> The manager speaks JSEAL and so does <c>IMessagingHost</c>;
+    /// these two delegators converted a handle to an engine object on the way out and the host
+    /// converted it straight back, which named one window either way. What is kept is the
+    /// distinction that conversion carried: a non-object answer becomes <c>null</c> for the page,
+    /// not <see cref="JsValue.Missing"/>, because "no window" is a value a page reads.
+    /// </remarks>
+    private static JsValue WindowOrNull(JsValue window) => window.IsObject ? window : JsValue.Null;
 
-    private JSObject? ResolveCurrentWindow() => ToEngineWindow(_windowContext.ResolveCurrentWindow());
+    private JsValue ResolveCurrentWindow() => WindowOrNull(_windowContext.ResolveCurrentWindow());
 
-    private JSObject? ResolveOwnerWindow(JSObject target) =>
-        ToEngineWindow(_windowContext.ResolveOwnerWindow(Dom.Runtime.JsInterop.FromEngineObject(target)));
+    private JsValue ResolveOwnerWindow(JsValue target) =>
+        WindowOrNull(_windowContext.ResolveOwnerWindow(target));
 
     private JsValue GetCanonicalWindow(JsValue candidate) => _windowContext.GetCanonicalWindow(candidate);
 

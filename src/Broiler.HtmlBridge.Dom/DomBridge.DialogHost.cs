@@ -83,7 +83,7 @@ public sealed partial class DomBridge : IDialogHost
             var evt = Realm.NewObject();
             Realm.DefineValue(evt, "type", JsValue.String("fullscreenchange"));
             Realm.DefineValue(evt, "bubbles", JsValue.True);
-            DispatchEventOnElement(target, JsInterop.ToEngineObject(evt));
+            _eventDispatch.DispatchEventOnElement(target, evt);
         }
         catch (Exception ex)
         {

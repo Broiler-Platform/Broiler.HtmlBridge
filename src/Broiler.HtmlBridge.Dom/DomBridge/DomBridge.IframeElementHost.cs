@@ -24,10 +24,10 @@ public sealed partial class DomBridge : Dom.Features.IIframeElementHost
     bool Dom.Features.IIframeElementHost.IsCurrentIframeCrossOrigin(DomElement element) => IsCurrentIframeCrossOrigin(element);
 
     JsValue Dom.Features.IIframeElementHost.GetOrCreateSubDocument(DomElement element)
-        => Dom.Runtime.JsInterop.FromEngineObject(GetOrCreateSubDocument(element));
+        => GetOrCreateSubDocument(element);
 
     JsValue Dom.Features.IIframeElementHost.GetOrCreateSubWindow(DomElement element)
-        => Dom.Runtime.JsInterop.FromEngineObject(_subWindows.GetOrCreate(element));
+        => _subWindows.GetOrCreate(element);
 
     void Dom.Features.IIframeElementHost.InvalidateCachedSubDocument(DomElement element) => InvalidateCachedSubDocument(element);
     void Dom.Features.IIframeElementHost.ClearOnloadFired(DomElement element) => _browsingContexts.ClearOnloadFired(element);

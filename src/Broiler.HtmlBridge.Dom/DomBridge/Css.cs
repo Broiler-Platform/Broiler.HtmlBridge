@@ -775,7 +775,7 @@ public sealed partial class DomBridge
             var evt = Realm.NewObject();
             Realm.DefineValue(evt, "type", JsValue.String(loaded ? "load" : "error"));
             Realm.DefineValue(evt, "bubbles", JsValue.False);
-            DispatchEventOnElement(element, JsInterop.ToEngineObject(evt));
+            _eventDispatch.DispatchEventOnElement(element, evt);
         }
         catch (Exception ex)
         {

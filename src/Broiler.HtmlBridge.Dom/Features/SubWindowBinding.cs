@@ -138,14 +138,14 @@ internal sealed class SubWindowBinding(
         "localStorage", "sessionStorage",
     ];
 
-    /// <summary>
-    /// <see cref="Build"/> as an engine object, for the callers that still hold one: the
-    /// browsing-context cache the window is stored in, and the bridge's iframe/window-load surfaces
-    /// (<c>DomBridge.IframeElementHost.cs</c>, <c>DomBridge.WindowLoad.cs</c>) — other groups' files
-    /// this round. A cast, not a conversion, so it is the same window object either way.
-    /// </summary>
-    public JavaScript.Runtime.JSObject GetOrCreate(DomElement containerElement) =>
-        JsInterop.ToEngineObject(Build(containerElement));
+    /// <summary>Gets or builds the sub-window for a nested-browsing-context container.</summary>
+    /// <remarks>
+    /// It answered an engine object until two of its three callers stopped wanting one. The third,
+    /// <c>DomBridge.WindowLoad.cs</c>, collects windows into the engine array <c>window.frames</c>
+    /// is built from and converts there instead — a boundary with a different unit rather than a
+    /// conversion this method owes.
+    /// </remarks>
+    public JsValue GetOrCreate(DomElement containerElement) => Build(containerElement);
 
     /// <summary>Gets or builds the sub-window JS object for a nested-browsing-context container.</summary>
     private JsValue Build(DomElement containerElement)
@@ -176,13 +176,13 @@ internal sealed class SubWindowBinding(
         // navigation methods together, because a framed page calls location.replace() as readily
         // as a top-level one and a missing method is a TypeError that takes its caller with it.
         //
-        // LocationBinding still mints that object with the engine's own types and its Build takes no
-        // realm, so the result crosses back through the seam here. `realm` is already in hand three
-        // lines above, so the day Build takes one this becomes
-        // `realm.DefineValue(window, "location", LocationBinding.Build(realm, locationHref))` and the
-        // unwrapping goes — nothing else on this side has to move.
+        // The realm builder, which is now the only one. Its predecessor took no realm and answered
+        // an engine object this line converted back; both are gone, and with them the second
+        // navigation surface that existed only to install the same six members in engine terms.
+        // Held in a local because the frame's DOCUMENT shares this exact object with its window,
+        // below -- two DefineValue calls over one Location, not two Locations.
         var locationHref = GetSubWindowLocationHref(containerElement);
-        var iframeLocation = JsInterop.FromEngineObject(LocationBinding.Build(locationHref));
+        var iframeLocation = LocationBinding.Build(realm, locationHref);
         realm.DefineValue(window, "location", iframeLocation);
 
         realm.DefineAccessor(window, "scrollX",

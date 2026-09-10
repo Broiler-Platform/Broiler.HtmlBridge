@@ -219,4 +219,49 @@ public class DomEnumerationAndArityTests
                 })()
                 """));
     }
+
+    /// <summary>
+    /// <c>location</c>'s own members keep the descriptor shape a page can read off them.
+    /// </summary>
+    /// <remarks>
+    /// <b>Written because the interop sweep is about to rebuild this object through the realm rather
+    /// than the engine, and a descriptor is the part of it nothing else checks.</b> A page reads
+    /// these: a framework feature-detects with <c>getOwnPropertyDescriptor(location, 'href').set</c>,
+    /// and <c>Object.keys(location)</c> is what a logger serialises. The accessor's arity is the
+    /// specification's — a setter declares one required argument and a getter none — and it is
+    /// already correct here, so this test exists to keep it correct across a change of the machinery
+    /// that mints it rather than to fix it.
+    /// <para>
+    /// <c>protocol</c> is asserted alongside <c>href</c> because the two are built differently: one
+    /// is an accessor and the other a data property, and a rebuild that made them uniform would be
+    /// invisible to every other assertion in this file.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void LocationsMembersKeepTheirDescriptorShape()
+    {
+        Assert.Equal("set=1 get=0 enum=true config=true", Run("""
+            (function () {
+              var d = Object.getOwnPropertyDescriptor(location, 'href');
+              return 'set=' + d.set.length + ' get=' + d.get.length +
+                     ' enum=' + d.enumerable + ' config=' + d.configurable;
+            })()
+            """));
+
+        // A data property, not an accessor -- the distinction a uniform rebuild would erase.
+        Assert.Equal("accessor=undefined enumerable=true", Run("""
+            (function () {
+              var d = Object.getOwnPropertyDescriptor(location, 'protocol');
+              return 'accessor=' + typeof d.set + ' enumerable=' + d.enumerable;
+            })()
+            """));
+
+        // href is enumerable and reachable by name, which is what a for-in over location depends on.
+        Assert.Equal("count=13 hasHref=true", Run("""
+            (function () {
+              var ks = Object.keys(location);
+              return 'count=' + ks.length + ' hasHref=' + (ks.indexOf('href') >= 0);
+            })()
+            """));
+    }
 }

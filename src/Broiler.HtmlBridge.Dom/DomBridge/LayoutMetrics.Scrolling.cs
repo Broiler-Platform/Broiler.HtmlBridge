@@ -323,7 +323,7 @@ public sealed partial class DomBridge
         Realm.DefineValue(evt, "bubbles", JsValue.False);
         // Element dispatch has not migrated, so the event crosses back as the engine's own object — a
         // cast rather than a conversion, so the listeners see the object that was built here.
-        DispatchEventOnElement(element, JsInterop.ToEngineObject(evt));
+        _eventDispatch.DispatchEventOnElement(element, evt);
     }
 
     private string ResolveScrollBehavior(DomElement element, string? requestedBehavior)

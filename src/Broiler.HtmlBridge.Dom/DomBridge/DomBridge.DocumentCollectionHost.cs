@@ -1,5 +1,4 @@
 using Broiler.Dom;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
@@ -15,9 +14,8 @@ namespace Broiler.HtmlBridge;
 // The wrapper factory answers a handle now, so the member below forwards to it. The unqualified name
 // resolves to the bridge's own internal WrapNode (DomBridge/JsObjects.cs) and not to this explicit
 // implementation, which is reachable only through the interface -- so this is a forward, not a
-// recursion. The stylesheet builder still hands back the engine's object; JsInterop is a cast and not
-// a conversion, so the collection is built over the same wrapper instances it always was and wrapper
-// identity is untouched.
+// recursion. The stylesheet builder answers a handle too, so it is a second such forward: the
+// collection is built over the cached sheet objects themselves and sheet identity is untouched.
 public sealed partial class DomBridge : Dom.Features.IDocumentCollectionHost
 {
     IJsRealm Dom.Features.IDocumentCollectionHost.Realm => Realm;
@@ -29,7 +27,7 @@ public sealed partial class DomBridge : Dom.Features.IDocumentCollectionHost
     int Dom.Features.IDocumentCollectionHost.CurrentScriptIndex => CurrentScriptIndex;
 
     JsValue Dom.Features.IDocumentCollectionHost.BuildStyleSheetObject(DomElement styleElement)
-        => JsInterop.FromEngineObject(BuildStyleSheetObject(styleElement));
+        => BuildStyleSheet(styleElement);
 
     bool Dom.Features.IDocumentCollectionHost.HasAssociatedStyleSheet(DomElement element)
         => HasAssociatedStyleSheet(element);

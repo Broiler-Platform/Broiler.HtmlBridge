@@ -15,7 +15,7 @@ namespace Broiler.HtmlBridge;
 public sealed partial class DomBridge : Dom.Features.IDocumentLevelFactoryHost
 {
     JsValue Dom.Features.IDocumentLevelFactoryHost.ToJsObject(DomNode node) =>
-        Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
+        WrapNode(node);
 
     // The module only asks this of a handle it has already established is an object, so unwrapping it
     // cannot fail here; a non-object would mean the module skipped its own guard.
@@ -37,8 +37,9 @@ public sealed partial class DomBridge : Dom.Features.IDocumentLevelFactoryHost
     DomDocument Dom.Features.IDocumentLevelFactoryHost.CreateBrowsingContextDocument()
         => CreateBrowsingContextDocument();
 
+    // Build answers the handle; this used to ask an adapter to convert it out and convert it back.
     JsValue Dom.Features.IDocumentLevelFactoryHost.BuildDocument(DomNode docRoot)
-        => Dom.Runtime.JsInterop.FromEngineObject(_subDocuments.BuildDocument(docRoot));
+        => _subDocuments.Build(docRoot);
 
     // Both validations raise their DOMException against the realm, through IJsCalls.DomError. They
     // took a script context until the validators did.

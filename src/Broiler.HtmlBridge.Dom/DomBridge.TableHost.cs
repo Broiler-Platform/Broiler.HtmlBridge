@@ -22,7 +22,7 @@ public sealed partial class DomBridge : ITableHost
 {
     IJsRealm ITableHost.Realm => Realm;
 
-    JsValue ITableHost.WrapNode(DomNode node) => JsInterop.FromEngineObject(ToJSObject(node));
+    JsValue ITableHost.WrapNode(DomNode node) => WrapNode(node);
 
     DomElement ITableHost.CreateElement(string tag)
     {

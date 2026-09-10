@@ -31,13 +31,11 @@ public sealed partial class DomBridge : IMessagingHost
 
     string IMessagingHost.PageOrigin => _pageOrigin;
 
-    JsValue IMessagingHost.ResolveCurrentWindow() =>
-        ResolveCurrentWindow() is { } window ? JsInterop.FromEngineObject(window) : JsValue.Null;
+    // Both answer JsValue.Null for "no window" themselves now, so this is the delegation it reads
+    // as rather than a conversion around one.
+    JsValue IMessagingHost.ResolveCurrentWindow() => ResolveCurrentWindow();
 
-    JsValue IMessagingHost.ResolveOwnerWindow(JsValue target) =>
-        ResolveOwnerWindow(JsInterop.ToEngineObject(target)) is { } window
-            ? JsInterop.FromEngineObject(window)
-            : JsValue.Null;
+    JsValue IMessagingHost.ResolveOwnerWindow(JsValue target) => ResolveOwnerWindow(target);
 
     void IMessagingHost.RunWithWindowContext(JsValue targetWindow, Action callback) =>
         RunWithWindowContext(JsInterop.ToEngineObject(targetWindow), callback);
