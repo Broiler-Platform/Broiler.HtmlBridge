@@ -105,10 +105,10 @@
       "guestEvalSites": 0
     },
     "Broiler.HtmlBridge.Core": {
-      "engineReferences": 3,
+      "engineReferences": 1,
       "engineProjectRefs": 1,
       "guestEvalSites": 0,
-      "note": "Two files: IDomBridgeRuntime.Attach takes a JSContext, and ScriptCompileAhead names the engine's compiler. The first is the seam JSEAL exists to move -- an Attach that takes an IJsRealm is what makes a second engine able to serve a page at all -- so this 3 is the highest-value one in the file despite being the smallest."
+      "note": "ONE FILE, ONE LINE, AND IT IS THE SEAM. The single reference is `using Broiler.JavaScript.Engine;` in Dom/IDomBridgeRuntime.cs, and the only thing it serves is the pair of Attach overloads that take a JSContext. This was 3 across two files until ScriptCompileAhead.cs was deleted -- 327 lines with no caller anywhere in the tree, whose two usings were the other 2. What that removal buys is not the count: it means engineProjectRefs 1, the ProjectReference to Broiler.JavaScript.Engine, is now held by exactly one API in one file, so an Attach that takes an IJsRealm drops the reference in the same commit rather than turning up a second dependency behind it. This is the highest-value entry in the file despite being the smallest -- an Attach a second engine can call is what makes a second engine able to serve a page at all. Note for whoever ports it: Broiler.JS's own docs/roadmap/Modernization.md MOD-M5 names the deleted file as an import source, so it is taken from this repository's history rather than from the tree."
     },
     "Broiler.HtmlBridge.Dom": {
       "engineReferences": 64,
