@@ -47,6 +47,46 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal static class WorkerTransfer
 {
     /// <summary>
+    /// Whether this realm's engine can structured-clone at all, which every caller of
+    /// <see cref="IJsClone"/> has to ask before it asks anything else.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Asking is the contract, and a <c>catch</c> is not a substitute for it.</b> A realm that
+    /// lacks <see cref="JsCapabilities.WorkerRealms"/> answers <c>Clone</c>, <c>Detach</c> and
+    /// <c>Adopt</c> with <c>JsCapabilityUnavailableException</c>, which is deliberately NOT a
+    /// <c>JsEngineException</c>: the second means the page's code went wrong and the first means the
+    /// host's did. <c>JsErrors.cs</c> states that distinction and its reason -- "A host that branches
+    /// on IJsRealm.Capabilities never sees it, which is the point -- it is the backstop for a call
+    /// site that forgot to."
+    /// </para>
+    /// <para>
+    /// Five call sites forgot to, and each sat inside <c>catch (JsEngineException)</c> that could
+    /// never fire for it, so on a provider without the capability the backstop escaped raw to page
+    /// script instead of the <c>DataCloneError</c> the catch was written to produce. The fix is this
+    /// question rather than a wider catch, because widening one would make a host bug and a page
+    /// error indistinguishable everywhere -- which is the thing the two types exist to tell apart.
+    /// </para>
+    /// <para>
+    /// <b>What it does not decide.</b> Whether <c>Worker</c> and <c>MessageChannel</c> should be
+    /// absent altogether on such an engine, rather than present and refusing, is a real question and
+    /// a larger one: feature detection would have a page take a different path instead of catching a
+    /// <c>DataCloneError</c>. Refusing is what this repository does elsewhere for a capability it
+    /// lacks, and changing that is not this fix.
+    /// </para>
+    /// </remarks>
+    internal static bool CanStructuredClone(IJsRealm realm) =>
+        (realm.Capabilities & JsCapabilities.WorkerRealms) != 0;
+
+    /// <summary>
+    /// What a <c>DataCloneError</c> says when nothing could have been cloned -- distinct from the
+    /// message for a value that is merely uncloneable, because the cause is the engine and not the
+    /// argument.
+    /// </summary>
+    internal const string EngineCannotCloneMessage =
+        "The object could not be cloned: this JavaScript engine does not implement structured clone.";
+
+    /// <summary>
     /// The transferable objects named by a <c>postMessage</c> transfer argument, ready to hand to
     /// <see cref="IJsClone.Clone"/> or <see cref="IJsClone.Detach"/>. Empty when nothing is being
     /// transferred; throws <c>DataCloneError</c> for an invalid list.
