@@ -148,17 +148,38 @@ public sealed partial class DomBridge
     /// bridge-owned inline event handler state.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>The compile goes through the realm; the store it writes into does not.</b>
-    /// <see cref="IJsSource.EvaluateHostScript"/> is the right call and not merely the available one:
-    /// an event-handler content attribute is source the <em>page</em> wrote, but the wrapper around it
-    /// is this repository's, and HTML §8.1.5.1 makes the attribute subject to the
-    /// <c>script-src</c>/<c>unsafe-inline</c> decision taken above rather than to <c>eval</c>'s — so
-    /// the Content-Security-Policy check stays where it is and the evaluation is unconditional, which
-    /// is exactly what the bare <c>Eval</c> it replaces did. The compiled handler is unwrapped to the
-    /// engine's own value because the map it lands in is keyed by name over the engine's value type,
-    /// declared in the unowned <c>DomBridge/RuntimeStates.cs</c> and read by the equally unowned
-    /// dispatch path; unwrapping is a cast over the object the handle already carries, so the function
-    /// a listener runs is the one compiled here.
+    /// <see cref="IJsSource.EvaluateClassicScript"/> is the right call and not merely the available
+    /// one: HTML §8.1.5.1 makes an event-handler content attribute subject to the
+    /// <c>script-src</c>/<c>unsafe-inline</c> decision taken above rather than to <c>eval</c>'s, so
+    /// the Content-Security-Policy check stays where it is and the evaluation here is unconditional.
+    /// </para>
+    /// <para>
+    /// <b>THIS USED TO SAY <see cref="IJsSource.EvaluateHostScript"/>, AND HALF OF WHY WAS WRONG.</b>
+    /// The argument had two limbs: that the directive decides, which is right and is the reason the
+    /// contract now has a member for exactly this; and that the wrapper around the page's statements
+    /// is this repository's, which made the host member's promise — "JavaScript this repository
+    /// authored" — read as literally true. It is not a promise about who typed the punctuation. The
+    /// wrapper is a pair of parentheses and a parameter list; if that converted a page's program into
+    /// this repository's, the promise would have no content at all, since any call site could satisfy
+    /// it by wrapping. The statements inside are the page's and the page can tell.
+    /// </para>
+    /// <para>
+    /// <b>It is not a cosmetic re-labelling on every engine.</b> On a provider whose only compiler is
+    /// a registered artifact provider, the host-script mark is the permission to compile and is held
+    /// for the whole evaluation; the classic-script permit is spent by the one compile it authorises
+    /// and suspends that mark while it runs. So this moves a page's program off the permission
+    /// reserved for source that never calls the page's code, which is the distinction the third
+    /// member was added to make and this was the last site still on the wrong side of it.
+    /// </para>
+    /// <para>
+    /// The compiled handler is unwrapped to the engine's own value because the map it lands in is
+    /// keyed by name over the engine's value type, declared in the unowned
+    /// <c>DomBridge/RuntimeStates.cs</c> and read by the equally unowned dispatch path; unwrapping is
+    /// a cast over the object the handle already carries, so the function a listener runs is the one
+    /// compiled here.
+    /// </para>
     /// </remarks>
     internal void CompileInlineEventAttribute(DomElement element, string attrName, string code)
     {
@@ -187,8 +208,12 @@ public sealed partial class DomBridge
             // One constant label rather than one per handler: it is the location a stack frame
             // reports, and a label that varied with the event name would give the engine's code
             // cache a different key for every attribute compiling the same wrapper shape.
-            var fn = realm.EvaluateHostScript(
-                $"(function(event) {{ {svgEventAlias}{code} }})", "broiler:inline-event-handler");
+            //
+            // It lost its `broiler:` prefix with the member. That prefix marks source this repository
+            // authored -- the polyfills and probes -- and a stack frame naming a page's own onclick
+            // that way pointed a reader at the wrong author on the one line they had to go on.
+            var fn = realm.EvaluateClassicScript(
+                $"(function(event) {{ {svgEventAlias}{code} }})", "inline-event-handler");
             if (fn.IsFunction)
                 GetInlineEventHandlers(element)[eventName] = JsInterop.ToEngineObject(fn);
         }
