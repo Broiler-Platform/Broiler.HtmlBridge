@@ -298,4 +298,52 @@ public class DomEnumerationAndArityTests
             })()
             """));
     }
+
+    /// <summary>
+    /// A <c>DocumentFragment</c> carries its own <c>EventTarget</c> members, and they declare
+    /// different arities from the ones every other node inherits.
+    /// </summary>
+    /// <remarks>
+    /// <b>This pins a deviation rather than a correctness, and it is written down because the next
+    /// commit would otherwise change it by accident.</b> Every node reaches
+    /// <c>addEventListener</c> through <c>EventTarget.prototype</c>, where
+    /// <c>DomBridge/EventTargetInterface.cs</c> installs it with Web IDL's arity — 2, 2, 1,
+    /// "measured against Chromium", as that file says. A fragment's wrapper installs its OWN copies
+    /// instead, and those advertise 3, 3, 1.
+    /// <para>
+    /// The fragment is the only wrapper where that is observable: the other per-wrapper copies sit
+    /// behind a guard that is false only when the realm carries no <c>EventTarget</c> at all, and
+    /// this one has no guard. So <c>document.createDocumentFragment().addEventListener.length</c> is
+    /// 3 and <c>document.body.addEventListener.length</c> is 2, in the same document, today.
+    /// </para>
+    /// <para>
+    /// <b>The reason to assert it rather than correct it</b> is that the argument-frame commits
+    /// re-mint these copies, and a mint that forgets to pass its length gets 0 rather than 3 —
+    /// silently, since nothing else in this repository reads the value. Correcting 3 to 2 is a
+    /// defensible change and a separate one; it is not a thing to do by accident while moving a
+    /// frame.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ADocumentFragmentsOwnEventTargetMembersKeepTheirDeclaredArities()
+    {
+        Assert.Equal("add=3 remove=3 dispatch=1 own=true", Run("""
+            (function () {
+              var f = document.createDocumentFragment();
+              return 'add=' + f.addEventListener.length +
+                     ' remove=' + f.removeEventListener.length +
+                     ' dispatch=' + f.dispatchEvent.length +
+                     ' own=' + f.hasOwnProperty('addEventListener');
+            })()
+            """));
+
+        // The contrast that makes the number above a deviation rather than the rule: an ordinary
+        // node inherits the routed prototype member, which declares Web IDL's count.
+        Assert.Equal("add=2 own=false", Run("""
+            (function () {
+              return 'add=' + document.body.addEventListener.length +
+                     ' own=' + document.body.hasOwnProperty('addEventListener');
+            })()
+            """));
+    }
 }
