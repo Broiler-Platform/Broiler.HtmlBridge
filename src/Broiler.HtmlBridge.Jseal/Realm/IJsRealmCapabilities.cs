@@ -334,5 +334,5 @@ public interface IJsSource
     /// host that never calls this member still gets the policy it asked for.
     /// </para>
     /// </remarks>
-    JsValue EvaluateGuestSource(string source, string label);
+    JsValue EvaluateDynamicSource(string source, string label);
 }

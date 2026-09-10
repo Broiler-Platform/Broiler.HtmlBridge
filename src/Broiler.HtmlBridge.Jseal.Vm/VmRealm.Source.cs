@@ -53,7 +53,7 @@ internal sealed partial class VmRealm
     }
 
     /// <inheritdoc />
-    public JsValue EvaluateGuestSource(string source, string label)
+    public JsValue EvaluateDynamicSource(string source, string label)
     {
         ArgumentNullException.ThrowIfNull(source);
 

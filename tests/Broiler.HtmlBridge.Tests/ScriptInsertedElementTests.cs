@@ -9,7 +9,7 @@ namespace Broiler.Browser.Core.Tests;
 /// <b>Nothing exercised this path before.</b> No test in this suite constructed a script element,
 /// and none constructs a worker either — so the two evaluation routes the bridge owns besides the
 /// document's own scripts were carried entirely by the compiler. That mattered when both moved from
-/// <c>IJsSource.EvaluateGuestSource</c> to <c>EvaluateClassicScript</c>: the swap type-checks
+/// the eval-gated source member to <c>EvaluateClassicScript</c>: the swap type-checks
 /// whether or not it is right, and a member that refused everything would have looked identical to
 /// one that ran everything until a page loaded.
 /// </para>

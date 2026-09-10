@@ -53,6 +53,15 @@ public enum JsCapabilities : uint
     /// door — the member a host calls — which is not a door a page walks through, so on one of the two
     /// providers a page in a realm built without this could call <c>eval</c> and it worked.
     /// </para>
+    /// <para>
+    /// <b>This flag keeps the name <c>GuestEval</c> although the member it gates is now called
+    /// <c>EvaluateDynamicSource</c>, and so does <c>JsRealmOptions.AllowGuestEval</c>.</b> The member
+    /// was renamed because "guest source" described PROVENANCE, and provenance is the axis that
+    /// turned out to be wrong -- a classic script is the guest's source too. These two name the
+    /// PERMISSION, and the permission really is about the guest evaluating: <c>'unsafe-eval'</c>,
+    /// <c>eval</c> and <c>new Function</c>. Renaming them would trade an accurate name for a
+    /// consistent one.
+    /// </para>
     /// </remarks>
     GuestEval = 1 << 1,
 

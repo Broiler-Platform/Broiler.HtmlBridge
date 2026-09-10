@@ -50,7 +50,7 @@
     "  guestEvalSites     Occurrences of '.Eval(' in .cs files. The name records where these are",
     "                     going, not what they are: today's sites are undifferentiated, and splitting",
     "                     them into IJsSource.EvaluateHostScript (source this repository authored,",
-    "                     exempt from the page's content policy) and EvaluateGuestSource (source the",
+    "                     exempt from the page's content policy) and EvaluateDynamicSource (source the",
     "                     page supplied, which a Content-Security-Policy may forbid) is the porting",
     "                     work this number measures. A ported site names neither .Eval( nor an engine",
     "                     type, so it leaves all three counts at once.",

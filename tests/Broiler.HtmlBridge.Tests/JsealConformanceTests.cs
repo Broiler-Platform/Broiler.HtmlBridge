@@ -885,7 +885,7 @@ public class JsealConformanceTests
 
         Assert.False(realm.Capabilities.HasFlag(JsCapabilities.GuestEval));
         Assert.Throws<JsCapabilityUnavailableException>(
-            () => realm.EvaluateGuestSource("1", "test:guest-refused"));
+            () => realm.EvaluateDynamicSource("1", "test:guest-refused"));
 
         var promise = realm.NewPromise(out var resolve, out _);
         realm.DefineValue(realm.Global, "restricted", promise);
@@ -922,7 +922,7 @@ public class JsealConformanceTests
         {
             // The default realm runs both, and the split is only visible when a host asks for it.
             Assert.True(permissive.Capabilities.HasFlag(JsCapabilities.GuestEval));
-            Assert.True(permissive.EvaluateGuestSource("6 * 7", "test:guest") == JsValue.Number(42d));
+            Assert.True(permissive.EvaluateDynamicSource("6 * 7", "test:guest") == JsValue.Number(42d));
         }
 
         using var restricted = provider.CreateRealm(new JsRealmOptions { AllowGuestEval = false });
@@ -936,7 +936,7 @@ public class JsealConformanceTests
             restricted.Capabilities & ~JsCapabilities.GuestEval);
 
         var refusal = Assert.Throws<JsCapabilityUnavailableException>(
-            () => restricted.EvaluateGuestSource("6 * 7", "test:guest-refused"));
+            () => restricted.EvaluateDynamicSource("6 * 7", "test:guest-refused"));
         Assert.Equal(JsCapabilities.GuestEval, refusal.Missing);
         Assert.Equal(restricted.EngineName, refusal.EngineName);
 
@@ -970,15 +970,15 @@ public class JsealConformanceTests
         Assert.True(restricted.EvaluateClassicScript("6 * 7", "test:classic") == JsValue.Number(42d));
 
         Assert.Throws<JsCapabilityUnavailableException>(
-            () => restricted.EvaluateGuestSource("6 * 7", "test:dynamic-refused"));
+            () => restricted.EvaluateDynamicSource("6 * 7", "test:dynamic-refused"));
 
         // The control, and it is doing real work: a provider whose EvaluateClassicScript refused
-        // everything would satisfy nothing above, but one whose EvaluateGuestSource refused
+        // everything would satisfy nothing above, but one whose EvaluateDynamicSource refused
         // everything — narrowed or not — would satisfy the refusal having tested no narrowing.
         using var permissive = provider.CreateRealm(JsRealmOptions.Default);
 
         Assert.True(permissive.EvaluateClassicScript("6 * 7", "test:classic-permitted") == JsValue.Number(42d));
-        Assert.True(permissive.EvaluateGuestSource("6 * 7", "test:dynamic-permitted") == JsValue.Number(42d));
+        Assert.True(permissive.EvaluateDynamicSource("6 * 7", "test:dynamic-permitted") == JsValue.Number(42d));
     }
 
     /// <summary>
@@ -1072,7 +1072,7 @@ public class JsealConformanceTests
 
         Assert.Equal(
             "object",
-            forced.ToJsString(forced.EvaluateGuestSource(ThisInAPlainCall, "test:strict-does-not-reach-guest")));
+            forced.ToJsString(forced.EvaluateDynamicSource(ThisInAPlainCall, "test:strict-does-not-reach-guest")));
 
         // The control: a realm that did not ask for it is sloppy on both sides, so the answers above
         // are ForceStrictMode's doing rather than the provider's fixed behaviour.
@@ -1081,7 +1081,7 @@ public class JsealConformanceTests
         Assert.Equal("object", Eval(relaxed, ThisInAPlainCall, "test:default-host"));
         Assert.Equal(
             "object",
-            relaxed.ToJsString(relaxed.EvaluateGuestSource(ThisInAPlainCall, "test:default-guest")));
+            relaxed.ToJsString(relaxed.EvaluateDynamicSource(ThisInAPlainCall, "test:default-guest")));
     }
 
     [Theory]

@@ -52,7 +52,7 @@ internal sealed partial class BroilerJsRealm
         return Evaluate(source, label);
     }
 
-    public JsValue EvaluateGuestSource(string source, string label)
+    public JsValue EvaluateDynamicSource(string source, string label)
     {
         ArgumentNullException.ThrowIfNull(source);
 
