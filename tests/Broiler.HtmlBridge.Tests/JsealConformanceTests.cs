@@ -340,6 +340,23 @@ public class JsealConformanceTests
     /// still pass a test that only read properties back.
     /// </para>
     /// <para>
+    /// <b>Crossed with the other axis: who minted the object.</b> Three factories hand back
+    /// something the HOST made and three hand back something the PAGE made, because a provider can
+    /// canonicalise one and not the other - and the listener a page registers is guest-minted, so
+    /// the second three are the ones the browser depends on.
+    /// </para>
+    /// <para>
+    /// <b>The four clauses in the loop are one question written four ways, and that is deliberate
+    /// rather than redundant.</b> For an object kind, <see cref="JsValue.op_Equality"/>,
+    /// <see cref="JsValue.Equals(JsValue)"/>, <see cref="JsValue.GetHashCode"/> and
+    /// <see cref="JsValue.ObjectIdentity"/> all reduce to the identity of one field, so once the
+    /// first passes the other three cannot fail. They are written out because each is a different
+    /// caller's spelling - <c>==</c> in a binding, <c>Equals</c> in a <c>List.Contains</c>, the hash
+    /// in a <c>Dictionary</c> bucket, the identity in a <c>ConditionalWeakTable</c> - and a change to
+    /// any one of those branches should have to delete an assertion that names it. Nothing here
+    /// claims they are four independent facts.
+    /// </para>
+    /// <para>
     /// <b>Every sameness claim below is guarded, because most of them pass on a handle that carries
     /// nothing.</b> <c>Missing == Missing</c> is <see langword="true"/>, two Missings hash alike
     /// (<see cref="JsValue.GetHashCode"/> answers the kind alone for them), and
@@ -367,6 +384,15 @@ public class JsealConformanceTests
         OneKind("anObject", JsValueKind.Object, realm.NewObject);
         OneKind("anArray", JsValueKind.Array, () => realm.NewArray());
         OneKind("aMethod", JsValueKind.Function, () => realm.NewMethod("minted", static (in JsCall _) => JsValue.Undefined));
+
+        // AND THE SAME THREE MINTED BY THE PAGE RATHER THAN BY THE HOST, which is the half that
+        // matters and the half a host-only test cannot see. A provider is free to canonicalise the
+        // objects it was handed and mint a fresh wrapper for anything that originates in script; the
+        // listener a page registers is guest-minted, so that provider would break every
+        // removeEventListener while passing all three cases above.
+        OneKind("guestObject", JsValueKind.Object, () => realm.EvaluateHostScript("({})", "test:guest-object"));
+        OneKind("guestArray", JsValueKind.Array, () => realm.EvaluateHostScript("([])", "test:guest-array"));
+        OneKind("guestMethod", JsValueKind.Function, () => realm.EvaluateHostScript("(function () {})", "test:guest-method"));
 
         void OneKind(string name, JsValueKind kind, Func<JsValue> mint)
         {
@@ -412,11 +438,22 @@ public class JsealConformanceTests
             // the kind alone, and a provider answering one shared object for every mint would pass
             // everything above it.
             var other = mint();
+            realm.DefineValue(realm.Global, name + "Other", other);
             Assert.NotNull(other.ObjectIdentity);
             Assert.Equal(kind, other.Kind);
             Assert.False(other == made);
             Assert.NotSame(other.ObjectIdentity, made.ObjectIdentity);
             Assert.False(table.ContainsKey(other));
+
+            // ONE HANDLE PER OBJECT FOR THE LIFE OF THE REALM, which is the contract's wording and
+            // is stronger than anything above. Every comparison so far is against the local copy of
+            // `made`, and a provider holding a ONE-ENTRY cache satisfies all of them: it answers the
+            // newest object correctly and forgets the one before it. So read the first object again
+            // now that a second exists and the provider has been handed it.
+            var reread = realm.GetProperty(realm.Global, name);
+            Assert.Equal(kind, reread.Kind);
+            Assert.True(reread == made, $"{name}: the first object keeps its handle after a second is minted");
+            Assert.True(table.TryGetValue(reread, out _));
         }
     }
 
