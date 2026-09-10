@@ -220,6 +220,68 @@ public class JsealConformanceTests
         Assert.True(double.IsNaN(JsValue.String("42").AsNumber));
     }
 
+    /// <summary>
+    /// An object handle carries an identity a weak per-object table can key on, and it is the same
+    /// one every time.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is what the bridge's seven per-object registries need, and it was believed impossible
+    /// for a year.</b> Six doc comments said a <c>ConditionalWeakTable</c> could not be keyed from a
+    /// handle because <see cref="JsValue"/> is a struct. The struct is not the key; the reference it
+    /// carries is, and a provider already has to make that canonical per guest object because handle
+    /// equality is defined by it.
+    /// </para>
+    /// <para>
+    /// Asserted per provider rather than once, because "one reference per object, for the life of the
+    /// realm" is a promise each provider keeps its own way - one hands back the engine's own object,
+    /// the other boxes once per identity - and a provider that stopped keeping it would break every
+    /// wrapper registry in the bridge with no other symptom.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void AnObjectHandleCarriesAWeakTableKeyThatIsTheSameEveryTime(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        var made = realm.NewObject();
+        realm.DefineValue(realm.Global, "kept", made);
+
+        var identity = made.ObjectIdentity;
+        Assert.NotNull(identity);
+
+        // The same object read back by another route answers the same identity. This is the whole
+        // claim: a table keyed on it finds the entry a different read path put there.
+        var read = realm.GetProperty(realm.Global, "kept");
+        Assert.True(read == made);
+        Assert.Same(identity, read.ObjectIdentity);
+
+        // And it actually works as a key, which is the use the bridge has for it.
+        var table = new System.Runtime.CompilerServices.ConditionalWeakTable<object, string>();
+        table.Add(identity!, "the entry");
+        Assert.True(table.TryGetValue(read.ObjectIdentity!, out var found));
+        Assert.Equal("the entry", found);
+
+        // A different object is a different key.
+        Assert.NotSame(identity, realm.NewObject().ObjectIdentity);
+
+        // Functions and arrays are objects and carry one too - the bridge keys registries on all
+        // three kinds.
+        Assert.NotNull(realm.NewArray().ObjectIdentity);
+        Assert.NotNull(realm.NewMethod("f", static (in _) => JsValue.Undefined).ObjectIdentity);
+
+        // Nothing else does. A string carries its TEXT in the same field, and two equal literals are
+        // usually one interned instance - so a table that accepted a string would let one string's
+        // entry answer for another's.
+        Assert.Null(JsValue.String("text").ObjectIdentity);
+        Assert.Null(JsValue.Number(1d).ObjectIdentity);
+        Assert.Null(JsValue.True.ObjectIdentity);
+        Assert.Null(JsValue.Null.ObjectIdentity);
+        Assert.Null(JsValue.Undefined.ObjectIdentity);
+        Assert.Null(JsValue.Missing.ObjectIdentity);
+    }
+
     // ── members ────────────────────────────────────────────────────────────────────────────────
 
     [Theory]

@@ -16,7 +16,6 @@ using Broiler.HtmlBridge.Jseal;
 // What is left is OperationsByMap, a ConditionalWeakTable keyed on the NamedNodeMap's own object. A
 // weak table needs a reference-typed key and a JSEAL handle is a struct, so this one is the value
 // design's cost rather than an unmigrated caller. It is one of three such tables in the assembly.
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -381,10 +380,10 @@ internal static class DomCollectionBinding
         NamedNodeMapOperations operations)
     {
         var map = Create(realm, "NamedNodeMap", contents, namedLookup);
-        // Keyed on the engine's object because a ConditionalWeakTable needs a reference key and a
-        // JsValue is a struct. The handle carries that very object, so the lookup a prototype method
-        // performs from its receiver asks the same question it always did.
-        OperationsByMap.Add(Runtime.JsInterop.ToEngineObject(map), operations);
+        // Keyed on the reference the handle carries. A ConditionalWeakTable needs a reference key
+        // and a JsValue is a struct - but the struct is not the key, and JsValue.ObjectIdentity is
+        // the reference a provider already has to make canonical per object.
+        OperationsByMap.Add(IdentityOf(map), operations);
         return map;
     }
 
@@ -404,7 +403,23 @@ internal static class DomCollectionBinding
     /// Which element each live <c>NamedNodeMap</c> belongs to, so a prototype method can find it from
     /// its receiver. A weak table, so a map that a page has dropped does not pin its element.
     /// </summary>
-    private static readonly ConditionalWeakTable<JSObject, NamedNodeMapOperations> OperationsByMap = new();
+    private static readonly ConditionalWeakTable<object, NamedNodeMapOperations> OperationsByMap = new();
+
+    /// <summary>
+    /// The identity a weak per-object registry keys on: the reference the handle carries.
+    /// </summary>
+    /// <remarks>
+    /// <b>This used to unwrap to the engine's own object, on the reasoning that a
+    /// <see cref="JsValue"/> is a struct and so cannot be a
+    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/> key.</b> The
+    /// struct is not the key; the reference it carries is, and
+    /// <see cref="JsValue.ObjectIdentity"/> is that reference. It is the same instance this table
+    /// was keyed on before, under the one provider that could reach it - so nothing about the
+    /// answers changes - and it is now an instance every provider supplies.
+    /// </remarks>
+    private static object IdentityOf(JsValue value) =>
+        value.ObjectIdentity ?? throw new InvalidOperationException(
+            "a per-object registry was keyed on a handle that is not an object");
 
     /// <summary>
     /// Installs the six host-backed <c>NamedNodeMap</c> methods on the interface prototype. Called
@@ -450,7 +465,7 @@ internal static class DomCollectionBinding
                     (in call) =>
                     {
                         if (!call.This.IsObject ||
-                            !OperationsByMap.TryGetValue(Runtime.JsInterop.ToEngineObject(call.This), out var operations))
+                            !OperationsByMap.TryGetValue(IdentityOf(call.This), out var operations))
                         {
                             throw call.Realm.Error(
                                 JsErrorKind.TypeError,

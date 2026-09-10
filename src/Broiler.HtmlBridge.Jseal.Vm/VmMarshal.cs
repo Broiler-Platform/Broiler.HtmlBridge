@@ -82,12 +82,21 @@ internal static class VmMarshal
     /// The identity object a handle carries for a value the engine owns.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// It boxes the whole <see cref="JsHostValue"/> rather than the bare <c>JsHostRef</c>, because
     /// the kind and the identity have to travel together: the VM answers <c>Unwrap</c> with a value,
     /// not with a reference, and reconstructing the kind from the reference on the way back would be
     /// asking the engine a question the handle was invented to avoid. The box is allocated once per
     /// object per realm - the profile's own weak table makes the inner identity canonical, and this
     /// caches the box against it - so handle equality stays reference equality.
+    /// </para>
+    /// <para>
+    /// <b>This box is what <c>JsValue.ObjectIdentity</c> hands a host, so do not make it a strong
+    /// table.</b> The bridge keys its per-object registries on that member, and their weakness is
+    /// this table's weakness: the box lives exactly as long as the <c>JsHostRef</c>, which lives
+    /// exactly as long as the guest object. A strong table here would pin every object the bridge
+    /// has ever seen for the life of the realm.
+    /// </para>
     /// </remarks>
     private static object Identity(JsHostValue value)
     {

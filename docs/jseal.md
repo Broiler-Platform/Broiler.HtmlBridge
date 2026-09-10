@@ -335,12 +335,25 @@ than seven. Every occurrence names its own pin in its own doc comment:
 | `DomBridge.Realm.cs`, `RegisterDocument(JSContext)` | The floor. One *adopts* a context; the other swaps the code cache, a Broiler.JS optimisation with no JSEAL vocabulary |
 | `IDomBridgeRuntime.Attach(JSContext, …)` | Declared in `Broiler.HtmlBridge.Core`, and consumed by `Broiler.Cli`/`Broiler.Wpt`/`Broiler.DevConsole`, which are not in this checkout |
 | The three wrapper-root fields | `DomBridge` declares them; ten files read them. One commit, whenever someone owns all ten |
-| The weak tables | A `ConditionalWeakTable` needs a reference-typed key, and `JsValue` is a struct. **This is the one real cost of the value design**, and it is written down where it bites rather than in a footnote |
+| `JsObjectRegistry` | The wrapper-identity choke point. Its surface is read by ten files that hold the engine's object mid-frame, so it moves in one commit or none. Ordinary work, and the one that unblocks the most |
 | `BridgeModuleContext` | It derives from the engine's module context to inject specifier resolution and CSP-gated fetch. JSEAL has no module-graph contract, and one implementer is not enough to design one from |
 | The event-host surfaces | `DomBridge.WindowEventTargetHost`, `Events`, `DomFunction` and their neighbours still type a listener as the engine's function. Ordinary work, and the largest single group left |
 
-One is a genuine contract gap with a written specification waiting (the module graph); one is a
-design cost stated honestly; the rest is ordinary work.
+One is a genuine contract gap with a written specification waiting (the module graph); the rest is
+ordinary work.
+
+**What used to be listed here as "the one real cost of the value design" was a mistake, and it is
+worth recording rather than quietly dropping.** Six doc comments, this table and the budget file all
+said a `ConditionalWeakTable` could not be keyed from a handle, because such a table needs a
+reference key and `JsValue` is a struct. The struct was never the key: the reference it *carries* is,
+and a provider is already required to make that canonical per guest object because handle equality is
+defined by it. `JsValue.ObjectIdentity` says so out loud, neither provider needed a line of change to
+satisfy it, and five of the bridge's per-object tables crossed on it without changing an answer. One
+of the six comments had already cost something real — `NavigatorSurfacesBinding` dropped weakness on
+that reasoning and leaked an entry per `permissions.query()` for the life of a document.
+
+The belief survived four attempts to act on it. What broke it was asking what the *provider* promises
+rather than what the *struct* can be.
 
 **A third gap is recorded and not yet closed.** `IJsExotic` routes an integer-index key to the indexed
 hooks, has no indexed *write* hook, and gives a handler no way to declare that it has no indexed

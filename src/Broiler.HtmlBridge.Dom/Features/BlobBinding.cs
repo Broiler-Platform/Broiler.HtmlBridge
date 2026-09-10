@@ -74,13 +74,24 @@ internal sealed class BlobBinding
     /// <summary>The bytes and metadata behind each blob object. Weak, so a blob a page has dropped is
     /// not kept alive by this table.</summary>
     /// <remarks>
-    /// Keyed on the engine object rather than on a handle: a <see cref="JsValue"/> is a struct, so it
-    /// cannot be a <see cref="ConditionalWeakTable{TKey,TValue}"/> key, and the reference it carries
-    /// is the only identity the object has. <see cref="JsInterop"/> is the sanctioned way to reach
-    /// it, and it is reached in exactly one place —
-    /// <see cref="TryDataFor"/>, which is the one place a handle is unwrapped for it.
+    /// Keyed on <see cref="JsValue.ObjectIdentity"/> - the reference the handle carries, which a
+    /// provider is already required to make canonical per object because handle equality is defined
+    /// by it. This table used to name the engine's own type, on the reasoning that a struct cannot be
+    /// a weak-table key; the struct is not the key.
     /// </remarks>
-    private readonly ConditionalWeakTable<Broiler.JavaScript.Runtime.JSObject, BlobData> _blobs = new();
+    private readonly ConditionalWeakTable<object, BlobData> _blobs = new();
+
+    /// <summary>
+    /// The identity the blob store keys on: the reference the handle carries.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="JsValue.ObjectIdentity"/>. A provider is required to make this canonical per
+    /// object because handle equality is defined by it, which is exactly the promise a per-object
+    /// store needs and the one this file used to reach through the engine's own type.
+    /// </remarks>
+    private static object IdentityOf(JsValue value) =>
+        value.ObjectIdentity ?? throw new InvalidOperationException(
+            "the blob store was keyed on a handle that is not an object");
 
     /// <summary>
     /// The live object URLs, newest last. An entry keeps its blob alive deliberately — that is what
@@ -265,7 +276,7 @@ internal sealed class BlobBinding
     private JsValue Mint(IJsRealm realm, BlobData data, bool file)
     {
         var blob = realm.NewObject();
-        _blobs.Add(JsInterop.ToEngineObject(blob), data);
+        _blobs.Add(IdentityOf(blob), data);
         var prototype = file ? _filePrototype : _blobPrototype;
         if (prototype.IsObject)
             realm.SetPrototype(blob, prototype);
@@ -490,7 +501,7 @@ internal sealed class BlobBinding
     private bool TryDataFor(JsValue candidate, [MaybeNullWhen(false)] out BlobData data)
     {
         if (candidate.IsObject)
-            return _blobs.TryGetValue(JsInterop.ToEngineObject(candidate), out data);
+            return _blobs.TryGetValue(IdentityOf(candidate), out data);
 
         data = null;
         return false;
