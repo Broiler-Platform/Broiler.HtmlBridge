@@ -1,12 +1,16 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
-// The sub-WINDOW half of this class is still engine-typed, and it is pinned from two directions at
-// once. Runtime/WindowContextManager.cs reads CurrentWindowOverride, SubWindows, IsSubWindow and
-// TryGetSubWindowContainer and converts at each of them; Features/SubWindowBinding.cs stores what it
-// builds through TryGetSubWindow/SetSubWindow and hands the same object to
-// DomBridge/DomBridge.IframeElementHost.cs and DomBridge.WindowLoad.cs. Neither file is this group's,
-// and the second pin means narrowing the map alone would not free SubWindowBinding.GetOrCreate either.
+// The sub-WINDOW half of this class is still engine-typed, and the pin is one-sided now.
+// Runtime/WindowContextManager.cs reads CurrentWindowOverride, SubWindows, IsSubWindow and
+// TryGetSubWindowContainer and converts at each of them; Features/SubWindowBinding.cs stores
+// through SetSubWindow and reads back through TryGetSubWindow, unwrapping once for that and for
+// RegisterWindowMessaging. The other half of what this used to say -- that SubWindowBinding hands
+// the same object on to DomBridge/DomBridge.IframeElementHost.cs and DomBridge.WindowLoad.cs, so
+// that narrowing the map would not free GetOrCreate either -- was not true of the first of those
+// and stopped being true of the second when window.frames stopped being an engine array.
+// GetOrCreate answers a handle and all three of its callers take it as it stands. An untruncated
+// grep for the six members above finds exactly two files outside this one: the two named here.
 using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;

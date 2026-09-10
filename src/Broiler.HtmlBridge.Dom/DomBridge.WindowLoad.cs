@@ -1,10 +1,11 @@
-// Two engine namespaces are left and both belong to one member: BuildWindowFramesArray builds
-// `window.frames` as the engine's own array over the engine's own value list. Its caller does not
-// ask for that -- DomBridge/Registration/Window.cs wraps the result in a handle on the same line --
-// so the pin is inside the builder rather than above it. The boolean and object types went with
-// DispatchWindowEvent's signature; see the remarks there for why they were never pinned at all.
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.Runtime;
+using System.Runtime.InteropServices;
+
+// NO ENGINE NAMESPACE IS LEFT IN THIS FILE. The last one was the engine's array type, for
+// `window.frames`, and the pin recorded for it was never real: the caller this file named as
+// taking the engine's array -- DomBridge/Registration/Window.cs -- converted it straight back to
+// a handle on the line it received it, so the reference bought a round trip and nothing else.
+// The array is minted through the realm now and both halves of that pair are gone, along with
+// the engine value list the builder collected into.
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
@@ -471,14 +472,25 @@ public sealed partial class DomBridge
         }
     }
 
-    private JSArray BuildWindowFramesArray()
+    /// <summary>
+    /// A fresh <c>window.frames</c>: every same-origin nested browsing context's window, in
+    /// document order. Minted through the realm, so the accessor in
+    /// <c>DomBridge/Registration/Window.cs</c> returns what it is handed instead of converting it.
+    /// </summary>
+    /// <remarks>
+    /// The span is the list's own storage rather than a copy of it — the copy the collection
+    /// expression used to make on the way into the array constructor. The realm still materialises
+    /// an array from it, in the one pass the engine's constructor made. Same shape as
+    /// <c>BuildAnimationList</c> in <c>DomBridge/Registration/Animations.cs</c>.
+    /// </remarks>
+    private JsValue BuildWindowFramesArray()
     {
-        var frames = new List<JSValue>();
+        var frames = new List<JsValue>();
         CollectWindowFrames(DocumentElement, frames);
-        return new JSArray([.. frames]);
+        return Realm.NewArray(CollectionsMarshal.AsSpan(frames));
     }
 
-    private void CollectWindowFrames(DomElement element, List<JSValue> frames)
+    private void CollectWindowFrames(DomElement element, List<JsValue> frames)
     {
         // Phase 4 item 4/5: reuse canonical Descendants() (public, document-order, level-snapshotted)
         // instead of a hand-rolled depth-first ChildElements recursion. Sub-documents are severed
@@ -493,10 +505,7 @@ public sealed partial class DomBridge
             {
                 var src = TryGetAttribute(child, "src", out var srcValue) ? srcValue : string.Empty;
                 if (!IsCrossOrigin(src, _pageUrl))
-                    // The one conversion GetOrCreate stopped doing for everybody, done here
-                    // because `frames` is the engine List<JSValue> the window.frames JSArray is
-                    // built from -- a different unit, and its turn is not this commit's.
-                    frames.Add(Dom.Runtime.JsInterop.ToEngineObject(_subWindows.GetOrCreate(child)));
+                    frames.Add(_subWindows.GetOrCreate(child));
             }
         }
     }

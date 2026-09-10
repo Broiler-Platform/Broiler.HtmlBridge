@@ -195,7 +195,7 @@ public class FrameStructureTests
     }
 
     [Fact(Skip = "window.frames is a fresh array built on every read (BuildWindowFramesArray, " +
-                 "src/Broiler.HtmlBridge.Dom/DomBridge.WindowLoad.cs:459, installed as the accessor at " +
+                 "src/Broiler.HtmlBridge.Dom/DomBridge.WindowLoad.cs:486, installed as the accessor at " +
                  "src/Broiler.HtmlBridge.Dom/DomBridge/Registration/Window.cs:479), where HTML's Window " +
                  "interface has window, self and frames all answer with the Window itself — so " +
                  "`window.frames === window` is false and two reads hand back two objects, which is " +

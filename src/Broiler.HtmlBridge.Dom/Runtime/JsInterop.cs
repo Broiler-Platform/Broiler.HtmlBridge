@@ -87,10 +87,12 @@ internal static class JsInterop
     /// <em>before</em> reference: <c>a == b</c> was false for two handles on one object.
     /// </para>
     /// <para>
-    /// <b>Nothing observed it yet, and the migration is what would have.</b> The two places that
-    /// could see it are guarded on the engine side — <c>window.frames</c> goes back through
-    /// <c>Unwrap</c>, which is kind-independent, and the event-dispatch path tests
-    /// <c>is JSFunction</c> before wrapping. What is not guarded is a map keyed on a handle:
+    /// <b>Nothing observed it yet, and the migration is what would have.</b> Of the two places that
+    /// could see it, one is gone rather than guarded: <c>window.frames</c> was an engine array
+    /// wrapped here and unwrapped again on the line that received it, and the realm mints it now,
+    /// so it does not reach this method at all. The other is guarded on the engine side — the
+    /// event-dispatch path tests <c>is JSFunction</c> before wrapping. What is not guarded is a map
+    /// keyed on a handle:
     /// <c>EventTargetRegistry</c>'s dictionaries are correct today only because every key it holds is
     /// kind <c>Object</c>, which is exactly the invariant that ends when a listener record becomes a
     /// handle. Fixing it here, before anything depends on it, is the cheap order.

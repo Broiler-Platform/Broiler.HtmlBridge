@@ -478,7 +478,7 @@ public sealed partial class DomBridge
         // the correct one for both spellings, so it is the only registration.
         realm.DefineAccessor(
             window, "frames",
-            (in _) => Dom.Runtime.JsInterop.FromEngineObject(BuildWindowFramesArray()), null);
+            (in _) => BuildWindowFramesArray(), null);
 
         // window.screen — basic stub for screen dimensions
         var screenObj = realm.NewObject();
