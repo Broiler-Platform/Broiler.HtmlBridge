@@ -16,8 +16,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's: a wrapper is a <see cref="JsValue"/> and errors are raised
 /// through <see cref="IJsRealm"/>, so nothing here names an engine type. The bridge's implementation
-/// (<c>DomBridge.TraversalHost.cs</c>) is where the handles meet the engine objects the unmigrated
-/// half of the bridge still holds.
+/// (<c>DomBridge.TraversalHost.cs</c>) used to be where the handles met the engine objects the
+/// unmigrated half of the bridge holds; it meets none now — both lookups forward the handle.
 /// </remarks>
 internal interface ITraversalHost
 {

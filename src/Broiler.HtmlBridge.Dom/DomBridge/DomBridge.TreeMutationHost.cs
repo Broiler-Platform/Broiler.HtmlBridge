@@ -15,14 +15,14 @@ namespace Broiler.HtmlBridge;
 // realm, so the script context the DOM-exception thrower needed, the engine-typed wrapper resolver and
 // the second argument reading over the engine's own frame all went with them.
 //
-// FindNode's body is the seam itself and still names the bridge's reverse lookup, whose name carries
-// the engine type it takes. That lookup lives in DomBridge/Utilities.cs, which this group does not
-// own, so the rename waits for it. The unwrap is a cast and not a conversion: a JSEAL object handle
-// carries the engine's own object, which is what the reverse wrapper map is keyed on.
+// FindNode's body is a plain forward now: the bridge's reverse lookup takes the same handle this
+// member is handed, so there is no unwrap left in it. The lookup's name still carries the engine type
+// it used to take; that rename is a separate change, and the reverse wrapper map it reads is keyed on
+// JsValue.ObjectIdentity rather than on an engine object.
 public sealed partial class DomBridge : Dom.Features.ITreeMutationHost
 {
     DomNode? Dom.Features.ITreeMutationHost.FindNode(JsValue wrapper)
-        => wrapper.IsObject ? FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper)) : null;
+        => wrapper.IsObject ? FindDomNodeByJSObject(wrapper) : null;
 
     // One reading, not two: the argument list is read by the bridge's own ISubDocumentHost member,
     // which coerces each non-node argument with the realm's ToString exactly as the engine frame did.

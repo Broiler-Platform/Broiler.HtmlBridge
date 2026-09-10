@@ -14,11 +14,11 @@ namespace Broiler.HtmlBridge;
 // now raises those through its own call frame's realm.
 public sealed partial class DomBridge : Dom.Features.IInsertAdjacentHost
 {
-    // The module only asks this of a handle it has already established is an object, so unwrapping
-    // cannot fail here. FindDomElementByJSObject is the unmigrated half — the wrapper registry is
-    // keyed on the engine's own objects — and the seam is a cast, not a conversion.
+    // A plain forward: FindDomElementByJSObject takes the same handle, and the wrapper registry behind
+    // it is keyed on JsValue.ObjectIdentity, not on the engine's own objects as this used to say.
+    // There is no unwrap left to fail; a handle that is not an object answers null.
     DomElement? Dom.Features.IInsertAdjacentHost.FindElement(JsValue wrapper)
-        => FindDomElementByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper));
+        => FindDomElementByJSObject(wrapper);
 
     void Dom.Features.IInsertAdjacentHost.InsertNodeAt(DomNode parent, DomNode node, int index) => InsertNodeAt(parent, node, index);
     DomText Dom.Features.IInsertAdjacentHost.CreateBridgeTextNode(string data) => CreateBridgeTextNode(data);

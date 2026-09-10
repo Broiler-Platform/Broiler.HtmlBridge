@@ -15,11 +15,11 @@ namespace Broiler.HtmlBridge;
 /// future runtime-state consolidation re-homes.
 /// </summary>
 /// <remarks>
-/// This is the half-migrated seam for the select slice: the module speaks JSEAL, the rest of the
-/// bridge still holds engine objects, and <see cref="Dom.Runtime.JsInterop"/> is the cast between
-/// them. It is a cast and not a conversion — a JSEAL object handle carries the engine's own object —
-/// so wrapper identity (<c>option === option</c>, and the weak tables keyed on it) is the same
-/// question it was before.
+/// The select slice is not a half-migrated seam any more: the module speaks JSEAL, the wrapper factory
+/// answers a handle and the reverse lookup takes one, so no cast is left in this file. Wrapper
+/// identity (<c>option === option</c>, and the weak tables keyed on it) is the same question it was
+/// before, because <c>Runtime/JsObjectRegistry</c> keys on <see cref="JsValue.ObjectIdentity"/> — the
+/// reference the handle carries, which is canonical per object by definition of handle equality.
 /// </remarks>
 public sealed partial class DomBridge : ISelectHost
 {
@@ -41,7 +41,7 @@ public sealed partial class DomBridge : ISelectHost
     JsValue ISelectHost.WrapNode(DomNode node) => WrapNode(node);
 
     DomElement? ISelectHost.FindElement(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomElementByJSObject(JsInterop.ToEngineObject(wrapper)) : null;
+        wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
 
     bool ISelectHost.TryGetSelectedIndex(DomElement select, out int index)
     {

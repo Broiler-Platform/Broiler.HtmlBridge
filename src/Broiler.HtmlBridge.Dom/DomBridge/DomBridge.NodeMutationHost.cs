@@ -8,10 +8,10 @@ namespace Broiler.HtmlBridge;
 // mutation-observer / node-iterator notifications via explicit interface members, so the module never
 // reaches an arbitrary bridge private field and the public surface is unchanged.
 //
-// The contract is spelled in JSEAL and the two wrapper members behind it are not migrated, so this
-// file is the seam. Dom.Runtime.JsInterop is a cast rather than a conversion — a handle carries the
-// engine's own object — so the wrapper the module receives, and the one it hands back for a lookup,
-// are the instances the bridge's wrapper tables are keyed on.
+// The contract is spelled in JSEAL and so are the two wrapper members behind it, so this file is no
+// longer a seam: the factory answers a handle and the reverse lookup takes one. The wrapper the module
+// receives, and the one it hands back for a lookup, are the instances the bridge's wrapper tables are
+// keyed on — those tables key on JsValue.ObjectIdentity, the reference the handle carries.
 public sealed partial class DomBridge : Dom.Features.INodeMutationHost
 {
     JsValue Dom.Features.INodeMutationHost.WrapNode(DomNode node) =>
@@ -19,10 +19,11 @@ public sealed partial class DomBridge : Dom.Features.INodeMutationHost
 
     DomNode Dom.Features.INodeMutationHost.DocumentNode => _document;
 
-    // The module only asks this of a handle it has already established is an object, so unwrapping it
-    // cannot fail here; a non-object would mean the module skipped its own guard.
+    // A plain forward: the reverse lookup takes the same handle. There is no unwrap left to fail, and
+    // a handle that is not an object answers null — which the module's own IsObject guard, at all four
+    // of its call sites, still means this never has to do.
     DomNode? Dom.Features.INodeMutationHost.FindDomNode(JsValue wrapper)
-        => FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper));
+        => FindDomNodeByJSObject(wrapper);
 
     // One reading, not two: the same migrated argument reading the tree-mutation contract forwards to,
     // which coerces each non-node argument with the realm's ToString exactly as the engine frame did.

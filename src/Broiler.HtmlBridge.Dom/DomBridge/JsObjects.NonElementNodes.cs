@@ -606,11 +606,13 @@ public sealed partial class DomBridge
     /// The DOM node a wrapper handle stands for, or <see langword="null"/> when it stands for none.
     /// </summary>
     /// <remarks>
-    /// The reverse lookup itself is <c>DomBridge/Utilities.cs</c>'s and is keyed on the engine object,
-    /// which a handle carries — so this is one cast, gathered here rather than repeated at each of the
-    /// six argument reads in the fragment's child manipulation. A non-object handle answers null
-    /// without asking, which is the branch the engine-object guard used to take at each site.
+    /// The reverse lookup itself is <c>DomBridge/Utilities.cs</c>'s and takes the handle straight, so
+    /// there is no cast left for this to gather from the six argument reads in the fragment's child
+    /// manipulation. What is left is the non-object answer, and that is the lookup's own answer too
+    /// now: a handle that is not an object is simply not in the wrapper map. The test below is
+    /// therefore redundant rather than load-bearing, and collapsing it would leave this member a bare
+    /// alias — a separate change from the re-typing.
     /// </remarks>
     private DomNode? NodeForWrapper(JsValue value) =>
-        value.IsObject ? FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(value)) : null;
+        value.IsObject ? FindDomNodeByJSObject(value) : null;
 }
