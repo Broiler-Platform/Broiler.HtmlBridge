@@ -174,7 +174,7 @@ public sealed partial class DomBridge
         // networking surface is an isolated feature module.
         var messageChannelCtor = realm.NewConstructor(
             "MessageChannel",
-            (in _) => Dom.Runtime.JsInterop.FromEngineObject(_messaging.CreateMessageChannel()),
+            (in _) => _messaging.CreateChannel(),
             0);
         realm.DefineValue(window, "MessageChannel", messageChannelCtor);
         realm.SetProperty(realm.Global, "MessageChannel", messageChannelCtor);

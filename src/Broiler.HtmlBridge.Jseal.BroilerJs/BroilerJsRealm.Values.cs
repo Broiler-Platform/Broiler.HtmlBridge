@@ -94,8 +94,10 @@ internal sealed partial class BroilerJsRealm
     /// answers <c>undefined</c>.
     /// </para>
     /// <para>
-    /// It is also the memory fix <c>DomBridge/DomFunction.cs</c> records, and the reason that file
-    /// exists. A node's wrapper is built eagerly and per node with roughly 149 own members, each of
+    /// It is also the memory fix <c>DomBridge/DomFunction.cs</c> recorded, and the reason that file
+    /// existed -- it is deleted, and in this repository's history, because every member the bridge
+    /// installs now comes through here instead of through a bridge type the bridge had to remember
+    /// to use. A node's wrapper is built eagerly and per node with roughly 149 own members, each of
     /// which was allocating a <c>JSFunction</c> <em>plus</em> an unreachable prototype object plus
     /// that object's <c>constructor</c> back-reference. Dropping the prototype roughly halves the
     /// retained cost of a wrapper — the difference between a document of 10k script-created elements
