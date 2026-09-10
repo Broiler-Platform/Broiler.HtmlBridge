@@ -74,14 +74,14 @@ public sealed partial class DomBridge
     internal JsValue WrapNode(DomNode node)
     {
         if (_jsObjects.TryGet(node, out var cached))
-            return Dom.Runtime.JsInterop.FromEngineObject(cached);
+            return cached;
 
         // Phase 4 item 1: a canonical DomDocument is the document root. The main document is in the
         // node-wrapper map above; a sub-document root's wrapper lives in the document-wrapper map
         // (P2.2/P4.4a). Resolve it here so e.g. documentElement.parentNode returns the document
         // object, not a fallthrough character-data wrapper.
         if (node is DomDocument documentNode && _jsObjects.TryGetDocument(documentNode, out var documentWrapper))
-            return Dom.Runtime.JsInterop.FromEngineObject(documentWrapper);
+            return documentWrapper;
 
         // A <form> gets a wrapper that additionally resolves an unknown name to the control carrying
         // it (HTMLFormElement's named getter). It is decided here rather than in the form binding
@@ -94,18 +94,13 @@ public sealed partial class DomBridge
             ? Realm.NewExotic(new Dom.Features.FormNamedControls(formElement, this, missingIsNull: false))
             : Realm.NewObject();
 
-        // The same wrapper as the engine's own object, for the registry — which is keyed on it — and
-        // for the handful of installers below whose callee still reads the engine's argument frame.
-        // The seam is a cast rather than a conversion, so a member the realm mints and a member the
-        // engine mints land on one object and the two halves cannot drift apart.
-        var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
-        _jsObjects.Set(node, obj);
+        _jsObjects.Set(node, handle);
 
         // Point the wrapper at its interface prototype before any member is installed, so
         // constructor.name and Object.getPrototypeOf answer the interface rather than Object.
         // Non-element nodes only — see WrapperPrototypes.cs for why an element's is a separate
         // question.
-        ApplyInterfacePrototype(obj, node);
+        ApplyInterfacePrototype(handle, node);
 
         // RF-BRIDGE-1c Phase F (F3c): canonical character-data nodes (DomText/DomComment) are not
         // Broiler.Dom.DomElement, so they receive a minimal Node/CharacterData wrapper instead of the full
@@ -157,7 +152,7 @@ public sealed partial class DomBridge
         // textContent (read/write) — Node's member, and deliberately the element's own: its operation
         // differs from the character-data one on Node.prototype (Phase 3 P3.57:
         // ElementContentBinding).
-        Dom.Features.ElementContentBinding.InstallTextContent(this, obj, element);
+        Dom.Features.ElementContentBinding.InstallTextContent(this, handle, element);
 
         // -- DOM tree navigation --
 

@@ -329,7 +329,7 @@ public sealed partial class DomBridge
         // The reverse map is keyed on the engine object, which an object handle carries; a non-object
         // receiver answers no node without asking, which is the branch the engine-object test took.
         if (call.This.IsObject &&
-            _jsObjects.TryGetNode(Dom.Runtime.JsInterop.ToEngineObject(call.This), out var node))
+            _jsObjects.TryGetNode(call.This, out var node))
         {
             return node;
         }

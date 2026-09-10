@@ -54,10 +54,11 @@ public sealed partial class DomBridge
     /// otherwise, and for a node kind this does not name.
     /// </summary>
     /// <remarks>
-    /// Engine-typed because the four wrapper factories that call it are: each holds the wrapper it
-    /// has just minted as the engine's own object. It forwards to the handle-taking overload below.
+    /// It was engine-typed because the wrapper factories that call it were: each held the wrapper it
+    /// had just minted as the engine's own object. They hold a handle now, and this always forwarded
+    /// to the handle-taking overload below.
     /// </remarks>
-    internal void ApplyInterfacePrototype(JSObject wrapper, DomNode node)
+    internal void ApplyInterfacePrototype(JsValue wrapper, DomNode node)
     {
         if (InterfaceNameFor(node) is { } interfaceName)
             LinkToInterface(wrapper, interfaceName);

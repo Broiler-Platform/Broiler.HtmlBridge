@@ -247,7 +247,7 @@ public sealed partial class DomBridge
     /// </summary>
     /// <inheritdoc cref="FindDomElementByJSObject" path="/remarks" />
     private DomNode? FindDomNodeByJSObject(JSObject jsObj) =>
-        _jsObjects.TryGetNode(jsObj, out var node) ? node : null;
+        _jsObjects.TryGetNode(Dom.Runtime.JsInterop.FromEngineObject(jsObj), out var node) ? node : null;
 
     // Phase 4 item 5: the bridge's IsDescendant(ancestor, candidate) copy is deleted; call sites use
     // the canonical Broiler.Dom.DomNode.IsDescendantOf(ancestor) instance method (identical ancestor

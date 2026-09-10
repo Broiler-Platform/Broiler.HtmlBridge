@@ -119,7 +119,7 @@ public sealed partial class DomBridge
         // handle is unwrapped to ask it. A non-object receiver never reaches that: it answers the
         // same TypeError the engine-object test used to.
         if (call.This.IsObject &&
-            _jsObjects.TryGetNode(Dom.Runtime.JsInterop.ToEngineObject(call.This), out var node) &&
+            _jsObjects.TryGetNode(call.This, out var node) &&
             node is DomElement element)
         {
             return element;
@@ -133,7 +133,7 @@ public sealed partial class DomBridge
     private JsValue RequireWrapperReceiver(in JsCall call, string member)
     {
         if (call.This.IsObject &&
-            _jsObjects.TryGetNode(Dom.Runtime.JsInterop.ToEngineObject(call.This), out var node) &&
+            _jsObjects.TryGetNode(call.This, out var node) &&
             node is DomElement)
         {
             return call.This;

@@ -39,7 +39,7 @@ public sealed partial class DomBridge : Dom.Features.INodeAccessorsHost
     {
         if (_jsObjects.TryGetDocument(documentRoot, out var document))
         {
-            wrapper = Dom.Runtime.JsInterop.FromEngineObject(document);
+            wrapper = document;
             return true;
         }
 

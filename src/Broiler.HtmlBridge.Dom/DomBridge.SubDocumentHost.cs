@@ -62,18 +62,17 @@ public sealed partial class DomBridge : ISubDocumentHost
 
     void ISubDocumentHost.RegisterDocumentWrapper(DomNode docRoot, JsValue doc)
     {
-        var wrapper = Dom.Runtime.JsInterop.ToEngineObject(doc);
-        _jsObjects.SetDocument(docRoot, wrapper);
+        _jsObjects.SetDocument(docRoot, doc);
         // Map docRoot → the same document wrapper, so the node-wrapper factory hands that object back
         // for the root; this makes strict equality checks like `range.startContainer === doc` work.
-        _jsObjects.Set(docRoot, wrapper);
+        _jsObjects.Set(docRoot, doc);
     }
 
     bool ISubDocumentHost.TryGetNodeWrapper(DomNode node, out JsValue wrapper)
     {
         if (_jsObjects.TryGet(node, out var cached))
         {
-            wrapper = Dom.Runtime.JsInterop.FromEngineObject(cached);
+            wrapper = cached;
             return true;
         }
 

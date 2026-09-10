@@ -239,8 +239,6 @@ public sealed partial class DomBridge
         if (ReferenceEquals(document, _document))
             return _documentJSObject is { } main ? JsInterop.FromEngineObject(main) : JsValue.Null;
 
-        return _jsObjects.TryGetDocument(document, out var wrapper)
-            ? JsInterop.FromEngineObject(wrapper)
-            : JsValue.Null;
+        return _jsObjects.TryGetDocument(document, out var wrapper) ? wrapper : JsValue.Null;
     }
 }
