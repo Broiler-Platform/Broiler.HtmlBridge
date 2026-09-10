@@ -4,23 +4,29 @@ namespace Broiler.Browser.Core.Tests;
 
 /// <summary>
 /// The two Web Storage areas (HTML §12.2) — <c>localStorage</c> and <c>sessionStorage</c> — asserted
-/// from page script, ahead of the retyping of the object that backs them.
+/// from page script, across the retyping of the object that backs them.
 /// <para>
 /// An area is a legacy platform object: <c>storage.foo</c>, <c>storage['foo']</c> and
 /// <c>getItem('foo')</c> are three spellings of ONE item, and <c>length</c>, <c>key(n)</c> and
-/// enumeration each count that item exactly once. The mirror runs both ways, and breaking one
-/// direction is silent — a page writes <c>storage.foo</c>, reads back the property it just wrote, and
-/// never learns that <c>getItem</c>, <c>length</c> and <c>key()</c> stopped seeing it.
+/// enumeration each count that item exactly once. Breaking one spelling is silent — a page writes
+/// <c>storage.foo</c>, reads back what it just wrote, and never learns that <c>getItem</c>,
+/// <c>length</c> and <c>key()</c> stopped seeing it.
 /// </para>
 /// <para>
-/// <b>The delete case is why the file exists now.</b> <c>Storage</c> is the only lookup-completing
-/// object in the bridge whose behaviour includes a deletion, and it is right today only because the
-/// backing object still overrides the engine's own delete: <c>delete localStorage.foo</c> takes the
-/// item out of the store, not merely the property mirroring it. The contract the other five objects
-/// have moved to declares a named read, an indexed read and a named write and no delete hook, so a
-/// conversion done as it stands leaves the property deleted and the item behind — <c>getItem</c> still
-/// answering, <c>length</c> still counting: a wrong answer rather than a missing feature, and nothing
-/// fails at the moment it appears unless the first test below exists.
+/// <b>The delete case is why the file exists, and it is the test the retyping was blocked on.</b>
+/// <c>Storage</c> is the only lookup-completing object in the bridge whose behaviour includes a
+/// deletion: <c>delete localStorage.foo</c> takes the item out of the store, not merely a property
+/// mirroring it. The contract the other five objects had moved to declared a named read, an indexed
+/// read and a named write and no delete hook, so a conversion done against it would have left the
+/// property deleted and the item behind — <c>getItem</c> still answering, <c>length</c> still
+/// counting: a wrong answer rather than a missing feature, and nothing fails at the moment it appears
+/// unless the first test below exists. The hook is <c>IJsExoticDelete</c> now and the area is an
+/// <c>IJsExotic</c>; every assertion here is the one it was written with.
+/// </para>
+/// <para>
+/// These run on the Broiler.JS engine whichever configuration builds them, because the harness below
+/// asks for a <c>ScriptEngine</c>. What the second provider does with a storage area is asserted by
+/// the delete tests in <c>JsealConformanceTests</c>, which are theories over every registered one.
 /// </para>
 /// </summary>
 public class WebStorageTests
@@ -202,9 +208,7 @@ public class WebStorageTests
                 """));
     }
 
-    [Fact(Skip = "A property assignment mirrors the raw value, not its string: WebStorageBinding.cs:223-229 " +
-                 "passes `value` straight through to base.SetValue and only the backing store gets ToString(), " +
-                 "so `localStorage.n = 1` reads back the number 1 where HTML §12.2.2 requires the string '1'.")]
+    [Fact]
     public void APropertyAssignmentStoresTheStringifiedValue()
     {
         // An area holds strings and nothing else, which is why `localStorage.count += 1` concatenates
@@ -224,9 +228,12 @@ public class WebStorageTests
                 """));
     }
 
-    [Fact(Skip = "A digit-only key misses the store: the overrides at WebStorageBinding.cs:223 and :232 are on " +
-                 "the engine's string-key members only and a digit-only key routes to the indexed ones, so " +
-                 "`localStorage[8] = 'x'` never reaches the area and setItem('7', ...) is unreachable as a property.")]
+    [Fact(Skip = "A digit-only key misses the store, and it is a third gap in IJsExotic rather than a defect " +
+                 "in this module. Both engines route an integer-index key to the indexed hooks, and the " +
+                 "contract has a named write hook and no indexed one — so `localStorage[8] = 'x'` becomes an " +
+                 "ordinary property and setItem('7', ...) is unreachable as one. Storage has named property " +
+                 "getters and setters and NO indexed ones, so '7' is a name; closing this needs a TrySetIndex, " +
+                 "or a way for a handler to declare it has no indexed properties at all.")]
     public void ADigitOnlyKeyIsANamedPropertyLikeAnyOther()
     {
         // Storage has named property getters and setters and no indexed ones — '7' is a key like any

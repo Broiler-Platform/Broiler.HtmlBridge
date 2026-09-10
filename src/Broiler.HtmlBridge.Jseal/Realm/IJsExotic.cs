@@ -22,6 +22,11 @@ namespace Broiler.HtmlBridge.Jseal;
 /// <c>item()</c> method, and every ordinary member of a style declaration would be interceptable by a
 /// CSS property of the same name.
 /// </para>
+/// <para>
+/// A handler that also implements <see cref="IJsExoticDelete"/> completes deletions as well as
+/// lookups. That is a separate contract because a provider has to know at mint time whether an
+/// object ever deletes, and this one does not answer that question.
+/// </para>
 /// </remarks>
 public interface IJsExotic
 {
@@ -61,3 +66,66 @@ public interface IJsExotic
     /// </remarks>
     uint IndexedLength { get; }
 }
+
+/// <summary>
+/// The deletion half of a host-completed lookup, for the one kind of object whose behaviour
+/// includes taking something away: a legacy platform object with a named deleter.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b><c>Storage</c> is the only one of the six lookup-completing objects that needs this, and it is
+/// the only one that could not move onto <see cref="IJsExotic"/> without it.</b> The other five
+/// answer reads and take writes. A storage area also has <c>delete localStorage.foo</c> take the
+/// item out of the area, so <c>getItem</c> stops answering for it and <c>length</c> and
+/// <c>key(n)</c> stop counting it. Converting it with no delete hook would leave the ordinary
+/// property deleted and the item still in the store, which is a wrong answer rather than a missing
+/// feature.
+/// </para>
+/// <para>
+/// <b>It is a second contract rather than a sixth member of <see cref="IJsExotic"/>, and the reason
+/// is what a provider has to DO about it.</b> One engine dispatches a deletion through a virtual its
+/// exotic object already overrides the neighbours of, and pays nothing. Another has no delete hook
+/// on its host-object surface at all and has to express a deleting object differently, behind the
+/// realm's own <c>Proxy</c>, where every operation costs a lookup on a trap object before it
+/// forwards. A provider can pay that for the objects that need it and not for the rest only if it
+/// can tell which those are at the moment it mints one. Implementing this interface IS that
+/// declaration, and a handler that does not implement it is minted exactly as it is today. A
+/// boolean property on <see cref="IJsExotic"/> would say the same thing and could contradict the
+/// behaviour; a type is a declaration the compiler keeps honest.
+/// </para>
+/// <para>
+/// <b>The hook runs BEFORE the ordinary deletion, which is the order
+/// <see cref="IJsExotic.TrySetNamed"/> takes and the opposite of the order the reads take.</b> A
+/// named deleter has to take the item out before the property mirroring it goes; a read may be
+/// answered after ordinary storage has declined, because nothing has changed by then.
+/// </para>
+/// </remarks>
+public interface IJsExoticDelete
+{
+    /// <summary>
+    /// Takes the deletion of a named property, removing whatever the name stands for, or declines
+    /// it so that only the ordinary deletion happens.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Declining is a real answer and the common one.</b> A name the object does not own is a
+    /// page deleting an expando it put there itself, and a hook that claimed everything would make
+    /// that deletion look like the object's business.
+    /// </para>
+    /// <para>
+    /// <b>The ordinary deletion runs either way, and this answer is not the deletion's answer.</b> A
+    /// claimed deletion still has to take an own property of that name with it, because a mirror
+    /// that outlived its item would answer for something the object no longer has. So the engine
+    /// deletes as well, and what <c>delete</c> evaluates to is the engine's answer.
+    /// </para>
+    /// <para>
+    /// <b>An integer-index key never arrives here, and neither does a symbol.</b> Indexed and named
+    /// lookup are separate questions in this contract, and a provider offers this hook only the keys
+    /// its engine treats as names. Nothing in the bridge deletes by index; an object that needed it
+    /// would need an indexed hook of its own, which is the same gap that keeps a digit-only storage
+    /// key from reaching its area at all.
+    /// </para>
+    /// </remarks>
+    bool TryDeleteNamed(string name);
+}
+

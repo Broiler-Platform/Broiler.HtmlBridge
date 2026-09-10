@@ -142,7 +142,9 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
         if (!_streamOverBytes.IsObject)
             return JsValue.Null;
 
-        return _realm().Invoke(_streamOverBytes, JsValue.Undefined, [ToArrayBuffer(bytes)]);
+        var realm = _realm();
+
+        return realm.Invoke(_streamOverBytes, JsValue.Undefined, [realm.NewArrayBuffer(bytes)]);
     }
 
     /// <summary>A <c>ReadableStream</c> over the UTF-8 encoding of a text body.</summary>
@@ -176,7 +178,7 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
         return realm.Invoke(
             _streamOverObservedBytes,
             JsValue.Undefined,
-            [ToArrayBuffer(Encoding.UTF8.GetBytes(text)), report]);
+            [realm.NewArrayBuffer(Encoding.UTF8.GetBytes(text)), report]);
     }
 
     /// <summary>Whether a reader holds <paramref name="stream"/>. <see langword="false"/> for
@@ -205,23 +207,7 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
         if (bytes is null)
             throw call.Realm.Error(JsErrorKind.TypeError, "The object provided is not a Blob.");
 
-        return ToArrayBuffer(bytes);
+        return call.Realm.NewArrayBuffer(bytes);
     }
 
-    /// <summary>
-    /// The bytes as an <c>ArrayBuffer</c>. The asset wraps it in a <c>Uint8Array</c> — the chunk type
-    /// a browser's blob stream yields and what <c>FileReader</c>'s conversions read — because
-    /// resolving the realm's <c>Uint8Array</c> from here is a lookup that can succeed at one call
-    /// site and quietly hand back the bare buffer at another. A copy, so a page mutating a chunk
-    /// cannot rewrite the blob it came from; blobs are immutable.
-    /// </summary>
-    /// <remarks>
-    /// <b>This is the one line JSEAL cannot express.</b> <see cref="IJsValues"/> mints objects,
-    /// arrays and functions; it has no ArrayBuffer or typed-array member, and there is no capability
-    /// flag for one. Until the contract grows one, the buffer is built with the engine's own type and
-    /// handed across as a handle.
-    /// </remarks>
-    private static JsValue ToArrayBuffer(byte[] bytes) =>
-        Runtime.JsInterop.FromEngineObject(
-            new Broiler.JavaScript.BuiltIns.Array.Typed.JSArrayBuffer((byte[])bytes.Clone()));
 }

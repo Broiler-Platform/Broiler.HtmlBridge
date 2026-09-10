@@ -607,17 +607,18 @@ public class JsealConformanceTests
     /// <c>new.target</c> inside a host constructor's own body.
     /// </summary>
     /// <remarks>
-    /// <b>Skipped because the Broiler.JS provider does not answer it, which is a defect in the
-    /// provider rather than in this test.</b> <c>JsCall.NewTarget</c> promises the construct target
-    /// for a construct call, and <c>BroilerJsRealm.Dispatch</c> reads it from
-    /// <c>JSEngine.NewTarget</c> — which resolves <c>Frames.CurrentNewTarget</c>, the interpreter's
-    /// frame stack. A native function's body is invoked as a delegate and pushes no such frame, so
-    /// the read is null and every host constructor sees <see cref="JsValue.Missing"/>. The value is
-    /// there to be had: the engine's own [[Construct]] sets <c>ec.CurrentNewTarget</c> to the
-    /// constructor immediately before invoking the delegate, and its <c>Object</c> factory reads
-    /// exactly that. Custom-element construction is the caller that will need it, and it is smuggling
-    /// new.target through as argument zero from a JavaScript shim today for want of this.
-    /// Un-skipping this test is what "fixed" means.
+    /// <b>This test found a defect in the Broiler.JS provider, and the defect is fixed — the
+    /// remark below is kept because it is the only record of what was wrong.</b>
+    /// <c>JsCall.NewTarget</c> promises the construct target for a construct call, and
+    /// <c>BroilerJsRealm.Dispatch</c> read it from <c>JSEngine.NewTarget</c> alone — which resolves
+    /// <c>Frames.CurrentNewTarget</c>, the interpreter's frame stack. A native function's body is
+    /// invoked as a delegate and pushes no such frame, so the read was null and every host
+    /// constructor saw <see cref="JsValue.Missing"/>. The value was there to be had: the engine's
+    /// own [[Construct]] sets <c>ec.CurrentNewTarget</c> to the constructor immediately before
+    /// invoking the delegate, and its <c>Object</c> factory reads exactly that.
+    /// <c>BroilerJsRealm.cs:269-281</c> now reads both, in that order, and states why. Custom-element
+    /// construction is the caller that needed it, and was smuggling new.target through as argument
+    /// zero from a JavaScript shim for want of it.
     /// </remarks>
     [Theory]
     [MemberData(nameof(Engines))]
@@ -751,23 +752,6 @@ public class JsealConformanceTests
     }
 
     /// <summary>
-    /// A promise does not depend on the capability a page's Content-Security-Policy takes away.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>This is the case that decides whether a provider's promise is real or is a snippet.</b>
-    /// A page whose policy forbids evaluation is the page most likely to reach for <c>fetch</c>,
-    /// and a provider that built its promises by evaluating source would hand that page a promise
-    /// assembled out of the one thing it had just refused — or refuse the <c>fetch</c>, which is
-    /// worse, because the policy said nothing about network access.
-    /// </para>
-    /// <para>
-    /// The Broiler.VM provider's <c>NewPromise</c> refused for exactly this reason until the
-    /// argument was found to be about a route rather than about the engine. So the two claims are
-    /// asserted together here: guest source is still refused, and a promise is still made.
-    /// </para>
-    /// </remarks>
-    /// <summary>
     /// A page cannot make the host build its deferred results out of a constructor the page wrote.
     /// </summary>
     /// <remarks>
@@ -811,6 +795,23 @@ public class JsealConformanceTests
         Assert.Equal("got:value", Eval(realm, "reached", "test:hijack-after"));
     }
 
+    /// <summary>
+    /// A promise does not depend on the capability a page's Content-Security-Policy takes away.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the case that decides whether a provider's promise is real or is a snippet.</b>
+    /// A page whose policy forbids evaluation is the page most likely to reach for <c>fetch</c>,
+    /// and a provider that built its promises by evaluating source would hand that page a promise
+    /// assembled out of the one thing it had just refused — or refuse the <c>fetch</c>, which is
+    /// worse, because the policy said nothing about network access.
+    /// </para>
+    /// <para>
+    /// The Broiler.VM provider's <c>NewPromise</c> refused for exactly this reason until the
+    /// argument was found to be about a route rather than about the engine. So the two claims are
+    /// asserted together here: guest source is still refused, and a promise is still made.
+    /// </para>
+    /// </remarks>
     [Theory]
     [MemberData(nameof(Engines))]
     public void APromiseIsStillAvailableInARealmThatForbidsGuestEvaluation(string engine)
@@ -1025,17 +1026,20 @@ public class JsealConformanceTests
     /// An exotic object's supported names in <c>Object.keys</c> and in a spread.
     /// </summary>
     /// <remarks>
-    /// <b>Skipped because the Broiler.JS provider answers neither, which is a defect in the provider
-    /// rather than in this test.</b> <see cref="IJsExotic.SupportedNames"/> says in as many words
-    /// that the names are "for <c>Object.keys</c>, <c>for…in</c> and spread", and the provider
-    /// supplies them by appending to <c>GetAllKeys</c> — which is enough for <c>for…in</c> and
+    /// <b>This test found a defect in the Broiler.JS provider, and the defect is fixed — the
+    /// remark below is kept because it is the only record of what was wrong.</b>
+    /// <see cref="IJsExotic.SupportedNames"/> says in as many words that the names are "for
+    /// <c>Object.keys</c>, <c>for…in</c> and spread", and the provider supplied them by appending to
+    /// <c>GetAllKeys</c> alone — which is enough for <c>for…in</c> and
     /// <c>Object.getOwnPropertyNames</c> (both pass, above) and not enough for the other two.
     /// <c>Object.keys</c> implements EnumerableOwnProperties: it snapshots the own keys and then asks
     /// <c>[[GetOwnProperty]]</c> for each one, keeping only the enumerable ones — and a supported
-    /// name has no own descriptor, so it is dropped. <c>Object.assign</c>, and therefore an object
-    /// spread, filters the same way. A page enumerating a form's controls with
-    /// <c>Object.keys(form.elements)</c> or <c>{...form.elements}</c> gets the indices and the
+    /// name had no own descriptor, so it was dropped. <c>Object.assign</c>, and therefore an object
+    /// spread, filtered the same way, so a page enumerating a form's controls with
+    /// <c>Object.keys(form.elements)</c> or <c>{...form.elements}</c> got the indices and the
     /// interface's own members but none of the named controls.
+    /// <c>BroilerJsExoticObject.GetOwnPropertyDescriptor</c> synthesises the descriptor now, on each
+    /// ask rather than installed, and states why installing would be the shorter wrong answer.
     /// </remarks>
     [Theory]
     [MemberData(nameof(Engines))]
@@ -1057,6 +1061,243 @@ public class JsealConformanceTests
 
         Assert.Equal("0,1,item,named", Eval(realm, "Object.keys(enumerable).join(',')", "test:exotic-keys"));
         Assert.Equal("0,1,item,named", Eval(realm, "Object.keys(Object.assign({}, enumerable)).join(',')", "test:exotic-spread"));
+    }
+
+    /// <summary>
+    /// A deletion on an exotic object reaches the handler, not only the ordinary property.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the case <c>Storage</c> is the only object in the bridge to have.</b>
+    /// <c>delete localStorage.foo</c> has to take the ITEM out, so <c>getItem</c> stops answering
+    /// and <c>length</c> stops counting; a deletion that reached only the property would leave the
+    /// two disagreeing, which is a wrong answer rather than a missing feature.
+    /// </para>
+    /// <para>
+    /// <b>The two providers reach it by different routes and must not be distinguishable here.</b>
+    /// One overrides the virtual its engine dispatches a deletion through; the other has no such
+    /// hook on its host-object surface and puts the object behind the realm's own <c>Proxy</c> with
+    /// a single <c>deleteProperty</c> trap. This test names neither.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ADeletionOnAnExoticObjectReachesTheHandlerAndTakesTheNameWithIt(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.ExoticObjects))
+            return;
+
+        var handler = new DeletingExotic();
+        var area = realm.NewExotic(handler);
+        realm.DefineValue(realm.Global, "area", area);
+
+        realm.EvaluateHostScript("area.stored = 'written';", "test:delete-write");
+        Assert.Equal("written", Eval(realm, "area.stored", "test:delete-read"));
+        Assert.Contains("stored", realm.OwnPropertyNames(area));
+
+        Assert.Equal("true", Eval(realm, "String(delete area.stored)", "test:delete"));
+        Assert.Equal("undefined", Eval(realm, "String(area.stored)", "test:delete-gone"));
+        Assert.DoesNotContain("stored", realm.OwnPropertyNames(area));
+        Assert.Equal(["stored"], handler.Deletions);
+
+        // A name the handler DECLINED on the write is an expando the page put there, and deleting it
+        // is the ordinary deletion. The handler is still asked - the ordering for a delete mirrors
+        // the one for a write, not the one for a read - and declining leaves the property to go the
+        // way it would on any object.
+        Assert.Equal("true", Eval(realm, "(area.expando = 1, String(delete area.expando))", "test:delete-expando"));
+        Assert.Equal("undefined", Eval(realm, "String(area.expando)", "test:expando-gone"));
+        Assert.Equal(["stored", "expando"], handler.Deletions);
+    }
+
+    /// <summary>
+    /// A digit-only key never reaches the delete hook, on either provider.
+    /// </summary>
+    /// <remarks>
+    /// <b>The two engines route an integer-index key away from the named hooks by different
+    /// machinery, and this pins that they agree.</b> One dispatches it to a separate indexed
+    /// virtual; the other hands its proxy trap the string <c>"7"</c> like any other key, so the
+    /// provider filters it. Without the filter <c>delete area[7]</c> would remove an item under one
+    /// engine and not the other, which is worse than the gap they share - and that gap is why
+    /// <c>WebStorageTests.ADigitOnlyKeyIsANamedPropertyLikeAnyOther</c> is still skipped.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ADigitOnlyKeyDoesNotReachTheDeleteHook(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.ExoticObjects))
+            return;
+
+        var handler = new DeletingExotic();
+        realm.DefineValue(realm.Global, "area", realm.NewExotic(handler));
+
+        realm.EvaluateHostScript("area[7] = 'seven'; area['007'] = 'padded';", "test:index-write");
+        realm.EvaluateHostScript("delete area[7]; delete area['007'];", "test:index-delete");
+
+        // "007" is a name and 7 is an index, which is the line the language draws and not one this
+        // contract invents.
+        Assert.Equal(["007"], handler.Deletions);
+    }
+
+    /// <summary>
+    /// A symbol-keyed deletion works and is not offered to the handler.
+    /// </summary>
+    /// <remarks>
+    /// <b>It is here because one provider's route can silently drop it.</b> That provider's trap is
+    /// handed every key kind the guest can delete by, and the host surface it would naturally
+    /// forward through deletes by string name only - so a symbol-keyed deletion routed that way
+    /// would answer <see langword="true"/> and remove nothing, with the proxy's own invariant check
+    /// unable to catch it because the property is configurable. Forwarding through the captured
+    /// <c>Reflect.deleteProperty</c> is what closes it.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ASymbolKeyedDeletionRemovesThePropertyAndIsNotOfferedToTheHandler(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.ExoticObjects))
+            return;
+
+        var handler = new DeletingExotic();
+        realm.DefineValue(realm.Global, "area", realm.NewExotic(handler));
+
+        Assert.Equal(
+            "before=marked after=undefined deleted=true",
+            Eval(
+                realm,
+                "(function () {" +
+                "  var key = Symbol('mark');" +
+                "  area[key] = 'marked';" +
+                "  var before = area[key];" +
+                "  var deleted = delete area[key];" +
+                "  return 'before=' + before + ' after=' + area[key] + ' deleted=' + deleted;" +
+                "})()",
+                "test:symbol-delete"));
+
+        Assert.Empty(handler.Deletions);
+    }
+
+    /// <summary>
+    /// A deleting handler is read, written and enumerated exactly as a plain one is.
+    /// </summary>
+    /// <remarks>
+    /// <b>One provider serves a deleting handler through a different kind of object, and this is the
+    /// assertion that the difference is invisible.</b> Reads, the ordering rule, member installation
+    /// by the host, <c>in</c>, <c>Object.keys</c> and object spread all have to answer what they
+    /// answer for a handler with no deletion - otherwise converting <c>Storage</c> onto this
+    /// contract would fix its deletions and break its enumeration.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ADeletingExoticIsReadAndEnumeratedExactlyAsAPlainOneIs(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.ExoticObjects))
+            return;
+
+        var handler = new DeletingExotic();
+        var area = realm.NewExotic(handler);
+
+        // The host installs a member on the object it just minted, which on the proxy route reaches
+        // the target while the realm is installing. An installed member must not be offered to the
+        // handler and must outrank a name the handler owns.
+        realm.DefineValue(area, "getItem", JsValue.String("the method"), JsPropertyFlags.NonEnumerable);
+        realm.DefineValue(realm.Global, "area", area);
+
+        realm.EvaluateHostScript("area.alpha = 'one'; area.beta = 'two';", "test:plain-writes");
+
+        Assert.Equal("one", Eval(realm, "area.alpha", "test:plain-read"));
+        Assert.Equal("the method", Eval(realm, "area.getItem", "test:plain-ordinary-wins"));
+        Assert.Equal("true", Eval(realm, "String('alpha' in area)", "test:plain-in"));
+        Assert.Equal("false", Eval(realm, "String('gamma' in area)", "test:plain-not-in"));
+        Assert.Equal("alpha,beta", Eval(realm, "Object.keys(area).join(',')", "test:plain-keys"));
+        Assert.Equal("alpha,beta", Eval(realm, "Object.keys(Object.assign({}, area)).join(',')", "test:plain-spread"));
+        Assert.Equal(["alpha", "beta"], realm.OwnPropertyNames(area));
+    }
+
+    /// <summary>
+    /// An exotic handler with no delete hook is unchanged by this contract.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both engines answer <see langword="true"/> for a deletion nobody claimed, and the name
+    /// goes on answering.</b> WebIDL would have a named property with no deleter return
+    /// <see langword="false"/>; neither engine does, this contract deliberately does not change it,
+    /// and this test is here so a later reader knows it was decided rather than missed.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void AnExoticObjectWithNoDeleteHookIsUnchangedByThisContract(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.ExoticObjects))
+            return;
+
+        var handler = new RecordingExotic();
+        realm.DefineValue(realm.Global, "collection", realm.NewExotic(handler));
+
+        Assert.Equal("true", Eval(realm, "String(delete collection.named)", "test:no-hook-delete"));
+        Assert.Equal("named:named", Eval(realm, "collection.named", "test:no-hook-after"));
+    }
+
+    /// <summary>
+    /// An <see cref="IJsExotic"/> that owns its names and removes them - the shape <c>Storage</c>
+    /// has and the other five lookup-completing objects do not.
+    /// </summary>
+    private sealed class DeletingExotic : IJsExotic, IJsExoticDelete
+    {
+        private readonly Dictionary<string, string> _items = new(StringComparer.Ordinal);
+
+        /// <summary>Every name the handler was asked to delete, answered or declined.</summary>
+        internal List<string> Deletions { get; } = [];
+
+        public bool TryGetNamed(string name, out JsValue value)
+        {
+            if (!_items.TryGetValue(name, out var stored))
+            {
+                value = JsValue.Missing;
+                return false;
+            }
+
+            value = JsValue.String(stored);
+            return true;
+        }
+
+        /// <summary>None: this handler models a named-property object with no indexed ones.</summary>
+        public bool TryGetIndex(uint index, out JsValue value)
+        {
+            value = JsValue.Missing;
+            return false;
+        }
+
+        /// <summary>
+        /// Claims every name but <c>expando</c>, so the tests have a property the handler owns and
+        /// one it does not - the two sides a delete hook has to keep apart.
+        /// </summary>
+        public bool TrySetNamed(string name, JsValue value)
+        {
+            if (name is "expando")
+                return false;
+
+            _items[name] = value.AsString ?? string.Empty;
+            return true;
+        }
+
+        /// <inheritdoc />
+        public bool TryDeleteNamed(string name)
+        {
+            Deletions.Add(name);
+            return _items.Remove(name);
+        }
+
+        public IReadOnlyList<string> SupportedNames => _items.Keys.ToArray();
+
+        public uint IndexedLength => 0;
     }
 
     /// <summary>
@@ -1422,6 +1663,211 @@ public class JsealConformanceTests
         realm.Dispose();
     }
 
+    // ── binary data ────────────────────────────────────────────────────────────────────────────
+    //
+    // Two members and three operations: mint a buffer over host bytes, tell a buffer from everything
+    // else, and read one back. The bridge needs all three - a factory alone would leave the test and
+    // the read behind, which is what `BlobBinding`'s remarks say and why the contract took the shape
+    // it did.
+
+    /// <summary>
+    /// A buffer minted by the host is the realm's own, and a view over it sees the bytes.
+    /// </summary>
+    /// <remarks>
+    /// <b>"The realm's own" is the whole claim, and <c>byteLength</c> does not establish it.</b> An
+    /// ordinary object carrying a <c>byteLength</c> would satisfy a length assertion and fail every
+    /// page that writes <c>new Uint8Array(b)</c>. So this asserts the brand from JavaScript, which
+    /// also makes the failure name a missing intrinsic rather than surfacing as something odd three
+    /// layers down - the case that matters for a provider reaching its realm's own
+    /// <c>ArrayBuffer</c> rather than declaring a type of its own.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void AMintedArrayBufferIsTheRealmsOwnAndAViewOverItSeesTheBytes(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.BinaryData))
+            return;
+
+        var bytes = new byte[] { 1, 2, 250 };
+        var buffer = realm.NewArrayBuffer(bytes);
+
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var read));
+        Assert.Equal(bytes, read);
+        Assert.True(realm.GetProperty(buffer, "byteLength") == JsValue.Number(3d));
+
+        // Copied, not aliased. A blob is immutable, and a provider that wrapped the host's array
+        // would let a page rewrite the blob its buffer came from.
+        bytes[0] = 9;
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var again));
+        Assert.Equal([1, 2, 250], again);
+
+        if (Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        realm.DefineValue(realm.Global, "minted", buffer);
+
+        Assert.Equal("[object ArrayBuffer]", Eval(realm, "Object.prototype.toString.call(minted)", "test:buffer-brand"));
+        Assert.Equal("true", Eval(realm, "String(minted instanceof ArrayBuffer)", "test:buffer-instanceof"));
+        Assert.Equal("1,2,250", Eval(realm, "Array.prototype.join.call(new Uint8Array(minted), ',')", "test:buffer-view"));
+        Assert.Equal("3", Eval(realm, "String(minted.slice(0).byteLength)", "test:buffer-slice"));
+    }
+
+    /// <summary>
+    /// The host reads back a buffer a script made, and tells one from everything else.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>new Blob([part])</c> is the caller, and it has to tell a buffer from an object it must
+    /// stringify.</b> There is no JS-visible property that answers it, which is why this is a
+    /// contract member and not a property read. The view case matters most: a typed array is NOT a
+    /// buffer, and a host that said it was would take a <c>Uint8Array</c>'s bytes where the page
+    /// passed a <c>Float64Array</c>. Reaching the buffer at the end of a view's own
+    /// <c>buffer</c>/<c>byteOffset</c>/<c>byteLength</c> chain is ordinary property reads and needs
+    /// no contract of its own - this is the assertion that the chain ends somewhere testable.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void TheHostReadsBackABufferAScriptMadeAndTellsOneFromEverythingElse(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.BinaryData) || Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        var buffer = realm.EvaluateHostScript(
+            "(function () { var b = new ArrayBuffer(3); var v = new Uint8Array(b); v[0] = 7; v[2] = 8; return b; })()",
+            "test:script-buffer");
+
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var bytes));
+        Assert.Equal([7, 0, 8], bytes);
+
+        // A view is not a buffer, and the buffer it names is.
+        var view = realm.EvaluateHostScript("new Uint8Array([4, 5, 6, 7])", "test:script-view");
+        Assert.False(realm.TryGetArrayBufferBytes(view, out _));
+        Assert.True(realm.TryGetArrayBufferBytes(realm.GetProperty(view, "buffer"), out var viewed));
+        Assert.Equal([4, 5, 6, 7], viewed);
+
+        // Neither is a DataView, whose byteLength answers exactly as a buffer's does.
+        var dataView = realm.EvaluateHostScript("new DataView(new ArrayBuffer(2))", "test:script-dataview");
+        Assert.False(realm.TryGetArrayBufferBytes(dataView, out _));
+
+        // Nor an object dressed as one. A prototype is settable and a toStringTag is writable, so a
+        // provider answering by either would be answering a page's claim about itself.
+        var impostor = realm.EvaluateHostScript(
+            "Object.defineProperty(Object.create(ArrayBuffer.prototype), 'byteLength', { value: 8 })",
+            "test:script-impostor");
+        Assert.False(realm.TryGetArrayBufferBytes(impostor, out _));
+
+        Assert.False(realm.TryGetArrayBufferBytes(realm.NewObject(), out _));
+        Assert.False(realm.TryGetArrayBufferBytes(realm.NewArray(), out _));
+        Assert.False(realm.TryGetArrayBufferBytes(JsValue.String("bytes"), out _));
+        Assert.False(realm.TryGetArrayBufferBytes(JsValue.Missing, out _));
+        Assert.False(realm.TryGetArrayBufferBytes(JsValue.Null, out _));
+    }
+
+    /// <summary>
+    /// A buffer survives a round trip larger than one host crossing per byte would allow.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is a budget test wearing a correctness test's clothes, and it is here because one
+    /// provider has no binary member on its host surface.</b> That provider reaches its realm's
+    /// <c>ArrayBuffer</c> intrinsic, and the obvious way to fill one - a crossing per byte - is not
+    /// merely slow: every crossing of that host surface charges against a host-call allowance, and
+    /// spending it aborts the program terminally rather than raising anything a page could catch. A
+    /// blob of a few hundred kilobytes is an ordinary thing for a page to have. Sixty-four kilobytes
+    /// is well past the point where a per-byte route would be visible and well inside what the
+    /// suite should run in a millisecond.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ABufferOfSixtyFourKilobytesMakesTheRoundTrip(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.BinaryData))
+            return;
+
+        var bytes = new byte[64 * 1024];
+        for (var i = 0; i < bytes.Length; i++)
+            bytes[i] = (byte)(i * 31 % 256);
+
+        var buffer = realm.NewArrayBuffer(bytes);
+
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var read));
+        Assert.Equal(bytes, read);
+
+        if (Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        // Asserted from the guest as well, so a provider that kept the bytes somewhere the page
+        // cannot see them fails here rather than passing on the host's own read.
+        realm.DefineValue(realm.Global, "big", buffer);
+        Assert.Equal(
+            $"{bytes.Length}/{bytes[1]}/{bytes[bytes.Length - 1]}",
+            Eval(
+                realm,
+                "(function () { var v = new Uint8Array(big); return v.length + '/' + v[1] + '/' + v[v.length - 1]; })()",
+                "test:big-buffer"));
+    }
+
+    /// <summary>
+    /// A page that rewrites the typed-array machinery cannot change what the host reads out of a
+    /// buffer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the assertion that a provider reading a buffer through the realm's own intrinsics
+    /// reads it by brand and not by anything a page can write.</b> A provider with no binary member
+    /// on its host surface has to go through the guest's objects to get at the bytes, and the moment
+    /// it asks one of them a <em>question</em> — how long are you? — it has put a page's code between
+    /// the host and the answer.
+    /// </para>
+    /// <para>
+    /// <c>%TypedArray%.prototype</c>'s <c>length</c> is an accessor and it is configurable, which the
+    /// language requires, so <c>Object.defineProperty</c> on it is a thing a page may legally do.
+    /// Answering zero is the dangerous direction: it does not throw, so a host that spread a view by
+    /// its <c>length</c> would hand back a correctly sized array of zeros and report success. A blob
+    /// built from that is silently empty, and nothing anywhere says so.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void APageThatRewritesTypedArrayLengthCannotChangeWhatTheHostReads(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.BinaryData) || Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        var buffer = realm.EvaluateHostScript(
+            "(function () { var b = new ArrayBuffer(5); var v = new Uint8Array(b);" +
+            " for (var i = 0; i < 5; i++) { v[i] = i + 1; } return b; })()",
+            "test:poison-buffer");
+
+        realm.EvaluateHostScript(
+            "Object.defineProperty(Object.getPrototypeOf(Uint8Array.prototype), 'length', " +
+            "{ get: function () { return 0; }, configurable: true });",
+            "test:poison-length");
+
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var bytes));
+        Assert.Equal([1, 2, 3, 4, 5], bytes);
+
+        // And the other direction, which turns a wrong answer into a crash rather than into zeros.
+        realm.EvaluateHostScript(
+            "Object.defineProperty(Object.getPrototypeOf(Uint8Array.prototype), 'length', " +
+            "{ get: function () { return 1000000; }, configurable: true });",
+            "test:poison-length-large");
+
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var again));
+        Assert.Equal([1, 2, 3, 4, 5], again);
+
+        // Minting is asserted under the same poisoning, because it writes through a view too.
+        var minted = realm.NewArrayBuffer([9, 8, 7]);
+        Assert.True(realm.TryGetArrayBufferBytes(minted, out var read));
+        Assert.Equal([9, 8, 7], read);
+    }
+
     // ── capability coverage ────────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -1446,6 +1892,7 @@ public class JsealConformanceTests
             // thread, and values moved between the two by structured clone (IJsClone).
             [JsCapabilities.WorkerRealms] = nameof(ASecondRealmRunsOnASecondThread),
             [JsCapabilities.ReentrantHostCalls] = nameof(AHostFunctionMayCallBackIntoScriptWhileTheEngineIsInsideIt),
+            [JsCapabilities.BinaryData] = nameof(AMintedArrayBufferIsTheRealmsOwnAndAViewOverItSeesTheBytes),
         };
 
     /// <summary>

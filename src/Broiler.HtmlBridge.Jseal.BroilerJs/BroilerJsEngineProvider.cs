@@ -90,7 +90,8 @@ public sealed class BroilerJsEngineProvider : IJsEngineProvider, IJsRealmAdoptio
                 JsCapabilities.ExoticObjects |
                 JsCapabilities.GlobalIsVariableScope |
                 JsCapabilities.WorkerRealms |
-                JsCapabilities.ReentrantHostCalls;
+                JsCapabilities.ReentrantHostCalls |
+                JsCapabilities.BinaryData;
 
             // A probe that throws answers "no": the caller asked whether a feature works, and a
             // question that cannot be answered is not evidence that it does.

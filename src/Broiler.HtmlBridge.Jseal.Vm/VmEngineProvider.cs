@@ -72,7 +72,7 @@ public sealed class VmEngineProvider : IJsEngineProvider
     /// contract JSEAL has not designed, which is a gap on the contract's side rather than this one's.
     /// </para>
     /// <para>
-    /// <b>The five that remain are exactly <see cref="JsCapabilities.Document"/>.</b> That is worth
+    /// <b>The six that remain are exactly <see cref="JsCapabilities.Document"/>.</b> That is worth
     /// stating as an identity rather than leaving a reader to add the flags up, because it is the
     /// line a host branches on before it decides whether to load a page here.
     /// </para>
@@ -83,7 +83,8 @@ public sealed class VmEngineProvider : IJsEngineProvider
         JsCapabilities.Promises |
         JsCapabilities.ExoticObjects |
         JsCapabilities.GlobalIsVariableScope |
-        JsCapabilities.ReentrantHostCalls;
+        JsCapabilities.ReentrantHostCalls |
+        JsCapabilities.BinaryData;
 
     /// <inheritdoc />
     public IJsRealm CreateRealm(JsRealmOptions options)
@@ -158,6 +159,14 @@ public sealed class VmEngineProvider : IJsEngineProvider
             var capabilities = options.AllowGuestEval
                 ? Capabilities
                 : Capabilities & ~JsCapabilities.GuestEval;
+
+            // NARROWED TO WHAT THE REALM ACTUALLY HAS. The profile builds ArrayBuffer and the typed
+            // arrays only for a composition that admits its binary surface; this provider asks for
+            // every surface, so they are there - but a realm is entitled to answer for itself rather
+            // than for the composition that usually builds it, and a capability that is declared
+            // where it is not true is worse than one that is absent.
+            if (!bridge.HasBinary)
+                capabilities &= ~JsCapabilities.BinaryData;
 
             return new VmRealm(runtime, artifact, instance, bridge, sources, capabilities, Name);
         }

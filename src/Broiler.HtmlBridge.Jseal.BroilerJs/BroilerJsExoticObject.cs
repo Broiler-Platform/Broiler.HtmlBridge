@@ -37,16 +37,29 @@ namespace Broiler.HtmlBridge.Jseal.BroilerJs;
 /// property, or the property it did not intercept shadows the item it was supposed to store. The
 /// handler declines by answering <see langword="false"/>, and the ordinary assignment then happens.
 /// </para>
+/// <para>
+/// <b>A deletion takes the same order as a write and costs this provider nothing.</b> The engine
+/// dispatches <c>delete obj.name</c> to <c>Delete(in KeyString)</c>, a virtual beside the four this
+/// class already overrides, so a handler that implements <see cref="IJsExoticDelete"/> is served by
+/// one more override rather than by a different kind of object. The other provider has no such hook
+/// and reaches a deletion another way, which is why the declaration is a separate interface.
+/// </para>
 /// </remarks>
 internal sealed class BroilerJsExoticObject : JSObject
 {
     private readonly IJsExotic _handler;
+    private readonly IJsExoticDelete? _deleter;
     private uint _materialized;
 
     internal BroilerJsExoticObject(BroilerJsRealm realm, IJsExotic handler)
     {
         Realm = realm;
         _handler = handler;
+
+        // Resolved once rather than tested per deletion: the answer cannot change for the life of
+        // the object, and null here is what makes the override below free for the five handlers
+        // that never delete.
+        _deleter = handler as IJsExoticDelete;
     }
 
     /// <summary>
@@ -170,6 +183,31 @@ internal sealed class BroilerJsExoticObject : JSObject
             return true;
 
         return base.SetValue(key, value, receiver, throwError);
+    }
+
+    /// <summary>
+    /// Offers a named deletion to the handler, then deletes the ordinary property as it would
+    /// anyway.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The handler is asked first and the base deletes regardless</b>, which is the order
+    /// <see cref="IJsExoticDelete.TryDeleteNamed"/> specifies: the item goes before the property
+    /// mirroring it, and what <c>delete</c> evaluates to stays the engine's answer rather than the
+    /// handler's. A handler that declines has cost one virtual call on an object that had none.
+    /// </para>
+    /// <para>
+    /// <b><c>Delete(uint)</c> is deliberately NOT overridden.</b> The engine routes a digit-only key
+    /// there instead of here, and the other provider's engine routes it away from the named hook
+    /// too. Answering it on one side alone would make <c>delete storage[7]</c> remove an item under
+    /// one engine and not the other, which is worse than the gap both share.
+    /// </para>
+    /// </remarks>
+    public override JSValue Delete(in KeyString key)
+    {
+        _deleter?.TryDeleteNamed(key.ToString());
+
+        return base.Delete(in key);
     }
 
     /// <inheritdoc />

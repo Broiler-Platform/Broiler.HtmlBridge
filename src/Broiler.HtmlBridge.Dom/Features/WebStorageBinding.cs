@@ -1,11 +1,5 @@
 using Broiler.HtmlBridge.Jseal;
 
-// Engine-typed for one thing: StorageObject completes its own property lookup and its own deletion,
-// which is a JSObject override. See the last paragraph of the class remarks.
-using Broiler.JavaScript.BuiltIns.String;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
@@ -31,27 +25,39 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the Vector skin's scripts and every module queued behind them) off one identifier.
 /// </para>
 /// <para>
-/// <b>This is the one object that completes its own property lookup and has not become an
-/// <see cref="IJsExotic"/>, and the reason is a gap in that contract rather than a missing realm.</b>
-/// The realm arrives now — <c>DomBridge/Registration/Window.cs</c> passes it — so every member below
-/// is minted through it and this file names an engine type for the backing object alone.
+/// <b>This was the last of the six lookup-completing objects to name an engine type, and the gap that
+/// kept it here was a missing hook rather than a missing realm.</b> <c>Storage</c> is the only one of
+/// the six whose behaviour includes a <em>deletion</em> — <c>delete localStorage.foo</c> takes the
+/// item out of the area, so <c>getItem</c> stops answering for it and <c>length</c> and <c>key(n)</c>
+/// stop counting it — and <see cref="IJsExotic"/> declared a named read, an indexed read and a named
+/// write and no delete. Converting without one would have left the ordinary property deleted and the
+/// item still in the store, which is a wrong answer rather than a missing feature. The hook is
+/// <see cref="IJsExoticDelete"/>, and <see cref="StorageArea"/> implements both.
 /// </para>
 /// <para>
-/// What the realm does not fix is the reason the object cannot move. <c>Storage</c> is the only one of
-/// the six lookup-completing objects whose behaviour includes a <em>deletion</em>: the override on
-/// <see cref="StorageObject"/> takes <c>delete localStorage.foo</c> out of the backing map, so
-/// <c>getItem</c> stops answering for it and <c>length</c> and <c>key(n)</c> stop counting it.
-/// <see cref="IJsExotic"/> declares hooks for a named read, an indexed read and a named write,
-/// and none for a delete — so converting as the contract stands would leave the ordinary property
-/// deleted and the item still in the store, which is a wrong answer rather than a missing feature.
-/// The contract needs a delete hook before this object can move; reported rather than worked around.
+/// <b>The area no longer mirrors its items into ordinary properties; it answers for them.</b> That is
+/// what a legacy platform object with named getters and setters is, and it is what makes the two
+/// spellings genuinely one item rather than two copies kept in step. It also settles by construction
+/// two things the mirror had to arrange by hand: an interface member outranks a key of the same name
+/// because ordinary properties are consulted first, and a value assigned as a property is stored as
+/// the string HTML §12.2.2 requires because the handler coerces it on the way in rather than after a
+/// raw copy has already been written.
+/// </para>
+/// <para>
+/// <b>One spelling still does not reach the area, and it is a third gap in the same contract.</b> Both
+/// engines route an integer-index key to the indexed hooks, and <see cref="IJsExotic"/> has no indexed
+/// <em>write</em> hook and no way for a handler to declare that it has no indexed properties at all.
+/// <c>Storage</c> has named property getters and setters and no indexed ones, so <c>localStorage[8]</c>
+/// is a name like any other and is treated here as an index by both. Reported rather than worked
+/// around, as the delete hook was; <c>WebStorageTests.ADigitOnlyKeyIsANamedPropertyLikeAnyOther</c>
+/// carries the case.
 /// </para>
 /// </remarks>
 internal static class WebStorageBinding
 {
     /// <summary>
     /// The <c>Storage</c> interface members. A page's key by the same name must not overwrite the
-    /// method — see <see cref="StorageObject.SetValue"/>.
+    /// method — see <see cref="StorageArea.TrySetNamed"/>.
     /// </summary>
     private static readonly HashSet<string> InterfaceMembers = new(StringComparer.Ordinal)
     {
@@ -65,8 +71,8 @@ internal static class WebStorageBinding
     /// <param name="realm">The realm the area's six members are minted in.</param>
     public static JsValue BuildStorage(IJsRealm realm)
     {
-        var storage = new StorageObject();
-        var area = Runtime.JsInterop.FromEngineObject(storage);
+        var storage = new StorageArea(realm);
+        var area = realm.NewExotic(storage);
 
         // Non-enumerable, as they are in a browser: there the members live on Storage.prototype and
         // only the stored keys are own properties, so `for (var k in storage)` and
@@ -101,14 +107,14 @@ internal static class WebStorageBinding
         return area;
     }
 
-    private static JsValue GetItem(StorageObject storage, in JsCall call)
+    private static JsValue GetItem(StorageArea storage, in JsCall call)
     {
         if (call.Length == 0)
             return JsValue.Null;
         return storage.TryGet(call.Realm.ToJsString(call[0]), out var val) ? JsValue.String(val) : JsValue.Null;
     }
 
-    private static JsValue SetItem(StorageObject storage, in JsCall call)
+    private static JsValue SetItem(StorageArea storage, in JsCall call)
     {
         if (call.Length >= 2)
             storage.Put(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
@@ -116,7 +122,7 @@ internal static class WebStorageBinding
         return JsValue.Undefined;
     }
 
-    private static JsValue RemoveItem(StorageObject storage, in JsCall call)
+    private static JsValue RemoveItem(StorageArea storage, in JsCall call)
     {
         if (call.Length > 0)
             storage.Remove(call.Realm.ToJsString(call[0]));
@@ -124,7 +130,7 @@ internal static class WebStorageBinding
         return JsValue.Undefined;
     }
 
-    private static JsValue Clear(StorageObject storage, in JsCall _)
+    private static JsValue Clear(StorageArea storage, in JsCall _)
     {
         storage.RemoveAll();
         return JsValue.Undefined;
@@ -135,7 +141,7 @@ internal static class WebStorageBinding
     /// with <c>length</c> it is how a page enumerates an area it did not write itself; MediaWiki's
     /// <c>ext.centralNotice</c> key-value store sweeps its own keys exactly that way.
     /// </summary>
-    private static JsValue Key(StorageObject storage, in JsCall call)
+    private static JsValue Key(StorageArea storage, in JsCall call)
     {
         if (call.Length == 0)
             return JsValue.Null;
@@ -148,19 +154,29 @@ internal static class WebStorageBinding
     }
 
     /// <summary>
-    /// A storage area: the ordered key/value map, plus the property mirror that makes
+    /// A storage area: the ordered key/value map, and the host-completed lookup that makes
     /// <c>storage.foo</c> and <c>storage["foo"]</c> address the same item as
     /// <c>getItem</c>/<c>setItem</c> do.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Storage is a legacy platform object with named property getters and setters (HTML §12.2.2),
-    /// so the two spellings are one item in a browser and pages use them interchangeably. The
-    /// mirror runs both ways: an item written with <c>setItem</c> is defined as an own property,
-    /// and a property a page assigns directly is written into the store — otherwise
-    /// <c>storage.foo = 1</c> followed by <c>getItem('foo')</c> answers <c>null</c>, and neither
-    /// <c>length</c> nor <c>key()</c> would count it.
+    /// so the two spellings are one item in a browser and pages use them interchangeably. The area
+    /// answers for its items rather than mirroring them into ordinary properties: a read the object's
+    /// own members did not satisfy reaches <see cref="TryGetNamed"/>, an assignment is claimed by
+    /// <see cref="TrySetNamed"/> before any property is created, and a deletion reaches
+    /// <see cref="TryDeleteNamed"/>. Nothing has to be kept in step, because there is only one copy.
+    /// </para>
+    /// <para>
+    /// <b>The six interface members are declined at every hook, which is what keeps a key named like
+    /// one from costing the page the member.</b> They are ordinary properties of the area — in a
+    /// browser they live on <c>Storage.prototype</c> and only the keys are own properties, but bridge
+    /// objects carry their members directly — and ordinary properties are consulted first, so a stored
+    /// <c>getItem</c> stays readable through <c>getItem</c>, <c>key</c> and <c>length</c> while the
+    /// method it collides with goes on being callable.
+    /// </para>
     /// </remarks>
-    private sealed class StorageObject : JSObject
+    private sealed class StorageArea(IJsRealm realm) : IJsExotic, IJsExoticDelete
     {
         private readonly Dictionary<string, string> _store = new(StringComparer.Ordinal);
 
@@ -183,18 +199,7 @@ internal static class WebStorageBinding
             return false;
         }
 
-        public void Put(string key, string value)
-        {
-            Store(key, value);
-
-            // A key named like an interface member would replace the method with a string, leaving
-            // the area without the very method the page is about to call. A browser gets away with
-            // it because its methods live on the prototype and the named property merely shadows
-            // them per-object; here they are own properties, so the item stays readable through
-            // getItem/key/length and only the property mirror is skipped.
-            if (!InterfaceMembers.Contains(key))
-                base.SetValue((KeyString)key, new JSString(value), this, false);
-        }
+        public void Put(string key, string value) => Store(key, value);
 
         public bool Remove(string key)
         {
@@ -202,41 +207,69 @@ internal static class WebStorageBinding
                 return false;
 
             _keys.Remove(key);
-            if (!InterfaceMembers.Contains(key))
-                base.Delete((KeyString)key);
-
             return true;
         }
 
         public void RemoveAll()
         {
-            foreach (var key in _keys)
-            {
-                if (!InterfaceMembers.Contains(key))
-                    base.Delete((KeyString)key);
-            }
-
             _store.Clear();
             _keys.Clear();
         }
 
-        protected override bool SetValue(KeyString name, JSValue value, JSValue receiver, bool throwError = true)
+        /// <inheritdoc />
+        public bool TryGetNamed(string name, out JsValue value)
         {
-            var key = name.ToString();
-            if (!InterfaceMembers.Contains(key))
-                Store(key, value?.ToString() ?? "undefined");
+            if (!InterfaceMembers.Contains(name) && _store.TryGetValue(name, out var stored))
+            {
+                value = JsValue.String(stored);
+                return true;
+            }
 
-            return base.SetValue(name, value, receiver, throwError);
+            value = JsValue.Missing;
+            return false;
         }
 
-        public override JSValue Delete(in KeyString key)
+        /// <summary>
+        /// None. <c>Storage</c> has named property getters and setters and no indexed ones, so an
+        /// area supplies no elements — see the third paragraph of the class remarks for the spelling
+        /// that costs.
+        /// </summary>
+        public bool TryGetIndex(uint index, out JsValue value)
         {
-            var name = key.ToString();
-            if (_store.Remove(name))
-                _keys.Remove(name);
-
-            return base.Delete(in key);
+            value = JsValue.Missing;
+            return false;
         }
+
+        /// <inheritdoc />
+        public uint IndexedLength => 0;
+
+        /// <inheritdoc />
+        public bool TrySetNamed(string name, JsValue value)
+        {
+            // Declining leaves the ordinary assignment to happen, which is what replaces the member
+            // rather than storing an item under its name — the behaviour a browser has for a
+            // different reason and the one pages depend on either way.
+            if (InterfaceMembers.Contains(name))
+                return false;
+
+            // The realm's ToString and not the handle's: an area holds strings and nothing else,
+            // which is why `localStorage.count += 1` concatenates in a browser, and an object
+            // assigned to a key runs its own toString to get there.
+            Store(name, value.IsMissing ? "undefined" : realm.ToJsString(value));
+            return true;
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyList<string> SupportedNames =>
+            _keys.Where(key => !InterfaceMembers.Contains(key)).ToArray();
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// The reason this file could not become an <see cref="IJsExotic"/> until the contract had a
+        /// delete hook: without it the property would go and the item would stay, so <c>getItem</c>
+        /// would keep answering for something the page had deleted.
+        /// </remarks>
+        public bool TryDeleteNamed(string name) => !InterfaceMembers.Contains(name) && Remove(name);
 
         private void Store(string key, string value)
         {
