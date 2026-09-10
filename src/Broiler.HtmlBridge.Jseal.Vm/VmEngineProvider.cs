@@ -92,7 +92,7 @@ public sealed class VmEngineProvider : IJsEngineProvider
         ArgumentNullException.ThrowIfNull(options);
 
         var bridge = new VmHostBridge();
-        var sources = new VmSourceProvider(options.AllowGuestEval);
+        var sources = new VmSourceProvider(options.AllowGuestEval, options.ForceStrictMode);
 
         var catalog = VmCatalog.CreateBuilder()
             .Add(JavaScriptProfile.DescriptorHostingRealms(bridge))

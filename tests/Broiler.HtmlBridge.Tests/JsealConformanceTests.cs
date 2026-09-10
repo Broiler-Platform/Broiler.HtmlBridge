@@ -943,6 +943,59 @@ public class JsealConformanceTests
         Assert.True(restricted.EvaluateHostScript("6 * 7", "test:host-still-runs") == JsValue.Number(42d));
     }
 
+    /// <summary>
+    /// <c>ForceStrictMode</c> makes the source THIS REPOSITORY hands over strict, and leaves what the
+    /// page evaluates alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The two providers disagreed about this in opposite directions and nothing asked either.</b>
+    /// One forced strictness on both members, so a page's own evaluation was strict when the host had
+    /// only asked for its own to be; the other reached only its bootstrap unit, so nothing was strict
+    /// whatever the host asked. Neither is arguable: an indirect <c>eval</c> evaluates a NEW script
+    /// whose strictness comes from its own source, so a host that forced it strict would make one
+    /// page behave differently here than anywhere else, and a host that could not force its own would
+    /// have an option that did nothing. <c>docs/vm-javascript-profile.md</c> already stated the rule
+    /// and measured the script-engine path against it; this is the realm contract catching up.
+    /// </para>
+    /// <para>
+    /// <b>A value probe, not an exception probe.</b> Strictness is read from what <c>this</c> is
+    /// inside a plain call — <c>undefined</c> when strict, the global when not — so the assertion
+    /// does not depend on which error a provider raises for an undeclared assignment, and a provider
+    /// that refused the probe outright would fail rather than look strict.
+    /// </para>
+    /// <para>
+    /// The third realm is the control that makes the first two mean something: without it, a
+    /// provider that answered <c>"undefined"</c> for every plain call — because it never implemented
+    /// sloppy <c>this</c> at all — would satisfy the host assertion having demonstrated nothing about
+    /// <c>ForceStrictMode</c>.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ForcedStrictModeReachesHostScriptAndNotWhatThePageEvaluates(string engine)
+    {
+        // `this` inside a plain call: undefined under strict mode, the global object otherwise.
+        const string ThisInAPlainCall = "(function () { return typeof this; })()";
+
+        using var forced = NewRealm(engine, new JsRealmOptions { ForceStrictMode = true });
+
+        Assert.Equal("undefined", Eval(forced, ThisInAPlainCall, "test:strict-host"));
+
+        Assert.Equal(
+            "object",
+            forced.ToJsString(forced.EvaluateGuestSource(ThisInAPlainCall, "test:strict-does-not-reach-guest")));
+
+        // The control: a realm that did not ask for it is sloppy on both sides, so the answers above
+        // are ForceStrictMode's doing rather than the provider's fixed behaviour.
+        using var relaxed = NewRealm(engine);
+
+        Assert.Equal("object", Eval(relaxed, ThisInAPlainCall, "test:default-host"));
+        Assert.Equal(
+            "object",
+            relaxed.ToJsString(relaxed.EvaluateGuestSource(ThisInAPlainCall, "test:default-guest")));
+    }
+
     [Theory]
     [MemberData(nameof(Engines))]
     public void ASyntaxErrorInSourceReachesTheHostAsAnEngineException(string engine)

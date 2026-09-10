@@ -34,10 +34,15 @@ namespace Broiler.HtmlBridge.Jseal.Vm;
 internal sealed class VmSourceProvider : IVmArtifactProvider
 {
     private readonly bool _allowGuestEval;
+    private readonly bool _forceStrictMode;
 
     private int _hostScriptDepth;
 
-    internal VmSourceProvider(bool allowGuestEval) => _allowGuestEval = allowGuestEval;
+    internal VmSourceProvider(bool allowGuestEval, bool forceStrictMode)
+    {
+        _allowGuestEval = allowGuestEval;
+        _forceStrictMode = forceStrictMode;
+    }
 
     /// <inheritdoc />
     public VmCapabilityId CapabilityId => JavaScriptProfile.SourceProviderCapability.CapabilityId;
@@ -72,8 +77,22 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
             return VmArtifactProviderAnswer.Refused(VmReason.MalformedEncoding);
         }
 
+        // FORCED STRICTNESS IS THE HOST'S, AND THE MARK IS WHAT TELLS THEM APART.
+        //
+        // The realm's ForceStrictMode used to reach only the bootstrap unit (VmEngineProvider), so
+        // every compile answered here was sloppy whatever the host asked for -- while the Broiler.JS
+        // provider forced it on everything, including the page's own evaluations. Two providers, two
+        // wrong answers, in opposite directions, with nothing asking either.
+        //
+        // The rule both now keep is the specification's, and docs/vm-javascript-profile.md measures
+        // it: a host may force its OWN script strict, and may not force what the page evaluates,
+        // because an indirect eval evaluates a new script whose strictness comes from its own source.
+        // The host-script depth is already the thing that distinguishes the two, so it decides this
+        // as well rather than a second flag being threaded alongside it.
+        var forceStrict = _hostScriptDepth > 0 && _forceStrictMode;
+
         var compiled = JsCompiler.Compile(
-            [new JsScriptUnit("main", source, SliceParseOptions.Script)]);
+            [new JsScriptUnit("main", source, SliceParseOptions.Script, forceStrict)]);
 
         if (!compiled.Succeeded || compiled.Artifact is null)
             return VmArtifactProviderAnswer.Refused(VmReason.SemanticValidationFailed);
