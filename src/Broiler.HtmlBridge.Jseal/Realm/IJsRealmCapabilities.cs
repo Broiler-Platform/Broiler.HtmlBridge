@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Broiler.HtmlBridge.Jseal;
 
 // The realm surface is split into six narrow capability contracts, the way IScriptEngine was split in
@@ -62,6 +64,57 @@ public interface IJsValues
     /// <see cref="IJsExotic"/> for why that order is not negotiable.
     /// </remarks>
     JsValue NewExotic(IJsExotic handler);
+
+    /// <summary>
+    /// A new <c>ArrayBuffer</c> holding a copy of <paramref name="bytes"/>. Requires
+    /// <see cref="JsCapabilities.BinaryData"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>A copy, and the span is what says so.</b> Every caller either clones first or hands over an
+    /// array it has just built and will not touch again, so no caller wants aliasing - and a contract
+    /// that permitted it would be one in which a page mutating <c>ImageData.data</c> could rewrite the
+    /// blob it came from. A <see cref="ReadOnlySpan{T}"/> cannot be retained, which makes the copy the
+    /// only implementable reading rather than a rule each provider has to remember.
+    /// </remarks>
+    JsValue NewArrayBuffer(ReadOnlySpan<byte> bytes);
+
+    /// <summary>
+    /// The bytes of an <c>ArrayBuffer</c>, answering whether <paramref name="value"/> is one.
+    /// Requires <see cref="JsCapabilities.BinaryData"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The test and the read are one member because every call site asks them together and because
+    /// they are one question to an engine.</b> "Is this an <c>ArrayBuffer</c>" has no JS-visible
+    /// answer - <c>byteLength</c> is answered by a <c>DataView</c> and by every typed array, a
+    /// prototype is settable and a <c>Symbol.toStringTag</c> is writable - so a provider answers it by
+    /// brand, and the brand check is the same operation that produces the bytes. A separate boolean
+    /// would be a claim with nothing to do, paid for twice.
+    /// </para>
+    /// <para>
+    /// <b>A <c>SharedArrayBuffer</c> is not one of these.</b> WebIDL's <c>BufferSource</c> is an
+    /// <c>ArrayBuffer</c> or a view over one, and a shared buffer is neither. A provider whose engine
+    /// implements the shared one as a subclass of the ordinary one has to exclude it explicitly, and
+    /// one of them does.
+    /// </para>
+    /// <para>
+    /// <b>A detached buffer answers <see langword="true"/> with no bytes.</b> That is the File API's
+    /// own reading - a detached <c>BufferSource</c> contributes an empty byte sequence rather than
+    /// failing - and it keeps a detached buffer a zero-length blob instead of a stringified
+    /// <c>"[object ArrayBuffer]"</c>.
+    /// </para>
+    /// <para>
+    /// <b>A view needs no member of its own.</b> A typed array's or a <c>DataView</c>'s
+    /// <c>buffer</c>, <c>byteOffset</c> and <c>byteLength</c> are ordinary property reads, so a caller
+    /// walks to the buffer with <see cref="IJsMembers.GetProperty"/> and asks this about what it
+    /// finds.
+    /// </para>
+    /// </remarks>
+    /// <param name="bytes">
+    /// A snapshot the caller owns; empty when the answer is <see langword="false"/> or the buffer is
+    /// detached.
+    /// </param>
+    bool TryGetArrayBufferBytes(JsValue value, [NotNullWhen(true)] out byte[]? bytes);
 
     /// <summary>
     /// ECMAScript <c>ToString</c>. Enters the engine, and may run page script or throw.

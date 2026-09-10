@@ -46,24 +46,24 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// content type gives the result an <em>empty</em> type rather than inheriting the source's.
 /// </para>
 /// <para>
-/// <b>Two engine types survive the JSEAL migration here, and both are named where they occur.</b>
-/// The blob store is keyed on the engine object a handle carries, because <see cref="JsValue"/> is a
+/// <b>ONE engine type survives the JSEAL migration here, and it is named where it occurs.</b> The
+/// blob store is keyed on the engine object a handle carries, because <see cref="JsValue"/> is a
 /// struct and a weak table needs a reference to key on — object identity is the whole of what makes
-/// a blob a blob, and JSEAL exposes no identity handle a table can hold. And binary data has no
-/// <see cref="IJsValues"/> vocabulary at all, which is the same line <c>StreamsBinding</c> and
-/// <c>FetchBinding</c> record.
+/// a blob a blob, and JSEAL exposes no identity handle a table can hold. That is the remaining gap,
+/// and it is a cost of the value design rather than a missing member.
 /// </para>
 /// <para>
-/// <b>What a binary-data contract would have to say, measured against this file.</b> Three
-/// operations, not one: <em>mint</em> an <c>ArrayBuffer</c> over a byte array (what
-/// <see cref="ToArrayBuffer"/> needs, and the only thing the other two modules need); <em>test</em>
-/// whether a handle is an <c>ArrayBuffer</c>, because <c>new Blob([buf])</c> has to distinguish a
-/// buffer from an object it must stringify and there is no JS-visible property that answers it; and
-/// <em>read</em> a buffer's bytes back out. A view — a typed array or a <c>DataView</c> — needs no
-/// contract of its own: <see cref="PartBytes"/> reaches its <c>buffer</c>, <c>byteOffset</c> and
-/// <c>byteLength</c> through the ordinary property reads a script would use, and only the buffer at
-/// the end of that chain is untypeable. Minting alone would leave the test and the read here, so a
-/// contract that offers only a factory does not retire this file's engine reference.
+/// <b>The binary-data gap this file specified is closed, and the specification is worth keeping
+/// because it is why the contract has the shape it has.</b> It asked for three operations, not one:
+/// <em>mint</em> a buffer over a byte array; <em>test</em> whether a handle is one, because
+/// <c>new Blob([buf])</c> has to distinguish a buffer from an object it must stringify and there is
+/// no JS-visible property that answers it; and <em>read</em> the bytes back out. A view — a typed
+/// array or a <c>DataView</c> — needed no contract of its own, because <see cref="PartBytes"/>
+/// reaches its <c>buffer</c>, <c>byteOffset</c> and <c>byteLength</c> through the ordinary property
+/// reads a script would use, and only the buffer at the end of that chain was untypeable.
+/// <see cref="IJsValues.NewArrayBuffer"/> is the mint; <see cref="IJsValues.TryGetArrayBufferBytes"/>
+/// is the test and the read together, because they are one question to an engine and every call site
+/// asked them as one. <see cref="PartBytes"/> below is that algorithm unchanged.
 /// </para>
 /// </remarks>
 internal sealed class BlobBinding
@@ -192,7 +192,7 @@ internal sealed class BlobBinding
         Method(realm, blobPrototype, "text", 0, static (BlobData data, in JsCall call) =>
             Settled(call.Realm, JsValue.String(DecodeUtf8(data.Bytes))));
         Method(realm, blobPrototype, "arrayBuffer", 0, static (BlobData data, in JsCall call) =>
-            Settled(call.Realm, ToArrayBuffer((byte[])data.Bytes.Clone())));
+            Settled(call.Realm, call.Realm.NewArrayBuffer(data.Bytes)));
 
         // File's own three attributes. `lastModifiedDate` is legacy and a browser still carries it.
         Getter(realm, filePrototype, "name", static data => JsValue.String(data.Name ?? string.Empty));
@@ -336,10 +336,11 @@ internal sealed class BlobBinding
     /// <c>new Blob([123]).size</c> is 3.
     /// </summary>
     /// <remarks>
-    /// The two <c>BufferSource</c> arms ask the engine's own type, because "is this an ArrayBuffer"
-    /// is not a question JSEAL can put — the contract mints no buffers and tests for none. The
-    /// view's offset and length are still read through the JS-visible attributes a script would use,
-    /// as they were.
+    /// The two <c>BufferSource</c> arms ask <see cref="IJsValues.TryGetArrayBufferBytes"/>, which is
+    /// the only way to put the question: no JS-visible property distinguishes a buffer from an object
+    /// carrying a <c>byteLength</c>, and both a prototype and a <c>Symbol.toStringTag</c> are things
+    /// a page can write. The view's offset and length are still read through the JS-visible
+    /// attributes a script would use, as they were, because a view needs no contract of its own.
     /// </remarks>
     private byte[] PartBytes(IJsRealm realm, JsValue part)
     {
@@ -348,18 +349,16 @@ internal sealed class BlobBinding
             if (TryDataFor(part, out var nested))
                 return nested.Bytes;
 
-            if (JsInterop.ToEngineObject(part) is Broiler.JavaScript.BuiltIns.Array.Typed.JSArrayBuffer arrayBuffer)
-                return arrayBuffer.Buffer;
+            if (realm.TryGetArrayBufferBytes(part, out var buffered))
+                return buffered;
 
             // A typed array or DataView, read through the same JS-visible attributes a script would
             // use rather than through engine internals.
             var buffer = realm.GetProperty(part, "buffer");
-            if (buffer.IsObject &&
-                JsInterop.ToEngineObject(buffer) is Broiler.JavaScript.BuiltIns.Array.Typed.JSArrayBuffer viewBuffer)
+            if (buffer.IsObject && realm.TryGetArrayBufferBytes(buffer, out var source))
             {
                 var offset = (int)NumberOrZero(realm, realm.GetProperty(part, "byteOffset"));
                 var byteLength = (int)NumberOrZero(realm, realm.GetProperty(part, "byteLength"));
-                var source = viewBuffer.Buffer;
                 offset = Math.Clamp(offset, 0, source.Length);
                 byteLength = Math.Clamp(byteLength, 0, source.Length - offset);
                 return source.AsSpan(offset, byteLength).ToArray();
@@ -509,19 +508,6 @@ internal sealed class BlobBinding
         resolve(value);
         return promise;
     }
-
-    /// <summary>
-    /// <paramref name="bytes"/> as an <c>ArrayBuffer</c>, for <c>blob.arrayBuffer()</c>.
-    /// </summary>
-    /// <remarks>
-    /// <b>The one line JSEAL cannot express</b>, as <c>StreamsBinding</c> records at its own copy:
-    /// <see cref="IJsValues"/> mints objects, arrays and functions and has no ArrayBuffer member and
-    /// no capability flag for one, so the buffer is built with the engine's own type and handed
-    /// across as a handle. The caller clones, as it did — a page mutating the buffer must not be able
-    /// to rewrite the blob it came from, because blobs are immutable.
-    /// </remarks>
-    private static JsValue ToArrayBuffer(byte[] bytes) =>
-        JsInterop.FromEngineObject(new Broiler.JavaScript.BuiltIns.Array.Typed.JSArrayBuffer(bytes));
 
     private static string DecodeUtf8(byte[] bytes) => new UTF8Encoding(false).GetString(bytes);
 }

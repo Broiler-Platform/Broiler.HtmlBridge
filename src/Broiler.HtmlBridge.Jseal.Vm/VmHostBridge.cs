@@ -74,6 +74,65 @@ internal sealed class VmHostBridge : IJsHostSurface
     /// </remarks>
     internal JsHostValue ReflectDelete { get; private set; }
 
+    /// <summary>
+    /// The realm's binary intrinsics, taken at the same moment and for the same reason as
+    /// <see cref="Promise"/>: <c>ArrayBuffer</c>, <c>Uint8Array</c>, the <c>byteLength</c> getter off
+    /// <c>ArrayBuffer.prototype</c>, and the four functions the bulk transfer uses.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The profile's host surface has no binary member at all, so a buffer is reached through the
+    /// realm's own intrinsics</b> - the route <c>NewPromise</c> took, applied to a second family.
+    /// Every one of these is an ordinary writable global or a writable prototype member, so all of
+    /// them are read once here rather than when a buffer is wanted.
+    /// </para>
+    /// <para>
+    /// <b>The <c>byteLength</c> getter is the brand check and there is no other.</b> Its body is
+    /// <c>BinaryThisBuffer</c>, which is <c>value.AsObjectOrNull() is JsArrayBuffer</c> and throws a
+    /// TypeError for anything else - so invoking it with a candidate as <c>this</c> answers "is this
+    /// an ArrayBuffer" and the length in one crossing, and answers it by CLR type rather than by
+    /// anything a page can write. No JS-visible property can do that: a <c>DataView</c> and every
+    /// typed array answer <c>byteLength</c>, a prototype is settable, a <c>Symbol.toStringTag</c> is
+    /// writable.
+    /// </para>
+    /// <para>
+    /// <b>They may all be absent, and that is not an error here.</b> The profile builds its binary
+    /// intrinsics only for a composition that admits its binary surface. When they are missing
+    /// <see cref="HasBinary"/> is false and the provider narrows
+    /// <see cref="JsCapabilities.BinaryData"/> out of the realm it hands back, which is what a
+    /// capability is for.
+    /// </para>
+    /// </remarks>
+    internal JsHostValue ArrayBuffer { get; private set; }
+
+    /// <inheritdoc cref="ArrayBuffer"/>
+    internal JsHostValue Uint8Array { get; private set; }
+
+    /// <inheritdoc cref="ArrayBuffer"/>
+    internal JsHostValue ArrayBufferByteLength { get; private set; }
+
+    /// <inheritdoc cref="ArrayBuffer"/>
+    internal JsHostValue TypedArraySet { get; private set; }
+
+    /// <inheritdoc cref="ArrayBuffer"/>
+    internal JsHostValue TypedArraySubarray { get; private set; }
+
+    /// <inheritdoc cref="ArrayBuffer"/>
+    internal JsHostValue StringFromCharCode { get; private set; }
+
+    /// <inheritdoc cref="ArrayBuffer"/>
+    internal JsHostValue FunctionApply { get; private set; }
+
+    /// <summary>Whether every binary intrinsic the provider needs was on the realm.</summary>
+    internal bool HasBinary =>
+        ArrayBuffer.Kind is JsHostValueKind.Function &&
+        Uint8Array.Kind is JsHostValueKind.Function &&
+        ArrayBufferByteLength.Kind is JsHostValueKind.Function &&
+        TypedArraySet.Kind is JsHostValueKind.Function &&
+        TypedArraySubarray.Kind is JsHostValueKind.Function &&
+        StringFromCharCode.Kind is JsHostValueKind.Function &&
+        FunctionApply.Kind is JsHostValueKind.Function;
+
     /// <summary>The one crossing waiting for a step.</summary>
     internal Action<JsHostRealm>? Pending { get; set; }
 
@@ -88,6 +147,42 @@ internal sealed class VmHostBridge : IJsHostSurface
         Promise = realm.GetProperty(realm.Global, "Promise");
         Proxy = realm.GetProperty(realm.Global, "Proxy");
         ReflectDelete = realm.GetProperty(realm.GetProperty(realm.Global, "Reflect"), "deleteProperty");
+        CaptureBinary(realm);
+    }
+
+    /// <summary>
+    /// Reads the binary intrinsics off the realm, or leaves them missing when the composition
+    /// declined the profile's binary surface. See <see cref="ArrayBuffer"/>.
+    /// </summary>
+    private void CaptureBinary(JsHostRealm realm)
+    {
+        ArrayBuffer = realm.GetProperty(realm.Global, "ArrayBuffer");
+        Uint8Array = realm.GetProperty(realm.Global, "Uint8Array");
+
+        if (ArrayBuffer.Kind is not JsHostValueKind.Function ||
+            Uint8Array.Kind is not JsHostValueKind.Function)
+        {
+            return;
+        }
+
+        var viewPrototype = realm.GetProperty(Uint8Array, "prototype");
+        TypedArraySet = realm.GetProperty(viewPrototype, "set");
+        TypedArraySubarray = realm.GetProperty(viewPrototype, "subarray");
+        StringFromCharCode = realm.GetProperty(realm.GetProperty(realm.Global, "String"), "fromCharCode");
+        FunctionApply = realm.GetProperty(
+            realm.GetProperty(realm.GetProperty(realm.Global, "Function"), "prototype"),
+            "apply");
+
+        // The getter itself, not the property: reading `ArrayBuffer.prototype.byteLength` would
+        // INVOKE it with the prototype as `this`, which is exactly the case its brand check throws
+        // for. A descriptor read is the only way to hold the function.
+        var descriptor = realm.Invoke(
+            realm.GetProperty(realm.GetProperty(realm.Global, "Object"), "getOwnPropertyDescriptor"),
+            JsHostValue.Undefined,
+            [realm.GetProperty(ArrayBuffer, "prototype"), JsHostValue.String("byteLength")]);
+
+        if (descriptor.Kind is JsHostValueKind.Object)
+            ArrayBufferByteLength = realm.GetProperty(descriptor, "get");
     }
 
     /// <inheritdoc />

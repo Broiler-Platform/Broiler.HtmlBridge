@@ -567,7 +567,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
                 if (IsBodyUnavailable(requestObject))
                     throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
                 realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
-                return CreateThenable(() => ToArrayBuffer(Encoding.UTF8.GetBytes(body ?? string.Empty)));
+                return CreateThenable(() => realm.NewArrayBuffer(Encoding.UTF8.GetBytes(body ?? string.Empty)));
             }
             realm.DefineValue(requestObject, "arrayBuffer", realm.NewConstructor("arrayBuffer", JsRegistrationArrayBuffer101, 0));
             JsValue JsRegistrationBlob102(in JsCall call)
@@ -628,7 +628,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
                 if (IsBodyUnavailable(responseObject))
                     throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
                 realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
-                return CreateThenable(() => ToArrayBuffer(Encoding.UTF8.GetBytes(body)));
+                return CreateThenable(() => realm.NewArrayBuffer(Encoding.UTF8.GetBytes(body)));
             }
             realm.DefineValue(responseObject, "arrayBuffer", realm.NewConstructor("arrayBuffer", JsRegistrationArrayBuffer106, 0));
             JsValue JsRegistrationBlob107(in JsCall call)
@@ -802,16 +802,4 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
             : JsValue.String(message);
     }
 
-    /// <summary>
-    /// <paramref name="bytes"/> as an <c>ArrayBuffer</c>, for the two <c>arrayBuffer()</c> readers.
-    /// </summary>
-    /// <remarks>
-    /// <b>This is the one line JSEAL cannot express</b>, and <c>StreamsBinding</c> records the same
-    /// one: <see cref="IJsValues"/> mints objects, arrays and functions, and has no ArrayBuffer or
-    /// typed-array member and no capability flag for one. Until the contract grows one, the buffer is
-    /// built with the engine's own type and handed across as a handle. The bytes are the caller's
-    /// own array, exactly as before — the readers each encode a fresh one — so nothing copies here.
-    /// </remarks>
-    private static JsValue ToArrayBuffer(byte[] bytes) =>
-        JsInterop.FromEngineObject(new Broiler.JavaScript.BuiltIns.Array.Typed.JSArrayBuffer(bytes));
 }

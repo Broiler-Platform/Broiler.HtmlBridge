@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.BuiltIns.Array.Typed;
 using Broiler.Dom;
 using Broiler.Graphics;
 using Broiler.HtmlBridge.Jseal;
@@ -555,7 +554,7 @@ internal static class CanvasBinding
         {
             try
             {
-                return realm.Construct(clampedArrayCtor, [PixelBuffer(pixels)]);
+                return realm.Construct(clampedArrayCtor, [realm.NewArrayBuffer(pixels)]);
             }
             catch
             {
@@ -568,22 +567,6 @@ internal static class CanvasBinding
             values[i] = JsValue.Number(pixels[i]);
         return realm.NewArray(values);
     }
-
-    /// <summary>
-    /// The one engine-typed line in this module: an <c>ArrayBuffer</c> over the bytes just read back,
-    /// for <c>Uint8ClampedArray</c> to view.
-    /// </summary>
-    /// <remarks>
-    /// JSEAL has no way to mint an <c>ArrayBuffer</c> — <see cref="IJsValues"/> offers an object, an
-    /// array, a function and an exotic, and a buffer is none of those — so this is not a substitution
-    /// that was missed but a contract gap, and it is worth stating rather than working around. The
-    /// available workaround is the plain-array fallback below, which allocates a 24-byte handle for
-    /// every <em>byte</em> of the readback: a 1000×1000 <c>getImageData</c> would cost 96 MB instead of
-    /// 4. So the buffer stays, and the seam is exactly one constructor call wide. <c>JsInterop</c>
-    /// carries the object across without converting it.
-    /// </remarks>
-    private static JsValue PixelBuffer(byte[] pixels) =>
-        Runtime.JsInterop.FromEngineObject(new JSArrayBuffer(pixels));
 
     /// <summary>
     /// Reads an <c>ImageData.data</c> back into bytes, whichever of the two shapes

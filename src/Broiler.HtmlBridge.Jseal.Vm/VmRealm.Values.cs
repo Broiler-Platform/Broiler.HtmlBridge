@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 using Broiler.VM.Profile.JavaScript;
 
 namespace Broiler.HtmlBridge.Jseal.Vm;
@@ -154,6 +156,160 @@ internal sealed partial class VmRealm
 
         return value < uint.MaxValue;
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// <b>Built out of the realm's own <c>ArrayBuffer</c>, because the profile's host surface has no
+    /// binary member</b> - the same route <c>NewPromise</c> takes to the realm's own <c>Promise</c>.
+    /// The buffer that comes back is the realm's: a page can <c>new Uint8Array(b)</c> it,
+    /// <c>b.slice()</c> it and find it <c>instanceof ArrayBuffer</c>.
+    /// </para>
+    /// <para>
+    /// <b>The bytes go across in chunks, and the chunking is not a performance nicety.</b> Every
+    /// crossing of this host surface charges one unit against a host-call allowance that defaults to
+    /// a million, and spending it raises a termination rather than anything a page could catch. A
+    /// crossing per byte would therefore abort the program on a blob of about a megabyte - not run
+    /// slowly, abort - so the bytes are handed over a chunk at a time through
+    /// <c>%TypedArray%.prototype.set</c>: two crossings per chunk plus two, rather than one per byte.
+    /// </para>
+    /// <para>
+    /// The ceiling that remains is the guest's memory rather than its crossings. A buffer of n bytes
+    /// costs n bytes in the realm plus a chunk-sized temporary, against a default allocation budget
+    /// of sixty-four megabytes, and a request past that fails as a resource exhaustion naming the
+    /// dimension.
+    /// </para>
+    /// </remarks>
+    public JsValue NewArrayBuffer(ReadOnlySpan<byte> bytes)
+    {
+        if ((Capabilities & JsCapabilities.BinaryData) == 0)
+            throw Lacking(JsCapabilities.BinaryData);
+
+        // Copied out of the span before the crossing, because the span cannot outlive this frame and
+        // the lambda below runs inside a step.
+        var source = bytes.ToArray();
+
+        return VmMarshal.Wrap(InStep(realm =>
+        {
+            var buffer = realm.Construct(_bridge.ArrayBuffer, [JsHostValue.Number(source.Length)]);
+            var view = realm.Construct(_bridge.Uint8Array, [buffer]);
+
+            for (var offset = 0; offset < source.Length; offset += TransferChunk)
+            {
+                var length = Math.Min(TransferChunk, source.Length - offset);
+                var chunk = new JsHostValue[length];
+
+                for (var i = 0; i < length; i++)
+                    chunk[i] = JsHostValue.Number(source[offset + i]);
+
+                realm.Invoke(
+                    _bridge.TypedArraySet,
+                    view,
+                    [realm.NewArray(chunk), JsHostValue.Number(offset)]);
+            }
+
+            return buffer;
+        }));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// <b>The brand check is <c>ArrayBuffer.prototype</c>'s own <c>byteLength</c> getter, invoked
+    /// with the candidate as <c>this</c>.</b> Its body asks whether the receiver is the engine's
+    /// buffer type and throws a TypeError otherwise, so one crossing answers both halves of this
+    /// member - and answers by CLR type rather than by anything a page can write. A
+    /// <c>DataView</c> and every typed array answer <c>byteLength</c> themselves, an object's
+    /// prototype is settable and its <c>Symbol.toStringTag</c> is writable, so none of the three
+    /// JS-visible routes would be an answer.
+    /// </para>
+    /// <para>
+    /// <b>There is no <c>SharedArrayBuffer</c> to exclude here</b>, which the profile states as a
+    /// deliberate omission rather than an unfinished one. The other provider's engine has one and
+    /// declares it a subclass of the ordinary buffer, so that provider excludes it by hand; this one
+    /// has nothing to exclude, and saying so is what stops a later reader adding a check that could
+    /// never fire.
+    /// </para>
+    /// <para>
+    /// <b>The bytes come back through the one wide channel the host surface has, which is a
+    /// string.</b> Nothing here charges per character, so a chunk of the buffer converted to one
+    /// character per byte crosses in a single call; the alternative, a crossing per byte, would spend
+    /// the host-call allowance and abort. The conversion is
+    /// <c>String.fromCharCode.apply(null, view.subarray(...))</c> with every one of those four
+    /// functions captured before any page script ran, so a page that replaced <c>String</c>,
+    /// <c>Uint8Array</c> or either prototype member cannot reach it.
+    /// </para>
+    /// </remarks>
+    public bool TryGetArrayBufferBytes(JsValue value, [NotNullWhen(true)] out byte[]? bytes)
+    {
+        if ((Capabilities & JsCapabilities.BinaryData) == 0)
+            throw Lacking(JsCapabilities.BinaryData);
+
+        var candidate = VmMarshal.Unwrap(value);
+
+        if (candidate.Kind is not JsHostValueKind.Object)
+        {
+            bytes = null;
+            return false;
+        }
+
+        bytes = InStep(realm =>
+        {
+            int length;
+
+            try
+            {
+                // Caught inside the step, before Translate turns a guest throw into a
+                // JsEngineException: the throw IS the answer here rather than a failure.
+                length = (int)realm.Invoke(_bridge.ArrayBufferByteLength, candidate, []).AsNumber();
+            }
+            catch (JsHostThrowException)
+            {
+                return null;
+            }
+
+            if (length <= 0)
+                return [];
+
+            var read = new byte[length];
+            var view = realm.Construct(_bridge.Uint8Array, [candidate]);
+
+            for (var offset = 0; offset < length; offset += TransferChunk)
+            {
+                var end = Math.Min(offset + TransferChunk, length);
+
+                var part = realm.Invoke(
+                    _bridge.TypedArraySubarray,
+                    view,
+                    [JsHostValue.Number(offset), JsHostValue.Number(end)]);
+
+                var text = realm.Invoke(
+                    _bridge.FunctionApply,
+                    _bridge.StringFromCharCode,
+                    [JsHostValue.Undefined, part]).AsString();
+
+                for (var i = 0; i < text.Length; i++)
+                    read[offset + i] = (byte)text[i];
+            }
+
+            return read;
+        });
+
+        return bytes is not null;
+    }
+
+    /// <summary>
+    /// How many bytes cross at a time, in both directions.
+    /// </summary>
+    /// <remarks>
+    /// <b>Bounded above by the argument count <c>Function.prototype.apply</c> will spread</b> - the
+    /// read path applies <c>String.fromCharCode</c> to a chunk, so a chunk is an argument list - and
+    /// bounded below by the host-call allowance, since every chunk costs two crossings in each
+    /// direction. Eight thousand is comfortably inside every engine's spread limit and puts a
+    /// thirty-two megabyte buffer at about eight thousand crossings against an allowance of a
+    /// million.
+    /// </remarks>
+    private const int TransferChunk = 8000;
 
     /// <inheritdoc />
     public string ToJsString(JsValue value)

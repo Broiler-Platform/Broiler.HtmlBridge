@@ -100,6 +100,31 @@ public enum JsCapabilities : uint
     /// </remarks>
     ReentrantHostCalls = 1 << 8,
 
+    /// <summary>
+    /// Minting an <c>ArrayBuffer</c> over host bytes and reading one back. See
+    /// <see cref="IJsValues.NewArrayBuffer"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It is a capability rather than an assumption because a realm can genuinely lack it.</b> One
+    /// engine has <c>ArrayBuffer</c> unconditionally; the other builds the binary intrinsics only for
+    /// a composition that admits its binary surface, so a host that named surfaces explicitly could
+    /// get a realm with no <c>ArrayBuffer</c> on the global at all. Calling and hoping is what a
+    /// capability exists to replace.
+    /// </para>
+    /// <para>
+    /// <b>It is in <see cref="Document"/> because the bridge's own polyfills cannot install without
+    /// it.</b> <c>Polyfills/streams-and-file-reader.js</c> names <c>Uint8Array</c>, and on an engine
+    /// whose binary surface is optional an artifact naming a global of a declined surface is refused
+    /// at verification rather than at the line that reads it. So a realm without this cannot carry
+    /// the streams asset, and without that asset there is no <c>ReadableStream</c>, no
+    /// <c>response.body</c>, no <c>blob.stream()</c> and no <c>FileReader</c>. That is not a page
+    /// served in a degraded way; it is a page that does not load.
+    /// </para>
+    /// </remarks>
+    BinaryData = 1 << 9,
+
     /// <summary>Everything a document-bearing page load needs.</summary>
-    Document = HostScriptSource | Promises | ExoticObjects | GlobalIsVariableScope | ReentrantHostCalls,
+    Document = HostScriptSource | Promises | ExoticObjects | GlobalIsVariableScope |
+               ReentrantHostCalls | BinaryData,
 }

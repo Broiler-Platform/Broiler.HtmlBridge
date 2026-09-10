@@ -294,28 +294,67 @@ and it is scaffolding meant to be deleted. It is a cast, not a conversion — a 
 already carries the engine's `JSObject` — and every use of it is one place the migration has not
 reached.
 
-**Where it stands.** `Broiler.HtmlBridge.Dom`'s engine references have gone from **891 to 116**, and
-its eval sites from 55 to 6, across six commits. Every DOM feature binding, every registration hub,
-the node wrapper factories, the event system, the four exotic objects and the worker/messaging surface
-are migrated. `eng/jseal-budget.json` carries the live number; this paragraph will go stale and the
-budget file will not.
+**Where it stands.** `Broiler.HtmlBridge.Dom`'s engine references have gone from **891 to 67**, and
+its eval sites from 55 to 6. Every DOM feature binding, every registration hub, the node wrapper
+factories, the event system, all six exotic objects, the worker/messaging surface, every forwarding
+parameter and every engine argument frame are migrated. `eng/jseal-budget.json` carries the live
+number; this paragraph will go stale and the budget file will not.
 
-**The remaining 116 are structural, not unfinished.** They fall into six kinds, and every occurrence
-names its own pin in its own doc comment:
+**Two contract gaps this document recorded are closed, and both were closed by adding to JSEAL rather
+than by working around it in the bridge.**
+
+`IJsExoticDelete` is the deletion half of a host-completed lookup. `Storage` was the only one of the
+six lookup-completing objects whose behaviour includes taking something away, and converting it
+without a delete hook would have left the ordinary property deleted and the item still in the store —
+a wrong answer rather than a missing feature, which is why it was reported rather than worked around.
+It is a second interface rather than a sixth member of `IJsExotic` because the two providers do
+opposite things about it: Broiler.JS overrides a virtual its exotic object already overrides the
+neighbours of and pays nothing, and Broiler.VM has no delete hook on its host-object surface at all
+and puts a deleting handler behind the realm's own `Proxy`. A proxy costs a trap lookup on every
+operation, so the declaration has to be askable at mint time — otherwise every live collection's
+indexed reads would pay for a feature only `Storage` uses.
+
+`IJsValues.NewArrayBuffer` and `IJsValues.TryGetArrayBufferBytes` are the binary-data members, and
+`JsCapabilities.BinaryData` is the capability. `BlobBinding` specified them: three operations, not
+one — mint, test, read — because `new Blob([buf])` has to tell a buffer from an object it must
+stringify and no JS-visible property answers that. The test and the read landed as one member because
+they are one question to an engine: a brand check is what produces the bytes.
+
+**Both were served without a Broiler.VM change, by the same move.** The provider reaches an intrinsic
+the guest already has — `Proxy` and `Reflect.deleteProperty` for the one, `ArrayBuffer`, `Uint8Array`
+and `ArrayBuffer.prototype`'s own `byteLength` getter for the other — captured at realm creation for
+the reason `Promise` is captured there, because every one of them is a writable global or a writable
+prototype member. That is now three times this route has answered a gap that looked like it needed a
+new host-surface member.
+
+**The remaining 67 are structural, not unfinished**, spread across 36 files with no cluster larger
+than seven. Every occurrence names its own pin in its own doc comment:
 
 | What | Why it stays |
 |---|---|
 | `DomBridge.Realm.cs`, `RegisterDocument(JSContext)` | The floor. One *adopts* a context; the other swaps the code cache, a Broiler.JS optimisation with no JSEAL vocabulary |
 | `IDomBridgeRuntime.Attach(JSContext, …)` | Declared in `Broiler.HtmlBridge.Core`, and consumed by `Broiler.Cli`/`Broiler.Wpt`/`Broiler.DevConsole`, which are not in this checkout |
 | The three wrapper-root fields | `DomBridge` declares them; ten files read them. One commit, whenever someone owns all ten |
-| The ArrayBuffer mint, test and read | `IJsValues` has no binary-data member. The three operations a contract would need are specified against their five call sites, in the files that want them |
 | The weak tables | A `ConditionalWeakTable` needs a reference-typed key, and `JsValue` is a struct. **This is the one real cost of the value design**, and it is written down where it bites rather than in a footnote |
 | `BridgeModuleContext` | It derives from the engine's module context to inject specifier resolution and CSP-gated fetch. JSEAL has no module-graph contract, and one implementer is not enough to design one from |
+| The event-host surfaces | `DomBridge.WindowEventTargetHost`, `Events`, `DomFunction` and their neighbours still type a listener as the engine's function. Ordinary work, and the largest single group left |
 
-Two of those are genuine contract gaps with a written specification waiting (binary data, the module
-graph); one is a design cost stated honestly; three are ordinary work.
+One is a genuine contract gap with a written specification waiting (the module graph); one is a
+design cost stated honestly; the rest is ordinary work.
 
-**The conformance suite has earned its place three times.** It found `JsCall.NewTarget` always
+**A third gap is recorded and not yet closed.** `IJsExotic` routes an integer-index key to the indexed
+hooks, has no indexed *write* hook, and gives a handler no way to declare that it has no indexed
+properties at all. `Storage` has named property getters and setters and no indexed ones, so
+`localStorage[8]` is a name — and both engines treat it as an index.
+`WebStorageTests.ADigitOnlyKeyIsANamedPropertyLikeAnyOther` carries the case, skipped, with the
+contract named rather than the module.
+
+**The conformance suite has earned its place three times, and it is what both contract additions were
+measured against.** Every one of its tests is a theory over every registered provider and none of them
+names an engine type, so a contract member is not landed until both providers answer it identically —
+which is how the delete hook's index-versus-name filter and the binary members' `SharedArrayBuffer`
+exclusion were found, both being cases where one engine would have disagreed with the other in
+silence. It found `JsCall.NewTarget` always
 reporting `Missing` inside a host constructor; an exotic object's supported names being filtered out
 of `Object.keys` and object spread, so `Object.keys(form.elements)` saw no named controls; and
 `DefineIndex` not growing an Array's length, which made an index written through the contract

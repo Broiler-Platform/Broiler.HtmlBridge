@@ -1,5 +1,8 @@
+using System.Diagnostics.CodeAnalysis;
+
 using Broiler.JavaScript.Ast.Misc;
 using Broiler.JavaScript.BuiltIns.Array;
+using Broiler.JavaScript.BuiltIns.Array.Typed;
 using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.JavaScript.Runtime;
 
@@ -35,6 +38,47 @@ internal sealed partial class BroilerJsRealm
             items[i] = BroilerJsMarshal.Unwrap(elements[i]);
 
         return BroilerJsMarshal.Wrap(new JSArray(items));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The engine's own buffer type over a copy of the span. This provider pays nothing for the
+    /// contract because the type is the engine's and the bytes are a field on it; the other one has
+    /// no binary member on its host surface and reaches the realm's <c>ArrayBuffer</c> intrinsic
+    /// instead.
+    /// </remarks>
+    public JsValue NewArrayBuffer(ReadOnlySpan<byte> bytes)
+    {
+        using var scope = Enter();
+
+        return BroilerJsMarshal.Wrap(new JSArrayBuffer(bytes.ToArray()));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// <b>The <c>SharedArrayBuffer</c> exclusion is load-bearing and is not defensive.</b> This
+    /// engine declares <c>SharedArrayBuffer : JSArrayBuffer</c>, so a plain type test answers
+    /// <see langword="true"/> for one - and a shared buffer is not a <c>BufferSource</c>, so
+    /// <c>new Blob([sharedBuffer])</c> would silently produce the buffer's bytes where a browser
+    /// produces the string <c>"[object SharedArrayBuffer]"</c>.
+    /// </para>
+    /// <para>
+    /// A detached buffer answers <see langword="true"/> with no bytes, as the contract specifies:
+    /// the field still holds the array after detachment, so the flag has to be read rather than the
+    /// length.
+    /// </para>
+    /// </remarks>
+    public bool TryGetArrayBufferBytes(JsValue value, [NotNullWhen(true)] out byte[]? bytes)
+    {
+        if (BroilerJsMarshal.Unwrap(value) is not JSArrayBuffer buffer || buffer is SharedArrayBuffer)
+        {
+            bytes = null;
+            return false;
+        }
+
+        bytes = buffer.Detached ? [] : buffer.Buffer;
+        return true;
     }
 
     /// <summary>

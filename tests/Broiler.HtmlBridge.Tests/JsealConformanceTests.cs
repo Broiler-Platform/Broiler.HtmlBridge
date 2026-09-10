@@ -1663,6 +1663,154 @@ public class JsealConformanceTests
         realm.Dispose();
     }
 
+    // ── binary data ────────────────────────────────────────────────────────────────────────────
+    //
+    // Two members and three operations: mint a buffer over host bytes, tell a buffer from everything
+    // else, and read one back. The bridge needs all three - a factory alone would leave the test and
+    // the read behind, which is what `BlobBinding`'s remarks say and why the contract took the shape
+    // it did.
+
+    /// <summary>
+    /// A buffer minted by the host is the realm's own, and a view over it sees the bytes.
+    /// </summary>
+    /// <remarks>
+    /// <b>"The realm's own" is the whole claim, and <c>byteLength</c> does not establish it.</b> An
+    /// ordinary object carrying a <c>byteLength</c> would satisfy a length assertion and fail every
+    /// page that writes <c>new Uint8Array(b)</c>. So this asserts the brand from JavaScript, which
+    /// also makes the failure name a missing intrinsic rather than surfacing as something odd three
+    /// layers down - the case that matters for a provider reaching its realm's own
+    /// <c>ArrayBuffer</c> rather than declaring a type of its own.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void AMintedArrayBufferIsTheRealmsOwnAndAViewOverItSeesTheBytes(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.BinaryData))
+            return;
+
+        var bytes = new byte[] { 1, 2, 250 };
+        var buffer = realm.NewArrayBuffer(bytes);
+
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var read));
+        Assert.Equal(bytes, read);
+        Assert.True(realm.GetProperty(buffer, "byteLength") == JsValue.Number(3d));
+
+        // Copied, not aliased. A blob is immutable, and a provider that wrapped the host's array
+        // would let a page rewrite the blob its buffer came from.
+        bytes[0] = 9;
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var again));
+        Assert.Equal([1, 2, 250], again);
+
+        if (Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        realm.DefineValue(realm.Global, "minted", buffer);
+
+        Assert.Equal("[object ArrayBuffer]", Eval(realm, "Object.prototype.toString.call(minted)", "test:buffer-brand"));
+        Assert.Equal("true", Eval(realm, "String(minted instanceof ArrayBuffer)", "test:buffer-instanceof"));
+        Assert.Equal("1,2,250", Eval(realm, "Array.prototype.join.call(new Uint8Array(minted), ',')", "test:buffer-view"));
+        Assert.Equal("3", Eval(realm, "String(minted.slice(0).byteLength)", "test:buffer-slice"));
+    }
+
+    /// <summary>
+    /// The host reads back a buffer a script made, and tells one from everything else.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>new Blob([part])</c> is the caller, and it has to tell a buffer from an object it must
+    /// stringify.</b> There is no JS-visible property that answers it, which is why this is a
+    /// contract member and not a property read. The view case matters most: a typed array is NOT a
+    /// buffer, and a host that said it was would take a <c>Uint8Array</c>'s bytes where the page
+    /// passed a <c>Float64Array</c>. Reaching the buffer at the end of a view's own
+    /// <c>buffer</c>/<c>byteOffset</c>/<c>byteLength</c> chain is ordinary property reads and needs
+    /// no contract of its own - this is the assertion that the chain ends somewhere testable.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void TheHostReadsBackABufferAScriptMadeAndTellsOneFromEverythingElse(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.BinaryData) || Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        var buffer = realm.EvaluateHostScript(
+            "(function () { var b = new ArrayBuffer(3); var v = new Uint8Array(b); v[0] = 7; v[2] = 8; return b; })()",
+            "test:script-buffer");
+
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var bytes));
+        Assert.Equal([7, 0, 8], bytes);
+
+        // A view is not a buffer, and the buffer it names is.
+        var view = realm.EvaluateHostScript("new Uint8Array([4, 5, 6, 7])", "test:script-view");
+        Assert.False(realm.TryGetArrayBufferBytes(view, out _));
+        Assert.True(realm.TryGetArrayBufferBytes(realm.GetProperty(view, "buffer"), out var viewed));
+        Assert.Equal([4, 5, 6, 7], viewed);
+
+        // Neither is a DataView, whose byteLength answers exactly as a buffer's does.
+        var dataView = realm.EvaluateHostScript("new DataView(new ArrayBuffer(2))", "test:script-dataview");
+        Assert.False(realm.TryGetArrayBufferBytes(dataView, out _));
+
+        // Nor an object dressed as one. A prototype is settable and a toStringTag is writable, so a
+        // provider answering by either would be answering a page's claim about itself.
+        var impostor = realm.EvaluateHostScript(
+            "Object.defineProperty(Object.create(ArrayBuffer.prototype), 'byteLength', { value: 8 })",
+            "test:script-impostor");
+        Assert.False(realm.TryGetArrayBufferBytes(impostor, out _));
+
+        Assert.False(realm.TryGetArrayBufferBytes(realm.NewObject(), out _));
+        Assert.False(realm.TryGetArrayBufferBytes(realm.NewArray(), out _));
+        Assert.False(realm.TryGetArrayBufferBytes(JsValue.String("bytes"), out _));
+        Assert.False(realm.TryGetArrayBufferBytes(JsValue.Missing, out _));
+        Assert.False(realm.TryGetArrayBufferBytes(JsValue.Null, out _));
+    }
+
+    /// <summary>
+    /// A buffer survives a round trip larger than one host crossing per byte would allow.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is a budget test wearing a correctness test's clothes, and it is here because one
+    /// provider has no binary member on its host surface.</b> That provider reaches its realm's
+    /// <c>ArrayBuffer</c> intrinsic, and the obvious way to fill one - a crossing per byte - is not
+    /// merely slow: every crossing of that host surface charges against a host-call allowance, and
+    /// spending it aborts the program terminally rather than raising anything a page could catch. A
+    /// blob of a few hundred kilobytes is an ordinary thing for a page to have. Sixty-four kilobytes
+    /// is well past the point where a per-byte route would be visible and well inside what the
+    /// suite should run in a millisecond.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ABufferOfSixtyFourKilobytesMakesTheRoundTrip(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.BinaryData))
+            return;
+
+        var bytes = new byte[64 * 1024];
+        for (var i = 0; i < bytes.Length; i++)
+            bytes[i] = (byte)(i * 31 % 256);
+
+        var buffer = realm.NewArrayBuffer(bytes);
+
+        Assert.True(realm.TryGetArrayBufferBytes(buffer, out var read));
+        Assert.Equal(bytes, read);
+
+        if (Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        // Asserted from the guest as well, so a provider that kept the bytes somewhere the page
+        // cannot see them fails here rather than passing on the host's own read.
+        realm.DefineValue(realm.Global, "big", buffer);
+        Assert.Equal(
+            $"{bytes.Length}/{bytes[1]}/{bytes[bytes.Length - 1]}",
+            Eval(
+                realm,
+                "(function () { var v = new Uint8Array(big); return v.length + '/' + v[1] + '/' + v[v.length - 1]; })()",
+                "test:big-buffer"));
+    }
+
     // ── capability coverage ────────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -1687,6 +1835,7 @@ public class JsealConformanceTests
             // thread, and values moved between the two by structured clone (IJsClone).
             [JsCapabilities.WorkerRealms] = nameof(ASecondRealmRunsOnASecondThread),
             [JsCapabilities.ReentrantHostCalls] = nameof(AHostFunctionMayCallBackIntoScriptWhileTheEngineIsInsideIt),
+            [JsCapabilities.BinaryData] = nameof(AMintedArrayBufferIsTheRealmsOwnAndAViewOverItSeesTheBytes),
         };
 
     /// <summary>
