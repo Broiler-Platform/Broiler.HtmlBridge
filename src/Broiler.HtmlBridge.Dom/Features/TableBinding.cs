@@ -1,7 +1,6 @@
 using Broiler.Dom;
 using Broiler.Dom.Html;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -17,28 +16,19 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): every member is minted by the
-/// realm and every body runs on a <see cref="JsCall"/>, so the migrated half of this file names no
-/// engine type.
+/// realm and every body runs on a <see cref="JsCall"/>, so this file names no engine type at all.
 /// </para>
 /// <para>
-/// <b>The one engine-typed member is an adapter, and it is pinned from outside.</b>
-/// <c>DomBridge/ElementInterfaces.cs</c> installs these members onto an engine wrapper it holds and
-/// is not migrated, so <see cref="Install(JSObject, DomElement, string)"/> takes that wrapper and
-/// hands it on through <see cref="Runtime.JsInterop"/> — a cast, not a conversion, because a JSEAL
-/// object handle carries the engine's own object. When that installer migrates, the adapter is
-/// deleted and its caller passes the handle it already has.
+/// It named one until its caller stopped handing it an engine object. The remark here used to say
+/// <c>DomBridge/ElementInterfaces.cs</c> "installs these members onto an engine wrapper it holds and
+/// is not migrated"; it holds a handle, and the engine object it used to pass was derived from that
+/// handle one line earlier only so that the adapter could derive the handle back. Both halves are
+/// gone and the caller passes what it has.
 /// </para>
 /// </remarks>
 internal sealed class TableBinding(ITableHost host)
 {
     private readonly ITableHost _host = host;
-
-    /// <summary>
-    /// Engine-typed adapter for <c>DomBridge/ElementInterfaces.cs</c>, which still holds the element
-    /// wrapper as an engine object. See the remarks on this class.
-    /// </summary>
-    internal void Install(JSObject obj, DomElement element, string tag) =>
-        Install(Runtime.JsInterop.FromEngineObject(obj), element, tag);
 
     /// <summary>
     /// Installs the table-family interface members on <paramref name="obj"/> for

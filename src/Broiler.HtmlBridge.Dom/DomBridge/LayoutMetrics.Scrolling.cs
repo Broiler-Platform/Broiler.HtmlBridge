@@ -5,9 +5,6 @@ using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Dom.Runtime;
 
-// Engine-typed only for the three option-reader adapters below, whose caller —
-// DomBridge.ElementGeometryHost.cs — unwraps a JSEAL handle before it asks.
-using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
 using Broiler.CSS;
 using System.Globalization;
@@ -74,24 +71,30 @@ public sealed partial class DomBridge
         }
     }
 
-    // -------- the scroll-option readers, and why three of them still have an engine-shaped face --------
+    // -------- the scroll-option readers, and who actually calls them --------
     //
-    // These answer one member of a ScrollToOptions/ScrollIntoViewOptions dictionary, and they are shared
-    // by every scrolling entry point the bridge has: the element-geometry contract, the window scroll
-    // contract and the sub-window one. The reads are JSEAL's below — a missing, null or undefined member
-    // means "leave this alone", and a member that is present goes through the realm's own ToNumber and
-    // ToString, because that is the coercion a page observes when it writes `scrollTo({ left: "100" })`.
-    // The handle's own rendering deliberately does not run a page's toString, so it cannot be used here.
+    // These answer one member of a ScrollToOptions/ScrollIntoViewOptions dictionary. The reads are the
+    // realm's: a missing, null or undefined member means "leave this alone", and a member that is
+    // present goes through the realm's own ToNumber and ToString, because that is the coercion a page
+    // observes when it writes `scrollTo({ left: "100" })`. The handle's own rendering deliberately does
+    // not run a page's toString, so it cannot be used here.
     //
-    // The JSObject overloads are adapters, not implementations. DomBridge.ElementGeometryHost.cs — not
-    // this file's to change — decides the shape of a scrollIntoView/scroll argument from a JSEAL handle
-    // and then unwraps the options object to ask these; keeping the overloads is what lets that file go
-    // on compiling untouched, and they disappear when it names the JSEAL readers directly. All six are
-    // instance members rather than statics for one reason: the JSEAL readers need the bridge's realm, and
-    // a static has no way to obtain one.
+    // WHAT STOOD HERE NAMED CALLERS IT DID NOT HAVE, WHICH IS WHY THE ADAPTERS BELOW IT SURVIVED THREE
+    // MIGRATIONS. It said these are "shared by every scrolling entry point the bridge has: the
+    // element-geometry contract, the window scroll contract and the sub-window one". They are shared
+    // with nothing. DomBridge.ElementGeometryHost.cs is the only caller in the tree; the window and
+    // sub-window contracts read their own options through ScrollCoordinateOption/ScrollBehaviorOption in
+    // DomBridge.SubWindowHost.cs, which is a second copy of this reading rather than a use of it. The
+    // same comment said all six members are instance rather than static "for one reason: the JSEAL
+    // readers need the bridge's realm, and a static has no way to obtain one" -- that pair is static and
+    // takes the realm as a parameter, so it is a preference here, not a constraint.
     //
-    // The whole-argument-list reading that used to sit above these — GetScrollArguments(in Arguments),
-    // for the window scroll contract — is gone: window.scroll/scrollTo/scrollBy are minted through the
+    // The three engine-typed adapters that sat below these are gone. Each took the engine object its one
+    // caller had just unwrapped out of a handle and wrapped it straight back into a handle to do the
+    // read; the caller passes the handle it was given.
+    //
+    // The whole-argument-list reading that used to sit above these -- GetScrollArguments(in Arguments),
+    // for the window scroll contract -- is gone: window.scroll/scrollTo/scrollBy are minted through the
     // realm now, so DomBridge.WindowScrollHost.cs forwards to the one JSEAL reading in
     // DomBridge.SubWindowHost.cs rather than this file keeping a second copy of it.
 
@@ -112,15 +115,6 @@ public sealed partial class DomBridge
         var text = Realm.ToJsString(value);
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
-
-    private double? GetOptionalScrollCoordinate(JSObject options, string propertyName)
-        => ReadScrollCoordinateOption(JsInterop.FromEngineObject(options), propertyName);
-
-    private string? GetOptionalScrollBehavior(JSObject options)
-        => ReadScrollBehaviorOption(JsInterop.FromEngineObject(options));
-
-    private string? GetOptionalStringOption(JSObject options, string propertyName)
-        => ReadScrollStringOption(JsInterop.FromEngineObject(options), propertyName);
 
     private static string NormalizeScrollIntoViewAlignment(string? value, string fallback)
     {
