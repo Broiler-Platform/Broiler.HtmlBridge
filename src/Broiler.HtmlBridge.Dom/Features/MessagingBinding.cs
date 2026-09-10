@@ -1,4 +1,3 @@
-using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Storage;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
@@ -357,18 +356,20 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     /// <summary>Installs <c>window.postMessage</c> on <paramref name="window"/> (top window or a
     /// sub-window).</summary>
     /// <remarks>
-    /// The engine-typed parameter is an adapter, pinned twice over:
-    /// <c>DomBridge/Registration/Window.cs</c> and <see cref="SubWindowBinding"/> both hand this the
-    /// engine's window object, and neither is this round's to change. The handle over it is minted
-    /// once here and is what the migrated operation closes over; the member itself is installed
-    /// through the realm, as a <see cref="IJsValues.NewMethod"/> because the member it replaces was
-    /// built non-constructable and staying so is what makes this a refactor.
+    /// <b>The parameter was engine-typed on the strength of a pin neither caller supplied.</b> The
+    /// remark here said it was pinned twice over, by two callers that both hand this the engine's
+    /// window object. Neither did. <c>DomBridge/Registration/Window.cs</c> holds
+    /// <c>realm.Global</c> and was unwrapping it on the argument; <see cref="SubWindowBinding"/>
+    /// mints its window with <see cref="IJsValues.NewObject"/> and unwrapped that. Both
+    /// conversions existed only to satisfy this signature, and this method's first statement
+    /// wrapped the object straight back up. The member is still installed through the realm, as a
+    /// <see cref="IJsValues.NewMethod"/> because the member it replaces was built non-constructable
+    /// and staying so is what makes this a refactor.
     /// </remarks>
-    internal void RegisterWindowMessaging(JSObject window)
+    internal void RegisterWindowMessaging(JsValue window)
     {
-        var handle = JsInterop.FromEngineObject(window);
-        _host.Realm.DefineValue(handle, "postMessage",
-            _host.Realm.NewMethod("postMessage", (in call) => WindowPostMessage(handle, in call), 2));
+        _host.Realm.DefineValue(window, "postMessage",
+            _host.Realm.NewMethod("postMessage", (in call) => WindowPostMessage(window, in call), 2));
     }
 
     private JsValue WindowPostMessage(JsValue window, in JsCall call)
