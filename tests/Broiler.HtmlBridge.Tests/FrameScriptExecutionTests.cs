@@ -227,7 +227,7 @@ public class FrameScriptExecutionTests
                  "script runs, parent.document is the frame's own document and parent.window its " +
                  "own window: a same-origin frame reading or writing its embedder's DOM silently " +
                  "operates on itself, and finds nothing rather than throwing. " +
-                 "src/Broiler.HtmlBridge.Dom/Runtime/WindowContextManager.cs:166")]
+                 "src/Broiler.HtmlBridge.Dom/Runtime/WindowContextManager.cs:197")]
     public void AFramesScriptReachesTheContainingPagesDomThroughParent()
     {
         Assert.Equal(

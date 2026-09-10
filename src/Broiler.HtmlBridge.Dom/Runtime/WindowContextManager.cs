@@ -22,14 +22,21 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// </para>
 /// <para>
 /// <b>A window is a <see cref="JsValue"/> here, and the seven globals are saved and restored through the
-/// realm.</b> The eight evaluations below are host script by the contract's definition — this repository
+/// realm.</b> The seven evaluations below are host script by the contract's definition — this repository
 /// authored every one of them, they read a global and nothing else, and none is subject to the page's
 /// content policy — so they go through <see cref="IJsSource.EvaluateHostScript"/>. What is left engine-typed
-/// is the sub-window <em>identity</em> state: <see cref="BrowsingContextManager"/> and
-/// <see cref="EventTargetRegistry"/> key their maps on the engine's own object and are other groups' files,
-/// so the handle is unwrapped at each of those boundaries and nowhere else. Because a JSEAL handle carries
-/// the engine object itself, that unwrap is a cast and the reference identity those maps depend on is the
-/// identity it always was.
+/// is the sub-window <em>identity</em> state, and it is <see cref="BrowsingContextManager"/>'s alone: its
+/// sub-window map is keyed on the engine's own object, so the handle is unwrapped at that boundary and
+/// nowhere else. Because a JSEAL handle carries the engine object itself, that unwrap is a cast and the
+/// reference identity that map depends on is the identity it always was.
+/// </para>
+/// <para>
+/// <b><see cref="EventTargetRegistry"/> was named alongside it here, and had already stopped keying on
+/// the engine's object when this file said so.</b> That sentence was true when it was written and was
+/// falsified by the commit that re-typed the listener stores onto <see cref="JsValue"/>; what survived
+/// it was an engine-typed owner-window accessor whose own doc comment justified itself by pointing back
+/// at this file. Both sides are handles now, and the two conversions this file made around that call
+/// are gone.
 /// </para>
 /// <para>
 /// <b>An absent window is <see cref="JsValue.Missing"/> where it used to be a CLR <see langword="null"/>.</b>
@@ -78,9 +85,33 @@ internal sealed class WindowContextManager(
         return current.IsObject && IsSubWindow(current) ? current : null;
     }
 
+    /// <summary>
+    /// The canonical window that owns <paramref name="target"/>, or the current window when nothing
+    /// recorded an owner for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The map is asked with the handle the caller holds.</b> The two conversions that stood on this
+    /// expression existed only to reach an engine-typed accessor over a store that has been keyed on
+    /// <see cref="JsValue"/> since the listener stores were re-typed. The accessor takes a handle now,
+    /// so the key going in and the window coming back are the values this method already had.
+    /// </para>
+    /// <para>
+    /// <b>The fallback is why this seam has no test that can fail, and that is a fact about the suite
+    /// rather than about the fallback.</b> A miss — and a <paramref name="target"/> that is not an
+    /// object at all — answers <see cref="ResolveCurrentWindow"/>, so on a page with one window the
+    /// map's answer and the map's absence are the same window: deleting <c>_ownerWindows</c> outright
+    /// would not turn a test red. A test that would notice has to give the target an owner that DIFFERS
+    /// from the current window, which in this bridge means a nested browsing context — <c>Features/SubWindowBinding.cs</c>
+    /// files a frame's window as its own owner, and <c>Features/MessagingBinding.cs</c> files a port
+    /// transferred into a frame under that frame's window — and then assert that the listener ran
+    /// against the frame's document rather than the containing page's. Nothing under
+    /// <c>src/Broiler.Browser.Core.Tests</c> names an owner window at all today.
+    /// </para>
+    /// </remarks>
     public JsValue ResolveOwnerWindow(JsValue target)
-        => target.IsObject && _eventTargets.TryGetOwnerWindow(JsInterop.ToEngineObject(target), out var ownerWindow)
-            ? GetCanonicalWindow(JsInterop.FromEngineObject(ownerWindow))
+        => target.IsObject && _eventTargets.TryGetOwnerWindow(target, out var ownerWindow)
+            ? GetCanonicalWindow(ownerWindow)
             : ResolveCurrentWindow();
 
     public JsValue GetCanonicalWindow(JsValue candidate)
