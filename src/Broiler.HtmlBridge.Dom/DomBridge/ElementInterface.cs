@@ -6,8 +6,6 @@ using Broiler.HtmlBridge.Jseal;
 // frame (DomBridge/WebAnimations.cs), so the member has to be minted with that frame — see
 // AddPrototypeMethod, which this file also lends to DomBridge/HtmlElementInterface.cs for
 // click/focus/blur.
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 
 namespace Broiler.HtmlBridge;
 
@@ -145,58 +143,6 @@ public sealed partial class DomBridge
             $"Failed to execute '{member}' on 'Element': Illegal invocation");
     }
 
-    /// <summary>
-    /// The one element source, asked from a member whose <em>body</em> reads the engine's own argument
-    /// frame and which therefore has to be minted with that frame.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// One resolution rule, asked through whichever frame the member happens to have. Building a
-    /// second receiver-resolving source against the engine's frame would work and is exactly what must
-    /// not happen: the prototype's members and a pre-realm wrapper's are the same members because one
-    /// installer writes them, and two sources answering "which element is this" independently is the
-    /// drift that arrangement exists to prevent.
-    /// </para>
-    /// <para>
-    /// Both sources look at the receiver and nothing else (<see cref="RequireElementReceiver"/> tests
-    /// <c>call.This</c>; the capturing source ignores the frame entirely), so presenting the engine
-    /// frame's receiver as a receiver-only <see cref="JsCall"/> asks each of them exactly the question
-    /// it answers — including the <c>TypeError</c> a receiver that is not an element still raises. A
-    /// receiver that is not an engine object becomes <c>undefined</c>, which fails the same test the
-    /// engine-object one did.
-    /// </para>
-    /// <para>
-    /// Two members are left that need it — <c>animate</c> here and <c>click</c>/<c>focus</c>/
-    /// <c>blur</c> in <c>DomBridge/HtmlElementInterface.cs</c>, which shares this partial class — and
-    /// each is pinned by a feature module that has not migrated rather than by anything in either file.
-    /// </para>
-    /// </remarks>
-    private DomElement ElementForEngineReceiver(
-        Dom.Features.JsElementSource element, in Arguments a, string member)
-    {
-        var receiver = a.This is JSObject wrapper
-            ? Dom.Runtime.JsInterop.FromEngineObject(wrapper)
-            : JsValue.Undefined;
-        var call = new JsCall(Realm, receiver, default);
-        return element(in call, member);
-    }
-
-    /// <summary>Adds a WebIDL operation to an interface prototype, with the engine's argument frame.</summary>
-    /// <remarks>
-    /// <b>An engine-typed adapter, pinned by the two feature modules whose bodies read that frame</b> —
-    /// <c>DomBridge/WebAnimations.cs</c> for <c>animate</c> and
-    /// <see cref="Dom.Features.EventTargetBinding"/> for <c>click</c>/<c>focus</c>/<c>blur</c>. It sits
-    /// here rather than beside the realm-minted prototype helpers in
-    /// <c>DomBridge/CharacterDataInterface.cs</c>, where it used to, because those four call sites are
-    /// the only ones left and both are in this partial class. Enumerable and configurable but not
-    /// writable-as-data is what the instance properties were and what Web IDL asks for on a prototype —
-    /// the same pair <see cref="JsPropertyFlags.Default"/> produces for a value, so the realm's members
-    /// and these carry identical attributes on the same object.
-    /// </remarks>
-    private static void AddPrototypeMethod(JSObject proto, string name, int length, JSFunctionDelegate body) =>
-        proto.FastAddValue(name, new DomFunction(body, name, length),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-
     /// <summary>Adds a WebIDL operation to an interface prototype.</summary>
     /// <remarks>
     /// Enumerable and configurable but not writable-as-data is what the instance properties were, and
@@ -230,12 +176,12 @@ public sealed partial class DomBridge
         // module owns because they share its top-layer machinery. The realm's, in this position.
         _dialogs.InstallElementMembers(target, element);
 
-        // Animatable.animate() — Web Animations §Animatable, which Element includes. ElementAnimate is
-        // the bridge's own unmigrated callback (DomBridge/WebAnimations.cs) and reads the engine's
-        // argument frame, so this one member is minted with that frame — onto the same object, since
-        // the seam is a cast — and asks the source above for its element through the frame it has.
-        AddPrototypeMethod(Dom.Runtime.JsInterop.ToEngineObject(target), "animate", 2,
-            (in Arguments a) => ElementAnimate(ElementForEngineReceiver(element, in a, "animate"), in a));
+        // Animatable.animate() — Web Animations §Animatable, which Element includes. Minted at 2,
+        // which is this bridge's count rather than Web IDL's 1; correcting that is a separate
+        // decision from moving a frame, and DomEnumerationAndArityTests pins the 2 so it cannot move
+        // by accident.
+        AddInterfaceMethod(target, "animate", 2,
+            (in call) => ElementAnimate(element(in call, "animate"), in call));
     }
 
     /// <summary>

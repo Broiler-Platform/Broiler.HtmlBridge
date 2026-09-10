@@ -346,4 +346,30 @@ public class DomEnumerationAndArityTests
             })()
             """));
     }
+
+    /// <summary>
+    /// <c>element.animate</c> keeps the argument count it declares.
+    /// </summary>
+    /// <remarks>
+    /// <b>Pinned before the last engine argument frame moves, and pinned at what this bridge says
+    /// rather than at what a browser says.</b> Web IDL's <c>Animatable.animate</c> has one required
+    /// argument -- <c>options</c> is optional -- and a browser reports 1. This bridge mints it at 2
+    /// and did so before any of this work started. Correcting that is a defensible change and a
+    /// separate one; folding it into a frame move would make the frame move unreviewable.
+    /// <para>
+    /// The number matters because both <c>new DomFunction(body, name, length)</c> and
+    /// <c>Realm.NewMethod(name, body, length)</c> default to 0, so a re-mint that forgets its length
+    /// reports 0 and nothing else in this suite reads the value.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ElementAnimateKeepsItsDeclaredArgumentCount()
+    {
+        Assert.Equal("animate=2 type=function", Run("""
+            (function () {
+              var el = document.getElementById('host');
+              return 'animate=' + el.animate.length + ' type=' + (typeof el.animate);
+            })()
+            """));
+    }
 }

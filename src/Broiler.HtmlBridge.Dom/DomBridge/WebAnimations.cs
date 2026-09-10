@@ -1,8 +1,6 @@
 using System.Globalization;
 using System.Text;
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.BuiltIns.Array;
-using Broiler.JavaScript.Runtime;
+using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge;
@@ -70,18 +68,18 @@ public sealed partial class DomBridge
     /// returns a minimal Animation object. Never throws into the caller: a malformed keyframe or
     /// option leaves the element unbaked rather than aborting the script.
     /// </summary>
-    private JSValue ElementAnimate(DomElement element, in Arguments a)
+    private JsValue ElementAnimate(DomElement element, in JsCall call)
     {
         try
         {
-            var keyframes = ParseAnimationKeyframes(a.Length > 0 ? a[0] : JSUndefined.Value);
-            var options = a.Length > 1 ? a[1] : JSUndefined.Value;
-            var timing = ParseAnimationTiming(options);
+            var keyframes = ParseAnimationKeyframes(Realm, call.Length > 0 ? call[0] : JsValue.Undefined);
+            var options = call.Length > 1 ? call[1] : JsValue.Undefined;
+            var timing = ParseAnimationTiming(Realm, options);
             if (keyframes.Count >= 1 && timing.DurationMs > 0 &&
                 TryComputeSnapshotProgress(timing, out var progress))
             {
                 var resolved = ResolveKeyframeProperties(element, keyframes, progress, timing.Easing);
-                var pseudoElement = ParseAnimationPseudoElement(options);
+                var pseudoElement = ParseAnimationPseudoElement(Realm, options);
                 if (pseudoElement is null)
                 {
                     foreach (var kv in resolved)
@@ -101,11 +99,10 @@ public sealed partial class DomBridge
             // Web Animations must not break the page: a bad animate() call is inert.
         }
 
-        // The Animation object is realm-built; the unwrap is the seam this callback's return type
-        // forces, and it is a cast rather than a conversion — the Animation a page gets from
-        // animate() and the one it finds in getAnimations() are the same code and the same object
-        // kind.
-        return Dom.Runtime.JsInterop.ToEngineObject(BuildAnimation(element));
+        // Realm-built and returned as built. This used to unwrap, because the callback's return
+        // type was the engine's; the Animation a page gets from animate() and the one it finds in
+        // getAnimations() were always the same object either way.
+        return BuildAnimation(element);
     }
 
     // ------------------------------------------------------------------
@@ -185,16 +182,16 @@ public sealed partial class DomBridge
     /// <see langword="null"/> when the animation targets the element itself. A syntactically
     /// invalid value is treated as absent rather than throwing — the whole call is best-effort.
     /// </summary>
-    private static string? ParseAnimationPseudoElement(JSValue optionsValue)
+    private static string? ParseAnimationPseudoElement(IJsRealm realm, JsValue optionsValue)
     {
-        if (optionsValue is not JSObject options ||
-            options[(KeyString)"pseudoElement"] is not { } value ||
-            value.IsNullOrUndefined)
-        {
+        if (!optionsValue.IsObject)
             return null;
-        }
 
-        var text = value.ToString().Trim().ToLowerInvariant();
+        var value = realm.GetProperty(optionsValue, "pseudoElement");
+        if (value.IsNullish || value.IsMissing)
+            return null;
+
+        var text = realm.ToJsString(value).Trim().ToLowerInvariant();
         if (text.Length == 0)
             return null;
 
@@ -213,10 +210,10 @@ public sealed partial class DomBridge
         return text;
     }
 
-    private List<KeyframeEntry> ParseAnimationKeyframes(JSValue keyframesValue)
+    private List<KeyframeEntry> ParseAnimationKeyframes(IJsRealm realm, JsValue keyframesValue)
     {
         var entries = new List<KeyframeEntry>();
-        if (keyframesValue is not JSArray array)
+        if (!keyframesValue.IsArray)
         {
             // The other half of the Web Animations keyframe argument: the *property-indexed* form,
             // `{ opacity: [0, 1], backgroundColor: ["green", "green"] }`, where each property
@@ -224,24 +221,26 @@ public sealed partial class DomBridge
             // Only the array form was understood, so an animation written this way parsed to zero
             // keyframes and was silently inert — including WPT
             // css/css-pseudo/backdrop-animate-002, which uses it exclusively.
-            return keyframesValue is JSObject propertyIndexed
-                ? ParsePropertyIndexedKeyframes(propertyIndexed)
+            return keyframesValue.IsObject
+                ? ParsePropertyIndexedKeyframes(realm, keyframesValue)
                 : entries;
         }
 
-        var items = array.GetArrayElements(withHoles: false).Select(t => t.value).ToList();
+        // The same hole-skipping walk the transfer lists use: a hole is absent, not undefined.
+        var items = Dom.Features.WorkerTransfer.ArrayElements(realm, keyframesValue).ToList();
         for (var i = 0; i < items.Count; i++)
         {
-            if (items[i] is not JSObject keyframe)
+            var keyframe = items[i];
+            if (!keyframe.IsObject)
                 continue;
 
             var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (keyframeKey, cssName) in AnimatableProperties)
             {
-                var value = keyframe[(KeyString)keyframeKey];
-                if (value is null || value.IsNullOrUndefined)
+                var value = realm.GetProperty(keyframe, keyframeKey);
+                if (value.IsMissing || value.IsNullish)
                     continue;
-                var text = value.ToString();
+                var text = realm.ToJsString(value);
                 if (!string.IsNullOrWhiteSpace(text))
                     properties[cssName] = text;
             }
@@ -251,9 +250,9 @@ public sealed partial class DomBridge
 
             // Explicit offset, else distribute evenly across the keyframe list (spec default).
             float position;
-            var offset = keyframe[(KeyString)"offset"];
-            if (offset is not null && offset.IsNumber)
-                position = (float)offset.DoubleValue;
+            var offset = realm.GetProperty(keyframe, "offset");
+            if (offset.IsNumber)
+                position = (float)offset.AsNumber;
             else
                 position = items.Count <= 1 ? 0f : (float)i / (items.Count - 1);
 
@@ -271,25 +270,25 @@ public sealed partial class DomBridge
     /// each property against only the keyframes that define it, so properties with different list
     /// lengths need no common offset grid.
     /// </summary>
-    private static List<KeyframeEntry> ParsePropertyIndexedKeyframes(JSObject keyframes)
+    private static List<KeyframeEntry> ParsePropertyIndexedKeyframes(IJsRealm realm, JsValue keyframes)
     {
         var byPosition = new SortedDictionary<float, Dictionary<string, string>>();
 
         foreach (var (keyframeKey, cssName) in AnimatableProperties)
         {
-            var value = keyframes[(KeyString)keyframeKey];
-            if (value is null || value.IsNullOrUndefined)
+            var value = realm.GetProperty(keyframes, keyframeKey);
+            if (value.IsMissing || value.IsNullish)
                 continue;
 
-            var values = value is JSArray list
-                ? list.GetArrayElements(withHoles: false).Select(t => t.value).ToList()
+            var values = value.IsArray
+                ? Dom.Features.WorkerTransfer.ArrayElements(realm, value).ToList()
                 : [value];
 
             for (var i = 0; i < values.Count; i++)
             {
-                if (values[i] is null || values[i].IsNullOrUndefined)
+                if (values[i].IsMissing || values[i].IsNullish)
                     continue;
-                var text = values[i].ToString();
+                var text = realm.ToJsString(values[i]);
                 if (string.IsNullOrWhiteSpace(text))
                     continue;
 
@@ -312,7 +311,7 @@ public sealed partial class DomBridge
         double DurationMs, double DelayMs, string Easing, string Fill,
         double Iterations, double IterationStart);
 
-    private static AnimationTiming ParseAnimationTiming(JSValue optionsValue)
+    private static AnimationTiming ParseAnimationTiming(IJsRealm realm, JsValue optionsValue)
     {
         double duration = 0, delay = 0, iterations = 1, iterationStart = 0;
         var easing = "linear";
@@ -320,22 +319,22 @@ public sealed partial class DomBridge
 
         if (optionsValue.IsNumber)
         {
-            duration = optionsValue.DoubleValue;
+            duration = optionsValue.AsNumber;
         }
-        else if (optionsValue is JSObject options)
+        else if (optionsValue.IsObject)
         {
-            if (options[(KeyString)"duration"] is { IsNumber: true } d)
-                duration = d.DoubleValue;
-            if (options[(KeyString)"delay"] is { IsNumber: true } dl)
-                delay = dl.DoubleValue;
-            if (options[(KeyString)"iterations"] is { IsNumber: true } it)
-                iterations = it.DoubleValue;
-            if (options[(KeyString)"iterationStart"] is { IsNumber: true } iterStart)
-                iterationStart = iterStart.DoubleValue;
-            if (options[(KeyString)"easing"] is { } e && !e.IsNullOrUndefined)
-                easing = e.ToString();
-            if (options[(KeyString)"fill"] is { } f && !f.IsNullOrUndefined)
-                fill = f.ToString();
+            if (realm.GetProperty(optionsValue, "duration") is { IsNumber: true } d)
+                duration = d.AsNumber;
+            if (realm.GetProperty(optionsValue, "delay") is { IsNumber: true } dl)
+                delay = dl.AsNumber;
+            if (realm.GetProperty(optionsValue, "iterations") is { IsNumber: true } it)
+                iterations = it.AsNumber;
+            if (realm.GetProperty(optionsValue, "iterationStart") is { IsNumber: true } iterStart)
+                iterationStart = iterStart.AsNumber;
+            if (realm.GetProperty(optionsValue, "easing") is { } e && !e.IsNullish)
+                easing = realm.ToJsString(e);
+            if (realm.GetProperty(optionsValue, "fill") is { } f && !f.IsNullish)
+                fill = realm.ToJsString(f);
         }
 
         return new AnimationTiming(duration, delay, easing, fill, iterations, iterationStart);
