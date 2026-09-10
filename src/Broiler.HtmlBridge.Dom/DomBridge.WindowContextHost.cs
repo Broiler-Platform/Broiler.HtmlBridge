@@ -29,5 +29,5 @@ public sealed partial class DomBridge : IWindowContextHost
         _documentJSObject is { } document ? Dom.Runtime.JsInterop.FromEngineObject(document) : JsValue.Undefined;
 
     JsValue IWindowContextHost.GetOrCreateSubDocument(DomElement container) =>
-        Dom.Runtime.JsInterop.FromEngineObject(GetOrCreateSubDocument(container));
+        GetOrCreateSubDocument(container);
 }
