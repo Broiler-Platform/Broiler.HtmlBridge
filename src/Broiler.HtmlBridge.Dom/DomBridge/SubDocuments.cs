@@ -373,10 +373,17 @@ public sealed partial class DomBridge
         if (_realm is null || string.IsNullOrWhiteSpace(html))
             return;
 
-        // The scripts below are the page's own source, not this repository's, so they stay on the
-        // context: JSEAL types them as guest source (IJsSource.EvaluateGuestSource) and the module
-        // roots after them need a JSModuleContext the contract does not describe at all, so moving
-        // half of one loop would split one evaluation path across two vocabularies for no gain.
+        // The scripts below are CLASSIC SCRIPTS -- a sub-document's script elements -- so they go
+        // through IJsSource.EvaluateClassicScript. Their script-src decision was already taken, by
+        // ScriptExtractionService against the policy this frame is bound by, which is what the
+        // deliveredPolicy argument carries.
+        //
+        // This used to read that they stayed on the context because JSEAL typed them as guest source
+        // and moving half of one loop would split one path across two vocabularies. The first half
+        // was the misreading the third member exists to correct: 'unsafe-eval' does not govern a
+        // script element, and a realm narrowed by a policy that forbids evaluation must still run
+        // these. The second half survives and is the reason the MODULE ROOTS below are still on the
+        // context: they need a JSModuleContext the source contract does not describe at all.
         var extraction = ScriptExtractionService.ExtractAll(
             html, GetSubDocumentBaseUrl(containerElement), deliveredPolicy);
         if (extraction.Scripts.Count == 0 &&
@@ -393,13 +400,22 @@ public sealed partial class DomBridge
         // See DomBridge.SubDocumentGlobals.cs.
         var globalsBefore = GlobalOwnPropertyNames();
 
+        // Non-null: the early return above established it, and the loops below run inside a lambda
+        // that would otherwise re-test a field it cannot see change.
+        var realm = Realm;
+
         RunWithWindowContext(subWindow, () =>
         {
+            // The label is the location a stack frame reports, so it names the bucket and the
+            // position within it: a frame's third deferred script is a thing a reader can find, and
+            // the three buckets run in three passes rather than in document order.
+            var ordinal = 0;
+
             foreach (var script in extraction.Scripts)
             {
                 try
                 {
-                    _jsContext.Eval(script);
+                    realm.EvaluateClassicScript(script, $"subdocument:{ordinal++}");
                 }
                 catch (Exception ex)
                 {
@@ -407,12 +423,14 @@ public sealed partial class DomBridge
                         $"Sub-document script error: {ex.Message}", ex);
                 }
             }
+
+            ordinal = 0;
 
             foreach (var script in extraction.AsyncScripts)
             {
                 try
                 {
-                    _jsContext.Eval(script);
+                    realm.EvaluateClassicScript(script, $"subdocument:async:{ordinal++}");
                 }
                 catch (Exception ex)
                 {
@@ -421,11 +439,13 @@ public sealed partial class DomBridge
                 }
             }
 
+            ordinal = 0;
+
             foreach (var script in extraction.DeferredScripts)
             {
                 try
                 {
-                    _jsContext.Eval(script);
+                    realm.EvaluateClassicScript(script, $"subdocument:defer:{ordinal++}");
                 }
                 catch (Exception ex)
                 {
