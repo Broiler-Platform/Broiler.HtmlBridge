@@ -1,5 +1,3 @@
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
@@ -70,17 +68,17 @@ public sealed partial class DomBridge
         {
             var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
 
-            obj.FastAddValue("addEventListener",
-                new DomFunction((in a) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in a), "addEventListener", 3),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "addEventListener",
+                Realm.NewMethod("addEventListener",
+                    (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in call), 3));
 
-            obj.FastAddValue("removeEventListener",
-                new DomFunction((in a) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in a), "removeEventListener", 3),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "removeEventListener",
+                Realm.NewMethod("removeEventListener",
+                    (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in call), 3));
 
-            obj.FastAddValue("dispatchEvent",
-                new DomFunction((in a) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in a), "dispatchEvent", 1),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "dispatchEvent",
+                Realm.NewMethod("dispatchEvent",
+                    (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in call), 1));
         }
 
     }
@@ -356,17 +354,17 @@ public sealed partial class DomBridge
         {
             var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
 
-            obj.FastAddValue("addEventListener",
-                new DomFunction((in a) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in a), "addEventListener", 3),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "addEventListener",
+                Realm.NewMethod("addEventListener",
+                    (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in call), 3));
 
-            obj.FastAddValue("removeEventListener",
-                new DomFunction((in a) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in a), "removeEventListener", 3),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "removeEventListener",
+                Realm.NewMethod("removeEventListener",
+                    (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in call), 3));
 
-            obj.FastAddValue("dispatchEvent",
-                new DomFunction((in a) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in a), "dispatchEvent", 1),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "dispatchEvent",
+                Realm.NewMethod("dispatchEvent",
+                    (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in call), 1));
         }
 
         // Node interface constants (exist on all Node objects) — types and DOCUMENT_POSITION_* bits.
@@ -590,15 +588,15 @@ public sealed partial class DomBridge
                 (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, node, in call), 0));
 
         // -- EventTarget --
-        obj.FastAddValue("addEventListener",
-            new DomFunction((in a) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in a), "addEventListener", 3),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        obj.FastAddValue("removeEventListener",
-            new DomFunction((in a) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in a), "removeEventListener", 3),
-            JSPropertyAttributes.EnumerableConfigurableValue);
-        obj.FastAddValue("dispatchEvent",
-            new DomFunction((in a) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in a), "dispatchEvent", 1),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        Realm.DefineValue(handle, "addEventListener",
+            Realm.NewMethod("addEventListener",
+                (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in call), 3));
+        Realm.DefineValue(handle, "removeEventListener",
+            Realm.NewMethod("removeEventListener",
+                (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in call), 3));
+        Realm.DefineValue(handle, "dispatchEvent",
+            Realm.NewMethod("dispatchEvent",
+                (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in call), 1));
 
         // Node interface constants (exist on all Node objects) — types and DOCUMENT_POSITION_* bits.
         // On Node.prototype, which this wrapper inherits; one minted before the realm carried it

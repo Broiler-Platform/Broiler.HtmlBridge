@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Dom.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -29,6 +31,17 @@ internal interface IMessagingHost
     /// reachable from an attached document.
     /// </summary>
     IJsRealm Realm { get; }
+
+    /// <inheritdoc cref="EventListenerBinding.AddListener" />
+    /// <remarks>
+    /// The same seam <see cref="IEventTargetHost.AddListener"/> is, and for the same reason: a
+    /// listener record holds the engine's value, so the conversion belongs in the host rather than
+    /// in a module that would otherwise need an argument frame to reach one.
+    /// </remarks>
+    void AddListener(List<EventListenerRegistration> listeners, JsValue listener, JsValue options);
+
+    /// <inheritdoc cref="EventListenerBinding.RemoveListener" />
+    void RemoveListener(List<EventListenerRegistration>? listeners, JsValue listener, JsValue options);
 
     /// <summary>The top-level window wrapper (<see cref="JsValue.Null"/> before attach).</summary>
     JsValue WindowObject { get; }

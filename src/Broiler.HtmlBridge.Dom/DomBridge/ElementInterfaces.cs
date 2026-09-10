@@ -4,8 +4,6 @@ using Broiler.HtmlBridge.Jseal;
 // engine's argument frame and the property has to be installed with an engine function. The wrapper
 // type comes with it — an engine function needs the engine object to go on — and _tables and
 // FormAssociationBinding, neither of them migrated, are handed that same object.
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -295,13 +293,13 @@ public sealed partial class DomBridge
             foreach (var dim in new[] { "height", "width" })
             {
                 var dimName = dim;
-                // Mixed, like <object>.data: the used-dimension getter's module has not migrated and
-                // the reflected-dimension setter's has, so the realm mints the half that is ready.
-                obj.FastAddProperty(dimName,
-                    new DomFunction((in _) => Dom.Features.ComputedStyleBinding.GetUsedDimension(this, dimName, element, in _), "get " + dimName),
-                    Dom.Runtime.JsInterop.ToEngineObject(Realm.NewMethod("set " + dimName,
-                        (in call) => Dom.Features.ElementReflectionBinding.SetReflectedDimension(dimName, element, in call), 1)),
-                    JSPropertyAttributes.EnumerableConfigurableProperty);
+                // Both halves are the realm's now. This was mixed -- an engine getter beside a
+                // realm-minted setter converted back out with ToEngineObject -- because the used
+                // dimension's module had not migrated. It has, so the pair is one DefineAccessor
+                // over the handle the wrapper arrived as, and `obj` is not involved.
+                Realm.DefineAccessor(handle, dimName,
+                    (in call) => Dom.Features.ComputedStyleBinding.GetUsedDimension(this, dimName, element),
+                    (in call) => Dom.Features.ElementReflectionBinding.SetReflectedDimension(dimName, element, in call));
             }
 
             // .src — a reflected URL, resolved against the page URL exactly as on <script>/<a>/<link>.

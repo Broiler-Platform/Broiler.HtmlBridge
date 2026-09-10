@@ -33,7 +33,8 @@ public class DomEnumerationAndArityTests
         "<html><body><div id=\"host\">" +
         "<span></span><span></span><span></span><span></span><span id=\"beacon\"></span><span></span>" +
         "<span></span><span></span><span></span><span></span><span></span><span></span>" +
-        "</div><div id=\"out\"></div></body></html>";
+        "</div><img id=\"img\" width=\"120\" height=\"60\">" +
+        "<div id=\"out\"></div></body></html>";
 
     /// <summary>
     /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
@@ -261,6 +262,113 @@ public class DomEnumerationAndArityTests
             (function () {
               var ks = Object.keys(location);
               return 'count=' + ks.length + ' hasHref=' + (ks.indexOf('href') >= 0);
+            })()
+            """));
+    }
+
+    /// <summary>
+    /// An <c>&lt;img&gt;</c>'s <c>width</c> and <c>height</c> stay a working accessor pair.
+    /// </summary>
+    /// <remarks>
+    /// <b>They were the last mixed member in the bridge: an engine-minted getter beside a
+    /// realm-minted setter that was converted back out to sit next to it.</b> Both halves are the
+    /// realm's now, installed as one accessor, and the pair is page-visible in three separate ways
+    /// -- the used dimension a getter reports, the argument count a setter declares, and the
+    /// attribute a write reflects into. A rebuild that lost any one of them would fail nothing else
+    /// in this suite.
+    /// </remarks>
+    [Fact]
+    public void AnImagesDimensionsAreAnAccessorPairThatReflects()
+    {
+        Assert.Equal("width=120 height=60 getter=function setterArity=1", Run("""
+            (function () {
+              var i = document.getElementById('img');
+              var d = Object.getOwnPropertyDescriptor(i, 'width');
+              return 'width=' + i.width + ' height=' + i.height +
+                     ' getter=' + (typeof d.get) + ' setterArity=' + d.set.length;
+            })()
+            """));
+
+        // The setter is the reflection half: writing the property writes the attribute through.
+        Assert.Equal("attr=200 read=200", Run("""
+            (function () {
+              var i = document.getElementById('img');
+              i.width = 200;
+              return 'attr=' + i.getAttribute('width') + ' read=' + i.width;
+            })()
+            """));
+    }
+
+    /// <summary>
+    /// A <c>DocumentFragment</c> carries its own <c>EventTarget</c> members, and they declare
+    /// different arities from the ones every other node inherits.
+    /// </summary>
+    /// <remarks>
+    /// <b>This pins a deviation rather than a correctness, and it is written down because the next
+    /// commit would otherwise change it by accident.</b> Every node reaches
+    /// <c>addEventListener</c> through <c>EventTarget.prototype</c>, where
+    /// <c>DomBridge/EventTargetInterface.cs</c> installs it with Web IDL's arity — 2, 2, 1,
+    /// "measured against Chromium", as that file says. A fragment's wrapper installs its OWN copies
+    /// instead, and those advertise 3, 3, 1.
+    /// <para>
+    /// The fragment is the only wrapper where that is observable: the other per-wrapper copies sit
+    /// behind a guard that is false only when the realm carries no <c>EventTarget</c> at all, and
+    /// this one has no guard. So <c>document.createDocumentFragment().addEventListener.length</c> is
+    /// 3 and <c>document.body.addEventListener.length</c> is 2, in the same document, today.
+    /// </para>
+    /// <para>
+    /// <b>The reason to assert it rather than correct it</b> is that the argument-frame commits
+    /// re-mint these copies, and a mint that forgets to pass its length gets 0 rather than 3 —
+    /// silently, since nothing else in this repository reads the value. Correcting 3 to 2 is a
+    /// defensible change and a separate one; it is not a thing to do by accident while moving a
+    /// frame.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ADocumentFragmentsOwnEventTargetMembersKeepTheirDeclaredArities()
+    {
+        Assert.Equal("add=3 remove=3 dispatch=1 own=true", Run("""
+            (function () {
+              var f = document.createDocumentFragment();
+              return 'add=' + f.addEventListener.length +
+                     ' remove=' + f.removeEventListener.length +
+                     ' dispatch=' + f.dispatchEvent.length +
+                     ' own=' + f.hasOwnProperty('addEventListener');
+            })()
+            """));
+
+        // The contrast that makes the number above a deviation rather than the rule: an ordinary
+        // node inherits the routed prototype member, which declares Web IDL's count.
+        Assert.Equal("add=2 own=false", Run("""
+            (function () {
+              return 'add=' + document.body.addEventListener.length +
+                     ' own=' + document.body.hasOwnProperty('addEventListener');
+            })()
+            """));
+    }
+
+    /// <summary>
+    /// <c>element.animate</c> keeps the argument count it declares.
+    /// </summary>
+    /// <remarks>
+    /// <b>Pinned before the last engine argument frame moves, and pinned at what this bridge says
+    /// rather than at what a browser says.</b> Web IDL's <c>Animatable.animate</c> has one required
+    /// argument -- <c>options</c> is optional -- and a browser reports 1. This bridge mints it at 2
+    /// and did so before any of this work started. Correcting that is a defensible change and a
+    /// separate one; folding it into a frame move would make the frame move unreviewable.
+    /// <para>
+    /// The number matters because both <c>new DomFunction(body, name, length)</c> and
+    /// <c>Realm.NewMethod(name, body, length)</c> default to 0, so a re-mint that forgets its length
+    /// reports 0 and nothing else in this suite reads the value.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ElementAnimateKeepsItsDeclaredArgumentCount()
+    {
+        Assert.Equal("animate=2 type=function", Run("""
+            (function () {
+              var el = document.getElementById('host');
+              return 'animate=' + el.animate.length + ' type=' + (typeof el.animate);
             })()
             """));
     }

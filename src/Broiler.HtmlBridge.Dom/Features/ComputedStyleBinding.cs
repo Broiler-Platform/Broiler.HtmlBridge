@@ -4,7 +4,6 @@ using Broiler.HtmlBridge.Jseal;
 // Engine-typed only for the one adapter at the foot of this file, whose caller is an unmigrated
 // registration site with an engine call frame: DomBridge/ElementInterfaces.cs installs
 // <img>.width/.height.
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -85,17 +84,5 @@ internal static class ComputedStyleBinding
         var target = call[0].IsObject ? call[0] : JsValue.Undefined;
         var pseudoElement = call.Length > 1 ? call.Realm.ToJsString(call[1]) : null;
         return GetComputedStyle(host, target, pseudoElement);
-    }
-
-    // -------- engine-typed adapter (see the remarks on this class) --------
-
-    /// <summary><c>&lt;img&gt;.width</c>/<c>.height</c> as its unmigrated registration site calls it.</summary>
-    public static JSValue GetUsedDimension(IComputedStyleHost host, string? dimName, DomElement element, in Arguments _)
-    {
-        var used = GetUsedDimension(host, dimName, element);
-
-        // The migrated body answers a number and only a number, so the handle carries it inline and there
-        // is nothing for JsInterop to unwrap.
-        return new Broiler.JavaScript.BuiltIns.Number.JSNumber(used.AsNumber);
     }
 }

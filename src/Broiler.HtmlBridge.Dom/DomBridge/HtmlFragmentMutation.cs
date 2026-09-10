@@ -1,4 +1,3 @@
-using Broiler.JavaScript.Runtime;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 using Broiler.Dom.Html;
@@ -188,41 +187,6 @@ public sealed partial class DomBridge
             RemoveChildFrom(fragmentContainer, child);
             SetParent(child, null);
             nodes.Add(child);
-        }
-
-        return nodes;
-    }
-
-    private List<DomNode> BuildChildNodeArgumentNodes(in Arguments arguments)
-    {
-        // RF-BRIDGE-1c Phase F (F3c part 2b): returns canonical DomNode — an argument may be a
-        // text node (resolved via FindDomNodeByJSObject) and string arguments mint text nodes.
-        var nodes = new List<DomNode>();
-        for (var i = 0; i < arguments.Length; i++)
-        {
-            var value = arguments[i];
-            if (value is JSObject candidateObject)
-            {
-                var candidateNode = FindDomNodeByJSObject(candidateObject);
-                if (candidateNode != null)
-                {
-                    // Phase 4 item 1: a canonical DomDocumentFragment argument inserts its children
-                    // (per DOM), not the fragment itself. (Was a "#document-fragment" TagName check on
-                    // the former sentinel element — a non-element fragment no longer matches that.)
-                    if (candidateNode is DomDocumentFragment candidateFragment)
-                    {
-                        foreach (var fragmentChild in candidateFragment.ChildNodes.ToArray())
-                            nodes.Add(fragmentChild);
-                        continue;
-                    }
-
-                    nodes.Add(candidateNode);
-                    continue;
-                }
-            }
-
-            var textNode = CreateBridgeTextNode(value.ToString());
-            nodes.Add(textNode);
         }
 
         return nodes;

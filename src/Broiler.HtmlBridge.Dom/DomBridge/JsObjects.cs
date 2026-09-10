@@ -1,5 +1,3 @@
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.Storage;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
@@ -274,17 +272,17 @@ public sealed partial class DomBridge
         // it does.
         if (!_eventTargetRoutingReady)
         {
-            obj.FastAddValue("addEventListener",
-                new DomFunction((in a) => Dom.Features.EventTargetBinding.AddEventListener(this, element, in a), "addEventListener", 3),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "addEventListener",
+                Realm.NewMethod("addEventListener",
+                    (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, element, in call), 3));
 
-            obj.FastAddValue("removeEventListener",
-                new DomFunction((in a) => Dom.Features.EventTargetBinding.RemoveEventListener(this, element, in a), "removeEventListener", 3),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "removeEventListener",
+                Realm.NewMethod("removeEventListener",
+                    (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, element, in call), 3));
 
-            obj.FastAddValue("dispatchEvent",
-                new DomFunction((in a) => Dom.Features.EventTargetBinding.DispatchEvent(this, element, in a), "dispatchEvent", 1),
-                JSPropertyAttributes.EnumerableConfigurableValue);
+            Realm.DefineValue(handle, "dispatchEvent",
+                Realm.NewMethod("dispatchEvent",
+                    (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, element, in call), 1));
         }
 
         // click/focus/blur and the on* handlers are HTMLElement's and are on its prototype
