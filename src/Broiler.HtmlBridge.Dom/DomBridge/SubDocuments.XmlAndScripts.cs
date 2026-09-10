@@ -135,10 +135,12 @@ public sealed partial class DomBridge
     /// </remarks>
     private void ExecuteSubDocumentScripts(DomElement docRoot, ContentSecurityPolicySet policies = default)
     {
-        if (_realm is null) return;
+        if (_realm is not { } realm) return;
 
         var scripts = new List<string>();
         CollectScriptContent(docRoot, scripts);
+
+        var ordinal = 0;
 
         foreach (var scriptCode in scripts)
         {
@@ -149,7 +151,15 @@ public sealed partial class DomBridge
 
             try
             {
-                _jsContext.Eval(scriptCode);
+                // A CLASSIC SCRIPT, exactly as the HTML path's are, and evaluated through the same
+                // member for the same reason: script-src governs a script element, the decision was
+                // taken on the line above, and 'unsafe-eval' has nothing to say about either.
+                //
+                // The ordinal counts scripts ADMITTED rather than scripts found, so a label names the
+                // n-th script that ran and not the n-th that was looked at. The two differ exactly
+                // when a policy refused one, which is the moment a reader is most likely to be
+                // reading these labels.
+                realm.EvaluateClassicScript(scriptCode, $"subdocument:xml:{ordinal++}");
             }
             catch (Exception ex)
             {
