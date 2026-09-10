@@ -30,7 +30,7 @@ public sealed partial class DomBridge : Dom.Features.IWindowEventTargetHost
             listeners, ToEngineListenerValue(listener), ToEngineListenerValue(options));
 
     JsValue Dom.Features.IWindowEventTargetHost.DispatchWindowEvent(JsValue evt)
-        => JsValue.Boolean(DispatchWindowEvent(Dom.Runtime.JsInterop.ToEngineObject(evt)).BooleanValue);
+        => JsValue.Boolean(DispatchWindowEvent(evt));
 
     /// <summary>
     /// A handle as the engine value <c>EventListenerRegistration</c> holds — the listener a page

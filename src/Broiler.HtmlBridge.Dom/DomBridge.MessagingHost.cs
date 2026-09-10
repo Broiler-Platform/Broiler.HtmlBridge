@@ -51,6 +51,5 @@ public sealed partial class DomBridge : IMessagingHost
 
     void IMessagingHost.QueueFrameAction(Action callback) => QueueFrameAction(callback);
 
-    void IMessagingHost.DispatchWindowEvent(JsValue evt) =>
-        DispatchWindowEvent(JsInterop.ToEngineObject(evt));
+    void IMessagingHost.DispatchWindowEvent(JsValue evt) => DispatchWindowEvent(evt);
 }
