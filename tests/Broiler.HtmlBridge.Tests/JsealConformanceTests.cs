@@ -58,6 +58,40 @@ public class JsealConformanceTests
         return provider!;
     }
 
+#if BROILER_VM_JS
+    /// <summary>
+    /// A build that links Broiler.VM runs every theory in this file against its provider too.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the assertion <c>Jseal/VmProviderRegistration.cs</c> exists for and did not
+    /// make.</b> That file names <c>VmJsealHosting</c> from a module initializer so the VM provider
+    /// is in the registry when <see cref="Engines"/> enumerates it, and its own remarks name the
+    /// failure it prevents — "not a red test, but a green one that never ran". Nothing checked that
+    /// it worked. If the module initializer stopped running, or the conditional <c>Compile</c> item
+    /// stopped matching, every theory here would keep passing while testing half of what this build
+    /// contains, and the suite would report the same green it reports now.
+    /// </para>
+    /// <para>
+    /// <b>Membership, and deliberately not the default or the count.</b>
+    /// <c>JsealRegistryTests</c> registers and unregisters providers of its own and moves
+    /// <c>JsEngineRegistry.Default</c> aside and back; xUnit runs test classes in parallel, so a
+    /// count or a default read here would be a flake waiting for a slow machine. The two real
+    /// providers are never unregistered, so asking whether each is present is the strongest claim
+    /// that is also stable.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AVmBuildHasBothProvidersRegistered()
+    {
+        Assert.Contains(JsEngineRegistry.All, provider => provider.Name == "broiler-js");
+        Assert.Contains(JsEngineRegistry.All, provider => provider.Name == "broiler-vm");
+
+        // And the theories really do run for both, which is the property the file is shaped around.
+        Assert.Contains(Engines, row => (string)row[0] == "broiler-vm");
+    }
+#endif
+
     private static IJsRealm NewRealm(string engine, JsRealmOptions? options = null) =>
         Provider(engine).CreateRealm(options ?? JsRealmOptions.Default);
 
@@ -280,6 +314,110 @@ public class JsealConformanceTests
         Assert.Null(JsValue.Null.ObjectIdentity);
         Assert.Null(JsValue.Undefined.ObjectIdentity);
         Assert.Null(JsValue.Missing.ObjectIdentity);
+    }
+
+    /// <summary>
+    /// Two handles for one guest object are equal, hash the same, and find one dictionary entry —
+    /// whichever route each of them arrived by.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The contract already named this test, and nothing was asserting it.</b>
+    /// <see cref="JsValue.ObjectIdentity"/>'s remarks say a provider that did not hand back one
+    /// handle per guest object "would already be failing
+    /// <c>TwoHandlesForOneObjectAreEqualAndHashTheSame</c>" — and until this method existed that
+    /// sentence was the only occurrence of the name in the repository. What it promises is what
+    /// every retype in the bridge's migration lands on: a registry keyed on a handle finds its entry
+    /// only if the handle the page hands back equals the handle the host put in.
+    /// </para>
+    /// <para>
+    /// <b>The three routes are asserted separately because a provider can canonicalise on one and
+    /// not on another.</b> <c>GetProperty</c> is the host reading its own object back; an evaluated
+    /// expression is the engine handing one over; a call argument is how a listener actually
+    /// arrives — <c>Features/EventTargetBinding.cs</c> stores <c>call[1]</c> and
+    /// <c>removeEventListener</c> then has to find it again. A provider that minted a fresh wrapper
+    /// on the argument path alone would break every <c>removeEventListener</c> in the browser and
+    /// still pass a test that only read properties back.
+    /// </para>
+    /// <para>
+    /// <b>Every sameness claim below is guarded, because most of them pass on a handle that carries
+    /// nothing.</b> <c>Missing == Missing</c> is <see langword="true"/>, two Missings hash alike
+    /// (<see cref="JsValue.GetHashCode"/> answers the kind alone for them), and
+    /// <c>Missing.ObjectIdentity</c> is <see langword="null"/> — so a realm whose reads silently
+    /// answered Missing satisfies an identity test written only in the positive direction. Each
+    /// route opens on the kind and the identity of what came back, before it compares anything.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void TwoHandlesForOneObjectAreEqualAndHashTheSame(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        // Route 3's receiver, installed once. Script hands the object to a host function, which is
+        // the shape a listener registration has.
+        var passed = JsValue.Missing;
+        realm.DefineValue(
+            realm.Global,
+            "handOver",
+            realm.NewMethod("handOver", (in JsCall call) => { passed = call[0]; return JsValue.Undefined; }, 1));
+
+        // The three kinds the bridge keys registries on. A provider that boxes once per identity has
+        // three paths to get right, and an array and a function are objects with their own kinds.
+        OneKind("anObject", JsValueKind.Object, realm.NewObject);
+        OneKind("anArray", JsValueKind.Array, () => realm.NewArray());
+        OneKind("aMethod", JsValueKind.Function, () => realm.NewMethod("minted", static (in JsCall _) => JsValue.Undefined));
+
+        void OneKind(string name, JsValueKind kind, Func<JsValue> mint)
+        {
+            var made = mint();
+            Assert.Equal(kind, made.Kind);
+            Assert.NotNull(made.ObjectIdentity);
+
+            realm.DefineValue(realm.Global, name, made);
+
+            var read = realm.GetProperty(realm.Global, name);
+            var evaluated = realm.EvaluateHostScript(name, $"test:identity-expression:{name}");
+
+            // Reset before the call rather than after it, so that a provider which never invoked the
+            // host function is caught by the guard below instead of inheriting the previous kind's
+            // object — which would pass for two of the three kinds.
+            passed = JsValue.Missing;
+            realm.EvaluateHostScript($"handOver({name})", $"test:identity-argument:{name}");
+
+            foreach (var (route, arrived) in new[] { ("property", read), ("expression", evaluated), ("argument", passed) })
+            {
+                // THE GUARD, BEFORE ANY SAMENESS CLAIM.
+                Assert.Equal(kind, arrived.Kind);
+                Assert.NotNull(arrived.ObjectIdentity);
+
+                Assert.True(arrived == made, $"{name} via {route}: two handles for one object must be ==");
+                Assert.True(arrived.Equals(made), $"{name} via {route}: and reflexively equal");
+                Assert.Equal(made.GetHashCode(), arrived.GetHashCode());
+                Assert.Same(made.ObjectIdentity, arrived.ObjectIdentity);
+            }
+
+            // And it works as a strong dictionary key, which is the use the bridge's registries have
+            // for it. The default comparer reaches IEquatable<JsValue>.Equals rather than
+            // op_Equality; the two differ on NaN alone and neither is reachable for an object, but
+            // the registries are written against the comparer, so that is what this asserts.
+            var table = new Dictionary<JsValue, string> { [made] = "the entry" };
+            Assert.True(table.TryGetValue(read, out var found));
+            Assert.Equal("the entry", found);
+            Assert.True(table.TryGetValue(evaluated, out _));
+            Assert.True(table.TryGetValue(passed, out _));
+
+            // A DIFFERENT object of THE SAME KIND is a different key. Minted through the same factory
+            // on purpose: a negative arm that compared an object against a function would be true on
+            // the kind alone, and a provider answering one shared object for every mint would pass
+            // everything above it.
+            var other = mint();
+            Assert.NotNull(other.ObjectIdentity);
+            Assert.Equal(kind, other.Kind);
+            Assert.False(other == made);
+            Assert.NotSame(other.ObjectIdentity, made.ObjectIdentity);
+            Assert.False(table.ContainsKey(other));
+        }
     }
 
     // ── members ────────────────────────────────────────────────────────────────────────────────
