@@ -1064,6 +1064,243 @@ public class JsealConformanceTests
     }
 
     /// <summary>
+    /// A deletion on an exotic object reaches the handler, not only the ordinary property.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the case <c>Storage</c> is the only object in the bridge to have.</b>
+    /// <c>delete localStorage.foo</c> has to take the ITEM out, so <c>getItem</c> stops answering
+    /// and <c>length</c> stops counting; a deletion that reached only the property would leave the
+    /// two disagreeing, which is a wrong answer rather than a missing feature.
+    /// </para>
+    /// <para>
+    /// <b>The two providers reach it by different routes and must not be distinguishable here.</b>
+    /// One overrides the virtual its engine dispatches a deletion through; the other has no such
+    /// hook on its host-object surface and puts the object behind the realm's own <c>Proxy</c> with
+    /// a single <c>deleteProperty</c> trap. This test names neither.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ADeletionOnAnExoticObjectReachesTheHandlerAndTakesTheNameWithIt(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.ExoticObjects))
+            return;
+
+        var handler = new DeletingExotic();
+        var area = realm.NewExotic(handler);
+        realm.DefineValue(realm.Global, "area", area);
+
+        realm.EvaluateHostScript("area.stored = 'written';", "test:delete-write");
+        Assert.Equal("written", Eval(realm, "area.stored", "test:delete-read"));
+        Assert.Contains("stored", realm.OwnPropertyNames(area));
+
+        Assert.Equal("true", Eval(realm, "String(delete area.stored)", "test:delete"));
+        Assert.Equal("undefined", Eval(realm, "String(area.stored)", "test:delete-gone"));
+        Assert.DoesNotContain("stored", realm.OwnPropertyNames(area));
+        Assert.Equal(["stored"], handler.Deletions);
+
+        // A name the handler DECLINED on the write is an expando the page put there, and deleting it
+        // is the ordinary deletion. The handler is still asked - the ordering for a delete mirrors
+        // the one for a write, not the one for a read - and declining leaves the property to go the
+        // way it would on any object.
+        Assert.Equal("true", Eval(realm, "(area.expando = 1, String(delete area.expando))", "test:delete-expando"));
+        Assert.Equal("undefined", Eval(realm, "String(area.expando)", "test:expando-gone"));
+        Assert.Equal(["stored", "expando"], handler.Deletions);
+    }
+
+    /// <summary>
+    /// A digit-only key never reaches the delete hook, on either provider.
+    /// </summary>
+    /// <remarks>
+    /// <b>The two engines route an integer-index key away from the named hooks by different
+    /// machinery, and this pins that they agree.</b> One dispatches it to a separate indexed
+    /// virtual; the other hands its proxy trap the string <c>"7"</c> like any other key, so the
+    /// provider filters it. Without the filter <c>delete area[7]</c> would remove an item under one
+    /// engine and not the other, which is worse than the gap they share - and that gap is why
+    /// <c>WebStorageTests.ADigitOnlyKeyIsANamedPropertyLikeAnyOther</c> is still skipped.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ADigitOnlyKeyDoesNotReachTheDeleteHook(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.ExoticObjects))
+            return;
+
+        var handler = new DeletingExotic();
+        realm.DefineValue(realm.Global, "area", realm.NewExotic(handler));
+
+        realm.EvaluateHostScript("area[7] = 'seven'; area['007'] = 'padded';", "test:index-write");
+        realm.EvaluateHostScript("delete area[7]; delete area['007'];", "test:index-delete");
+
+        // "007" is a name and 7 is an index, which is the line the language draws and not one this
+        // contract invents.
+        Assert.Equal(["007"], handler.Deletions);
+    }
+
+    /// <summary>
+    /// A symbol-keyed deletion works and is not offered to the handler.
+    /// </summary>
+    /// <remarks>
+    /// <b>It is here because one provider's route can silently drop it.</b> That provider's trap is
+    /// handed every key kind the guest can delete by, and the host surface it would naturally
+    /// forward through deletes by string name only - so a symbol-keyed deletion routed that way
+    /// would answer <see langword="true"/> and remove nothing, with the proxy's own invariant check
+    /// unable to catch it because the property is configurable. Forwarding through the captured
+    /// <c>Reflect.deleteProperty</c> is what closes it.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ASymbolKeyedDeletionRemovesThePropertyAndIsNotOfferedToTheHandler(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.ExoticObjects))
+            return;
+
+        var handler = new DeletingExotic();
+        realm.DefineValue(realm.Global, "area", realm.NewExotic(handler));
+
+        Assert.Equal(
+            "before=marked after=undefined deleted=true",
+            Eval(
+                realm,
+                "(function () {" +
+                "  var key = Symbol('mark');" +
+                "  area[key] = 'marked';" +
+                "  var before = area[key];" +
+                "  var deleted = delete area[key];" +
+                "  return 'before=' + before + ' after=' + area[key] + ' deleted=' + deleted;" +
+                "})()",
+                "test:symbol-delete"));
+
+        Assert.Empty(handler.Deletions);
+    }
+
+    /// <summary>
+    /// A deleting handler is read, written and enumerated exactly as a plain one is.
+    /// </summary>
+    /// <remarks>
+    /// <b>One provider serves a deleting handler through a different kind of object, and this is the
+    /// assertion that the difference is invisible.</b> Reads, the ordering rule, member installation
+    /// by the host, <c>in</c>, <c>Object.keys</c> and object spread all have to answer what they
+    /// answer for a handler with no deletion - otherwise converting <c>Storage</c> onto this
+    /// contract would fix its deletions and break its enumeration.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ADeletingExoticIsReadAndEnumeratedExactlyAsAPlainOneIs(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.ExoticObjects))
+            return;
+
+        var handler = new DeletingExotic();
+        var area = realm.NewExotic(handler);
+
+        // The host installs a member on the object it just minted, which on the proxy route reaches
+        // the target while the realm is installing. An installed member must not be offered to the
+        // handler and must outrank a name the handler owns.
+        realm.DefineValue(area, "getItem", JsValue.String("the method"), JsPropertyFlags.NonEnumerable);
+        realm.DefineValue(realm.Global, "area", area);
+
+        realm.EvaluateHostScript("area.alpha = 'one'; area.beta = 'two';", "test:plain-writes");
+
+        Assert.Equal("one", Eval(realm, "area.alpha", "test:plain-read"));
+        Assert.Equal("the method", Eval(realm, "area.getItem", "test:plain-ordinary-wins"));
+        Assert.Equal("true", Eval(realm, "String('alpha' in area)", "test:plain-in"));
+        Assert.Equal("false", Eval(realm, "String('gamma' in area)", "test:plain-not-in"));
+        Assert.Equal("alpha,beta", Eval(realm, "Object.keys(area).join(',')", "test:plain-keys"));
+        Assert.Equal("alpha,beta", Eval(realm, "Object.keys(Object.assign({}, area)).join(',')", "test:plain-spread"));
+        Assert.Equal(["alpha", "beta"], realm.OwnPropertyNames(area));
+    }
+
+    /// <summary>
+    /// An exotic handler with no delete hook is unchanged by this contract.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both engines answer <see langword="true"/> for a deletion nobody claimed, and the name
+    /// goes on answering.</b> WebIDL would have a named property with no deleter return
+    /// <see langword="false"/>; neither engine does, this contract deliberately does not change it,
+    /// and this test is here so a later reader knows it was decided rather than missed.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void AnExoticObjectWithNoDeleteHookIsUnchangedByThisContract(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.ExoticObjects))
+            return;
+
+        var handler = new RecordingExotic();
+        realm.DefineValue(realm.Global, "collection", realm.NewExotic(handler));
+
+        Assert.Equal("true", Eval(realm, "String(delete collection.named)", "test:no-hook-delete"));
+        Assert.Equal("named:named", Eval(realm, "collection.named", "test:no-hook-after"));
+    }
+
+    /// <summary>
+    /// An <see cref="IJsExotic"/> that owns its names and removes them - the shape <c>Storage</c>
+    /// has and the other five lookup-completing objects do not.
+    /// </summary>
+    private sealed class DeletingExotic : IJsExotic, IJsExoticDelete
+    {
+        private readonly Dictionary<string, string> _items = new(StringComparer.Ordinal);
+
+        /// <summary>Every name the handler was asked to delete, answered or declined.</summary>
+        internal List<string> Deletions { get; } = [];
+
+        public bool TryGetNamed(string name, out JsValue value)
+        {
+            if (!_items.TryGetValue(name, out var stored))
+            {
+                value = JsValue.Missing;
+                return false;
+            }
+
+            value = JsValue.String(stored);
+            return true;
+        }
+
+        /// <summary>None: this handler models a named-property object with no indexed ones.</summary>
+        public bool TryGetIndex(uint index, out JsValue value)
+        {
+            value = JsValue.Missing;
+            return false;
+        }
+
+        /// <summary>
+        /// Claims every name but <c>expando</c>, so the tests have a property the handler owns and
+        /// one it does not - the two sides a delete hook has to keep apart.
+        /// </summary>
+        public bool TrySetNamed(string name, JsValue value)
+        {
+            if (name is "expando")
+                return false;
+
+            _items[name] = value.AsString ?? string.Empty;
+            return true;
+        }
+
+        /// <inheritdoc />
+        public bool TryDeleteNamed(string name)
+        {
+            Deletions.Add(name);
+            return _items.Remove(name);
+        }
+
+        public IReadOnlyList<string> SupportedNames => _items.Keys.ToArray();
+
+        public uint IndexedLength => 0;
+    }
+
+    /// <summary>
     /// An <see cref="IJsExotic"/> that records what it was asked, so the ordering rule can be
     /// asserted from the handler's side as well as from the value's.
     /// </summary>

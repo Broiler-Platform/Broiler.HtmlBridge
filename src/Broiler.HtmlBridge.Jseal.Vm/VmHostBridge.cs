@@ -48,6 +48,32 @@ internal sealed class VmHostBridge : IJsHostSurface
     /// </remarks>
     internal JsHostValue Promise { get; private set; }
 
+    /// <summary>
+    /// The realm's <c>Proxy</c>, taken at the same moment and for the same reason as
+    /// <see cref="Promise"/>.
+    /// </summary>
+    /// <remarks>
+    /// The profile's host-object surface has no delete hook, so a handler that completes deletions
+    /// is expressed as a proxy over the host exotic; see <c>VmRealm.Deleting</c>. <c>Proxy</c> is an
+    /// ordinary writable global like <c>Promise</c>, so reading it when a storage area is minted -
+    /// which is after the bridge has installed a document, and can be after page script has run -
+    /// would let a page hand itself every exotic object the bridge builds from then on.
+    /// </remarks>
+    internal JsHostValue Proxy { get; private set; }
+
+    /// <summary>
+    /// The realm's <c>Reflect.deleteProperty</c>, taken at the same moment and for the same reason.
+    /// </summary>
+    /// <remarks>
+    /// <b>It is the forwarder a <c>deleteProperty</c> trap needs and the host surface cannot be.</b>
+    /// A trap is handed the key the guest used, which may be a Symbol, and
+    /// <c>JsHostRealm.DeleteProperty</c> deletes by string name only - so a symbol-keyed deletion
+    /// routed through the host surface would be dropped in silence, and the proxy's own invariant
+    /// check would not catch it because the property is configurable. The intrinsic takes both
+    /// kinds of key.
+    /// </remarks>
+    internal JsHostValue ReflectDelete { get; private set; }
+
     /// <summary>The one crossing waiting for a step.</summary>
     internal Action<JsHostRealm>? Pending { get; set; }
 
@@ -60,6 +86,8 @@ internal sealed class VmHostBridge : IJsHostSurface
     {
         Realm = realm;
         Promise = realm.GetProperty(realm.Global, "Promise");
+        Proxy = realm.GetProperty(realm.Global, "Proxy");
+        ReflectDelete = realm.GetProperty(realm.GetProperty(realm.Global, "Reflect"), "deleteProperty");
     }
 
     /// <inheritdoc />
