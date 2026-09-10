@@ -138,7 +138,7 @@ public sealed partial class DomBridge
                 if (_windowJSObject is { } window && ReferenceEquals(receiver, window))
                     return onWindow(in call);
 
-                if (_jsObjects.TryGetNode(receiver, out var node))
+                if (_jsObjects.TryGetNode(call.This, out var node))
                     return onNode(in call, node);
             }
 

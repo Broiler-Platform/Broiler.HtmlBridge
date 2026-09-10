@@ -129,7 +129,7 @@ public sealed partial class DomBridge
         // the engine's own object, and a JSEAL handle carries that object rather than wrapping it,
         // so the two names below are one instance.
         var documentObject = Dom.Runtime.JsInterop.ToEngineObject(document);
-        _jsObjects.Set(_document, documentObject);
+        _jsObjects.Set(_document, document);
 
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegDocumentObject))
         {
@@ -226,7 +226,11 @@ public sealed partial class DomBridge
         LinkToInterface(documentObject, "HTMLDocument");
         foreach (var (node, wrapper) in _jsObjects.Entries)
         {
-            if (!ReferenceEquals(wrapper, documentObject))
+            // Handle inequality, not ReferenceEquals: the registry hands back a JsValue now, and
+            // ReferenceEquals on a struct boxes both sides and answers false every time - which would
+            // have re-prototyped the document wrapper the line above has just linked. CA2013 is an
+            // error in this repository and caught it.
+            if (wrapper != document)
                 ApplyInterfacePrototype(wrapper, node);
         }
         // Worker (multithreading item #18). Registered after the window globals so the constructor

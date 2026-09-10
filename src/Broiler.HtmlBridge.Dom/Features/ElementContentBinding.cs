@@ -59,15 +59,10 @@ internal static class ElementContentBinding
     /// child with one text node — differs from the character-data one already on
     /// <c>Node.prototype</c>, so it shadows that one until a single implementation serves both.
     /// </summary>
-    /// <param name="obj">
-    /// The element's JS wrapper, still an engine object because the wrapper factory that calls this
-    /// holds one. The seam is a cast rather than a conversion, so the member below is installed on
-    /// the same object the factory is building.
-    /// </param>
-    public static void InstallTextContent(IElementContentHost host, JSObject obj, DomElement element)
+    /// <param name="target">The element's JS wrapper, as the factory that calls this now holds it.</param>
+    public static void InstallTextContent(IElementContentHost host, JsValue target, DomElement element)
     {
         var realm = host.Realm;
-        var target = Dom.Runtime.JsInterop.FromEngineObject(obj);
 
         realm.DefineAccessor(target, "textContent",
             (in _) => JsValue.String(host.NodeTextValue(element)),

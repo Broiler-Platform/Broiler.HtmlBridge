@@ -39,7 +39,7 @@ public sealed partial class DomBridge : ICustomElementsHost
     {
         if (_jsObjects.TryGet(element, out var cached))
         {
-            wrapper = JsInterop.FromEngineObject(cached);
+            wrapper = cached;
             return true;
         }
 
