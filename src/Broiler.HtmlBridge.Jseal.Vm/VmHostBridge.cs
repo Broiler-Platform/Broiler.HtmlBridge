@@ -62,6 +62,37 @@ internal sealed class VmHostBridge : IJsHostSurface
     internal JsHostValue Proxy { get; private set; }
 
     /// <summary>
+    /// The realm's <c>eval</c>, taken before any page script could replace it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the capture with the most on it, because reading it late was a
+    /// Content-Security-Policy bypass and not only an interception.</b> <c>eval</c> is an ordinary
+    /// writable global - <c>JsRealm.Dynamic.cs</c> installs it <c>Writable | Configurable</c>, as the
+    /// language requires - so <c>globalThis.eval = f</c> is a thing a page may legally do. Reading it
+    /// when a host asked the realm to run a script therefore invoked the page's function, handing it
+    /// every polyfill the bridge installs and taking whatever it returned as the result.
+    /// </para>
+    /// <para>
+    /// <b>The bypass is what that costs.</b> <see cref="VmSourceProvider"/> marks the evaluations
+    /// this repository authored so that a policy forbidding the page's <c>eval</c> does not forbid
+    /// the bridge's own polyfills, and the mark is held for the duration of the evaluation. With the
+    /// page's function standing in for <c>eval</c>, the page ran <em>inside</em> that mark - so a
+    /// realm built <c>AllowGuestEval: false</c> compiled whatever the page asked for. Measured on a
+    /// realm that forbids guest evaluation: <c>new Function('return 6 * 7')()</c> answered 42 from
+    /// inside a substituted <c>eval</c>.
+    /// </para>
+    /// <para>
+    /// One residual is left and is not a defect this closes: the mark is still held while the
+    /// evaluated script's own code runs, so a bridge polyfill that synchronously called a
+    /// page-supplied function would lend it the same permission. Nothing the bridge installs does
+    /// that, and closing it properly means the profile carrying the distinction itself rather than
+    /// this provider standing in for it - which is the gap <see cref="VmSourceProvider"/> records.
+    /// </para>
+    /// </remarks>
+    internal JsHostValue Eval { get; private set; }
+
+    /// <summary>
     /// The realm's <c>Reflect.deleteProperty</c>, taken at the same moment and for the same reason.
     /// </summary>
     /// <remarks>
@@ -142,6 +173,7 @@ internal sealed class VmHostBridge : IJsHostSurface
         Realm = realm;
         Promise = realm.GetProperty(realm.Global, "Promise");
         Proxy = realm.GetProperty(realm.Global, "Proxy");
+        Eval = realm.GetProperty(realm.Global, "eval");
         ReflectDelete = realm.GetProperty(realm.GetProperty(realm.Global, "Reflect"), "deleteProperty");
         CaptureBinary(realm);
     }
