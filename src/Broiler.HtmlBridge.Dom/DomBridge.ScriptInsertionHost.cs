@@ -12,10 +12,16 @@ namespace Broiler.HtmlBridge;
 // members, so the runner never reaches an arbitrary bridge private field and the public surface is
 // unchanged.
 //
-// The JavaScript vocabulary here is JSEAL's. A script element's program text is the page's own
-// source, so it is evaluated through IJsSource.EvaluateGuestSource — the half of the source contract
-// a content policy may forbid — rather than the host-script entry point this repository's own
-// JavaScript uses. The one engine-typed line left is the dispatch call: DispatchEventOnElement takes
+// The JavaScript vocabulary here is JSEAL's. A script element's program text is a CLASSIC SCRIPT,
+// so it is evaluated through IJsSource.EvaluateClassicScript.
+//
+// It used to go through EvaluateGuestSource, and the argument for that was provenance: the text is
+// the page's and not this repository's, which is true and is not what decides the member. What
+// decides it is which Content-Security-Policy directive governs the source. A script element is
+// script-src's -- per script, satisfied by 'unsafe-inline', a nonce or a hash -- and the decision has
+// already been taken, by ScriptInsertionRunner, before this is called. 'unsafe-eval' governs eval and
+// new Function and has nothing to say about this text, so routing it through the eval-gated member
+// would have refused, on a realm narrowed by a restrictive policy, a script every browser runs. The one engine-typed line left is the dispatch call: DispatchEventOnElement takes
 // the engine's object and is another group's file this round, so the event this file builds through
 // the realm is unwrapped at that one call, which is a cast rather than a conversion.
 public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
@@ -37,7 +43,7 @@ public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
         // A script body is a turn too, and the one most likely to be the long pole at load; see
         // JsEntryTrace. Inactive by default.
         using var turn = JsEntryTrace.Enter(JsEntryKind.Script, label);
-        _realm?.EvaluateGuestSource(source, label);
+        _realm?.EvaluateClassicScript(source, label);
     }
 
     string Dom.Runtime.IScriptInsertionHost.TextContentOf(DomElement element) => GetTextContentRecursive(element);
