@@ -33,7 +33,8 @@ public class DomEnumerationAndArityTests
         "<html><body><div id=\"host\">" +
         "<span></span><span></span><span></span><span></span><span id=\"beacon\"></span><span></span>" +
         "<span></span><span></span><span></span><span></span><span></span><span></span>" +
-        "</div><div id=\"out\"></div></body></html>";
+        "</div><img id=\"img\" width=\"120\" height=\"60\">" +
+        "<div id=\"out\"></div></body></html>";
 
     /// <summary>
     /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
@@ -261,6 +262,39 @@ public class DomEnumerationAndArityTests
             (function () {
               var ks = Object.keys(location);
               return 'count=' + ks.length + ' hasHref=' + (ks.indexOf('href') >= 0);
+            })()
+            """));
+    }
+
+    /// <summary>
+    /// An <c>&lt;img&gt;</c>'s <c>width</c> and <c>height</c> stay a working accessor pair.
+    /// </summary>
+    /// <remarks>
+    /// <b>They were the last mixed member in the bridge: an engine-minted getter beside a
+    /// realm-minted setter that was converted back out to sit next to it.</b> Both halves are the
+    /// realm's now, installed as one accessor, and the pair is page-visible in three separate ways
+    /// -- the used dimension a getter reports, the argument count a setter declares, and the
+    /// attribute a write reflects into. A rebuild that lost any one of them would fail nothing else
+    /// in this suite.
+    /// </remarks>
+    [Fact]
+    public void AnImagesDimensionsAreAnAccessorPairThatReflects()
+    {
+        Assert.Equal("width=120 height=60 getter=function setterArity=1", Run("""
+            (function () {
+              var i = document.getElementById('img');
+              var d = Object.getOwnPropertyDescriptor(i, 'width');
+              return 'width=' + i.width + ' height=' + i.height +
+                     ' getter=' + (typeof d.get) + ' setterArity=' + d.set.length;
+            })()
+            """));
+
+        // The setter is the reflection half: writing the property writes the attribute through.
+        Assert.Equal("attr=200 read=200", Run("""
+            (function () {
+              var i = document.getElementById('img');
+              i.width = 200;
+              return 'attr=' + i.getAttribute('width') + ' read=' + i.width;
             })()
             """));
     }
