@@ -1,7 +1,4 @@
 using System;
-using Broiler.JavaScript.BuiltIns.Null;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
@@ -92,46 +89,7 @@ internal static class EventTargetBinding
         return host.DispatchEvent(element, call[0]);
     }
 
-    // ------------------------------------------------------------------
-    //  The same three for the pre-realm wrapper copies — the engine frame
-    // ------------------------------------------------------------------
-
-    public static JSValue AddEventListener(IEventTargetHost host, DomNode element, in Arguments a)
-    {
-        if (a.Length < 2)
-            return JSUndefined.Value;
-        var type = a[0].ToString();
-        if (!host.GetEventListeners(element).TryGetValue(type, out var listeners))
-        {
-            listeners = [];
-            host.GetEventListeners(element)[type] = listeners;
-        }
-
-        EventListenerBinding.AddListener(listeners, a[1], a.Length > 2 ? a[2] : JSUndefined.Value);
-        return JSUndefined.Value;
-    }
-
-    public static JSValue RemoveEventListener(IEventTargetHost host, DomNode element, in Arguments a)
-    {
-        if (a.Length < 2)
-            return JSUndefined.Value;
-        var type = a[0].ToString();
-        EventListenerBinding.RemoveListener(
-            host.GetEventListeners(element).TryGetValue(type, out var listeners) ? listeners : null,
-            a[1], a.Length > 2 ? a[2] : JSUndefined.Value);
-        return JSUndefined.Value;
-    }
-
-    public static JSValue DispatchEvent(IEventTargetHost host, DomNode element, in Arguments a)
-    {
-        if (a.Length == 0)
-            return JSBoolean.True;
-        if (a[0] is not JSObject evt)
-            return JSBoolean.True;
-        return host.DispatchEventOnElement(element, evt);
-    }
-
-    public static JSValue Click(IEventTargetHost host, DomElement element, in Arguments _)
+    public static JsValue Click(IEventTargetHost host, DomElement element, in JsCall _)
     {
         // Toggle checked state for checkboxes/radio buttons (per HTML spec)
         if (string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase))
@@ -213,16 +171,16 @@ internal static class EventTargetBinding
             }
         }
 
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
-    public static JSValue Focus(IEventTargetHost host, DomElement element, in Arguments _)
+    public static JsValue Focus(IEventTargetHost host, DomElement element, in JsCall _)
         => DispatchSyntheticFocusEvent(host, element, "focus");
 
-    public static JSValue Blur(IEventTargetHost host, DomElement element, in Arguments _)
+    public static JsValue Blur(IEventTargetHost host, DomElement element, in JsCall _)
         => DispatchSyntheticFocusEvent(host, element, "blur");
 
-    private static JSValue DispatchSyntheticFocusEvent(IEventTargetHost host, DomElement element, string type)
+    private static JsValue DispatchSyntheticFocusEvent(IEventTargetHost host, DomElement element, string type)
     {
         var realm = host.Realm;
         var windowWrapper = host.WindowWrapper;
@@ -241,7 +199,7 @@ internal static class EventTargetBinding
         realm.DefineValue(evt, "view", windowWrapper.IsObject ? windowWrapper : JsValue.Null);
         realm.DefineValue(evt, "relatedTarget", JsValue.Null);
         Dispatch(host, element, evt);
-        return JSUndefined.Value;
+        return JsValue.Undefined;
     }
 
     /// <summary>

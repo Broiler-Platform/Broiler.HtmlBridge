@@ -2,7 +2,6 @@ using System.Runtime.CompilerServices;
 
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -152,20 +151,17 @@ public sealed partial class DomBridge
         Realm.DefineAccessor(target, "dataset",
             (in call) => DatasetFor(element(in call, "dataset")), null);
 
-        // click/focus/blur are EventTargetBinding's, and that module's bodies read the engine frame
-        // because unmigrated files install the same members elsewhere; they land on this same object,
-        // in this position, and ask the one element source for their element through that frame.
-        var engineTarget = Dom.Runtime.JsInterop.ToEngineObject(target);
-
-        AddPrototypeMethod(engineTarget, "click", 0,
-            (in Arguments a) => Dom.Features.EventTargetBinding.Click(
-                this, ElementForEngineReceiver(element, in a, "click"), in a));
-        AddPrototypeMethod(engineTarget, "focus", 0,
-            (in Arguments a) => Dom.Features.EventTargetBinding.Focus(
-                this, ElementForEngineReceiver(element, in a, "focus"), in a));
-        AddPrototypeMethod(engineTarget, "blur", 0,
-            (in Arguments a) => Dom.Features.EventTargetBinding.Blur(
-                this, ElementForEngineReceiver(element, in a, "blur"), in a));
+        // click/focus/blur are EventTargetBinding's, and they are installed the way attachInternals
+        // is below -- same object, same position, same element source. Their pin used to read that
+        // "that module's bodies read the engine frame because unmigrated files install the same
+        // members elsewhere", which was circular: the bodies took a frame because this installer
+        // minted an engine function, and this installer minted one because the bodies took a frame.
+        AddInterfaceMethod(target, "click", 0,
+            (in call) => Dom.Features.EventTargetBinding.Click(this, element(in call, "click"), in call));
+        AddInterfaceMethod(target, "focus", 0,
+            (in call) => Dom.Features.EventTargetBinding.Focus(this, element(in call, "focus"), in call));
+        AddInterfaceMethod(target, "blur", 0,
+            (in call) => Dom.Features.EventTargetBinding.Blur(this, element(in call, "blur"), in call));
 
         // attachInternals() — HTML §4.13.5, a member of HTMLElement rather than of the custom
         // elements only, which is what makes the standard feature-detect answer the right way. It

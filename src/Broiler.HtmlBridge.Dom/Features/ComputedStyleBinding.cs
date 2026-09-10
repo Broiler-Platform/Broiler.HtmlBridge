@@ -4,7 +4,6 @@ using Broiler.HtmlBridge.Jseal;
 // Engine-typed only for the one adapter at the foot of this file, whose caller is an unmigrated
 // registration site with an engine call frame: DomBridge/ElementInterfaces.cs installs
 // <img>.width/.height.
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 

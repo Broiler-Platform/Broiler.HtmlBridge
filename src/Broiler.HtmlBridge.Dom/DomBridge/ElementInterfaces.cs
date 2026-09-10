@@ -4,8 +4,6 @@ using Broiler.HtmlBridge.Jseal;
 // engine's argument frame and the property has to be installed with an engine function. The wrapper
 // type comes with it — an engine function needs the engine object to go on — and _tables and
 // FormAssociationBinding, neither of them migrated, are handed that same object.
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
