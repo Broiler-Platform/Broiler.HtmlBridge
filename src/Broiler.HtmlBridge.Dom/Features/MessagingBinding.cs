@@ -108,41 +108,44 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     internal void InstallEventTargetApi(JsValue target, string logContext)
     {
         var realm = _host.Realm;
-        var engineTarget = JsInterop.ToEngineObject(target);
 
-        engineTarget.FastAddValue("addEventListener",
-            new DomFunction((in a) => AddEventListener(target, in a), "addEventListener", 3),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        // All three are the realm's now. The first two kept the engine's frame because the listener
+        // record holds an engine value and this module had no way to reach one -- the host has that
+        // seam for IEventTargetHost and now offers it here too, so the frame goes and the
+        // conversion stays where the record is. The lengths are unchanged, including the 3s, which
+        // are this bridge's own deviation from Web IDL's 2 and not this commit's to correct.
+        realm.DefineValue(target, "addEventListener",
+            realm.NewMethod("addEventListener", (in call) => AddEventListener(target, in call), 3));
 
-        engineTarget.FastAddValue("removeEventListener",
-            new DomFunction((in a) => RemoveEventListener(target, in a), "removeEventListener", 3),
-            JSPropertyAttributes.EnumerableConfigurableValue);
+        realm.DefineValue(target, "removeEventListener",
+            realm.NewMethod("removeEventListener", (in call) => RemoveEventListener(target, in call), 3));
 
         realm.DefineValue(target, "dispatchEvent",
             realm.NewMethod("dispatchEvent", (in call) => DispatchEvent(target, logContext, in call), 1));
     }
 
-    private JSValue AddEventListener(JsValue target, in Arguments a)
+    private JsValue AddEventListener(JsValue target, in JsCall call)
     {
-        if (a.Length < 2)
-            return JSUndefined.Value;
-        var type = a[0].ToString();
-        EventListenerBinding.AddListener(
-            GetOrCreateEventTargetListeners(target, type), a[1], a.Length > 2 ? a[2] : JSUndefined.Value);
-        return JSUndefined.Value;
+        if (call.Length < 2)
+            return JsValue.Undefined;
+        var type = call.Realm.ToJsString(call[0]);
+        _host.AddListener(
+            GetOrCreateEventTargetListeners(target, type), call[1],
+            call.Length > 2 ? call[2] : JsValue.Undefined);
+        return JsValue.Undefined;
     }
 
-    private JSValue RemoveEventListener(JsValue target, in Arguments a)
+    private JsValue RemoveEventListener(JsValue target, in JsCall call)
     {
-        if (a.Length < 2)
-            return JSUndefined.Value;
-        var type = a[0].ToString();
+        if (call.Length < 2)
+            return JsValue.Undefined;
+        var type = call.Realm.ToJsString(call[0]);
         var listeners = _eventTargets.TryGetTargetListeners(target, out var listenersByType) &&
                         listenersByType.TryGetValue(type, out var byType)
             ? byType
             : null;
-        EventListenerBinding.RemoveListener(listeners, a[1], a.Length > 2 ? a[2] : JSUndefined.Value);
-        return JSUndefined.Value;
+        _host.RemoveListener(listeners, call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
+        return JsValue.Undefined;
     }
 
     /// <remarks>
