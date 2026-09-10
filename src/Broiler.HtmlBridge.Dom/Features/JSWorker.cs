@@ -257,6 +257,13 @@ internal sealed class JSWorker
     /// </summary>
     private void DispatchToWorker(IJsRealm realm, JsDetachedValue detached)
     {
+        if (!WorkerTransfer.CanStructuredClone(realm))
+        {
+            RenderLogger.LogWarning(LogCategory.JavaScript, "JSWorker.DispatchToWorker",
+                $"Worker '{_name}' cannot receive a message: this engine does not implement structured clone.");
+            return;
+        }
+
         try
         {
             var data = realm.Adopt(detached);
@@ -385,6 +392,13 @@ internal sealed class JSWorker
     private JsValue PostMessageFromWorker(in JsCall call)
     {
         var realm = call.Realm;
+
+        if (!WorkerTransfer.CanStructuredClone(realm))
+        {
+            RenderLogger.LogWarning(LogCategory.JavaScript, "JSWorker.postMessage",
+                $"Worker '{_name}' cannot post: this engine does not implement structured clone.");
+            return JsValue.Undefined;
+        }
 
         JsDetachedValue detached;
         try

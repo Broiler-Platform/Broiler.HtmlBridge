@@ -218,6 +218,13 @@ internal sealed class WorkerBinding : IDisposable
             return JsValue.Undefined;
 
         var realm = call.Realm;
+
+        // Asked before the transfer list is built, because a realm that cannot clone cannot detach
+        // the entries either, and the page should get one error about the engine rather than an
+        // error about its first transferable.
+        if (!WorkerTransfer.CanStructuredClone(realm))
+            throw realm.DomError("DataCloneError", WorkerTransfer.EngineCannotCloneMessage);
+
         var transfer = WorkerTransfer.BuildTransferList(realm, call.Length > 1 ? call[1] : JsValue.Undefined);
 
         JsDetachedValue detached;
@@ -247,6 +254,16 @@ internal sealed class WorkerBinding : IDisposable
         // Second clone, into the page's realm, so the page gets page-realm objects. Adopt is what
         // brings the graph inside that realm's own bracket; the carrier belonged to neither realm
         // between the two calls, which is what made it safe to hand across the threads.
+        // Unreachable while PostToWorker refuses first -- nothing can have been posted -- but a
+        // delivery path that assumed its realm could adopt is how the refusal reached a drain with
+        // no page frame to raise it in.
+        if (!WorkerTransfer.CanStructuredClone(realm))
+        {
+            RenderLogger.LogWarning(LogCategory.JavaScript, "WorkerBinding.DeliverToPage",
+                "A worker message arrived for a realm whose engine does not implement structured clone.");
+            return;
+        }
+
         JsValue materialized;
         try
         {

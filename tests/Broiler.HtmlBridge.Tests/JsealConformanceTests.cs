@@ -1652,6 +1652,67 @@ public class JsealConformanceTests
         Assert.Throws<JsEngineException>(() => realm.Detach(uncloneable));
     }
 
+    /// <summary>
+    /// The other side of every <c>Lacks(realm, WorkerRealms)</c> early return above: what a realm
+    /// that does NOT declare the capability does when asked anyway, and what a caller may conclude
+    /// from the shape of the refusal.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every other clone test skips this case, which is how five call sites came to get it
+    /// wrong.</b> A refusal is <c>JsCapabilityUnavailableException</c>, and that type deliberately
+    /// does not derive from <see cref="JsEngineException"/> — <c>JsErrors.cs</c> gives the reason:
+    /// the second means the page's code went wrong, the first means the host's did, and "a host that
+    /// branches on IJsRealm.Capabilities never sees it". The DOM bindings had it the other way
+    /// round: they called <c>Clone</c>, <c>Detach</c> and <c>Adopt</c> unguarded inside
+    /// <c>catch (JsEngineException)</c> written to raise a <c>DataCloneError</c>, and on a provider
+    /// without the capability that catch could never fire, so the host error went out through page
+    /// script raw. They branch now.
+    /// </para>
+    /// <para>
+    /// <b>The last assertion is the one that guards the fix rather than the bug.</b> Deriving
+    /// <c>JsCapabilityUnavailableException</c> from <see cref="JsEngineException"/> would make every
+    /// unfiltered catch in the bridge absorb a host bug as though it were a page error, so this
+    /// pins that they stay unrelated — and if a later change decides otherwise, it fails here and
+    /// the bindings get looked at again instead of quietly changing meaning.
+    /// </para>
+    /// <para>
+    /// It asserts nothing for a provider that HAS the capability, and says so by returning: the
+    /// clone behaviour of such a realm is what the two tests above are for.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ARealmWithoutWorkerRealmsRefusesWithAHostErrorNoEngineCatchCanAbsorb(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (!Lacks(realm, JsCapabilities.WorkerRealms))
+            return;
+
+        var value = realm.NewObject();
+
+        var refusal = Assert.Throws<JsCapabilityUnavailableException>(() => realm.Clone(value));
+        Assert.Equal(JsCapabilities.WorkerRealms, refusal.Missing);
+        Assert.Equal(engine, refusal.EngineName);
+        Assert.Throws<JsCapabilityUnavailableException>(() => realm.Detach(value));
+
+        // Asked through reflection rather than as `refusal is JsEngineException`, which the compiler
+        // would fold to a constant for two sealed unrelated types and which would then stop being a
+        // question the moment someone changed the hierarchy — the exact change this is here to
+        // notice.
+        Assert.False(
+            typeof(JsEngineException).IsAssignableFrom(refusal.GetType()),
+            "A capability refusal must not be catchable as JsEngineException: the bindings branch on "
+            + "IJsRealm.Capabilities precisely because it is not, and a catch that absorbed it would "
+            + "report a host bug to the page as though the page had caused it.");
+
+        // ClassifyTransferable answers rather than refusing, because a host walking a transfer list
+        // asks it about every entry before deciding to clone anything. A refusal there would refuse
+        // the question rather than the operation.
+        Assert.Equal(JsTransferKind.NotTransferable, realm.ClassifyTransferable(value));
+    }
+
     [Theory]
     [MemberData(nameof(Engines))]
     public void ATransferListDetachesItsSourceAndCarriesTheContents(string engine)

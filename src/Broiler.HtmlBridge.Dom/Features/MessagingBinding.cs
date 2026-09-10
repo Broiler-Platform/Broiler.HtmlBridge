@@ -619,6 +619,13 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     /// </remarks>
     private JsValue CloneForMessaging(JsValue value, JsValue[] transfer)
     {
+        // The realm is asked whether it can clone before it is asked to. Without this the refusal
+        // for an engine that cannot -- JsCapabilityUnavailableException, which the catch below
+        // cannot see -- left this method as a raw host exception thrown through page script, where
+        // a DataCloneError is what postMessage promises.
+        if (!WorkerTransfer.CanStructuredClone(_host.Realm))
+            throw _host.Realm.DomError("DataCloneError", WorkerTransfer.EngineCannotCloneMessage);
+
         try
         {
             return _host.Realm.Clone(value, transfer);
