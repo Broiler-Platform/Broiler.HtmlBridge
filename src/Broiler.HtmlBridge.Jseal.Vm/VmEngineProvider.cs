@@ -168,6 +168,15 @@ public sealed class VmEngineProvider : IJsEngineProvider
             if (!bridge.HasBinary)
                 capabilities &= ~JsCapabilities.BinaryData;
 
+            // AND THE SAME FOR SOURCE. `eval` is behind the profile's dynamic surface the way the
+            // binary intrinsics are behind its binary one, and both kinds of evaluation reach it -
+            // it is the only thing that evaluates INTO an existing realm, which is what a host
+            // asking a realm to run a script means. A realm without it can run neither, so it
+            // declares neither; the bootstrap program that built this realm was compiled and
+            // instantiated rather than evaluated, so getting this far proves nothing about `eval`.
+            if (bridge.Eval.Kind is not JsHostValueKind.Function)
+                capabilities &= ~(JsCapabilities.HostScriptSource | JsCapabilities.GuestEval);
+
             return new VmRealm(runtime, artifact, instance, bridge, sources, capabilities, Name);
         }
         catch

@@ -47,14 +47,24 @@ internal sealed partial class VmRealm
     /// Evaluates one text in this realm, through the realm's own indirect <c>eval</c>.
     /// </summary>
     /// <remarks>
-    /// <b>Indirect on purpose.</b> Reading <c>eval</c> off the global and calling the value is an
-    /// indirect eval, which the language evaluates in global scope - which is what a host asking a
-    /// realm to run a script means, and what a direct eval would not do.
+    /// <para>
+    /// <b>Indirect on purpose.</b> Calling the realm's <c>eval</c> value rather than the syntactic
+    /// form is an indirect eval, which the language evaluates in global scope - which is what a host
+    /// asking a realm to run a script means, and what a direct eval would not do.
+    /// </para>
+    /// <para>
+    /// <b>The intrinsic, captured at realm creation, and NOT read off the global here.</b> <c>eval</c>
+    /// is a writable global, so reading it at this line invoked whatever the page had assigned over
+    /// it - which intercepted the bridge's own script and, because the host-script mark is held
+    /// across this call, lent the page a compiler its Content-Security-Policy had taken away. See
+    /// <c>VmHostBridge.Eval</c> for the measurement, and
+    /// <c>APageThatReplacesEvalCannotBorrowTheHostsPermissionToCompile</c> for the case.
+    /// </para>
     /// </remarks>
     private JsValue Evaluate(string source, string label) =>
         InStep(realm =>
         {
-            var evaluate = realm.GetProperty(realm.Global, "eval");
+            var evaluate = _bridge.Eval;
 
             if (evaluate.Kind is not JsHostValueKind.Function)
             {

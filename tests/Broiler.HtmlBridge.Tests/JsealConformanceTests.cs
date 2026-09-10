@@ -921,6 +921,93 @@ public class JsealConformanceTests
         Assert.True(realm.Global.IsObject);
     }
 
+    /// <summary>
+    /// A page that replaces <c>eval</c> does not intercept the host's own script.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>eval</c> is a writable global, which is the language's rule and not an engine's
+    /// choice</b> - so <c>globalThis.eval = f</c> is a thing a page may legally do, and a provider
+    /// that reached for the global when a host asked it to run a script would hand the page every
+    /// polyfill the bridge installs, and take whatever the page returned as the result.
+    /// </para>
+    /// <para>
+    /// This is the same claim <c>APageThatReplacesPromiseDoesNotCaptureTheHostsPromises</c> makes
+    /// about a different intrinsic, and the same fix answers it: capture before any page script can
+    /// run. It is a theory because it is a claim about every provider - one reaches its engine's
+    /// compiler directly and cannot be intercepted at all, and that is a fine way to satisfy it.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void APageThatReplacesEvalDoesNotInterceptTheHostsOwnScript(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        if (Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        // The page replaces the global, exactly as it is entitled to.
+        realm.EvaluateHostScript(
+            "var intercepted = 'none';" +
+            "globalThis.eval = function (text) { intercepted = text; return 'hijacked'; };",
+            "test:eval-hijack");
+
+        var answer = realm.EvaluateHostScript("var reached = 'host ran'; 6 * 7", "test:eval-after-hijack");
+
+        Assert.True(answer == JsValue.Number(42d));
+        Assert.Equal("host ran", Eval(realm, "reached", "test:eval-host-effect"));
+        Assert.Equal("none", Eval(realm, "intercepted", "test:eval-not-intercepted"));
+    }
+
+    /// <summary>
+    /// A page that replaces <c>eval</c> cannot get its own source compiled in a realm that forbids
+    /// guest evaluation.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the consequence of the interception rather than a second defect, and it is worth
+    /// asserting separately because it is the one that matters.</b> A provider may mark its own
+    /// evaluations so that a policy forbidding the page's <c>eval</c> does not forbid the bridge's
+    /// polyfills. If a page can substitute a function for <c>eval</c>, that mark is held while the
+    /// page's code runs - so the page reaches a compiler the policy took away, at a moment the
+    /// provider believes it is talking to itself.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void APageThatReplacesEvalCannotBorrowTheHostsPermissionToCompile(string engine)
+    {
+        var provider = Provider(engine);
+
+        using var realm = provider.CreateRealm(new JsRealmOptions { AllowGuestEval = false });
+
+        if (Lacks(realm, JsCapabilities.HostScriptSource))
+            return;
+
+        realm.EvaluateHostScript(
+            "var borrowed = 'not tried';" +
+            "globalThis.eval = function (text) {" +
+            "  try { borrowed = String(new Function('return 6 * 7')()); }" +
+            "  catch (e) { borrowed = 'refused'; }" +
+            "  return undefined;" +
+            "};",
+            "test:eval-borrow-setup");
+
+        realm.EvaluateHostScript("var ran = true;", "test:eval-borrow-trigger");
+
+        // Either the page's function was never reached, or it was reached and still refused. What
+        // must not happen is 42.
+        // READ AS A PROPERTY RATHER THAN EVALUATED, and that is not a style choice: if the
+        // interception this asserts against were present, every EvaluateHostScript would BE the
+        // page's function, so an evaluated read would report what the hijack returned rather than
+        // what it did. Measured before the fix, an evaluated read answered "undefined" while the
+        // property answered "42".
+        //
+        // "not tried" is the assertion, not merely "not 42": the page's substitute must never be
+        // reached at all. A provider that reached it and happened to refuse the compile would be one
+        // capture away from lending the permission.
+        Assert.Equal("not tried", realm.GetProperty(realm.Global, "borrowed").AsString);
+    }
+
     // ── exotic objects ─────────────────────────────────────────────────────────────────────────
 
     [Theory]
