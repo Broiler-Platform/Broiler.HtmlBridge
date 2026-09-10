@@ -113,7 +113,19 @@ public sealed partial class DomBridge
     private void RegisterDocumentCore(JSContext context)
     {
         _jsContext = context;
-        var realm = _realm = AdoptRealm(context);
+        // THE PAGE'S POLICY REACHES THE REALM HERE, AND THIS LINE IS WHAT MAKES THE SOURCE CONTRACT
+        // MEAN ANYTHING FOR A PAGE.
+        //
+        // Csp is set by the host before Attach, so it is available at this point -- the one moment a
+        // realm is built for this document. AllowsEval is 'unsafe-eval' and nothing else: a page that
+        // forbids it still runs its own script elements, which is the whole reason the source
+        // contract has a member for those separately.
+        //
+        // A page with no policy answers true, and so does one whose policy permits evaluation, so the
+        // common case is unchanged.
+        var realm = _realm = AdoptRealm(
+            context,
+            new JsRealmOptions { AllowGuestEval = Csp?.AllowsEval ?? true });
 
         // EventTarget.prototype's three methods, routed by receiver
         // (DomBridge.EventTargetInterface.cs). First, because every wrapper registration below asks

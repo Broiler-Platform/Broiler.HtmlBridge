@@ -57,12 +57,16 @@ public sealed partial class DomBridge
     /// worth stating in the message: nothing linked an engine provider.
     /// </para>
     /// </remarks>
-    private static IJsRealm AdoptRealm(JSContext context)
+    /// <param name="options">
+    /// What the page is allowed to do, read from its Content-Security-Policy by the caller. An
+    /// adopted realm is bound by this exactly as a created one is; it used to be bound by nothing.
+    /// </param>
+    private static IJsRealm AdoptRealm(JSContext context, JsRealmOptions options)
     {
         foreach (var provider in JsEngineRegistry.All)
         {
             if (provider is IJsRealmAdoption adoption &&
-                adoption.TryAdopt(context, out var realm) &&
+                adoption.TryAdopt(context, options, out var realm) &&
                 realm is not null)
             {
                 return realm;

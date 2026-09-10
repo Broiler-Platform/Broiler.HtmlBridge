@@ -122,18 +122,38 @@ internal sealed partial class BroilerJsRealm : IJsRealm
     /// created rather than adopted.
     /// </para>
     /// </remarks>
-    internal BroilerJsRealm(BroilerJsEngineProvider provider, JSContext context)
+    internal BroilerJsRealm(BroilerJsEngineProvider provider, JSContext context, JsRealmOptions options)
     {
         _provider = provider;
-        _allowGuestEval = true;
-        _forceStrictMode = false;
+
+        // THESE TWO WERE HARDCODED, AND THAT IS WHY NONE OF THE POLICY WORK REACHED A PAGE.
+        //
+        // A browser's realm is always adopted -- the host builds the context, the bridge wraps it --
+        // so a constructor that invented a permissive policy meant every narrowing a host could
+        // express was discarded on exactly the path that matters. A realm built by CreateRealm
+        // honoured AllowGuestEval; the one a page actually ran in did not, and the difference was
+        // invisible because nothing asked an adopted realm what it allowed.
+        _allowGuestEval = options.AllowGuestEval;
+        _forceStrictMode = options.ForceStrictMode;
         _ownsContext = false;
 
         _jobs = new JobQueue();
         _pump = new JobPump(_jobs);
         _context = context;
 
-        _capabilities = provider.Capabilities;
+        // Narrowed the same way a created realm is: a realm is never wider than its provider and may
+        // be narrower. Answering the provider's full set here would have been a capability declared
+        // where it is not true, which is the one thing IJsEngineProvider says a narrowing exists to
+        // prevent.
+        _capabilities = options.AllowGuestEval
+            ? provider.Capabilities
+            : provider.Capabilities & ~JsCapabilities.GuestEval;
+
+        // And the refusal a page meets, on the same terms as a created realm. Without this the
+        // capability above would be narrowed and unenforced, which is the shape this whole sequence
+        // exists to remove.
+        if (!options.AllowGuestEval)
+            _context.EvalEvent += RefuseGuestCompilation;
     }
 
     /// <inheritdoc />
