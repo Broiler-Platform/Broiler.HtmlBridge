@@ -174,10 +174,16 @@ internal sealed partial class VmRealm
     /// <c>%TypedArray%.prototype.set</c>: two crossings per chunk plus two, rather than one per byte.
     /// </para>
     /// <para>
-    /// The ceiling that remains is the guest's memory rather than its crossings. A buffer of n bytes
-    /// costs n bytes in the realm plus a chunk-sized temporary, against a default allocation budget
-    /// of sixty-four megabytes, and a request past that fails as a resource exhaustion naming the
-    /// dimension.
+    /// <b>The ceiling that remains is fuel, and it is a LIFETIME total for the realm rather than a
+    /// per-call one.</b> <c>VmBudgetLevel.Release</c> refunds only a ceiling-class dimension - "an
+    /// allowance never refunds", in its own words - and fuel is an allowance, so the default fifty
+    /// million is what the realm gets for everything it will ever do. Both directions cost fuel
+    /// proportional to n. <b>Measured on a realm that has run nothing else: eight megabytes makes the
+    /// round trip and twelve does not</b>, failing as a termination rather than as anything a page
+    /// could catch. A realm that has actually loaded a page has spent some of that allowance already,
+    /// so the practical ceiling is lower and is not a constant. This is a real limit on what a page
+    /// can do with a blob under this provider, and it is written down here because a ceiling nobody
+    /// wrote down is one somebody meets by surprise.
     /// </para>
     /// </remarks>
     public JsValue NewArrayBuffer(ReadOnlySpan<byte> bytes)
@@ -222,6 +228,14 @@ internal sealed partial class VmRealm
     /// <c>DataView</c> and every typed array answer <c>byteLength</c> themselves, an object's
     /// prototype is settable and its <c>Symbol.toStringTag</c> is writable, so none of the three
     /// JS-visible routes would be an answer.
+    /// </para>
+    /// <para>
+    /// <b>A detached buffer answers <see langword="true"/> with no bytes, and this getter is the only
+    /// member that gets that right.</b> Its length is <c>Data?.Length ?? 0</c>, so it returns zero
+    /// rather than throwing; <c>slice</c>, the <c>DataView</c> constructor and the <c>Uint8Array</c>
+    /// constructor all throw on a detached buffer and would each have answered "not a buffer" for
+    /// something that is one. The consequence to know is that a detached buffer is indistinguishable
+    /// here from <c>new ArrayBuffer(0)</c>, which is what the File API wants of it anyway.
     /// </para>
     /// <para>
     /// <b>There is no <c>SharedArrayBuffer</c> to exclude here</b>, which the profile states as a
