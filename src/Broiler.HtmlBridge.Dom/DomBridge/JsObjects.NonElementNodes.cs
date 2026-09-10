@@ -66,7 +66,6 @@ public sealed partial class DomBridge
         // in a browser. A wrapper minted before the realm carried it installs its own.
         if (!_eventTargetRoutingReady)
         {
-            var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
 
             Realm.DefineValue(handle, "addEventListener",
                 Realm.NewMethod("addEventListener",
@@ -347,12 +346,12 @@ public sealed partial class DomBridge
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
         // routed by receiver (DomBridge.EventTargetInterface.cs) — one function for every target, as
-        // in a browser. A wrapper minted before the realm carried it installs its own, and those three
-        // are the engine's: EventTargetBinding reads the engine's argument frame. The handle carries
-        // this very object, so the two halves install onto one.
+        // in a browser. A wrapper minted before the realm carried it installs its own, through the
+        // realm, exactly as the routed path does. (This said the three were "the engine's, because
+        // EventTargetBinding reads the engine's argument frame". It does not: that binding's
+        // AddListener takes a handle on both sides.)
         if (!_eventTargetRoutingReady)
         {
-            var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
 
             Realm.DefineValue(handle, "addEventListener",
                 Realm.NewMethod("addEventListener",
@@ -384,7 +383,6 @@ public sealed partial class DomBridge
     /// </summary>
     private void PopulateDocumentFragmentWrapper(JsValue handle, DomDocumentFragment fragment)
     {
-        var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
         var bridge = this;
         DomNode node = fragment;
 
