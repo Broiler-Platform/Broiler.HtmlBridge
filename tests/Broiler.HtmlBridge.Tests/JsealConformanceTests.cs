@@ -607,17 +607,18 @@ public class JsealConformanceTests
     /// <c>new.target</c> inside a host constructor's own body.
     /// </summary>
     /// <remarks>
-    /// <b>Skipped because the Broiler.JS provider does not answer it, which is a defect in the
-    /// provider rather than in this test.</b> <c>JsCall.NewTarget</c> promises the construct target
-    /// for a construct call, and <c>BroilerJsRealm.Dispatch</c> reads it from
-    /// <c>JSEngine.NewTarget</c> — which resolves <c>Frames.CurrentNewTarget</c>, the interpreter's
-    /// frame stack. A native function's body is invoked as a delegate and pushes no such frame, so
-    /// the read is null and every host constructor sees <see cref="JsValue.Missing"/>. The value is
-    /// there to be had: the engine's own [[Construct]] sets <c>ec.CurrentNewTarget</c> to the
-    /// constructor immediately before invoking the delegate, and its <c>Object</c> factory reads
-    /// exactly that. Custom-element construction is the caller that will need it, and it is smuggling
-    /// new.target through as argument zero from a JavaScript shim today for want of this.
-    /// Un-skipping this test is what "fixed" means.
+    /// <b>This test found a defect in the Broiler.JS provider, and the defect is fixed — the
+    /// remark below is kept because it is the only record of what was wrong.</b>
+    /// <c>JsCall.NewTarget</c> promises the construct target for a construct call, and
+    /// <c>BroilerJsRealm.Dispatch</c> read it from <c>JSEngine.NewTarget</c> alone — which resolves
+    /// <c>Frames.CurrentNewTarget</c>, the interpreter's frame stack. A native function's body is
+    /// invoked as a delegate and pushes no such frame, so the read was null and every host
+    /// constructor saw <see cref="JsValue.Missing"/>. The value was there to be had: the engine's
+    /// own [[Construct]] sets <c>ec.CurrentNewTarget</c> to the constructor immediately before
+    /// invoking the delegate, and its <c>Object</c> factory reads exactly that.
+    /// <c>BroilerJsRealm.cs:269-281</c> now reads both, in that order, and states why. Custom-element
+    /// construction is the caller that needed it, and was smuggling new.target through as argument
+    /// zero from a JavaScript shim for want of it.
     /// </remarks>
     [Theory]
     [MemberData(nameof(Engines))]
@@ -751,23 +752,6 @@ public class JsealConformanceTests
     }
 
     /// <summary>
-    /// A promise does not depend on the capability a page's Content-Security-Policy takes away.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>This is the case that decides whether a provider's promise is real or is a snippet.</b>
-    /// A page whose policy forbids evaluation is the page most likely to reach for <c>fetch</c>,
-    /// and a provider that built its promises by evaluating source would hand that page a promise
-    /// assembled out of the one thing it had just refused — or refuse the <c>fetch</c>, which is
-    /// worse, because the policy said nothing about network access.
-    /// </para>
-    /// <para>
-    /// The Broiler.VM provider's <c>NewPromise</c> refused for exactly this reason until the
-    /// argument was found to be about a route rather than about the engine. So the two claims are
-    /// asserted together here: guest source is still refused, and a promise is still made.
-    /// </para>
-    /// </remarks>
-    /// <summary>
     /// A page cannot make the host build its deferred results out of a constructor the page wrote.
     /// </summary>
     /// <remarks>
@@ -811,6 +795,23 @@ public class JsealConformanceTests
         Assert.Equal("got:value", Eval(realm, "reached", "test:hijack-after"));
     }
 
+    /// <summary>
+    /// A promise does not depend on the capability a page's Content-Security-Policy takes away.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the case that decides whether a provider's promise is real or is a snippet.</b>
+    /// A page whose policy forbids evaluation is the page most likely to reach for <c>fetch</c>,
+    /// and a provider that built its promises by evaluating source would hand that page a promise
+    /// assembled out of the one thing it had just refused — or refuse the <c>fetch</c>, which is
+    /// worse, because the policy said nothing about network access.
+    /// </para>
+    /// <para>
+    /// The Broiler.VM provider's <c>NewPromise</c> refused for exactly this reason until the
+    /// argument was found to be about a route rather than about the engine. So the two claims are
+    /// asserted together here: guest source is still refused, and a promise is still made.
+    /// </para>
+    /// </remarks>
     [Theory]
     [MemberData(nameof(Engines))]
     public void APromiseIsStillAvailableInARealmThatForbidsGuestEvaluation(string engine)
@@ -1025,17 +1026,20 @@ public class JsealConformanceTests
     /// An exotic object's supported names in <c>Object.keys</c> and in a spread.
     /// </summary>
     /// <remarks>
-    /// <b>Skipped because the Broiler.JS provider answers neither, which is a defect in the provider
-    /// rather than in this test.</b> <see cref="IJsExotic.SupportedNames"/> says in as many words
-    /// that the names are "for <c>Object.keys</c>, <c>for…in</c> and spread", and the provider
-    /// supplies them by appending to <c>GetAllKeys</c> — which is enough for <c>for…in</c> and
+    /// <b>This test found a defect in the Broiler.JS provider, and the defect is fixed — the
+    /// remark below is kept because it is the only record of what was wrong.</b>
+    /// <see cref="IJsExotic.SupportedNames"/> says in as many words that the names are "for
+    /// <c>Object.keys</c>, <c>for…in</c> and spread", and the provider supplied them by appending to
+    /// <c>GetAllKeys</c> alone — which is enough for <c>for…in</c> and
     /// <c>Object.getOwnPropertyNames</c> (both pass, above) and not enough for the other two.
     /// <c>Object.keys</c> implements EnumerableOwnProperties: it snapshots the own keys and then asks
     /// <c>[[GetOwnProperty]]</c> for each one, keeping only the enumerable ones — and a supported
-    /// name has no own descriptor, so it is dropped. <c>Object.assign</c>, and therefore an object
-    /// spread, filters the same way. A page enumerating a form's controls with
-    /// <c>Object.keys(form.elements)</c> or <c>{...form.elements}</c> gets the indices and the
+    /// name had no own descriptor, so it was dropped. <c>Object.assign</c>, and therefore an object
+    /// spread, filtered the same way, so a page enumerating a form's controls with
+    /// <c>Object.keys(form.elements)</c> or <c>{...form.elements}</c> got the indices and the
     /// interface's own members but none of the named controls.
+    /// <c>BroilerJsExoticObject.GetOwnPropertyDescriptor</c> synthesises the descriptor now, on each
+    /// ask rather than installed, and states why installing would be the shorter wrong answer.
     /// </remarks>
     [Theory]
     [MemberData(nameof(Engines))]
