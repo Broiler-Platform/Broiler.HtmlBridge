@@ -22,7 +22,7 @@ public sealed partial class DomBridge : IFormHost
 {
     IJsRealm IFormHost.Realm => Realm;
 
-    JsValue IFormHost.WrapNode(DomNode node) => JsInterop.FromEngineObject(ToJSObject(node));
+    JsValue IFormHost.WrapNode(DomNode node) => WrapNode(node);
 
     void IFormHost.ResetForm(DomElement form) => ResetFormControls(form);
 

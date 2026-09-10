@@ -38,7 +38,7 @@ public sealed partial class DomBridge : ISelectHost
 
     IJsRealm ISelectHost.Realm => Realm;
 
-    JsValue ISelectHost.WrapNode(DomNode node) => JsInterop.FromEngineObject(ToJSObject(node));
+    JsValue ISelectHost.WrapNode(DomNode node) => WrapNode(node);
 
     DomElement? ISelectHost.FindElement(JsValue wrapper) =>
         wrapper.IsObject ? FindDomElementByJSObject(JsInterop.ToEngineObject(wrapper)) : null;

@@ -116,7 +116,7 @@ public sealed partial class DomBridge
         // which owns the wrapper cache, has not migrated; the handle over what it returns is the same
         // object, so sheet.ownerNode === el still holds.
         realm.DefineAccessor(sheet, "ownerNode",
-            (in _) => Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(styleElement)), null);
+            (in _) => WrapNode(styleElement), null);
 
         // href — CSSOM §2.1 StyleSheet.href: the location of the sheet, null for an inline
         // <style>. It was null for a linked sheet too, so a <link> presented itself in

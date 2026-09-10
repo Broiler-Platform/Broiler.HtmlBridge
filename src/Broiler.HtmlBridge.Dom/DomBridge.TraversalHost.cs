@@ -24,7 +24,7 @@ public sealed partial class DomBridge : ITraversalHost
 
     DomNode ITraversalHost.DocumentNode => _document;
 
-    JsValue ITraversalHost.WrapNode(DomNode node) => Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
+    JsValue ITraversalHost.WrapNode(DomNode node) => WrapNode(node);
 
     DomNode? ITraversalHost.FindNode(JsValue wrapper) =>
         wrapper.IsObject ? FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper)) : null;
@@ -44,7 +44,7 @@ public sealed partial class DomBridge : ITraversalHost
     JsValue ITraversalHost.CreateCommentNode(string data)
     {
         var comment = CreateBridgeCommentNode(data);
-        return Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(comment));
+        return WrapNode(comment);
     }
 
     DomNode ITraversalHost.CreateRangeResultFragment() => CreateBridgeDocumentFragment();

@@ -817,8 +817,12 @@ public sealed partial class DomBridge : IDomBridgeRuntime
             // never crash script execution.
             try
             {
-                var jsObj = ToJSObject(el);
-                context[el.Id] = jsObj;
+                // THE ONE SITE THAT GENUINELY NEEDS THE ENGINE'S OBJECT, and the cast is spelled
+                // here rather than behind a helper for exactly that reason: the assignment is
+                // against a JSContext indexer, which is Broiler.JS's own. ToEngineObject and not
+                // ToEngineValue -- the latter answers null for a handle carrying a primitive, and
+                // would store a null global rather than refuse.
+                context[el.Id] = Dom.Runtime.JsInterop.ToEngineObject(WrapNode(el));
             }
             catch (Exception ex)
             {

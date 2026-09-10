@@ -224,7 +224,7 @@ public sealed partial class DomBridge
         }
 
         // Ensure the body's JS object is created so inline event attributes are compiled
-        ToJSObject(body);
+        WrapNode(body);
 
         // Dispatch a 'load' event on the body element. This covers inline
         // attributes, property-assigned handlers (document.body.onload = fn),

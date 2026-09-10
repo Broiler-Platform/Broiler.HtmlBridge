@@ -15,7 +15,7 @@ namespace Broiler.HtmlBridge;
 public sealed partial class DomBridge : Dom.Features.IDocumentLevelFactoryHost
 {
     JsValue Dom.Features.IDocumentLevelFactoryHost.ToJsObject(DomNode node) =>
-        Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
+        WrapNode(node);
 
     // The module only asks this of a handle it has already established is an object, so unwrapping it
     // cannot fail here; a non-object would mean the module skipped its own guard.

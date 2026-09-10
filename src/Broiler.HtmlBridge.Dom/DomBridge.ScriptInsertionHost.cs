@@ -52,7 +52,7 @@ public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
             // Materialise the wrapper first: that is what compiles an inline on* attribute into a
             // listener, so <script src=… onload=…> is covered as well as an assigned .onload and an
             // addEventListener registration — all three land on the one dispatch path.
-            ToJSObject(target);
+            WrapNode(target);
             var evt = realm.NewObject();
             realm.DefineValue(evt, "type", JsValue.String(type));
             realm.DefineValue(evt, "bubbles", JsValue.False);

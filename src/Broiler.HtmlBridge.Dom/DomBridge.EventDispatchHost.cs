@@ -22,7 +22,7 @@ public sealed partial class DomBridge : IEventDispatchHost
 {
     IJsRealm IEventDispatchHost.Realm => Realm;
 
-    JsValue IEventDispatchHost.WrapNode(DomNode node) => JsInterop.FromEngineObject(ToJSObject(node));
+    JsValue IEventDispatchHost.WrapNode(DomNode node) => WrapNode(node);
 
     DomNode IEventDispatchHost.DocumentNode => _document;
 

@@ -15,5 +15,5 @@ public sealed partial class DomBridge : Dom.Features.IElementTraversalHost
     IJsRealm Dom.Features.IElementTraversalHost.Realm => Realm;
 
     JsValue Dom.Features.IElementTraversalHost.ToWrapper(DomNode node) =>
-        Dom.Runtime.JsInterop.FromEngineObject(ToJSObject(node));
+        WrapNode(node);
 }
