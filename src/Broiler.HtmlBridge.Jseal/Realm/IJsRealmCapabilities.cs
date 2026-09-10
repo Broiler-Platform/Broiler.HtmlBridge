@@ -246,6 +246,18 @@ public interface IJsJobs
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>THE AXIS IS WHICH CONTENT-SECURITY-POLICY DIRECTIVE GOVERNS THE SOURCE, NOT WHOSE TEXT IT IS.</b>
+/// That is the correction this interface's three members exist to carry, and it was learned the hard
+/// way: two call sites in the bridge reached opposite conclusions about the same kind of text, one
+/// arguing from the directive and one from provenance, and each was half right. A script element is
+/// governed by <c>script-src</c> — per script, satisfied by <c>'unsafe-inline'</c>, a matching nonce
+/// or a matching hash. <c>eval</c> and <c>new Function</c> are governed by <c>'unsafe-eval'</c> — per
+/// realm. Those are different decisions, taken by different code, at different times. A page served
+/// <c>script-src 'unsafe-inline'</c> runs every one of its script elements and no <c>eval</c>; a page
+/// served <c>script-src 'nonce-x' 'unsafe-eval'</c> is the other way round. A contract with one
+/// member for both cannot express either page, which is why there are three.
+/// </para>
+/// <para>
 /// <b>Host script and guest source are not the same capability, and conflating them is what makes a
 /// second engine look impossible.</b> The bridge itself authors JavaScript: two embedded <c>.js</c>
 /// assets totalling 1,891 lines, plus 54 <c>Eval</c> sites across 28 files that install polyfills,
@@ -274,12 +286,53 @@ public interface IJsSource
     JsValue EvaluateHostScript(string source, string label);
 
     /// <summary>
-    /// Runs JavaScript the page supplied, on the page's behalf.
+    /// Runs a CLASSIC SCRIPT the page carries — a script element's text, a sub-document's, a worker's
+    /// top-level script, an <c>importScripts</c> body, the wrapper compiled from an event-handler
+    /// content attribute.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// <b>"Classic script" is the specification's term and it is chosen for what it EXCLUDES.</b> Its
+    /// definition does not cover <c>eval</c> or <c>new Function</c>, so an implementer reading the
+    /// name alone cannot route those here. <c>EvaluatePageScript</c> was considered and rejected: "the
+    /// page's source" is equally true of the text handed to <c>eval</c>, which is the exact confusion
+    /// these three members exist to remove.
+    /// </para>
+    /// <para>
+    /// <b>THE CALLER HAS ALREADY TAKEN THE <c>script-src</c> DECISION, AND THIS CONTRACT CANNOT CHECK
+    /// THAT IT DID.</b> Stated as an obligation because it cannot be made a parameter:
+    /// <c>Broiler.HtmlBridge.Jseal</c> has no <c>ProjectReference</c> and no <c>PackageReference</c>
+    /// at all — its engine-neutrality is a compiler outcome rather than a convention — so it cannot
+    /// name a policy type; and the decision is per script and content-dependent, so it could not be a
+    /// realm-shaped option even if the type were reachable. A token minted by the policy layer was
+    /// considered and rejected: anything that can call the minter can forge one, so it buys ceremony
+    /// rather than enforcement.
+    /// </para>
+    /// <para>
+    /// Throws when the realm was not built with <see cref="JsCapabilities.ClassicScriptSource"/>.
+    /// That is an ABILITY and not a permission: it says the engine can compile text it did not see
+    /// when it was built, which an ahead-of-time engine may honestly lack.
+    /// </para>
+    /// </remarks>
+    JsValue EvaluateClassicScript(string source, string label);
+
+    /// <summary>
+    /// Runs JavaScript the page asked to evaluate AT RUN TIME, on the page's behalf — what
+    /// <c>eval</c>, <c>new Function</c> and a dynamic <c>import()</c> ask for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
     /// Throws when the realm was not built with <see cref="JsCapabilities.GuestEval"/> — which is what
     /// a page whose policy forbids evaluation gets, and is a contract outcome the page may catch
     /// rather than a check the engine performs.
+    /// </para>
+    /// <para>
+    /// <b>It is narrower than its name once suggested.</b> A page's script ELEMENT is not this: it is
+    /// <see cref="EvaluateClassicScript"/>, governed by a different directive, and routing one here
+    /// would refuse a page that every browser runs. The provider also enforces this permission where
+    /// a browser does — inside the realm, on the page's own <c>eval</c> and <c>Function</c> — so a
+    /// host that never calls this member still gets the policy it asked for.
+    /// </para>
     /// </remarks>
     JsValue EvaluateGuestSource(string source, string label);
 }

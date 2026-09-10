@@ -85,6 +85,7 @@ public sealed class BroilerJsEngineProvider : IJsEngineProvider, IJsRealmAdoptio
         {
             var capabilities =
                 JsCapabilities.HostScriptSource |
+                JsCapabilities.ClassicScriptSource |
                 JsCapabilities.GuestEval |
                 JsCapabilities.Promises |
                 JsCapabilities.ExoticObjects |

@@ -33,6 +33,26 @@ internal sealed partial class VmRealm
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <b>The permit is what makes this expressible on an engine with no run-time compiler.</b>
+    /// Compiling here means asking a registered artifact provider, and that provider is also where a
+    /// forbidden evaluation is refused -- so handing a page's script over needs a permission that is
+    /// narrower than the host's held mark and wider than nothing. One compile, spent by the compile
+    /// it authorises.
+    /// </remarks>
+    public JsValue EvaluateClassicScript(string source, string label)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if ((Capabilities & JsCapabilities.ClassicScriptSource) == 0)
+            throw Lacking(JsCapabilities.ClassicScriptSource);
+
+        using var permit = _sources.EnterClassicScript();
+
+        return Evaluate(source, label);
+    }
+
+    /// <inheritdoc />
     public JsValue EvaluateGuestSource(string source, string label)
     {
         ArgumentNullException.ThrowIfNull(source);

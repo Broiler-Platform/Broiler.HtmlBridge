@@ -32,9 +32,28 @@ public enum JsCapabilities : uint
     HostScriptSource = 1 << 0,
 
     /// <summary>
-    /// Runs JavaScript the page supplied — <c>eval</c> and <c>new Function</c>. A realm built for a
-    /// page whose Content-Security-Policy forbids evaluation does not have this, on any engine.
+    /// Runs JavaScript the page asked to evaluate AT RUN TIME — <c>eval</c> and <c>new Function</c>.
+    /// A realm built for a page whose Content-Security-Policy forbids evaluation does not have this,
+    /// on any engine.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is <c>'unsafe-eval'</c> and nothing else, and the negative half is worth stating
+    /// because the tree inferred more from it than it says.</b> A realm without this still runs the
+    /// page's script ELEMENTS — see <see cref="ClassicScriptSource"/> — and refuses only the page's
+    /// run-time requests for more executable bytes. The two are separate CSP directives, decided by
+    /// different code at different times: <c>script-src</c> is per script and satisfied by
+    /// <c>'unsafe-inline'</c>, a nonce or a hash, while <c>'unsafe-eval'</c> is per realm. A page
+    /// served <c>script-src 'unsafe-inline'</c> runs every one of its script elements and no
+    /// <c>eval</c>; a page served <c>script-src 'nonce-x' 'unsafe-eval'</c> is the other way round.
+    /// </para>
+    /// <para>
+    /// <b>It is enforced INSIDE the realm, on the page's own <c>eval</c> and <c>Function</c>, which is
+    /// where a browser enforces it.</b> That is a change: it used to be enforced only at the host
+    /// door — the member a host calls — which is not a door a page walks through, so on one of the two
+    /// providers a page in a realm built without this could call <c>eval</c> and it worked.
+    /// </para>
+    /// </remarks>
     GuestEval = 1 << 1,
 
     /// <summary>
@@ -124,7 +143,43 @@ public enum JsCapabilities : uint
     /// </remarks>
     BinaryData = 1 << 9,
 
+    /// <summary>
+    /// Compiles a classic script the page carries — a script element's text, a sub-document's, a
+    /// worker's top-level script. Text this engine did not see when it was built.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It is separate from <see cref="HostScriptSource"/> because that one can be satisfied ahead
+    /// of time and this one cannot.</b> An engine with no run-time compiler can carry the first by
+    /// compiling THIS REPOSITORY's own JavaScript when the engine is built — that is the shape
+    /// <see cref="IJsSource"/> describes as what makes a second engine possible at all. A page's
+    /// script text is not knowable then, so the second does not come with it.
+    /// </para>
+    /// <para>
+    /// <b>It is separate from <see cref="GuestEval"/> because the directives are separate.</b>
+    /// Together the two split an ABILITY — a compiler over text nobody has seen — from a PERMISSION,
+    /// <c>'unsafe-eval'</c>. The contract used to weld them into one member, so a host that read a
+    /// restrictive policy and narrowed the realm would have refused the page's ordinary script
+    /// elements, which every browser runs.
+    /// </para>
+    /// <para>
+    /// <b>Declaring it says nothing about whether any particular script is allowed.</b> That decision
+    /// is <c>script-src</c>'s, it is per script and content-dependent — a nonce matches this element
+    /// and not the next — and it is taken by the caller before it hands the text over. This flag
+    /// answers only "could this realm run a page's script at all".
+    /// </para>
+    /// </remarks>
+    ClassicScriptSource = 1 << 10,
+
     /// <summary>Everything a document-bearing page load needs.</summary>
-    Document = HostScriptSource | Promises | ExoticObjects | GlobalIsVariableScope |
-               ReentrantHostCalls | BinaryData,
+    /// <remarks>
+    /// <b><see cref="ClassicScriptSource"/> belongs here for the reason <see cref="BinaryData"/>
+    /// does, and its absence was an absurdity nobody could see while the situations were fused.</b>
+    /// A realm that cannot run the document's own script elements is not a page served in a degraded
+    /// way; it is a page that does not load. <see cref="GuestEval"/> stays out, as it always was —
+    /// and that is now defensible rather than accidental, because a page whose policy forbids
+    /// <c>eval</c> loads perfectly well.
+    /// </remarks>
+    Document = HostScriptSource | ClassicScriptSource | Promises | ExoticObjects |
+               GlobalIsVariableScope | ReentrantHostCalls | BinaryData,
 }

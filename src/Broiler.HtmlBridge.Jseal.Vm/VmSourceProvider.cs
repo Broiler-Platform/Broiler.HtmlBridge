@@ -38,6 +38,20 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
 
     private int _hostScriptDepth;
 
+    /// <summary>
+    /// Permission for exactly ONE compilation: the classic script a host is handing over.
+    /// </summary>
+    /// <remarks>
+    /// <b>Single-use, and the host-script mark could not be reused for this.</b> That one is a DEPTH
+    /// held for the whole evaluation, so every artifact request issued while the marked code RUNS is
+    /// permitted. That is right for this repository's own script, which calls nothing of the page's.
+    /// It is wrong for a page's script, because a script element whose first statement is an eval is
+    /// an everyday page: under <c>script-src 'unsafe-inline'</c> with no <c>'unsafe-eval'</c> the
+    /// element must run and the eval must not, and a held mark would permit both. A permit spent by
+    /// the compile it authorises is spent before the page's first statement runs.
+    /// </remarks>
+    private bool _classicScriptPermit;
+
     internal VmSourceProvider(bool allowGuestEval, bool forceStrictMode)
     {
         _allowGuestEval = allowGuestEval;
@@ -63,8 +77,17 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
         // evaluation still has an artifact provider registered, because the bridge's own script has
         // to reach one; what the page gets instead is a provider that declines its requests, which
         // the profile reports as a run-time error the page may catch.
-        if (_hostScriptDepth == 0 && !_allowGuestEval)
+        if (_classicScriptPermit)
+        {
+            // SPENT BEFORE COMPILING, not after. A compile that fails must not leave the permit armed
+            // for whatever asks next, and the page's own code -- which runs after this returns -- has
+            // to meet a provider with nothing armed.
+            _classicScriptPermit = false;
+        }
+        else if (_hostScriptDepth == 0 && !_allowGuestEval)
+        {
             return VmArtifactProviderAnswer.Refused(VmReason.ProviderRefused);
+        }
 
         string source;
 
@@ -105,6 +128,47 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
             VmCallerIdentity.FromCanonicalIdentity("broiler-jseal-vm://source-provider"));
 
         return VmArtifactProviderAnswer.Provided(in descriptor, compiled.Artifact);
+    }
+
+    /// <summary>Arms the single-use permit for one classic script.</summary>
+    internal ClassicScriptScope EnterClassicScript() => new(this);
+
+    /// <summary>
+    /// Arms <see cref="_classicScriptPermit"/> for one compilation, and suspends the host-script
+    /// depth for the duration.
+    /// </summary>
+    /// <remarks>
+    /// <b>Suspending the depth is not tidiness; it is the second half of the guarantee.</b> Without
+    /// it, a classic script handed over while a host script happened to be on the stack would run its
+    /// page code under the host's held mark and reach the compiler by that route instead. Suspending
+    /// makes the permission exactly one compile REGARDLESS of what the host was doing when it asked,
+    /// which is what the member's contract promises. Restoring on dispose keeps nesting honest: a
+    /// polyfill invoked from inside a running page script takes its own host mark and gets its depth
+    /// back, and a page script that sets an event-handler attribute re-enters with a fresh permit,
+    /// which is correct because that compile is its own <c>script-src-attr</c> decision.
+    /// </remarks>
+    internal readonly struct ClassicScriptScope : IDisposable
+    {
+        private readonly VmSourceProvider _provider;
+        private readonly bool _hadPermit;
+        private readonly int _suspendedDepth;
+
+        internal ClassicScriptScope(VmSourceProvider provider)
+        {
+            _provider = provider;
+            _hadPermit = provider._classicScriptPermit;
+            _suspendedDepth = provider._hostScriptDepth;
+
+            provider._classicScriptPermit = true;
+            provider._hostScriptDepth = 0;
+        }
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            _provider._classicScriptPermit = _hadPermit;
+            _provider._hostScriptDepth = _suspendedDepth;
+        }
     }
 
     /// <summary>Holds the host-script mark for the duration of one evaluation.</summary>

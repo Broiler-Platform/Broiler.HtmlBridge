@@ -65,7 +65,44 @@ internal sealed partial class BroilerJsRealm : IJsRealm
         _capabilities = options.AllowGuestEval
             ? provider.Capabilities
             : provider.Capabilities & ~JsCapabilities.GuestEval;
+
+        // AND THE POLICY IS ENFORCED WHERE A BROWSER ENFORCES IT: INSIDE THE REALM, AT THE PAGE'S OWN
+        // eval AND Function.
+        //
+        // Refusing at EvaluateGuestSource alone refuses a door no page walks through. A page does not
+        // call a host member; it writes eval('...') or new Function('...'), and until this line a
+        // realm built without guest evaluation ran both. The narrowed capability was true and
+        // unenforced -- which is the worst shape a capability can have, because a host is entitled to
+        // branch on one without verifying it.
+        //
+        // JSContext.EvalEvent is the engine's own hook and it fires from exactly the three
+        // guest-initiated places: direct eval, the global eval, and CreateDynamicFunction -- which is
+        // the SHARED implementation for every function kind, so the async, generator and
+        // async-generator constructors are covered by the same subscription rather than by three more
+        // of them. It is NOT fired by JSContext's own evaluation entry point, which is what the host
+        // members reach, so this refuses the page without touching anything this repository runs.
+        //
+        // Replacing the eval and Function globals was considered and rejected: Function.prototype
+        // .constructor reaches the compiler without either binding, so the stub would be a fence with
+        // a gate beside it, and IJsEngineProvider argues against a provider reshaping the language.
+        if (!options.AllowGuestEval)
+            _context.EvalEvent += RefuseGuestCompilation;
     }
+
+    /// <summary>
+    /// The refusal a page meets when its policy forbids evaluation.
+    /// </summary>
+    /// <remarks>
+    /// <b>A <c>SyntaxError</c>, chosen to agree with the other provider rather than on its own
+    /// merits.</b> Broiler.VM maps a refused compilation to <c>SyntaxError</c> and argues the choice
+    /// from test262; a host that saw <c>EvalError</c> from one engine and <c>SyntaxError</c> from the
+    /// other would have a difference no page should be able to observe. Since this handler chooses
+    /// the error it raises, it chooses the one already argued for.
+    /// </remarks>
+    private static void RefuseGuestCompilation(object? sender, EvalEventArgs e) =>
+        throw JSEngine.NewSyntaxError(
+            "this realm was built without guest evaluation: its Content-Security-Policy forbids "
+            + "'unsafe-eval', so eval and the Function constructor compile nothing");
 
     /// <summary>
     /// Wraps a <c>JSContext</c> the host already built, without taking ownership of it. See
@@ -128,6 +165,10 @@ internal sealed partial class BroilerJsRealm : IJsRealm
         // Jobs queued but never drained belong to a realm that is going away; running them now would
         // execute page script against a document the host has already finished with.
         _jobs.Clear();
+
+        // Unsubscribed before the context goes, and unconditionally: -= on a handler that was never
+        // added is a no-op, so this needs no second reading of the option that decided it.
+        _context.EvalEvent -= RefuseGuestCompilation;
 
         // An adopted context belongs to the host that built it, and that host disposes it — in this
         // repository, InteractiveSession, which tears the bridge down first and then disposes the

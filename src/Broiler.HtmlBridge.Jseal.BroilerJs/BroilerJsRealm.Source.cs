@@ -35,6 +35,23 @@ internal sealed partial class BroilerJsRealm
     /// <c>AllowGuestEval: false</c> gets it here, at the one call that can produce it, without the
     /// engine consulting a policy object mid-execution.
     /// </remarks>
+    /// <summary>
+    /// Runs a classic script the page carries.
+    /// </summary>
+    /// <remarks>
+    /// <b>Unconditional, and its being three lines is the design rather than a shortcut.</b> This
+    /// engine carries a run-time compiler, so the ABILITY the capability names is never in doubt
+    /// here; and the PERMISSION that governs a script element is <c>script-src</c>, which the caller
+    /// decided before it called. There is nothing left for this method to check. On an engine that
+    /// compiles ahead of time the same member would be the one that could not be written, which is
+    /// why the capability exists at all.
+    /// </remarks>
+    public JsValue EvaluateClassicScript(string source, string label)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return Evaluate(source, label);
+    }
+
     public JsValue EvaluateGuestSource(string source, string label)
     {
         ArgumentNullException.ThrowIfNull(source);

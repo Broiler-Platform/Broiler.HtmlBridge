@@ -944,6 +944,94 @@ public class JsealConformanceTests
     }
 
     /// <summary>
+    /// A realm whose policy forbids <c>'unsafe-eval'</c> still runs the page's script ELEMENTS.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the assertion the two-member contract could not make, and its absence was a bug
+    /// waiting for a host to write one line.</b> <c>script-src</c> and <c>'unsafe-eval'</c> are
+    /// different directives: a page served <c>script-src 'unsafe-inline'</c> runs every one of its
+    /// script elements and no <c>eval</c>. With one member for both, a host that read a restrictive
+    /// policy and narrowed the realm — which the provider contract instructs it to do — would have
+    /// refused that page's ordinary scripts. Nothing in this repository had written that line yet,
+    /// so the defect was latent rather than live, and this test is what stops it being written.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void AClassicScriptRunsInARealmThatForbidsGuestEvaluation(string engine)
+    {
+        var provider = Provider(engine);
+
+        using var restricted = provider.CreateRealm(new JsRealmOptions { AllowGuestEval = false });
+
+        // The ability survives the narrowing; only the permission goes.
+        Assert.False(restricted.Capabilities.HasFlag(JsCapabilities.GuestEval));
+        Assert.True(restricted.Capabilities.HasFlag(JsCapabilities.ClassicScriptSource));
+
+        Assert.True(restricted.EvaluateClassicScript("6 * 7", "test:classic") == JsValue.Number(42d));
+
+        Assert.Throws<JsCapabilityUnavailableException>(
+            () => restricted.EvaluateGuestSource("6 * 7", "test:dynamic-refused"));
+
+        // The control, and it is doing real work: a provider whose EvaluateClassicScript refused
+        // everything would satisfy nothing above, but one whose EvaluateGuestSource refused
+        // everything — narrowed or not — would satisfy the refusal having tested no narrowing.
+        using var permissive = provider.CreateRealm(JsRealmOptions.Default);
+
+        Assert.True(permissive.EvaluateClassicScript("6 * 7", "test:classic-permitted") == JsValue.Number(42d));
+        Assert.True(permissive.EvaluateGuestSource("6 * 7", "test:dynamic-permitted") == JsValue.Number(42d));
+    }
+
+    /// <summary>
+    /// And the page's own <c>eval</c> and <c>Function</c> are refused inside that realm — which is
+    /// where a browser refuses them, and where the capability had not been enforced at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A capability that is declared false and enforced nowhere is worse than one that is
+    /// absent</b>, because a host is entitled to branch on it without verifying it. Refusing at the
+    /// host member alone refuses a door no page walks through: a page does not call a contract
+    /// member, it writes <c>eval('…')</c>.
+    /// </para>
+    /// <para>
+    /// <b>It also pins that permission to run a script is not permission for what that script asks
+    /// for next.</b> The classic script here is handed over by the host and compiles; the
+    /// <c>eval</c> inside it is the page asking for more executable bytes and does not. On an engine
+    /// whose only compiler is a registered provider, that distinction is the difference between a
+    /// permission held across the evaluation and one spent by the compile it authorises.
+    /// </para>
+    /// <para>
+    /// <c>new Function</c> is asserted separately from <c>eval</c> on purpose: they are different
+    /// routes to the same compiler, an implementation that stubbed the <c>eval</c> global would pass
+    /// the first and fail the second, and the second is the one a real page's framework uses.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void APagesOwnEvalAndFunctionAreRefusedInARealmThatForbidsGuestEvaluation(string engine)
+    {
+        var provider = Provider(engine);
+
+        using var restricted = provider.CreateRealm(new JsRealmOptions { AllowGuestEval = false });
+
+        Assert.Throws<JsEngineException>(
+            () => restricted.EvaluateClassicScript("eval('1 + 1')", "test:page-eval"));
+
+        Assert.Throws<JsEngineException>(
+            () => restricted.EvaluateClassicScript("new Function('return 1')", "test:page-function"));
+
+        // The control: both are ordinary JavaScript, and a provider that simply could not run them
+        // would satisfy the refusals above without enforcing anything.
+        using var permissive = provider.CreateRealm(JsRealmOptions.Default);
+
+        Assert.True(
+            permissive.EvaluateClassicScript("eval('1 + 1')", "test:page-eval-permitted")
+                == JsValue.Number(2d));
+        Assert.True(
+            permissive.EvaluateClassicScript("new Function('return 7')()", "test:page-function-permitted")
+                == JsValue.Number(7d));
+    }
+
+    /// <summary>
     /// <c>ForceStrictMode</c> makes the source THIS REPOSITORY hands over strict, and leaves what the
     /// page evaluates alone.
     /// </summary>
@@ -2148,6 +2236,7 @@ public class JsealConformanceTests
         {
             [JsCapabilities.HostScriptSource] = nameof(EvaluatingHostScriptAnswersTheValueOfTheLastExpression),
             [JsCapabilities.GuestEval] = nameof(ARealmBuiltWithoutGuestEvalRefusesGuestSourceAndStillRunsHostScript),
+            [JsCapabilities.ClassicScriptSource] = nameof(AClassicScriptRunsInARealmThatForbidsGuestEvaluation),
             [JsCapabilities.Promises] = nameof(APromiseSettlesFromTheHostAndItsReactionRunsAtTheNextDrain),
             [JsCapabilities.ExoticObjects] = nameof(AnOrdinaryPropertyWinsOverTheExoticHandler),
             [JsCapabilities.GlobalIsVariableScope] = nameof(ATopLevelDeclarationBecomesAPropertyOfTheGlobal),
