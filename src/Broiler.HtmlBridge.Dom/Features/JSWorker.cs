@@ -151,11 +151,11 @@ internal sealed class JSWorker
 
             try
             {
-                // A worker's top-level script is a classic script: worker-src decides whether the
-                // worker may be created at all, and the script then runs. Neither that decision nor
-                // this evaluation is 'unsafe-eval's business, so this is not the eval-gated member --
-                // which it was, on the reasoning that the text is the page's. True, and not what
-                // decides it.
+                // A worker's top-level script is a classic script and 'unsafe-eval' has nothing to say
+                // about it, so this is not the eval-gated member -- which it was, on the reasoning that
+                // the text is the page's. True, and not what decides it. Nothing on this path takes the
+                // script-src or worker-src decision the classic member expects of its caller: the
+                // worker is constructed and its script resolved without consulting a policy.
                 realm.EvaluateClassicScript(_script.Source, $"worker:{_name}");
             }
             catch (Exception ex)

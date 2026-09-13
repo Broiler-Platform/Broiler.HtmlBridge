@@ -26,16 +26,6 @@ internal sealed partial class BroilerJsRealm
     }
 
     /// <summary>
-    /// Runs JavaScript the page supplied, on the page's behalf.
-    /// </summary>
-    /// <remarks>
-    /// The refusal is a capability failure rather than an engine one: the page asked for something
-    /// this realm was deliberately built without, which is a different fact from the source being
-    /// wrong. A host that read a restrictive Content-Security-Policy and passed
-    /// <c>AllowGuestEval: false</c> gets it here, at the one call that can produce it, without the
-    /// engine consulting a policy object mid-execution.
-    /// </remarks>
-    /// <summary>
     /// Runs a classic script the page carries.
     /// </summary>
     /// <remarks>
@@ -52,6 +42,17 @@ internal sealed partial class BroilerJsRealm
         return Evaluate(source, label);
     }
 
+    /// <summary>
+    /// Runs JavaScript the page asks to evaluate at run time, on the page's behalf.
+    /// </summary>
+    /// <remarks>
+    /// The refusal is a capability failure rather than an engine one: the page asked for something
+    /// this realm was deliberately built without, which is a different fact from the source being
+    /// wrong. A host that read a restrictive Content-Security-Policy and passed
+    /// <c>AllowGuestEval: false</c> gets it here, at the host member. The page's own <c>eval</c> and
+    /// <c>Function</c> are refused separately, inside the realm, by <c>RefuseGuestCompilation</c> in
+    /// <c>BroilerJsRealm.cs</c>.
+    /// </remarks>
     public JsValue EvaluateGuestSource(string source, string label)
     {
         ArgumentNullException.ThrowIfNull(source);

@@ -350,7 +350,7 @@ public interface IJsSource
 
     /// <summary>
     /// Runs JavaScript the page asked to evaluate AT RUN TIME, on the page's behalf — what
-    /// <c>eval</c>, <c>new Function</c> and a dynamic <c>import()</c> ask for.
+    /// <c>eval</c> and <c>new Function</c> ask for.
     /// </summary>
     /// <remarks>
     /// <para>
