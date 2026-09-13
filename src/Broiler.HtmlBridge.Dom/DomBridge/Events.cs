@@ -195,7 +195,8 @@ public sealed partial class DomBridge
     /// for the whole evaluation; the classic-script permit is spent by the one compile it authorises
     /// and suspends that mark while it runs. So this moves a page's program off the permission
     /// reserved for source that never calls the page's code, which is the distinction the third
-    /// member was added to make and this was the last site still on the wrong side of it.
+    /// member was added to make, and this was the last site still compiling a page's program under
+    /// that permission.
     /// </para>
     /// <para>
     /// The handle is stored as it is. This remark used to say it had to be unwrapped first because the
@@ -234,9 +235,10 @@ public sealed partial class DomBridge
             // reports, and a label that varied with the event name would give the engine's code
             // cache a different key for every attribute compiling the same wrapper shape.
             //
-            // It lost its `broiler:` prefix with the member. That prefix marks source this repository
-            // authored -- the polyfills and probes -- and a stack frame naming a page's own onclick
-            // that way pointed a reader at the wrong author on the one line they had to go on.
+            // It lost its `broiler:` prefix with the member. This repository labels some of the source
+            // it authored that way -- `broiler:window-onload`, `broiler:dataset` -- and a stack frame
+            // naming a page's own onclick that way pointed a reader at the wrong author on the one line
+            // they had to go on.
             var fn = realm.EvaluateClassicScript(
                 $"(function(event) {{ {svgEventAlias}{code} }})", "inline-event-handler");
             if (fn.IsFunction)

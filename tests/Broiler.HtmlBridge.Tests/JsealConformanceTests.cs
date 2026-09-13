@@ -477,9 +477,9 @@ public class JsealConformanceTests
         // objects it was handed and mint a fresh wrapper for anything that originates in script; the
         // listener a page registers is guest-minted, so that provider would break every
         // removeEventListener while passing all three cases above.
-        OneKind("guestObject", JsValueKind.Object, () => realm.EvaluateHostScript("({})", "test:guest-object"));
-        OneKind("guestArray", JsValueKind.Array, () => realm.EvaluateHostScript("([])", "test:guest-array"));
-        OneKind("guestMethod", JsValueKind.Function, () => realm.EvaluateHostScript("(function () {})", "test:guest-method"));
+        OneKind("guestObject", JsValueKind.Object, () => realm.EvaluateClassicScript("({})", "test:page-object"));
+        OneKind("guestArray", JsValueKind.Array, () => realm.EvaluateClassicScript("([])", "test:page-array"));
+        OneKind("guestMethod", JsValueKind.Function, () => realm.EvaluateClassicScript("(function () {})", "test:page-method"));
 
         void OneKind(string name, JsValueKind kind, Func<JsValue> mint)
         {
@@ -940,7 +940,7 @@ public class JsealConformanceTests
     /// constructor saw <see cref="JsValue.Missing"/>. The value was there to be had: the engine's
     /// own [[Construct]] sets <c>ec.CurrentNewTarget</c> to the constructor immediately before
     /// invoking the delegate, and its <c>Object</c> factory reads exactly that.
-    /// <c>BroilerJsRealm.cs:269-281</c> now reads both, in that order, and states why. Custom-element
+    /// <c>BroilerJsRealm.cs:309-322</c> now reads both, in that order, and states why. Custom-element
     /// construction is the caller that needed it, and was smuggling new.target through as argument
     /// zero from a JavaScript shim for want of it.
     /// </remarks>
