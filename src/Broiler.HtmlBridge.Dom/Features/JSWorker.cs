@@ -154,8 +154,8 @@ internal sealed class JSWorker
                 // A worker's top-level script is a classic script and 'unsafe-eval' has nothing to say
                 // about it, so this is not the eval-gated member -- which it was, on the reasoning that
                 // the text is the page's. True, and not what decides it. Nothing on this path takes the
-                // script-src or worker-src decision the classic member expects of its caller: the
-                // worker is constructed and its script resolved without consulting a policy.
+                // script-src decision the classic member expects of its caller (for a worker the
+                // directive is worker-src): no Content-Security-Policy is consulted before this runs.
                 realm.EvaluateClassicScript(_script.Source, $"worker:{_name}");
             }
             catch (Exception ex)
