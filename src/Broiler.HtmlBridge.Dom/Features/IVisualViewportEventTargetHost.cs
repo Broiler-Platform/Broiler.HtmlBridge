@@ -7,12 +7,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// visual-viewport <c>scroll</c> listener store (add / remove), owned by the P2.5 EventTargetRegistry.
 /// </summary>
 /// <remarks>
-/// The listener crosses this seam as a <see cref="JsValue"/> handle rather than as an engine function
-/// object, so the binding names no engine type. The handle carries the engine's own function, so the
-/// store keeps recognising a listener by identity — which is what <c>removeEventListener</c> depends
-/// on. Turning the handle back into what the registry holds is the bridge's job; see
-/// <c>DomBridge.VisualViewportEventTargetHost.cs</c>, which is where the remaining engine reference
-/// lives until the registry itself is migrated.
+/// The listener crosses this seam as a <see cref="JsValue"/> handle and the registry keeps that handle as
+/// it arrived, so neither the binding nor the store behind it names an engine type. The store recognises
+/// a listener by <see cref="JsValue"/> equality, which compares kind and then the reference the handle
+/// carries; every listener that reaches it is kind <c>Function</c>, so what is left is the reference
+/// comparison <c>removeEventListener</c> depends on. (This said that turning the handle back into what
+/// the registry held was the bridge's job, and that <c>DomBridge.VisualViewportEventTargetHost.cs</c> was
+/// where "the remaining engine reference" lived until the registry migrated. There were three, one of
+/// them in the registry, and they went together because each end was the other's reason.)
 /// </remarks>
 internal interface IVisualViewportEventTargetHost
 {

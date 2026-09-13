@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.BuiltIns.Function;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
@@ -38,10 +37,14 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <b>What is still engine-typed, and what pins each one.</b> The listener lists hold
 /// <c>EventListenerRegistration</c>, whose listener field is a Broiler.JS value and whose declaration
 /// is in <c>DomBridge/RuntimeStates.cs</c> — outside this round — so the element type of every list
-/// below is engine-typed however the maps are keyed. The visual-viewport list holds engine functions
-/// because <c>DomBridge.VisualViewportEventTargetHost.cs</c> fills it and
-/// <c>DomBridge/LayoutMetrics.Scrolling.cs</c> reads it back as engine functions to invoke — neither
-/// belongs to this round either, and the second wants the list itself rather than a converted copy.
+/// below is engine-typed however the maps are keyed. The visual-viewport list is no longer
+/// engine-typed: it holds <see cref="JsValue"/>. It held the engine's function type, and the reason
+/// recorded here was that <c>DomBridge/LayoutMetrics.Scrolling.cs</c> reads it back as engine functions
+/// and "wants the list itself rather than a converted copy". That reader copied the list on the line
+/// that read it and converted every element back into a handle before invoking it through the realm,
+/// and already did on the day that sentence was written. <see cref="JsValue"/> equality compares kind
+/// and then reference, and every element is kind <c>Function</c> because the host admits nothing
+/// else, so the list still asks of each listener exactly what it asked before: is it the same object.
 /// </para>
 /// </remarks>
 internal sealed class EventTargetRegistry
@@ -50,7 +53,7 @@ internal sealed class EventTargetRegistry
     private readonly Dictionary<string, List<EventListenerRegistration>> _windowListeners = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<JsValue, Dictionary<string, List<EventListenerRegistration>>> _targetListeners = [];
     private readonly Dictionary<JsValue, JsValue> _ownerWindows = [];
-    private readonly List<JSFunction> _visualViewportScrollListeners = [];
+    private readonly List<JsValue> _visualViewportScrollListeners = [];
 
     // ------------------------------------------------------------------
     //  Node listeners (per DOM node, by event type)
@@ -140,16 +143,23 @@ internal sealed class EventTargetRegistry
     // ------------------------------------------------------------------
 
     /// <summary>Registers a visual-viewport <c>scroll</c> listener (no-op if already registered).</summary>
-    public void AddVisualViewportScrollListener(JSFunction listener)
+    public void AddVisualViewportScrollListener(JsValue listener)
     {
         if (!_visualViewportScrollListeners.Contains(listener))
             _visualViewportScrollListeners.Add(listener);
     }
 
-    public void RemoveVisualViewportScrollListener(JSFunction listener) => _visualViewportScrollListeners.Remove(listener);
+    public void RemoveVisualViewportScrollListener(JsValue listener) => _visualViewportScrollListeners.Remove(listener);
 
-    /// <summary>The registered visual-viewport scroll listeners (snapshot the caller may iterate).</summary>
-    public IReadOnlyList<JSFunction> VisualViewportScrollListeners => _visualViewportScrollListeners;
+    /// <summary>The registered visual-viewport scroll listeners: the list itself, not a snapshot.</summary>
+    /// <remarks>
+    /// This summary used to say "snapshot the caller may iterate", over a property that returns the
+    /// field. Taking the snapshot is the reader's job, and the only reader does it:
+    /// <c>DispatchVisualViewportScrollEvent</c> in <c>DomBridge/LayoutMetrics.Scrolling.cs</c> copies
+    /// the list before invoking anything, which is what lets a listener remove itself mid-dispatch
+    /// without changing the list the loop is walking.
+    /// </remarks>
+    public IReadOnlyList<JsValue> VisualViewportScrollListeners => _visualViewportScrollListeners;
 
     // ------------------------------------------------------------------
 

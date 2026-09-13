@@ -457,8 +457,7 @@ public sealed partial class DomBridge
             try
             {
                 // `this` is the listener itself, as it has been since this dispatch was written.
-                var callee = JsInterop.FromEngineObject(listener);
-                Realm.Invoke(callee, callee, [evt]);
+                Realm.Invoke(listener, listener, [evt]);
             }
             catch (Exception ex)
             {
