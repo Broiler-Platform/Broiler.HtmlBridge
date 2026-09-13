@@ -429,7 +429,7 @@ public class JsealConformanceTests
     /// <para>
     /// <b>Crossed with the other axis: who minted the object.</b> Three factories hand back
     /// something the HOST made and three hand back something the PAGE made, because a provider can
-    /// canonicalise one and not the other - and the listener a page registers is guest-minted, so
+    /// canonicalise one and not the other - and the listener a page registers is page-minted, so
     /// the second three are the ones the browser depends on.
     /// </para>
     /// <para>
@@ -475,11 +475,11 @@ public class JsealConformanceTests
         // AND THE SAME THREE MINTED BY THE PAGE RATHER THAN BY THE HOST, which is the half that
         // matters and the half a host-only test cannot see. A provider is free to canonicalise the
         // objects it was handed and mint a fresh wrapper for anything that originates in script; the
-        // listener a page registers is guest-minted, so that provider would break every
+        // listener a page registers is page-minted, so that provider would break every
         // removeEventListener while passing all three cases above.
-        OneKind("guestObject", JsValueKind.Object, () => realm.EvaluateHostScript("({})", "test:guest-object"));
-        OneKind("guestArray", JsValueKind.Array, () => realm.EvaluateHostScript("([])", "test:guest-array"));
-        OneKind("guestMethod", JsValueKind.Function, () => realm.EvaluateHostScript("(function () {})", "test:guest-method"));
+        OneKind("pageObject", JsValueKind.Object, () => realm.EvaluateClassicScript("({})", "test:page-object"));
+        OneKind("pageArray", JsValueKind.Array, () => realm.EvaluateClassicScript("([])", "test:page-array"));
+        OneKind("pageMethod", JsValueKind.Function, () => realm.EvaluateClassicScript("(function () {})", "test:page-method"));
 
         void OneKind(string name, JsValueKind kind, Func<JsValue> mint)
         {
@@ -940,7 +940,7 @@ public class JsealConformanceTests
     /// constructor saw <see cref="JsValue.Missing"/>. The value was there to be had: the engine's
     /// own [[Construct]] sets <c>ec.CurrentNewTarget</c> to the constructor immediately before
     /// invoking the delegate, and its <c>Object</c> factory reads exactly that.
-    /// <c>BroilerJsRealm.cs:269-281</c> now reads both, in that order, and states why. Custom-element
+    /// <c>BroilerJsRealm.cs:309-322</c> now reads both, in that order, and states why. Custom-element
     /// construction is the caller that needed it, and was smuggling new.target through as argument
     /// zero from a JavaScript shim for want of it.
     /// </remarks>
@@ -1203,6 +1203,147 @@ public class JsealConformanceTests
         Assert.Equal(restricted.EngineName, refusal.EngineName);
 
         Assert.True(restricted.EvaluateHostScript("6 * 7", "test:host-still-runs") == JsValue.Number(42d));
+    }
+
+    /// <summary>
+    /// A realm whose policy forbids <c>'unsafe-eval'</c> still runs the page's script ELEMENTS.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the assertion the two-member contract could not make, and its absence was a bug
+    /// waiting for a host to write one line.</b> <c>script-src</c> and <c>'unsafe-eval'</c> are
+    /// different directives: a page served <c>script-src 'unsafe-inline'</c> runs every one of its
+    /// script elements and no <c>eval</c>. With one member for both, a host that read a restrictive
+    /// policy and narrowed the realm — which the provider contract instructs it to do — would have
+    /// refused that page's ordinary scripts. Nothing in this repository had written that line yet,
+    /// so the defect was latent rather than live, and this test is what stops it being written.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void AClassicScriptRunsInARealmThatForbidsGuestEvaluation(string engine)
+    {
+        var provider = Provider(engine);
+
+        using var restricted = provider.CreateRealm(new JsRealmOptions { AllowGuestEval = false });
+
+        // The ability survives the narrowing; only the permission goes.
+        Assert.False(restricted.Capabilities.HasFlag(JsCapabilities.GuestEval));
+        Assert.True(restricted.Capabilities.HasFlag(JsCapabilities.ClassicScriptSource));
+
+        Assert.True(restricted.EvaluateClassicScript("6 * 7", "test:classic") == JsValue.Number(42d));
+
+        Assert.Throws<JsCapabilityUnavailableException>(
+            () => restricted.EvaluateGuestSource("6 * 7", "test:dynamic-refused"));
+
+        // The control, and it is doing real work: a provider whose EvaluateClassicScript refused
+        // everything would satisfy nothing above, but one whose EvaluateGuestSource refused
+        // everything — narrowed or not — would satisfy the refusal having tested no narrowing.
+        using var permissive = provider.CreateRealm(JsRealmOptions.Default);
+
+        Assert.True(permissive.EvaluateClassicScript("6 * 7", "test:classic-permitted") == JsValue.Number(42d));
+        Assert.True(permissive.EvaluateGuestSource("6 * 7", "test:dynamic-permitted") == JsValue.Number(42d));
+    }
+
+    /// <summary>
+    /// And the page's own <c>eval</c> and <c>Function</c> are refused inside that realm — which is
+    /// where a browser refuses them, and where the capability had not been enforced at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A capability that is declared false and enforced nowhere is worse than one that is
+    /// absent</b>, because a host is entitled to branch on it without verifying it. Refusing at the
+    /// host member alone refuses a door no page walks through: a page does not call a contract
+    /// member, it writes <c>eval('…')</c>.
+    /// </para>
+    /// <para>
+    /// <b>It also pins that permission to run a script is not permission for what that script asks
+    /// for next.</b> The classic script here is handed over by the host and compiles; the
+    /// <c>eval</c> inside it is the page asking for more executable bytes and does not. On an engine
+    /// whose only compiler is a registered provider, that distinction is the difference between a
+    /// permission held across the evaluation and one spent by the compile it authorises.
+    /// </para>
+    /// <para>
+    /// <c>new Function</c> is asserted separately from <c>eval</c> on purpose: they are different
+    /// routes to the same compiler, an implementation that stubbed the <c>eval</c> global would pass
+    /// the first and fail the second, and the second is the one a real page's framework uses.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void APagesOwnEvalAndFunctionAreRefusedInARealmThatForbidsGuestEvaluation(string engine)
+    {
+        var provider = Provider(engine);
+
+        using var restricted = provider.CreateRealm(new JsRealmOptions { AllowGuestEval = false });
+
+        Assert.Throws<JsEngineException>(
+            () => restricted.EvaluateClassicScript("eval('1 + 1')", "test:page-eval"));
+
+        Assert.Throws<JsEngineException>(
+            () => restricted.EvaluateClassicScript("new Function('return 1')", "test:page-function"));
+
+        // The control: both are ordinary JavaScript, and a provider that simply could not run them
+        // would satisfy the refusals above without enforcing anything.
+        using var permissive = provider.CreateRealm(JsRealmOptions.Default);
+
+        Assert.True(
+            permissive.EvaluateClassicScript("eval('1 + 1')", "test:page-eval-permitted")
+                == JsValue.Number(2d));
+        Assert.True(
+            permissive.EvaluateClassicScript("new Function('return 7')()", "test:page-function-permitted")
+                == JsValue.Number(7d));
+    }
+
+    /// <summary>
+    /// <c>ForceStrictMode</c> makes the source THIS REPOSITORY hands over strict, and leaves what the
+    /// page evaluates alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The two providers disagreed about this in opposite directions and nothing asked either.</b>
+    /// One forced strictness on both members, so a page's own evaluation was strict when the host had
+    /// only asked for its own to be; the other reached only its bootstrap unit, so nothing was strict
+    /// whatever the host asked. Neither is arguable: an indirect <c>eval</c> evaluates a NEW script
+    /// whose strictness comes from its own source, so a host that forced it strict would make one
+    /// page behave differently here than anywhere else, and a host that could not force its own would
+    /// have an option that did nothing. <c>docs/vm-javascript-profile.md</c> already stated the rule
+    /// and measured the script-engine path against it; this is the realm contract catching up.
+    /// </para>
+    /// <para>
+    /// <b>A value probe, not an exception probe.</b> Strictness is read from what <c>this</c> is
+    /// inside a plain call — <c>undefined</c> when strict, the global when not — so the assertion
+    /// does not depend on which error a provider raises for an undeclared assignment, and a provider
+    /// that refused the probe outright would fail rather than look strict.
+    /// </para>
+    /// <para>
+    /// The third realm is the control that makes the first two mean something: without it, a
+    /// provider that answered <c>"undefined"</c> for every plain call — because it never implemented
+    /// sloppy <c>this</c> at all — would satisfy the host assertion having demonstrated nothing about
+    /// <c>ForceStrictMode</c>.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ForcedStrictModeReachesHostScriptAndNotWhatThePageEvaluates(string engine)
+    {
+        // `this` inside a plain call: undefined under strict mode, the global object otherwise.
+        const string ThisInAPlainCall = "(function () { return typeof this; })()";
+
+        using var forced = NewRealm(engine, new JsRealmOptions { ForceStrictMode = true });
+
+        Assert.Equal("undefined", Eval(forced, ThisInAPlainCall, "test:strict-host"));
+
+        Assert.Equal(
+            "object",
+            forced.ToJsString(forced.EvaluateGuestSource(ThisInAPlainCall, "test:strict-does-not-reach-guest")));
+
+        // The control: a realm that did not ask for it is sloppy on both sides, so the answers above
+        // are ForceStrictMode's doing rather than the provider's fixed behaviour.
+        using var relaxed = NewRealm(engine);
+
+        Assert.Equal("object", Eval(relaxed, ThisInAPlainCall, "test:default-host"));
+        Assert.Equal(
+            "object",
+            relaxed.ToJsString(relaxed.EvaluateGuestSource(ThisInAPlainCall, "test:default-guest")));
     }
 
     [Theory]
@@ -2357,6 +2498,7 @@ public class JsealConformanceTests
         {
             [JsCapabilities.HostScriptSource] = nameof(EvaluatingHostScriptAnswersTheValueOfTheLastExpression),
             [JsCapabilities.GuestEval] = nameof(ARealmBuiltWithoutGuestEvalRefusesGuestSourceAndStillRunsHostScript),
+            [JsCapabilities.ClassicScriptSource] = nameof(AClassicScriptRunsInARealmThatForbidsGuestEvaluation),
             [JsCapabilities.Promises] = nameof(APromiseSettlesFromTheHostAndItsReactionRunsAtTheNextDrain),
             [JsCapabilities.ExoticObjects] = nameof(AnOrdinaryPropertyWinsOverTheExoticHandler),
             [JsCapabilities.GlobalIsVariableScope] = nameof(ATopLevelDeclarationBecomesAPropertyOfTheGlobal),

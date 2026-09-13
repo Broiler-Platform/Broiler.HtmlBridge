@@ -72,13 +72,16 @@ public sealed class VmEngineProvider : IJsEngineProvider
     /// contract JSEAL has not designed, which is a gap on the contract's side rather than this one's.
     /// </para>
     /// <para>
-    /// <b>The six that remain are exactly <see cref="JsCapabilities.Document"/>.</b> That is worth
-    /// stating as an identity rather than leaving a reader to add the flags up, because it is the
-    /// line a host branches on before it decides whether to load a page here.
+    /// <b>Apart from <see cref="JsCapabilities.GuestEval"/>, which a realm built with
+    /// <c>AllowGuestEval</c> false does not get, the seven that remain are exactly
+    /// <see cref="JsCapabilities.Document"/>.</b> That is worth stating as an identity rather than
+    /// leaving a reader to add the flags up, because it is the line a host branches on before it
+    /// decides whether to load a page here.
     /// </para>
     /// </remarks>
     public JsCapabilities Capabilities =>
         JsCapabilities.HostScriptSource |
+        JsCapabilities.ClassicScriptSource |
         JsCapabilities.GuestEval |
         JsCapabilities.Promises |
         JsCapabilities.ExoticObjects |
@@ -92,7 +95,7 @@ public sealed class VmEngineProvider : IJsEngineProvider
         ArgumentNullException.ThrowIfNull(options);
 
         var bridge = new VmHostBridge();
-        var sources = new VmSourceProvider(options.AllowGuestEval);
+        var sources = new VmSourceProvider(options.AllowGuestEval, options.ForceStrictMode);
 
         var catalog = VmCatalog.CreateBuilder()
             .Add(JavaScriptProfile.DescriptorHostingRealms(bridge))
@@ -175,7 +178,9 @@ public sealed class VmEngineProvider : IJsEngineProvider
             // declares neither; the bootstrap program that built this realm was compiled and
             // instantiated rather than evaluated, so getting this far proves nothing about `eval`.
             if (bridge.Eval.Kind is not JsHostValueKind.Function)
-                capabilities &= ~(JsCapabilities.HostScriptSource | JsCapabilities.GuestEval);
+                capabilities &= ~(JsCapabilities.HostScriptSource |
+                                  JsCapabilities.ClassicScriptSource |
+                                  JsCapabilities.GuestEval);
 
             return new VmRealm(runtime, artifact, instance, bridge, sources, capabilities, Name);
         }

@@ -151,9 +151,12 @@ internal sealed class JSWorker
 
             try
             {
-                // The worker script is the page's, not this repository's, so it is guest source — the
-                // distinction IJsSource draws, and the one a Content-Security-Policy is about.
-                realm.EvaluateGuestSource(_script.Source, $"worker:{_name}");
+                // A worker's top-level script is a classic script and 'unsafe-eval' has nothing to say
+                // about it, so this is not the eval-gated member -- which it was, on the reasoning that
+                // the text is the page's. True, and not what decides it. Nothing on this path takes the
+                // script-src decision the classic member expects of its caller (for a worker the
+                // directive is worker-src): no Content-Security-Policy is consulted before this runs.
+                realm.EvaluateClassicScript(_script.Source, $"worker:{_name}");
             }
             catch (Exception ex)
             {
@@ -474,7 +477,7 @@ internal sealed class JSWorker
             // Deliberately not wrapped: a throwing imported script propagates to the caller,
             // exactly as an inline one would. Swallowing it here would leave the worker running
             // with a half-initialised global and no way to find out.
-            realm.EvaluateGuestSource(imported.Value.Source, $"worker:{_name}:{specifier}");
+            realm.EvaluateClassicScript(imported.Value.Source, $"worker:{_name}:{specifier}");
         }
 
         return JsValue.Undefined;
