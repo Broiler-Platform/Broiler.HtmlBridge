@@ -9,12 +9,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the text-content trio <c>textContent</c> / <c>innerText</c> / <c>outerText</c> (read returns the node's
 /// text value; only <c>textContent</c> is writable, replacing all children with a single text node). Every
 /// operation routes through the bridge's shared parser/serializer and canonical tree mutation, reached
-/// through the <see cref="IElementContentHost"/> contract. The two entry points are now the two
-/// interfaces: the serialization pair is <c>Element</c>'s and lives on its prototype, while
+/// through the <see cref="IElementContentHost"/> contract. The three entry points follow the
+/// interfaces: the serialization pair is <c>Element</c>'s and goes on <c>Element.prototype</c>,
 /// <c>textContent</c> (<c>Node</c>'s, deliberately shadowed here because an element's operation differs
-/// from a character-data node's) and the two <c>HTMLElement</c> text members stay on each wrapper. The
-/// split was originally made to keep the unrelated <c>shadowRoot</c> accessor in its position between
-/// them. Was the bridge's inline <c>innerHTML</c>/<c>outerHTML</c>/<c>textContent</c>/
+/// from a character-data node's) stays on each wrapper, and the two <c>HTMLElement</c> text members go
+/// on <c>HTMLElement.prototype</c>. A wrapper that cannot inherit one of those prototypes (one minted
+/// before the realm carried it or, for <c>HTMLElement</c>'s, a non-HTML element) carries those members
+/// itself. The serialization pair and the text members were first split to keep the unrelated
+/// <c>shadowRoot</c> accessor in its position between them; that position is decided in
+/// <c>DomBridge/ElementInterface.cs</c> now. Was the bridge's inline <c>innerHTML</c>/<c>outerHTML</c>/<c>textContent</c>/
 /// <c>innerText</c>/<c>outerText</c> registration plus the <c>JsJsObjectsSetInnerHTML016Core</c>/
 /// <c>SetOuterHTML018Core</c>/<c>SetTextContent021Core</c> callbacks.
 /// </summary>
@@ -27,10 +30,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>toString</c> is the whole of how a templating library hands over a fragment.
 /// </para>
 /// <para>
-/// <b><see cref="InstallTextContent"/> is the one member still shaped by its caller.</b> It is reached
-/// from the wrapper factory (<c>DomBridge/JsObjects.cs</c>), which has not migrated and holds an engine
-/// object, so the parameter is one — the seam unwraps it, and the realm comes off the host rather than
-/// off a caller that has none to give. The member it installs is built by the realm like the other four.
+/// <b><see cref="InstallTextContent"/> takes the wrapper handle and reads the realm off the host.</b>
+/// It is reached from the wrapper factory (<c>DomBridge/JsObjects.cs</c>), which hands it the handle it
+/// minted; the member it installs is built by the realm like the other four. (This said the factory had
+/// not migrated and held an engine object, so the parameter was one and a seam unwrapped it; that seam,
+/// <c>FromEngineObject</c> just after the realm read, wrapped it into a handle, and 45607c6 removed it.)
 /// </para>
 /// </remarks>
 internal static class ElementContentBinding

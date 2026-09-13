@@ -12,11 +12,10 @@ namespace Broiler.HtmlBridge;
 /// widen the public <c>DomBridge</c> surface.
 /// </summary>
 /// <remarks>
-/// This is the half-migrated seam for the form slice: the module speaks JSEAL, the rest of the bridge
-/// still holds engine objects, and <see cref="Dom.Runtime.JsInterop"/> is the cast between them. It
-/// is a cast and not a conversion — a JSEAL object handle carries the engine's own object — so
-/// wrapper identity (<c>form.q === form.elements.q</c>, and the weak tables keyed on it) is the same
-/// question it was before.
+/// The form slice is not a seam any more: the module speaks JSEAL, <c>WrapNode</c> is forwarded as it
+/// stands and no member converts, so wrapper identity (<c>form.q === form.elements.q</c>) is the same
+/// question it was before. (This said the rest of the bridge still held engine objects and
+/// <c>JsInterop</c> cast between them.)
 /// </remarks>
 public sealed partial class DomBridge : IFormHost
 {

@@ -10,8 +10,9 @@ namespace Broiler.HtmlBridge;
 // bridge private field and the public surface is unchanged.
 //
 // The contract is spelled in JSEAL and so is every bridge member behind it, so this file is no longer
-// a seam: the wrapper factory answers a handle and the reverse lookup takes one. The wrapper the module
-// receives is the same instance the bridge's wrapper tables are keyed on.
+// a seam: the wrapper factory answers a handle and the reverse lookup takes one. The node wrappers the
+// module hands back are the handles JsObjectRegistry caches per node, and the reverse lookup reads its
+// reverse table, which keys on JsValue.ObjectIdentity.
 public sealed partial class DomBridge : Dom.Features.IDocumentLevelFactoryHost
 {
     JsValue Dom.Features.IDocumentLevelFactoryHost.ToJsObject(DomNode node) =>

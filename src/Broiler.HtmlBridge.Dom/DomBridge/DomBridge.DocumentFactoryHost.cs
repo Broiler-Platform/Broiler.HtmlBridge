@@ -10,14 +10,16 @@ namespace Broiler.HtmlBridge;
 // unchanged.
 //
 // The contract is spelled in JSEAL and so is every bridge member behind it, so this file is no longer
-// a seam: the wrapper factory answers a handle and the reverse lookup takes one. The wrappers the
-// module receives and hands back are the instances the bridge's wrapper tables are keyed on, and those
-// tables key on JsValue.ObjectIdentity — the reference the handle carries.
+// a seam: the wrapper factory answers a handle and the reverse lookup takes one. A node wrapper the
+// module hands back through WrapNode is the handle JsObjectRegistry caches for the node, and the
+// reverse lookup reads the registry's reverse table, which keys on JsValue.ObjectIdentity. The Attr
+// that createAttribute hands back is not a node wrapper: BuildStandaloneAttrNode mints it and no table
+// caches it.
 public sealed partial class DomBridge : Dom.Features.IDocumentFactoryHost
 {
     // The bridge's own WrapNode, which answers the handle. This used to read
-    // FromEngineObject(ToJSObject(node)), and ToJSObject is ToEngineObject(WrapNode(node)) — the same
-    // wrapper converted down and back up, twice, to arrive where it started.
+    // FromEngineObject(ToJSObject(node)), when ToJSObject was ToEngineObject(WrapNode(node)) — the same
+    // wrapper converted down and back up to arrive where it started. ToJSObject was retired in bcce315.
     JsValue Dom.Features.IDocumentFactoryHost.WrapNode(DomNode node) => WrapNode(node);
 
     // Missing rather than undefined for "nothing is defined for this name": the module tests it with

@@ -46,11 +46,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// content type gives the result an <em>empty</em> type rather than inheriting the source's.
 /// </para>
 /// <para>
-/// <b>ONE engine type survives the JSEAL migration here, and it is named where it occurs.</b> The
-/// blob store is keyed on the engine object a handle carries, because <see cref="JsValue"/> is a
-/// struct and a weak table needs a reference to key on — object identity is the whole of what makes
-/// a blob a blob, and JSEAL exposes no identity handle a table can hold. That is the remaining gap,
-/// and it is a cost of the value design rather than a missing member.
+/// <b>No engine type survives the JSEAL migration here.</b> The blob store is keyed on
+/// <see cref="JsValue.ObjectIdentity"/>, the reference a handle carries, which a weak table can hold —
+/// object identity is the whole of what makes a blob a blob. (This said the store was keyed on the
+/// engine object, because a struct handle could not key a weak table and JSEAL exposed no identity to
+/// hold; the struct was never the key, and that member is the identity.)
 /// </para>
 /// <para>
 /// <b>The binary-data gap this file specified is closed, and the specification is worth keeping

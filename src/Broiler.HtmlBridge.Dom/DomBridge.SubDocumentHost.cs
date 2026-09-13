@@ -45,8 +45,9 @@ public sealed partial class DomBridge : ISubDocumentHost
     // (DomBridge.cs) as it stands.
     JsValue ISubDocumentHost.MainWindow => WindowHandle;
 
-    // The bridge's wrapper factory answers a handle now (DomBridge/JsObjects.cs), so this forwards
-    // rather than unwrapping the engine-typed adapter beside it and re-wrapping the result.
+    // A plain forward to the bridge's wrapper factory (DomBridge/JsObjects.cs), which answers a handle.
+    // Until 5282d02 this read FromEngineObject(ToJSObject(node)), when ToJSObject was the engine-typed
+    // factory itself; 5282d02 made ToJSObject a cast over WrapNode, and bcce315 retired it.
     JsValue ISubDocumentHost.ToJsObject(DomNode node) => WrapNode(node);
 
     void ISubDocumentHost.LinkToInterface(JsValue wrapper, string interfaceName) =>

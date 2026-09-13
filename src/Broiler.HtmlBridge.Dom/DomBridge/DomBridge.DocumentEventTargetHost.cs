@@ -21,7 +21,7 @@ public sealed partial class DomBridge : Dom.Features.IDocumentEventTargetHost
         => GetEventListeners(node);
 
     // The migrated dispatch answers the "not cancelled" boolean the DOM says dispatchEvent returns,
-    // which is what the engine-typed adapter beside it re-materialised as a JSBoolean.
+    // which the engine-typed adapter that stood beside it re-materialised as a JSBoolean.
     JsValue Dom.Features.IDocumentEventTargetHost.DispatchEvent(DomNode target, JsValue evt)
         => JsValue.Boolean(_eventDispatch.DispatchEventOnElement(target, evt).AsBoolean);
 }
