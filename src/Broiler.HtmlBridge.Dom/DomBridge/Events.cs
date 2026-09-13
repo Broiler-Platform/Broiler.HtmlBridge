@@ -193,10 +193,11 @@ public sealed partial class DomBridge
     /// <b>It is not a cosmetic re-labelling on every engine.</b> On a provider whose only compiler is
     /// a registered artifact provider, the host-script mark is the permission to compile and is held
     /// for the whole evaluation; the classic-script permit is spent by the one compile it authorises
-    /// and suspends that mark while it runs. So this moves a page's program off the permission
-    /// reserved for source that never calls the page's code, which is the distinction the third
-    /// member was added to make, and this was the last site still compiling a page's program under
-    /// that permission.
+    /// and suspends that mark while it runs. So this moves a page's program off the permission meant
+    /// for source this repository authored, which is the distinction the third member was added to
+    /// make, and this was the last site handing that permission source text the page wrote. It is not
+    /// the last way the page's code can run while the mark is held: <c>broiler:window-onload</c> is
+    /// host script that calls the page's <c>onload</c>.
     /// </para>
     /// <para>
     /// The handle is stored as it is. This remark used to say it had to be unwrapped first because the
