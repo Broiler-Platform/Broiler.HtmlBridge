@@ -14,8 +14,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The contract names no engine type, so the wrapper factory is spelled <see cref="ToWrapper"/> —
 /// rather than after the engine's own object class, as it was — and answers a
 /// <see cref="JsValue"/>. It hands back the <em>same</em> cached
-/// wrapper instance the bridge has always handed out — a handle carries the engine's own object — so
-/// <c>el.firstElementChild === el.firstElementChild</c> is the same question it was.
+/// wrapper the bridge has always handed out, now as a handle that carries the same object on every
+/// call, so <c>el.firstElementChild === el.firstElementChild</c> is the same question it was.
 /// </para>
 /// <para>
 /// <see cref="Realm"/> is new to the contract because <c>children</c> used to construct its Array

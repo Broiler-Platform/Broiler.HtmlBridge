@@ -228,9 +228,10 @@ public class JsealConformanceTests
         Assert.True(first.IsObject);
         Assert.True(first.AsBoolean);
 
-        // `{} === {}` is false and `x === x` is true, and a provider gets the second one right only
-        // by handing back a handle over the engine's own object rather than a fresh wrapper — which
-        // is what the seven wrapper tables in the bridge are keyed on.
+        // `{} === {}` is false and `x === x` is true. Across read paths a provider keeps identity only by
+        // handing back one canonical reference per guest object — the engine's own, or a box made once per
+        // identity (TwoHandlesForOneObjectAreEqualAndHashTheSame asserts it route by route) — which is
+        // JsValue.ObjectIdentity, what the bridge's seven weak per-object tables key on.
         Assert.False(first == second);
 #pragma warning disable CS1718 // Comparing a handle to itself IS the assertion here.
         Assert.True(first == first);

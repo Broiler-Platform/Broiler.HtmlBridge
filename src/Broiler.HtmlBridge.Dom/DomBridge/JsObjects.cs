@@ -10,13 +10,13 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Two names for one wrapper, and the direction between them has inverted.</b>
-/// <see cref="WrapNode"/> is the JSEAL-vocabulary entry point and now the implementation: the object
+/// <b>One wrapper factory, and it answers a handle.</b>
+/// <see cref="WrapNode"/> is the JSEAL-vocabulary entry point and the implementation: the object
 /// is minted by <see cref="IJsRealm.NewObject"/> — or by <see cref="IJsRealm.NewExotic"/> for a
-/// <c>&lt;form&gt;</c> — and all of its members are installed through the realm.
-/// <see cref="ToJSObject"/> is the engine-typed sibling and is one cast over it. They answer the same
-/// instance, because a JSEAL object handle carries the engine's own object; wrapper identity lives in
-/// <c>Runtime/JsObjectRegistry.cs</c> and is untouched by either.
+/// <c>&lt;form&gt;</c> — and all of its members are installed through the realm. This paragraph named
+/// an engine-typed sibling, <c>ToJSObject</c>, as one cast over it; that member was retired in bcce315.
+/// Wrapper identity lives in <c>Runtime/JsObjectRegistry.cs</c>, whose wrapper-to-node table keys on
+/// <see cref="JsValue.ObjectIdentity"/>.
 /// </para>
 /// <para>
 /// <b>Every install site here has migrated, and this paragraph said two had not.</b> A wrapper's
@@ -30,10 +30,10 @@ namespace Broiler.HtmlBridge;
 /// pass had already moved from an engine object to the handle.
 /// </para>
 /// <para>
-/// <b><see cref="ToJSObject"/> stays, and its callers are why.</b> Twenty-six files across this
-/// assembly ask for a node's wrapper as the engine's object. Migrating its <em>return type</em> would
-/// ripple into every one of them at once, which is the change this file-by-file port exists to avoid —
-/// so the type stays and the body no longer does: what it wraps is now built the realm's way.
+/// <b>There is no engine-typed wrapper factory left.</b> This paragraph kept <c>ToJSObject</c> for the
+/// files said to ask for a node's wrapper as the engine's object; bcce315 retired it. Four host
+/// contracts name the same operation <c>ToJsObject</c> (<c>IDocumentLevelFactoryHost</c>,
+/// <c>IDocumentQueryHost</c>, <c>IDocumentStructureHost</c>, <c>ISubDocumentHost</c>); each forwards here.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -51,24 +51,24 @@ public sealed partial class DomBridge
     private int _topLayerCounter;
 
     /// <summary>
-    /// A node's JS wrapper as a JSEAL handle — the engine-neutral name for what
-    /// <see cref="ToJSObject"/> answers, and the one a migrated binding asks for.
+    /// A node's JS wrapper as a JSEAL handle, answered from <c>JsObjectRegistry</c> while the node stays
+    /// registered and minted here otherwise; the four host contracts' <c>ToJsObject</c> forward here.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>It is the same object, not a conversion.</b> A JSEAL object handle carries the engine's own
-    /// object, so a wrapper reached through here and one reached through
-    /// <see cref="ToJSObject"/> are the same instance: <c>el === el</c> holds, and the seven
-    /// <c>ConditionalWeakTable</c>s the bridge keys on wrapper identity — <c>JsObjectRegistry</c>
-    /// first among them — keep answering the question they always asked.
+    /// <b>The same object, whichever name reaches it.</b> A wrapper reached through here and one
+    /// reached through a host contract's <c>ToJsObject</c> are the same handle over the same object, so
+    /// <c>el === el</c> holds, and <c>JsObjectRegistry</c>'s reverse table, which keys on
+    /// <see cref="JsValue.ObjectIdentity"/>, sees one object. (This named the retired <c>ToJSObject</c>
+    /// as the second route.)
     /// </para>
     /// <para>
-    /// <b>This is the implementation now, and it used to be the other way round.</b> Building a wrapper
+    /// <b>This is the implementation, and it used to be the other way round.</b> Building a wrapper
     /// is not one file's work: the members go on it from a dozen modules, and while the ones that had
     /// not migrated still installed engine functions there was nothing to be gained by minting the
     /// object through the realm — the realm would have named it and the engine would still have
-    /// furnished it. All but three of those modules read a <see cref="JsCall"/> now, so the object is
-    /// the realm's and <see cref="ToJSObject"/> is the cast over it.
+    /// furnished it. Every one of those modules reads a <see cref="JsCall"/> now (the class remarks name
+    /// the last, <c>EventTargetBinding</c>), so the object is the realm's and nothing here casts it back.
     /// </para>
     /// </remarks>
     internal JsValue WrapNode(DomNode node)
@@ -306,8 +306,8 @@ public sealed partial class DomBridge
         // submit() — for form elements (Phase 3 P3.61: co-located FormSubmitBinding feature module,
         // reached through IFormSubmitHost; DomBridge.FormSubmitHost.cs).
         // FormSubmitBinding is migrated: the method is minted by the realm — which is what gives its
-        // body a call frame to build the synthetic event in — and the seam unwraps the handle for
-        // this engine-typed wrapper, and wraps the wrapper as the event's target.
+        // body a call frame to build the synthetic event in — and it is handed this wrapper's handle,
+        // which becomes the event's target. (This said a seam unwrapped it for an engine-typed wrapper.)
         Realm.DefineValue(handle, "submit",
             Realm.NewMethod("submit",
                 (in call) => Dom.Features.FormSubmitBinding.Submit(this, element, handle, in call)));
