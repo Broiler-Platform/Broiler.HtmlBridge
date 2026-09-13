@@ -72,10 +72,11 @@ public sealed class VmEngineProvider : IJsEngineProvider
     /// contract JSEAL has not designed, which is a gap on the contract's side rather than this one's.
     /// </para>
     /// <para>
-    /// <b>Apart from <see cref="JsCapabilities.GuestEval"/>, which a page's policy may take away, the
-    /// seven that remain are exactly <see cref="JsCapabilities.Document"/>.</b> That is worth stating
-    /// as an identity rather than leaving a reader to add the flags up, because it is the line a host
-    /// branches on before it decides whether to load a page here.
+    /// <b>Apart from <see cref="JsCapabilities.GuestEval"/>, which a realm built with
+    /// <c>AllowGuestEval</c> false does not get, the seven that remain are exactly
+    /// <see cref="JsCapabilities.Document"/>.</b> That is worth stating as an identity rather than
+    /// leaving a reader to add the flags up, because it is the line a host branches on before it
+    /// decides whether to load a page here.
     /// </para>
     /// </remarks>
     public JsCapabilities Capabilities =>
