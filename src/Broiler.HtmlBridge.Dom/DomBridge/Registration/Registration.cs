@@ -10,10 +10,15 @@ using Broiler.HtmlBridge.Logging;
 //   * AdoptRealm (DomBridge.Realm.cs) takes that same context to produce the realm, so the context
 //     has to reach it.
 //   * The three wrapper-root fields (_documentJSObject, _windowJSObject, _visualViewportJSObject)
-//     are engine-typed, DictionaryCodeCache is the engine's own cache type, and
-//     RegisterCustomElements (DomBridge/Registration/CustomElements.cs) takes the window as an
-//     engine object. The fields and that hub are read by files outside this migration group, so the
-//     two ToEngineObject calls below stay until those readers ask with a handle.
+//     are engine-typed and DictionaryCodeCache is the engine's own cache type. The fields are read
+//     by files outside this migration group, so the two ToEngineObject calls below stay until those
+//     readers ask with a handle.
+//
+//     RegisterCustomElements (DomBridge/Registration/CustomElements.cs) used to be named here as a
+//     third holder of the engine-typed window, and outside the migration group besides. It is
+//     neither: it is a private method of this class with exactly one caller, and that caller is the
+//     line in this file. It takes a handle now, so the window conversion below feeds
+//     _windowJSObject and nothing else.
 //
 // The adapters that used to be a fourth reason are gone; see the note at the foot of this file.
 // Everything the hubs install is built through the realm, and every module they register is handed
@@ -221,7 +226,7 @@ public sealed partial class DomBridge
         // Custom elements last among the constructor globals: its HTMLElement replaces the
         // non-constructible one the polyfill pass registers, and it keeps that interface's
         // prototype object so every element wrapper already linked to it stays linked.
-        RegisterCustomElements(context, windowObject);
+        RegisterCustomElements(window);
 
         LinkToInterface(documentObject, "HTMLDocument");
         foreach (var (node, wrapper) in _jsObjects.Entries)

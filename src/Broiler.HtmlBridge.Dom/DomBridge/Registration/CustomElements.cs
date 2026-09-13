@@ -1,8 +1,6 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -54,18 +52,14 @@ public sealed partial class DomBridge
     /// point, and the page's Content-Security-Policy has no say over it.
     /// </para>
     /// </remarks>
-    /// <param name="context">
-    /// The engine context the unmigrated caller (<c>DomBridge/Registration/Registration.cs</c>) still
-    /// holds. Nothing here reads it: this pass works through <see cref="Realm"/>, which is the same
-    /// realm. The parameter stays only so that call site needs no edit while it is another group's
-    /// file.
-    /// </param>
     /// <param name="window">
-    /// The window object <c>customElements</c> is installed on. Under this engine it is the global
-    /// itself, but it is taken rather than derived so this pass installs on the same object the
-    /// registration hub built everything else on.
+    /// The window object <c>customElements</c> is installed on, as a handle. Under this engine it
+    /// is the global itself, but it is taken rather than derived so this pass installs on the same
+    /// object the registration hub built everything else on — and a handle carries that object
+    /// rather than wrapping it, so the property defined below lands on the very window every other
+    /// registration pass wrote to, not on a second view of it.
     /// </param>
-    private void RegisterCustomElements(JSContext context, JSObject window)
+    private void RegisterCustomElements(JsValue window)
     {
         var realm = Realm;
 
@@ -143,7 +137,7 @@ public sealed partial class DomBridge
             """,
             "broiler:custom-elements");
 
-        realm.DefineValue(JsInterop.FromEngineObject(window), "customElements", registry);
+        realm.DefineValue(window, "customElements", registry);
         SubscribeCustomElementReactions();
     }
 
