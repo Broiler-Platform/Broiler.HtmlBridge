@@ -1,5 +1,4 @@
 using Broiler.HtmlBridge.Jseal;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 
@@ -28,9 +27,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// because the record lives in <c>DomBridge/RuntimeStates.cs</c> and is shared with the window,
 /// form-submit and messaging dispatch paths; it is invoked through <c>DomBridge.InvokeEventListener</c>,
 /// which those same paths share and which is where a listener turn is bracketed for the entry trace.
-/// So the engine's event object is taken once per dispatch — a cast over the object this handle
-/// already carries, not a conversion — and handed to that invoker. When the listener store moves,
-/// both lines go with it.
+/// That strand is the listener alone. The event goes to the invoker as the handle this module was
+/// given, with the realm beside it, and the invoker does the unwrap. What stood here said the
+/// engine's event object was taken "once per dispatch": it was taken once per listener fired, inside
+/// the loop in <c>FireListeners</c>, and the "both lines" that were to go with the listener store
+/// were one line. When the store moves, that line need not change at all.
 /// </para>
 /// </remarks>
 internal sealed class EventDispatchBinding(IEventDispatchHost host)
@@ -158,10 +159,9 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
                 // In target phase (capturePhase == null), fire all listeners.
                 if (capturePhase.HasValue && registration.Capture != capturePhase.Value) continue;
                 currentListenerPassive = registration.Passive;
-                // The listener and the invoker are both still engine-typed (see the remarks on this
-                // type); JsInterop.ToEngineObject is a cast over the object this handle already
-                // carries, so the listener sees the same event object the page dispatched.
-                DomBridge.InvokeEventListener(registration.Listener, JsInterop.ToEngineObject(evt), "DomBridge.dispatchEvent");
+                // The listener is still the engine's (see the remarks on this type); the event goes
+                // over as the handle the page dispatched, and the invoker unwraps it.
+                DomBridge.InvokeEventListener(_host.Realm, registration.Listener, evt, "DomBridge.dispatchEvent");
                 currentListenerPassive = false;
 
                 if (registration.Once)

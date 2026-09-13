@@ -26,7 +26,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>DomBridge/RuntimeStates.cs</c>, which this migration round does not own; it is shared with the
 /// window, form-submit and messaging dispatch paths, so its shape cannot move for the events slice
 /// alone. The listener is invoked through <c>DomBridge.InvokeEventListener</c>, which is likewise
-/// still engine-typed because unmigrated callers share it.
+/// still engine-typed in its listener, and for that record's reason rather than because unmigrated
+/// callers share it: all five of its callers hold the event as a handle, and it takes the event as one.
 /// </para>
 /// <para>
 /// <b><see cref="InlineEventHandler"/> is narrower than the map it reads, and no longer because of the

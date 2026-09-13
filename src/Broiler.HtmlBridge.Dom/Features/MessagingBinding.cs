@@ -23,8 +23,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// owner-window map, which it does not own) and reaches the document's browsing-context operations —
 /// window resolution, the window-context switch, frame-action queueing and top-window dispatch —
 /// through the narrow <see cref="IMessagingHost"/> contract. It never touches an arbitrary bridge
-/// field. The static, engine-neutral bridge helper <c>DomBridge.InvokeEventListener</c> is called
-/// directly; a <c>DataCloneError</c> is raised through <see cref="IJsCalls.DomError"/>.
+/// field. The static bridge helper <c>DomBridge.InvokeEventListener</c>, whose listener parameter is
+/// still the engine's value (see the remarks), is called directly; a <c>DataCloneError</c> is raised
+/// through <see cref="IJsCalls.DomError"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -77,8 +78,9 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     // composedPath and the two legacy accessors — goes through IJsRealm, and so do the listener and
     // owner-window maps it files a target in. What does not is one record: a registration's listener
     // is a Broiler.JS value (DomBridge/RuntimeStates.cs), which is what EventListenerBinding's two
-    // operations and the bridge's listener invoker are written against. Neither that record nor the
-    // four other firing paths that share it belong to this round.
+    // operations and the bridge's listener invoker are written against. That record is shared with
+    // the three other firing paths that call the same invoker — element and document dispatch,
+    // window dispatch and form submit — so it moves for all four at once, not for this section.
 
     /// <summary>Installs <c>addEventListener</c>/<c>removeEventListener</c>/<c>dispatchEvent</c> on a
     /// generic event target (a message port or a sub-window).</summary>
@@ -231,11 +233,10 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
 
         InvokeEventTargetHandler(target, eventType, evt, logContext);
 
-        // The store is keyed on handles now, so the target goes in as it stands. The invoker is still
-        // the engine's — see the note at the head of this section — so the event is unwrapped once,
-        // which is a cast rather than a conversion; the registration's listener is never named here
-        // because the work is handed over as an Action instead.
-        var engineEvent = JsInterop.ToEngineObject(evt);
+        // The store is keyed on handles, and so is the invoker's event parameter, so the target and
+        // the event both go in as they stand. The registration's listener is still the engine's; it is
+        // read inside the Action below rather than handed to RunInOwnerWindow, which is why that
+        // method names no listener type.
         if (_eventTargets.TryGetTargetListeners(target, out var listenersByType) &&
             listenersByType.TryGetValue(eventType, out var listeners))
         {
@@ -245,7 +246,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
                     break;
 
                 currentListenerPassive = registration.Passive;
-                RunInOwnerWindow(target, () => DomBridge.InvokeEventListener(registration.Listener, engineEvent, logContext));
+                RunInOwnerWindow(target, () => DomBridge.InvokeEventListener(realm, registration.Listener, evt, logContext));
                 currentListenerPassive = false;
 
                 if (registration.Once)
@@ -259,12 +260,21 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
     }
 
     /// <remarks>
+    /// <para>
     /// The <c>on…</c> handler is read in the engine's vocabulary on purpose. It is handed to
-    /// <c>DomBridge.InvokeEventListener</c>, which takes an engine value, and a handler a page set to
-    /// a primitive must still reach it: a handle cannot carry one, so a JSEAL read here would have to
-    /// skip the call — which is a no-op either way, but it would also skip the listener-turn bracket
-    /// that invoker opens. The three cases that return early (never installed, <c>null</c>,
-    /// <c>undefined</c>) are the three the former pattern tested.
+    /// <c>DomBridge.InvokeEventListener</c> as the listener, the one parameter there that is still an
+    /// engine value, and a handler a page set to a primitive must still reach it — the call is a
+    /// no-op either way, but the invoker still opens its listener-turn bracket around it. The three
+    /// cases that return early (never installed, <c>null</c>, <c>undefined</c>) are the three the
+    /// former pattern tested.
+    /// </para>
+    /// <para>
+    /// <b>The reason recorded here was not quite the reason.</b> It said a handle cannot carry a
+    /// primitive. A handle carries a number, a string or a boolean inline. What cannot is the way
+    /// back: a primitive handle holds no engine reference, so the bridge's two unwraps answer null for
+    /// one or throw, and it is that conversion, not the read, that would drop the call. The event is
+    /// no longer part of this: the invoker takes it as the handle it is.
+    /// </para>
     /// </remarks>
     private void InvokeEventTargetHandler(JsValue target, string eventType, JsValue evt, string logContext)
     {
@@ -272,8 +282,8 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
         if (handler is null || handler.IsNullOrUndefined)
             return;
 
-        var engineEvent = JsInterop.ToEngineObject(evt);
-        RunInOwnerWindow(target, () => DomBridge.InvokeEventListener(handler, engineEvent, logContext));
+        var realm = _host.Realm;
+        RunInOwnerWindow(target, () => DomBridge.InvokeEventListener(realm, handler, evt, logContext));
     }
 
     /// <summary>
