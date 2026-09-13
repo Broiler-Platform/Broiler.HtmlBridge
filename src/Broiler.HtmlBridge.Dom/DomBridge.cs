@@ -1,6 +1,5 @@
 using System.Net;
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Engine;
 using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Logging;
@@ -670,7 +669,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     private Dictionary<string, List<EventListenerRegistration>> GetEventListeners(DomNode element) =>
         _eventTargets.NodeListeners(element);
 
-    private Dictionary<string, JSValue> GetInlineEventHandlers(DomNode element) =>
+    private Dictionary<string, JsValue> GetInlineEventHandlers(DomNode element) =>
         InlineStyleStateFor(element).InlineEventHandlers;
 
     internal bool TryGetStoredScrollOffset(DomElement element, bool vertical, out double offset)

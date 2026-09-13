@@ -148,17 +148,18 @@ public sealed partial class DomBridge
     /// bridge-owned inline event handler state.
     /// </summary>
     /// <remarks>
-    /// <b>The compile goes through the realm; the store it writes into does not.</b>
+    /// <b>The compile goes through the realm, and the store holds what the realm answered.</b>
     /// <see cref="IJsSource.EvaluateHostScript"/> is the right call and not merely the available one:
     /// an event-handler content attribute is source the <em>page</em> wrote, but the wrapper around it
     /// is this repository's, and HTML §8.1.5.1 makes the attribute subject to the
     /// <c>script-src</c>/<c>unsafe-inline</c> decision taken above rather than to <c>eval</c>'s — so
     /// the Content-Security-Policy check stays where it is and the evaluation is unconditional, which
-    /// is exactly what the bare <c>Eval</c> it replaces did. The compiled handler is unwrapped to the
-    /// engine's own value because the map it lands in is keyed by name over the engine's value type,
-    /// declared in the unowned <c>DomBridge/RuntimeStates.cs</c> and read by the equally unowned
-    /// dispatch path; unwrapping is a cast over the object the handle already carries, so the function
-    /// a listener runs is the one compiled here.
+    /// is exactly what the bare <c>Eval</c> it replaces did. The handle is stored as it is. This
+    /// paragraph used to say it had to be unwrapped first because the map was typed over the engine's
+    /// value, "declared in the unowned <c>DomBridge/RuntimeStates.cs</c> and read by the equally unowned
+    /// dispatch path". The dispatch path is <c>Features/EventDispatchBinding.cs</c>, which already spoke
+    /// JSEAL and was handed a handle minted back over the very object unwrapped here, so this unwrap
+    /// and that wrap were one round trip. The function dispatch runs is still the one compiled here.
     /// </remarks>
     internal void CompileInlineEventAttribute(DomElement element, string attrName, string code)
     {
@@ -190,7 +191,7 @@ public sealed partial class DomBridge
             var fn = realm.EvaluateHostScript(
                 $"(function(event) {{ {svgEventAlias}{code} }})", "broiler:inline-event-handler");
             if (fn.IsFunction)
-                GetInlineEventHandlers(element)[eventName] = JsInterop.ToEngineObject(fn);
+                GetInlineEventHandlers(element)[eventName] = fn;
         }
         catch (Exception ex)
         {

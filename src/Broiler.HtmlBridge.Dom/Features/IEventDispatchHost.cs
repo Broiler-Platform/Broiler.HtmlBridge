@@ -16,8 +16,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// <para>
 /// The contract names no engine type: wrappers are <see cref="JsValue"/> handles and the realm is
-/// where the event object's members are installed. Two things did <em>not</em> move, and both are
-/// recorded here rather than hidden.
+/// where the event object's members are installed. This used to say two things behind it did
+/// <em>not</em> move. One of them has since, and both are recorded here rather than hidden: the one
+/// that has not, and why the one that has was never waiting on what it was said to wait on.
 /// </para>
 /// <para>
 /// <b><see cref="GetEventListeners"/> hands back engine-typed registrations.</b>
@@ -28,10 +29,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// still engine-typed because unmigrated callers share it.
 /// </para>
 /// <para>
-/// <b><see cref="InlineEventHandler"/> is narrower than the map it reads.</b> The inline <c>on*</c>
-/// handlers live on <c>InlineStyleRuntimeState</c> as a dictionary of engine values — the
-/// same unowned file — so the contract asks for the one handler it wants rather than for the map,
-/// and the bridge does the engine-typed lookup on its own side of the seam.
+/// <b><see cref="InlineEventHandler"/> is narrower than the map it reads, and no longer because of the
+/// map's type.</b> This paragraph said the inline <c>on*</c> handlers lived on
+/// <c>InlineStyleRuntimeState</c> as a dictionary of engine values in "the same unowned file", so the
+/// bridge did the engine-typed lookup on its own side. The map is a dictionary of
+/// <see cref="JsValue"/> handles now, and the file was never the constraint: every reader and writer
+/// the map has is in three bridge files, which moved together. The contract still asks for the one
+/// handler it fires rather than for the map, because the map is also the reflector's and the attribute
+/// compiler's store, and a dispatch module has no business writing to it.
 /// </para>
 /// </remarks>
 internal interface IEventDispatchHost
@@ -64,9 +69,9 @@ internal interface IEventDispatchHost
     /// </summary>
     /// <remarks>
     /// Answers <see cref="JsValue.Missing"/> — not the stored value — for anything that is not a
-    /// callable, which is the callability test the dispatch loop used to make itself. The
-    /// test stays on the bridge's side because the store is engine-typed; see the remarks on this
-    /// interface.
+    /// callable, which is the callability test the dispatch loop used to make itself. The test stays on
+    /// the bridge's side because the store is the bridge's, not because it is engine-typed, which is what
+    /// this used to say; it is a read of the stored handle's kind. See the remarks on this interface.
     /// </remarks>
     JsValue InlineEventHandler(DomNode node, string eventType);
 }

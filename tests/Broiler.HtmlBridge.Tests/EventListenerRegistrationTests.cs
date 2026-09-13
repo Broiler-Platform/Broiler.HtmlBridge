@@ -191,6 +191,52 @@ public class EventListenerRegistrationTests
                 """));
     }
 
+    [Fact]
+    public void TheOnclickReflectorAnswersTheStoredHandlerAndClearsOnANonFunction()
+    {
+        // element.onclick reads and writes the same per-element map the on* content attribute is
+        // compiled into and dispatch fires from. The getter used to mint a fresh handle over the stored
+        // function on every read and now returns the stored one; either way a page must see one object,
+        // and === is the engine's comparison of the objects themselves, not the bridge's of its handles.
+        Assert.Equal(
+            "compiled=function stable=true assigned=true cleared=null",
+            Run("""
+                (function () {
+                  var btn = document.getElementById('btn');
+                  var compiled = typeof btn.onclick;
+                  var stable = btn.onclick === btn.onclick;
+                  var f = function () {};
+                  btn.onclick = f;
+                  var assigned = btn.onclick === f;
+                  btn.onclick = 5;
+                  return 'compiled=' + compiled + ' stable=' + stable +
+                         ' assigned=' + assigned + ' cleared=' + btn.onclick;
+                })()
+                """));
+    }
+
+    [Fact]
+    public void AnAssignedHandlerAndASetAttributeHandlerEachFireFromTheSameMap()
+    {
+        // The two writers the parse-time compile does not cover: a script assignment, which stores the
+        // argument the reflector was handed, and setAttribute, which compiles through the attribute
+        // path instead of the wrapper path. Each replaces the entry the one before it made, so the log
+        // names exactly which handler dispatch found, and that it was called with the event.
+        Assert.Equal(
+            "assigned:click;set:click;",
+            Run("""
+                (function () {
+                  var btn = document.getElementById('btn');
+                  var log = document.getElementById('log');
+                  btn.onclick = function (e) { log.textContent += 'assigned:' + e.type + ';'; };
+                  btn.dispatchEvent(new Event('click'));
+                  btn.setAttribute('onclick', "document.getElementById('log').textContent += 'set:' + event.type + ';'");
+                  btn.dispatchEvent(new Event('click'));
+                  return log.textContent;
+                })()
+                """));
+    }
+
     [Fact(Skip = "Inline on* handlers fire after every addEventListener listener whenever they were " +
                  "registered: src/Broiler.HtmlBridge.Dom/Features/EventDispatchBinding.cs:152-185 runs the " +
                  "listener list first and the inline handler afterwards, where HTML §8.1.7.1 registers a " +

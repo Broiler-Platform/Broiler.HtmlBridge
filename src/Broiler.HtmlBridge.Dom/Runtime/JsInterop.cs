@@ -87,11 +87,14 @@ internal static class JsInterop
     /// <em>before</em> reference: <c>a == b</c> was false for two handles on one object.
     /// </para>
     /// <para>
-    /// <b>Nothing observed it yet, and the migration is what would have.</b> Of the two places that
-    /// could see it, one is gone rather than guarded: <c>window.frames</c> was an engine array
-    /// wrapped here and unwrapped again on the line that received it, and the realm mints it now,
-    /// so it does not reach this method at all. The other is guarded on the engine side — the
-    /// event-dispatch path tests <c>is JSFunction</c> before wrapping. What is not guarded is a map
+    /// <b>Nothing observed it yet, and the migration is what would have.</b> This paragraph used to
+    /// name two places that could see it, and both are gone rather than guarded. <c>window.frames</c>
+    /// was an engine array wrapped here and unwrapped again on the line that received it, and the realm
+    /// mints it now. The inline <c>on*</c> handler, which the event-dispatch path tested
+    /// <c>is JSFunction</c> before wrapping and the <c>onclick</c> getter wrapped behind a plain object
+    /// test, is stored as a handle and handed back as one. They were never the only two: this method is
+    /// still handed an array elsewhere, and a grep for its call sites is the census, not this sentence.
+    /// What is not guarded is a map
     /// keyed on a handle:
     /// <c>EventTargetRegistry</c>'s dictionaries are correct today only because every key it holds is
     /// kind <c>Object</c>, which is exactly the invariant that ends when a listener record becomes a

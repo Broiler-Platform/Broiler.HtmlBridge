@@ -1,4 +1,3 @@
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Features;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -34,12 +33,16 @@ public sealed partial class DomBridge : IEventDispatchHost
     Dictionary<string, List<EventListenerRegistration>> IEventDispatchHost.GetEventListeners(DomNode node) =>
         GetEventListeners(node);
 
-    // The inline on* store is a dictionary of engine values on InlineStyleRuntimeState, a file this
-    // round does not own, so the callability test the dispatch loop used to make stays here on the
-    // engine side and the module is handed a handle or nothing. Anything that is not callable answers
-    // Missing, exactly as the failed type-pattern did.
+    // The inline on* store holds handles, so the callability test is a read of the stored handle's kind
+    // and the module is handed that handle, not a second one minted over the same object. This comment
+    // used to say the test had to stay on the engine side because the store was a dictionary of engine
+    // values in a file this round did not own. The store's only other readers and writers were
+    // DomBridge/Events.cs and DomBridge/DomBridge.EventHandlerReflectorHost.cs, and all three moved
+    // together. Anything that is not callable still answers Missing, as the failed type pattern did —
+    // and nothing stored can fail it, because both writers (CompileInlineEventAttribute, and the
+    // reflector's setter through its one caller) store only a handle that has answered IsFunction.
     JsValue IEventDispatchHost.InlineEventHandler(DomNode node, string eventType) =>
-        GetInlineEventHandlers(node).TryGetValue(eventType, out var handler) && handler is JSFunction inlineFunction
-            ? JsInterop.FromEngineObject(inlineFunction)
+        GetInlineEventHandlers(node).TryGetValue(eventType, out var handler) && handler.IsFunction
+            ? handler
             : JsValue.Missing;
 }

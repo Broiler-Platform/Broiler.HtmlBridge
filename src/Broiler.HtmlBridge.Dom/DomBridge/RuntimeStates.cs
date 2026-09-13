@@ -1,6 +1,7 @@
 using Broiler.JavaScript.Runtime;
 using Broiler.CSS;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
@@ -19,9 +20,18 @@ internal readonly record struct EventListenerRegistration(JSValue Listener, bool
 /// </summary>
 internal sealed class InlineStyleRuntimeState
 {
-    // P2.5: addEventListener listeners moved off this (process-global) table into the instance-scoped
-    // EventTargetRegistry; only inline on* handlers remain node-runtime state here.
-    public Dictionary<string, JSValue> InlineEventHandlers { get; } = new(StringComparer.OrdinalIgnoreCase);
+    // P2.5: addEventListener listeners moved off this table into the instance-scoped EventTargetRegistry;
+    // only the inline on* handlers remain node-runtime state here. (The table was process-global when that
+    // happened. It is per-bridge now, as the note at the end of this class records, and this comment used
+    // to call it process-global in the present tense.)
+    //
+    // The handlers are JSEAL handles. Every read and write of this map goes through
+    // DomBridge.GetInlineEventHandlers, and every caller of that is in three files: DomBridge/Events.cs
+    // compiles an on* attribute into it, DomBridge.EventDispatchHost.cs fires from it, and
+    // DomBridge/DomBridge.EventHandlerReflectorHost.cs reflects it as element.onclick. All three already
+    // held a handle on their own side and converted only at this map. EventListenerRegistration, above,
+    // is a different declaration in the same file; this map's type never depended on it.
+    public Dictionary<string, JsValue> InlineEventHandlers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Inline-style property names last written through the JS <c>element.style</c> /
