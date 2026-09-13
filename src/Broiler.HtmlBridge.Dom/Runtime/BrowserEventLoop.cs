@@ -1,9 +1,7 @@
 using System.Collections.Concurrent;
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.HtmlBridge.Jseal.Providers;
 using Broiler.HtmlBridge.Logging;
-using Broiler.JavaScript.BuiltIns.Function;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
@@ -32,10 +30,14 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// script registers one, and script needs the realm that is missing.
 /// </para>
 /// <para>
-/// The two engine-typed overloads are adapters for <c>Dom.Features.TimerBinding</c>, another group's
-/// file this round, which still narrows a callback to the engine's own function type before handing it
-/// over. A handle over that function is a cast rather than a conversion, so the identity
-/// <c>clearTimeout</c> and the drain rest on is unchanged.
+/// <b>No registration overload takes an engine type any more, and this file names none.</b> There were
+/// three — <c>SetTimeout</c>, <c>SetInterval</c> and <c>RequestAnimationFrame</c> over the engine's own
+/// function or a CLR <see langword="null"/> — and this remark called them two. They existed because
+/// <c>Dom.Features.TimerBinding</c> narrowed a callback before handing it over, and that narrowing
+/// existed because this class used to hold what it narrowed to, which it has not for some time. The two
+/// halves were each other's only caller: the binding unwrapped the realm's handle to the engine's
+/// function, and these adapters wrapped that same reference back into the same handle. Both are gone,
+/// and the queue holds what the realm minted.
 /// </para>
 /// </remarks>
 internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
@@ -161,28 +163,6 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
             _rafCallbacks[id] = callback;
         return id;
     }
-
-    // ------------------------------------------------------------------
-    //  Engine-typed adapters
-    // ------------------------------------------------------------------
-
-    // The three registration entry points as Dom.Features.TimerBinding still calls them: it narrows a
-    // callback to the engine's function type and passes that function or a CLR null. That file is another
-    // group's this round, so the narrowing stays where it is and the handle is minted here. A null
-    // becomes `undefined` rather than Missing because both are simply "not a function" to the tests
-    // above, and undefined is what an absent callback already reached the engine as.
-
-    /// <inheritdoc cref="SetTimeout(JsValue, double)"/>
-    public int SetTimeout(JSFunction? callback, double delayMs = 0) => SetTimeout(ToHandle(callback), delayMs);
-
-    /// <inheritdoc cref="SetInterval(JsValue, double)"/>
-    public int SetInterval(JSFunction? callback, double periodMs = 0) => SetInterval(ToHandle(callback), periodMs);
-
-    /// <inheritdoc cref="RequestAnimationFrame(JsValue)"/>
-    public int RequestAnimationFrame(JSFunction? callback) => RequestAnimationFrame(ToHandle(callback));
-
-    private static JsValue ToHandle(JSFunction? callback) =>
-        callback is null ? JsValue.Undefined : JsProviderValue.Function(callback);
 
     /// <summary>Cancels a pending animation-frame callback.</summary>
     public void CancelAnimationFrame(int id) => _rafCallbacks.TryRemove(id, out _);

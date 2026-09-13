@@ -13,10 +13,12 @@ namespace Broiler.HtmlBridge;
 /// geometry it reaches through here.
 /// </summary>
 /// <remarks>
-/// The contract is spelled in JSEAL and the bridge members behind it are not migrated, so this file is
-/// the seam. <see cref="Dom.Runtime.JsInterop"/> is a cast rather than a conversion — a handle carries
-/// the engine's own object — so the window, the sub-document and the computed-style object the module
-/// receives are the instances the bridge's own caches hold.
+/// The contract is spelled in JSEAL and one bridge member behind it is not: <c>_windowJSObject</c> is
+/// still the engine's own object, so <c>MainWindow</c> below casts it up through
+/// <see cref="Dom.Runtime.JsInterop"/>, and that is the last crossing in this file. The sub-document,
+/// the computed-style object and the element lookup all forward a handle. A cast is not a conversion
+/// — a handle carries the engine's own object — so what the module receives is what the bridge's own
+/// caches hold.
 /// </remarks>
 public sealed partial class DomBridge : ISubWindowHost
 {
@@ -97,10 +99,10 @@ public sealed partial class DomBridge : ISubWindowHost
         return string.IsNullOrWhiteSpace(behavior) ? null : behavior;
     }
 
-    // The module only asks this of a handle it has already established is an object, so unwrapping it
-    // cannot fail here.
+    // A plain forward: the reverse lookup takes the same handle. The module guards with IsObject
+    // before asking, and a handle that is not an object would answer null rather than throw.
     DomElement? ISubWindowHost.FindElement(JsValue wrapper) =>
-        FindDomElementByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper));
+        FindDomElementByJSObject(wrapper);
 
     // The computed-style builder is migrated, so this one hands the handle straight through.
     JsValue ISubWindowHost.BuildComputedStyleObject(DomElement? element, string? pseudoElement) =>

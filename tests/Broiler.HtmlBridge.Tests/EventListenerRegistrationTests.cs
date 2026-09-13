@@ -211,7 +211,7 @@ public class EventListenerRegistrationTests
     }
 
     [Fact(Skip = "Event types match case-insensitively: the listener maps in " +
-                 "src/Broiler.HtmlBridge.Dom/Runtime/EventTargetRegistry.cs:54 and :65 use " +
+                 "src/Broiler.HtmlBridge.Dom/Runtime/EventTargetRegistry.cs:50 and :61 use " +
                  "StringComparer.OrdinalIgnoreCase, so a 'PING' registration answers a 'ping' dispatch " +
                  "where DOM §2.8 keys a listener on a case-sensitive type string.")]
     public void AnEventTypeIsMatchedCaseSensitively()

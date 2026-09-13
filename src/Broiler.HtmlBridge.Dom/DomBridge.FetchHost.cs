@@ -1,5 +1,4 @@
 using Broiler.HtmlBridge.Dom.Features;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
@@ -11,12 +10,13 @@ namespace Broiler.HtmlBridge;
 /// implementation, so none of them widens the public <c>DomBridge</c> surface.
 /// </summary>
 /// <remarks>
-/// <b>One engine reference is left and the bridge's wrapper registry pins it.</b> The contract
-/// speaks <see cref="JsValue"/> throughout, and so does everything it forwards to — the streams
-/// module included — except the wrapper-to-node lookup, which is keyed on the engine object a handle
-/// carries and is called that way by fifteen files across the assembly. So the one unwrap through
-/// <see cref="JsInterop"/> below goes when that registry does; nothing in <c>FetchBinding</c> changes
-/// when it happens.
+/// <b>There was never an engine reference here, and the sentence that used to stand in this place
+/// counted wrong.</b> It said one was left and that the wrapper registry pinned it. What was left was
+/// a <c>JsInterop</c> crossing, and a crossing names no engine type: <c>eng/jseal-budget.json</c>
+/// counts the engine's namespace as text, and this file has never contributed a single occurrence of
+/// it. The crossing is gone too — the wrapper-to-node lookup takes the handle now, and the registry
+/// behind it is keyed on <see cref="JsValue.ObjectIdentity"/> rather than on an engine object — and
+/// nothing in <c>FetchBinding</c> changed when it went.
 /// </remarks>
 public sealed partial class DomBridge : IFetchHost
 {
@@ -28,12 +28,14 @@ public sealed partial class DomBridge : IFetchHost
     /// what <c>new FormData(form)</c> collects.
     /// </summary>
     /// <remarks>
-    /// Only an object can be a wrapper, so a primitive is refused here rather than in the lookup,
-    /// which keys on wrapper identity and would have nothing to look up.
+    /// The <c>IsObject</c> test and the lookup answer the same question now: a handle that is not an
+    /// object is not in the wrapper map either. The test is kept because collapsing the ten redundant
+    /// guards this re-typing left across the assembly is a separate change, not because a primitive
+    /// would reach anything that minds.
     /// </remarks>
     IReadOnlyList<KeyValuePair<string, string>>? IFetchHost.FormEntriesFor(JsValue candidate) =>
         candidate.IsObject &&
-        FindDomNodeByJSObject(JsInterop.ToEngineObject(candidate)) is Broiler.Dom.DomElement element &&
+        FindDomNodeByJSObject(candidate) is Broiler.Dom.DomElement element &&
         string.Equals(element.TagName, "form", StringComparison.OrdinalIgnoreCase)
             ? BuildFormEntryList(element)
             : null;

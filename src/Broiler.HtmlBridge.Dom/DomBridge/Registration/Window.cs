@@ -469,7 +469,7 @@ public sealed partial class DomBridge
         realm.DefineValue(window, "removeEventListener", realm.NewMethod("removeEventListener", (in c) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c), 3));
         realm.DefineValue(window, "dispatchEvent", realm.NewMethod("dispatchEvent", (in c) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c), 1));
 
-        _messaging.RegisterWindowMessaging(Dom.Runtime.JsInterop.ToEngineObject(window));
+        _messaging.RegisterWindowMessaging(window);
 
         // `frames` is the one member registered twice with *different* shapes: a live getter on the
         // window and, historically, a static snapshot on the global for the unqualified spelling.
@@ -478,7 +478,7 @@ public sealed partial class DomBridge
         // the correct one for both spellings, so it is the only registration.
         realm.DefineAccessor(
             window, "frames",
-            (in _) => Dom.Runtime.JsInterop.FromEngineObject(BuildWindowFramesArray()), null);
+            (in _) => BuildWindowFramesArray(), null);
 
         // window.screen — basic stub for screen dimensions
         var screenObj = realm.NewObject();

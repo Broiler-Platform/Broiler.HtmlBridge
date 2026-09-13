@@ -9,18 +9,19 @@ namespace Broiler.HtmlBridge;
 // the two name validations via explicit interface members, so the module never reaches an arbitrary
 // bridge private field and the public surface is unchanged.
 //
-// The contract is spelled in JSEAL; the bridge members behind it are not migrated yet, so this file is
-// the seam. JsInterop is a cast rather than a conversion — a handle carries the engine's own object —
-// so the wrapper the module receives is the same instance the bridge's wrapper tables are keyed on.
+// The contract is spelled in JSEAL and so is every bridge member behind it, so this file is no longer
+// a seam: the wrapper factory answers a handle and the reverse lookup takes one. The wrapper the module
+// receives is the same instance the bridge's wrapper tables are keyed on.
 public sealed partial class DomBridge : Dom.Features.IDocumentLevelFactoryHost
 {
     JsValue Dom.Features.IDocumentLevelFactoryHost.ToJsObject(DomNode node) =>
         WrapNode(node);
 
-    // The module only asks this of a handle it has already established is an object, so unwrapping it
-    // cannot fail here; a non-object would mean the module skipped its own guard.
+    // A plain forward: the reverse lookup takes the same handle. There is no unwrap left to fail, and
+    // a handle that is not an object answers null — which the module's own IsObject guard still means
+    // this never has to do.
     DomNode? Dom.Features.IDocumentLevelFactoryHost.FindDomNode(JsValue wrapper)
-        => FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper));
+        => FindDomNodeByJSObject(wrapper);
 
     DomDocumentType Dom.Features.IDocumentLevelFactoryHost.CreateBridgeDocumentType(string name, string publicId, string systemId)
         => CreateBridgeDocumentType(name, publicId, systemId);
