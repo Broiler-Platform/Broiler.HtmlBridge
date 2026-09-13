@@ -69,7 +69,7 @@ internal sealed partial class BroilerJsRealm : IJsRealm
         // AND THE POLICY IS ENFORCED WHERE A BROWSER ENFORCES IT: INSIDE THE REALM, AT THE PAGE'S OWN
         // eval AND Function.
         //
-        // Refusing at EvaluateGuestSource alone refuses a door no page walks through. A page does not
+        // Refusing at EvaluateDynamicSource alone refuses a door no page walks through. A page does not
         // call a host member; it writes eval('...') or new Function('...'), and until this line a
         // realm built without guest evaluation ran both. The narrowed capability was true and
         // unenforced -- which is the worst shape a capability can have, because a host is entitled to

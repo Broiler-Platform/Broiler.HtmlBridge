@@ -15,7 +15,7 @@ namespace Broiler.HtmlBridge;
 // The JavaScript vocabulary here is JSEAL's. A script element's program text is a CLASSIC SCRIPT,
 // so it is evaluated through IJsSource.EvaluateClassicScript.
 //
-// It used to go through EvaluateGuestSource, and the argument for that was provenance: the text is
+// It used to go through the eval-gated member, and the argument for that was provenance: the text is
 // the page's and not this repository's, which is true and is not what decides the member. What
 // decides it is which Content-Security-Policy directive governs the source. A script element is
 // script-src's -- per script, satisfied by 'unsafe-inline', a nonce or a hash -- and the decision has

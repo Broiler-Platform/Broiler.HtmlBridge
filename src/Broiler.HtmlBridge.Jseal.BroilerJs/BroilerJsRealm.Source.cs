@@ -53,7 +53,7 @@ internal sealed partial class BroilerJsRealm
     /// <c>Function</c> are refused separately, inside the realm, by <c>RefuseGuestCompilation</c> in
     /// <c>BroilerJsRealm.cs</c>.
     /// </remarks>
-    public JsValue EvaluateGuestSource(string source, string label)
+    public JsValue EvaluateDynamicSource(string source, string label)
     {
         ArgumentNullException.ThrowIfNull(source);
 
