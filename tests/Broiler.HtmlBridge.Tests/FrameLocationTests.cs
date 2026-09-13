@@ -6,16 +6,16 @@ namespace Broiler.Browser.Core.Tests;
 /// A frame's <c>location</c> — the object an <c>&lt;iframe&gt;</c>'s <c>contentWindow</c> and
 /// <c>frames[0]</c> hand back — asserted from the top-level script that embeds it.
 /// <para>
-/// <b>This is the last Location in the bridge still minted with the engine's own types, and it is
-/// about to stop being one.</b> <c>LocationBinding</c> carries two builders over one
-/// <c>DocumentUrl</c> and one navigation implementation: <c>Build(string)</c>, which
-/// <c>Features/SubWindowBinding.cs:185</c> calls because a static has no realm to conjure, and
-/// <c>Build(IJsRealm, string)</c>, which has never had a caller — though the six navigation members
-/// it installs are the top-level Location's own (<c>Registration/Window.cs:52</c>), so what has
-/// never run is its seven-component prologue. The sweep deletes the first builder and points that
-/// call site at the second, and nothing in this suite had loaded a frame before this file. The same
-/// thirteen members are installed twice in two vocabularies, and one that changed name, order, kind,
-/// arity or attributes on the way across would be visible only to a page.
+/// <b>It was written to stand over a builder swap, and the swap has happened.</b> <c>LocationBinding</c>
+/// carried two builders over one <c>DocumentUrl</c> and one navigation implementation, one in the
+/// engine's own types and one through the realm, and a frame's window was the last caller of the
+/// first. The first is gone: <c>Build(IJsRealm, string)</c> is the only builder, and
+/// <c>Features/SubWindowBinding.cs:188</c> is its only caller. The six navigation members it
+/// installs are the top-level Location's own (<c>Registration/Window.cs:52</c>). This paragraph went
+/// on describing the swap as still to come, and citing that call site at a line that no longer held
+/// it, until a commit moving that file had to recompute the number. What the tests below assert is
+/// what they asserted before it: thirteen members, in one order, in the kinds and arities a page can
+/// tell apart.
 /// </para>
 /// <para>
 /// <b>The key list is asserted whole rather than counted.</b> The counted spelling is what the

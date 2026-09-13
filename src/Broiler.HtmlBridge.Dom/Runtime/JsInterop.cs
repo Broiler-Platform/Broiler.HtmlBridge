@@ -41,9 +41,10 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// six now key on <see cref="JsValue.ObjectIdentity"/> — the reference the handle carries, which
 /// every provider already makes canonical per object because handle equality is defined by it — and
 /// <c>Runtime/JsObjectRegistry.cs</c> was the last per-object table naming an engine type and no
-/// longer does — it measures zero. The one that still does is
-/// <c>Runtime/BrowsingContextManager.cs</c>'s sub-window map. There is
-/// no reference-key floor. So this
+/// longer does — it measures zero. So does the table this sentence named next, the sub-window maps
+/// in <c>Runtime/BrowsingContextManager.cs</c>: they key on <see cref="JsValue"/> itself, being strong
+/// maps emptied on demand rather than weak tables, so no per-object table in this bridge names an
+/// engine type. There is no reference-key floor. So this
 /// is a cast, and the assertion it makes is that the realm the bridge
 /// is attached to is a Broiler.JS realm. On a build serving a different engine it would fail loudly at
 /// the first migrated binding, which is correct: the unmigrated half of the bridge cannot run on

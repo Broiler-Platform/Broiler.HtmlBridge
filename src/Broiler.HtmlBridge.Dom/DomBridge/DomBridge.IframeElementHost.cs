@@ -9,11 +9,13 @@ namespace Broiler.HtmlBridge;
 // bridge members (the sub-window map and the fired-onload latch live on the BrowsingContextManager /
 // SubWindowBinding owners).
 //
-// This file is the engine-typed half of the seam. The module is written against JSEAL and receives
-// JsValue handles; the two factories below still hand back the engine's own objects, and
-// Dom.Runtime.JsInterop is a cast rather than a conversion — the frame document and window the module
-// sees are the instances the browsing-context caches hold, so `frame.contentWindow === frame.contentWindow`
-// is the same question it always was.
+// Neither half of this seam is engine-typed. The module is written against JSEAL and receives JsValue
+// handles, and the two factories below answer the handles the browsing-context caches hold, so
+// `frame.contentWindow === frame.contentWindow` compares the handle the cache filed with itself. This
+// paragraph called the file the engine-typed half and said both factories still handed back the
+// engine's own objects through a cast. The two conversions it described were deleted from this file
+// when the sweep re-typed the sub-window and sub-document builders, and the paragraph was not; the
+// caches behind the factories hold handles too since the sub-window maps were re-typed.
 //
 // Realm is implemented explicitly because DomBridge.Realm is internal: an implicit implementation of a
 // public interface member cannot be satisfied by a non-public property (CS0737).

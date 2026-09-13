@@ -1,5 +1,4 @@
 using System;
-using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
@@ -24,11 +23,13 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <b>A window is a <see cref="JsValue"/> here, and the seven globals are saved and restored through the
 /// realm.</b> The seven evaluations below are host script by the contract's definition — this repository
 /// authored every one of them, they read a global and nothing else, and none is subject to the page's
-/// content policy — so they go through <see cref="IJsSource.EvaluateHostScript"/>. What is left engine-typed
-/// is the sub-window <em>identity</em> state, and it is <see cref="BrowsingContextManager"/>'s alone: its
-/// sub-window map is keyed on the engine's own object, so the handle is unwrapped at that boundary and
-/// nowhere else. Because a JSEAL handle carries the engine object itself, that unwrap is a cast and the
-/// reference identity that map depends on is the identity it always was.
+/// content policy — so they go through <see cref="IJsSource.EvaluateHostScript"/>. Nothing here is left
+/// engine-typed. The sub-window <em>identity</em> state is still <see cref="BrowsingContextManager"/>'s
+/// alone, and it holds <see cref="JsValue"/> handles now, so the four members of it read below take and
+/// answer the handles this file already holds. This paragraph used to say that state was keyed on the
+/// engine's own object and that the handle was unwrapped at that boundary and nowhere else. The
+/// boundary was real, and it cost five crossings — three unwraps and two re-wraps, in three private
+/// adapters and one loop — every one of them there for that state's engine type alone.
 /// </para>
 /// <para>
 /// <b><see cref="EventTargetRegistry"/> was named alongside it here, and had already stopped keying on
@@ -55,7 +56,7 @@ internal sealed class WindowContextManager(
 
     public JsValue ResolveCurrentWindow()
     {
-        var candidate = CurrentWindowOverride;
+        var candidate = _browsingContexts.CurrentWindowOverride;
         if (!candidate.IsObject)
         {
             // `window` on the global object, when the page (or a nested context switch) put one
@@ -82,7 +83,7 @@ internal sealed class WindowContextManager(
     public JsValue? ResolveCurrentSubWindow()
     {
         var current = ResolveCurrentWindow();
-        return current.IsObject && IsSubWindow(current) ? current : null;
+        return current.IsObject && _browsingContexts.IsSubWindow(current) ? current : null;
     }
 
     /// <summary>
@@ -97,16 +98,17 @@ internal sealed class WindowContextManager(
     /// so the key going in and the window coming back are the values this method already had.
     /// </para>
     /// <para>
-    /// <b>The fallback is why this seam has no test that can fail, and that is a fact about the suite
-    /// rather than about the fallback.</b> A miss — and a <paramref name="target"/> that is not an
-    /// object at all — answers <see cref="ResolveCurrentWindow"/>, so on a page with one window the
-    /// map's answer and the map's absence are the same window: deleting <c>_ownerWindows</c> outright
-    /// would not turn a test red. A test that would notice has to give the target an owner that DIFFERS
-    /// from the current window, which in this bridge means a nested browsing context — <c>Features/SubWindowBinding.cs</c>
-    /// files a frame's window as its own owner, and <c>Features/MessagingBinding.cs</c> files a port
-    /// transferred into a frame under that frame's window — and then assert that the listener ran
-    /// against the frame's document rather than the containing page's. Nothing under
-    /// <c>src/Broiler.Browser.Core.Tests</c> names an owner window at all today.
+    /// <b>The fallback is why a one-window test of this seam cannot fail.</b> A miss — and a
+    /// <paramref name="target"/> that is not an object at all — answers <see cref="ResolveCurrentWindow"/>,
+    /// so on a page with one window the map's answer and the map's absence are the same window: deleting
+    /// <c>_ownerWindows</c> outright would not turn such a test red. A test that would notice has to give
+    /// the target an owner that DIFFERS from the current window, which in this bridge means a nested
+    /// browsing context — <c>Features/SubWindowBinding.cs</c> files a frame's window as its own owner, and
+    /// <c>Features/MessagingBinding.cs</c> files a port transferred into a frame under that frame's window
+    /// — and then assert that the listener ran against the frame's document rather than the containing
+    /// page's. <c>OwnerWindowRoutingTests</c> is that test. This paragraph used to end by saying nothing
+    /// under <c>src/Broiler.Browser.Core.Tests</c> named an owner window at all, and the commit after the
+    /// one that wrote it added that file.
     /// </para>
     /// </remarks>
     public JsValue ResolveOwnerWindow(JsValue target)
@@ -119,13 +121,12 @@ internal sealed class WindowContextManager(
         if (!candidate.IsObject || candidate == _host.WindowObject)
             return candidate;
 
-        if (IsSubWindow(candidate))
+        if (_browsingContexts.IsSubWindow(candidate))
             return candidate;
 
         var realm = _host.Realm;
-        foreach (var engineSubWindow in _browsingContexts.SubWindows)
+        foreach (var subWindow in _browsingContexts.SubWindows)
         {
-            var subWindow = JsInterop.FromEngineObject(engineSubWindow);
             if (candidate == subWindow)
                 return subWindow;
 
@@ -200,7 +201,7 @@ internal sealed class WindowContextManager(
             SetGlobal(realm, "postMessage", realm.GetProperty(targetWindow, "postMessage"));
             SetGlobal(realm, "self", targetWindow);
             SetGlobal(realm, "top", _host.WindowObject.IsObject ? _host.WindowObject : targetWindow);
-            CurrentWindowOverride = targetWindow;
+            _browsingContexts.CurrentWindowOverride = targetWindow;
 
             callback();
         }
@@ -239,7 +240,7 @@ internal sealed class WindowContextManager(
         if (IsMainWindow(targetWindow))
             return _host.MainDocumentOrUndefined;
 
-        return TryGetSubWindowContainer(targetWindow, out var containerElement)
+        return _browsingContexts.TryGetSubWindowContainer(targetWindow, out var containerElement)
             ? _host.GetOrCreateSubDocument(containerElement)
             : JsValue.Undefined;
     }
@@ -259,28 +260,4 @@ internal sealed class WindowContextManager(
     }
 
     private bool IsMainWindow(JsValue window) => window.IsObject && window == _host.WindowObject;
-
-    /// <summary>
-    /// The window whose context a nested-browsing-context script is currently running in, as a handle.
-    /// The state itself is <see cref="BrowsingContextManager"/>'s and is keyed on the engine object.
-    /// </summary>
-    private JsValue CurrentWindowOverride
-    {
-        get => _browsingContexts.CurrentWindowOverride is { } window
-            ? JsInterop.FromEngineObject(window)
-            : JsValue.Missing;
-        set => _browsingContexts.CurrentWindowOverride = value.IsObject ? JsInterop.ToEngineObject(value) : null;
-    }
-
-    private bool IsSubWindow(JsValue window) =>
-        window.IsObject && _browsingContexts.IsSubWindow(JsInterop.ToEngineObject(window));
-
-    private bool TryGetSubWindowContainer(JsValue window, out DomElement container)
-    {
-        if (window.IsObject)
-            return _browsingContexts.TryGetSubWindowContainer(JsInterop.ToEngineObject(window), out container);
-
-        container = null!;
-        return false;
-    }
 }

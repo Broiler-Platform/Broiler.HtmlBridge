@@ -2,8 +2,8 @@ using System;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
-// Engine-typed only for the Build(string) overload and the installer beneath it, which exist for one
-// caller that asks for an engine object from a static — see the last paragraph of the class remarks.
+// Nothing here is engine-typed. This said the Build(string) overload and the installer beneath it
+// were, for one caller asking for an engine object from a static; both are gone, and so is that call.
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -66,15 +66,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// than one that answers for the document actually in hand.
 /// </para>
 /// <para>
-/// <b>One navigation surface, installed two ways, because one caller is still two vocabularies
-/// away.</b> <c>Registration/Window.cs</c> builds the top-level Location through the realm and passes
-/// both to <see cref="AddNavigationSurface(IJsRealm, JsValue, string, ILocationHost?)"/>, which is the
-/// whole of that path. A frame's Location — asked for by <c>SubWindowBinding</c>, a file this round
-/// does not own — is <see cref="Build(IJsRealm, string)"/>, which now takes the realm and is entirely
-/// realm-framed; the engine-typed <see cref="Build(string)"/> beneath it survives only because that
-/// one caller still asks for an engine object, and a static has no realm to conjure. It is the whole
-/// of what is left in engine terms here, and it goes the moment that call site passes the
-/// <c>_host.Realm</c> it already holds three lines above the call. The <em>logic</em> is not
+/// <b>One navigation surface, installed two ways, and both through the realm.</b>
+/// <c>Registration/Window.cs</c> builds the top-level Location through the realm and passes both to
+/// <see cref="AddNavigationSurface(IJsRealm, JsValue, string, ILocationHost?)"/>, which is the whole of
+/// that path. A frame's Location, asked for by <c>SubWindowBinding</c>, is
+/// <see cref="Build(IJsRealm, string)"/>, which takes the realm and is entirely realm-framed. This
+/// paragraph said an engine-typed <c>Build(string)</c> survived beneath it, because that one caller
+/// still asked for an engine object and a static has no realm to conjure. The overload is gone, the
+/// caller passes the realm it already held, and nothing in this file is left in engine terms.
+/// The <em>logic</em> is not
 /// duplicated either way: every installer hands the same <see cref="DocumentUrl"/> to the same
 /// <see cref="NavigateTo"/>/<see cref="Request"/> pair, and only the six installations and the two
 /// argument reads differ.
