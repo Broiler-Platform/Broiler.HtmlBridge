@@ -250,10 +250,12 @@ public class JsealRegistryTests
 
         foreach (var adopter in adopters)
         {
-            Assert.False(adopter.TryAdopt(new object(), out var realm));
+            // The options are immaterial to the type test and are passed as the default, which is
+            // also the shape a caller uses when it has no policy to impose.
+            Assert.False(adopter.TryAdopt(new object(), JsRealmOptions.Default, out var realm));
             Assert.Null(realm);
 
-            Assert.False(adopter.TryAdopt("not a realm", out realm));
+            Assert.False(adopter.TryAdopt("not a realm", JsRealmOptions.Default, out realm));
             Assert.Null(realm);
         }
     }

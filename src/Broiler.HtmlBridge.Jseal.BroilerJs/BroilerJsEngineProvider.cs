@@ -125,11 +125,13 @@ public sealed class BroilerJsEngineProvider : IJsEngineProvider, IJsRealmAdoptio
     /// <c>JSContext</c>, so a module context adopts too — which is what the bridge's module path
     /// needs, since that is the realm a page's <c>&lt;script type="module"&gt;</c> runs in.
     /// </remarks>
-    public bool TryAdopt(object engineRealm, out IJsRealm? realm)
+    public bool TryAdopt(object engineRealm, JsRealmOptions options, out IJsRealm? realm)
     {
+        ArgumentNullException.ThrowIfNull(options);
+
         if (engineRealm is Broiler.JavaScript.Engine.JSContext context)
         {
-            realm = new BroilerJsRealm(this, context);
+            realm = new BroilerJsRealm(this, context, options);
             return true;
         }
 

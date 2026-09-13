@@ -478,7 +478,20 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         // queueMicrotask(fn)
         context["queueMicrotask"] = new JSFunction((in Arguments a) => JsScriptEngineQueueMicrotask001Core(in a), "queueMicrotask", 1);
 
-        // CSP-gated eval wrapper
+        // CSP-GATED eval WRAPPER, AND IT IS NARROWER THAN IT LOOKS.
+        //
+        // It replaces one global binding, so it refuses `eval(...)` and nothing else: `new Function`,
+        // and every route through Function.prototype.constructor, reach the compiler past it.
+        //
+        // On a DOCUMENT path that no longer matters, because the realm the bridge adopts is now built
+        // from this same policy and refuses at the engine's own eval hook -- which fires for the
+        // dynamic-function constructor as well, and for every function kind. This stub is reached
+        // first there and is effectively redundant.
+        //
+        // It stays because of the path that has no bridge: Execute(scripts) builds a bare context and
+        // adopts no realm, so this is the only cover it has. THE RESIDUAL IS STATED RATHER THAN
+        // LEFT TO BE DISCOVERED: on that path `new Function` is still ungated. Closing it means the
+        // document-free path taking a realm too, which is a larger change than this one.
         if (Csp != null && !Csp.AllowsEval)
         {
             context["eval"] = new JSFunction((in Arguments _) => JsScriptEngineEval002Core(in _), "eval", 1);

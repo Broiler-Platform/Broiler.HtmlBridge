@@ -36,12 +36,25 @@ public interface IJsRealmAdoption
     /// an implementation type-tests it and answers <see langword="false"/> for anything else, because
     /// a host with two engines linked will offer the same object to both.
     /// </param>
+    /// <param name="options">
+    /// The realm's policy, which an adopted realm is bound by exactly as a created one is.
+    /// </param>
     /// <param name="realm">The adopted realm, or <see langword="null"/>.</param>
     /// <returns>Whether the object was this engine's and has been adopted.</returns>
     /// <remarks>
+    /// <para>
     /// The adopted realm does <b>not</b> own what it wraps: disposing it must not dispose the
     /// underlying realm, because the host that created it will. Adopting the same object twice may
     /// return two <see cref="IJsRealm"/> instances, so a caller that needs one keeps the one it got.
+    /// </para>
+    /// <para>
+    /// <b><paramref name="options"/> is a parameter and not a default because an adopted realm used
+    /// to have no policy at all.</b> The implementation hardcoded a permissive one, so every
+    /// capability a host could narrow was silently un-narrowed the moment the realm came from a
+    /// context rather than from <see cref="IJsEngineProvider.CreateRealm"/> — which, in a browser,
+    /// is every page. Adding an overload with a permissive default would have preserved exactly the
+    /// defect; taking it here makes a host that adopts state what the page is allowed to do.
+    /// </para>
     /// </remarks>
-    bool TryAdopt(object engineRealm, out IJsRealm? realm);
+    bool TryAdopt(object engineRealm, JsRealmOptions options, out IJsRealm? realm);
 }
