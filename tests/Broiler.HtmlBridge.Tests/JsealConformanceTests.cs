@@ -429,7 +429,7 @@ public class JsealConformanceTests
     /// <para>
     /// <b>Crossed with the other axis: who minted the object.</b> Three factories hand back
     /// something the HOST made and three hand back something the PAGE made, because a provider can
-    /// canonicalise one and not the other - and the listener a page registers is guest-minted, so
+    /// canonicalise one and not the other - and the listener a page registers is page-minted, so
     /// the second three are the ones the browser depends on.
     /// </para>
     /// <para>
@@ -475,11 +475,11 @@ public class JsealConformanceTests
         // AND THE SAME THREE MINTED BY THE PAGE RATHER THAN BY THE HOST, which is the half that
         // matters and the half a host-only test cannot see. A provider is free to canonicalise the
         // objects it was handed and mint a fresh wrapper for anything that originates in script; the
-        // listener a page registers is guest-minted, so that provider would break every
+        // listener a page registers is page-minted, so that provider would break every
         // removeEventListener while passing all three cases above.
-        OneKind("guestObject", JsValueKind.Object, () => realm.EvaluateClassicScript("({})", "test:page-object"));
-        OneKind("guestArray", JsValueKind.Array, () => realm.EvaluateClassicScript("([])", "test:page-array"));
-        OneKind("guestMethod", JsValueKind.Function, () => realm.EvaluateClassicScript("(function () {})", "test:page-method"));
+        OneKind("pageObject", JsValueKind.Object, () => realm.EvaluateClassicScript("({})", "test:page-object"));
+        OneKind("pageArray", JsValueKind.Array, () => realm.EvaluateClassicScript("([])", "test:page-array"));
+        OneKind("pageMethod", JsValueKind.Function, () => realm.EvaluateClassicScript("(function () {})", "test:page-method"));
 
         void OneKind(string name, JsValueKind kind, Func<JsValue> mint)
         {
