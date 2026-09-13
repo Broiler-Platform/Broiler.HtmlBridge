@@ -21,9 +21,10 @@ namespace Broiler.HtmlBridge;
 // script-src's -- per script, satisfied by 'unsafe-inline', a nonce or a hash -- and the decision has
 // already been taken, by ScriptInsertionRunner, before this is called. 'unsafe-eval' governs eval and
 // new Function and has nothing to say about this text, so routing it through the eval-gated member
-// would have refused, on a realm narrowed by a restrictive policy, a script every browser runs. The one engine-typed line left is the dispatch call: DispatchEventOnElement takes
-// the engine's object and is another group's file this round, so the event this file builds through
-// the realm is unwrapped at that one call, which is a cast rather than a conversion.
+// would have refused, on a realm narrowed by a restrictive policy, a script every browser runs.
+//
+// The dispatch call is not engine-typed either: FireSimpleEvent builds its event through the realm,
+// and Features/EventDispatchBinding.cs's DispatchEventOnElement takes that handle as it is.
 public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
 {
     DomDocument Dom.Runtime.IScriptInsertionHost.Document => _document;
