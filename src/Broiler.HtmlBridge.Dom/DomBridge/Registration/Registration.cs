@@ -130,9 +130,11 @@ public sealed partial class DomBridge
 
         // Map the document object to the canonical DomDocument so that the node-wrapper hub answers
         // the same object as the 'document' variable visible in JS. This ensures strict equality
-        // checks like 'range.commonAncestorContainer === document' work. The registry is keyed on
-        // the engine's own object, and a JSEAL handle carries that object rather than wrapping it,
-        // so the two names below are one instance.
+        // checks like 'range.commonAncestorContainer === document' work. The registry holds the
+        // handle, keyed on the DomNode going out and on JsValue.ObjectIdentity coming back — not
+        // on the engine's own object, which is only what that identity happens to be under the
+        // Broiler.JS provider. `documentObject` below is that same object, minted here for the
+        // wrapper-root field rather than for the registry.
         var documentObject = Dom.Runtime.JsInterop.ToEngineObject(document);
         _jsObjects.Set(_document, document);
 
@@ -228,7 +230,7 @@ public sealed partial class DomBridge
         // prototype object so every element wrapper already linked to it stays linked.
         RegisterCustomElements(window);
 
-        LinkToInterface(documentObject, "HTMLDocument");
+        LinkToInterface(document, "HTMLDocument");
         foreach (var (node, wrapper) in _jsObjects.Entries)
         {
             // Handle inequality, not ReferenceEquals: the registry hands back a JsValue now, and

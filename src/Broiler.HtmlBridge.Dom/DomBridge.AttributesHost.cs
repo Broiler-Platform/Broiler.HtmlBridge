@@ -32,11 +32,6 @@ public sealed partial class DomBridge : IAttributesHost
     void IAttributesHost.NotifyAttributeMutationObservers(DomElement element, string attributeName, string? oldValue) =>
         NotifyAttributeMutationObservers(element, attributeName, oldValue);
 
-    /// <remarks>
-    /// The wrapper crosses as a JSEAL handle and is unwrapped to the engine object the bridge's
-    /// prototype table is keyed on — a cast, not a conversion, because the handle carries that very
-    /// object.
-    /// </remarks>
     void IAttributesHost.LinkToInterface(JsValue wrapper, string interfaceName) =>
-        LinkToInterface(Dom.Runtime.JsInterop.ToEngineObject(wrapper), interfaceName);
+        LinkToInterface(wrapper, interfaceName);
 }
