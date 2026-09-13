@@ -1,5 +1,4 @@
 using Broiler.HtmlBridge.Jseal;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 
@@ -23,14 +22,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the same dispatch-local flags they closed over before.
 /// </para>
 /// <para>
-/// <b>One engine-typed strand survives, and it is not this module's to cut.</b> A registered
-/// listener is an <c>EventListenerRegistration</c>, whose listener field is a Broiler.JS value
-/// because the record lives in <c>DomBridge/RuntimeStates.cs</c> and is shared with the window,
-/// form-submit and messaging dispatch paths; it is invoked through <c>DomBridge.InvokeEventListener</c>,
-/// which those same paths share and which is where a listener turn is bracketed for the entry trace.
-/// So the engine's event object is taken once per dispatch — a cast over the object this handle
-/// already carries, not a conversion — and handed to that invoker. When the listener store moves,
-/// both lines go with it.
+/// <b>No engine-typed strand survives.</b> A registered listener is an
+/// <c>EventListenerRegistration</c>, whose listener field is a <see cref="JsValue"/>, and it is invoked
+/// through <c>DomBridge.InvokeEventListener</c>, which the window, form-submit and messaging firing
+/// paths share and which is where a listener turn is bracketed for the entry trace. That invoker calls
+/// through the realm, in the shape <see cref="FireListeners"/> already used for the inline <c>on*</c>
+/// handler, so the line below hands over the listener and the event exactly as this module holds them.
 /// </para>
 /// </remarks>
 internal sealed class EventDispatchBinding(IEventDispatchHost host)
@@ -158,10 +155,8 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
                 // In target phase (capturePhase == null), fire all listeners.
                 if (capturePhase.HasValue && registration.Capture != capturePhase.Value) continue;
                 currentListenerPassive = registration.Passive;
-                // The listener and the invoker are both still engine-typed (see the remarks on this
-                // type); JsInterop.ToEngineObject is a cast over the object this handle already
-                // carries, so the listener sees the same event object the page dispatched.
-                DomBridge.InvokeEventListener(registration.Listener, JsInterop.ToEngineObject(evt), "DomBridge.dispatchEvent");
+                // Listener, event and invoker are all the realm's; nothing converts here.
+                DomBridge.InvokeEventListener(_host.Realm, registration.Listener, evt, "DomBridge.dispatchEvent");
                 currentListenerPassive = false;
 
                 if (registration.Once)

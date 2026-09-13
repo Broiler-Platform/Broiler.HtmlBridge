@@ -27,11 +27,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// The window object is minted and populated through the realm, so nothing here spells a member
-/// installation in engine terms. Four collaborators still hold JS objects as engine values — the
-/// browsing-context cache, the event-target registry, the messaging module and
-/// <see cref="LocationBinding"/> — so the object is unwrapped once, through <see cref="JsInterop"/>,
-/// and handed to them. That is a cast rather than a conversion: <c>frames[0].window</c> is the same
-/// object it always was, and the caches stay keyed on it.
+/// installation in engine terms, and NO collaborator holds it as an engine value. This paragraph
+/// named four, then one; the one was the browsing-context cache, whose sub-window maps key on
+/// <c>JsValue</c> now. What held that cache engine-typed was its own class remark, which named this
+/// binding as a reader holding the window engine-typed, when the only unwrap here was the one made
+/// to reach that cache. The four collaborators the window is handed to below (the cache, the
+/// event-target registry, and the messaging module twice) all file the one handle the realm minted,
+/// so <c>frames[0].window</c> is the same object it always was. Nothing in this file converts
+/// anything.
 /// </para>
 /// </remarks>
 internal sealed class SubWindowBinding(
@@ -140,10 +143,11 @@ internal sealed class SubWindowBinding(
 
     /// <summary>Gets or builds the sub-window for a nested-browsing-context container.</summary>
     /// <remarks>
-    /// It answered an engine object until two of its three callers stopped wanting one. The third,
-    /// <c>DomBridge.WindowLoad.cs</c>, collects windows into the engine array <c>window.frames</c>
-    /// is built from and converts there instead — a boundary with a different unit rather than a
-    /// conversion this method owes.
+    /// It answered an engine object until its callers stopped wanting one, and the last of the
+    /// three was <c>DomBridge.WindowLoad.cs</c>: it collected windows into the list
+    /// <c>window.frames</c> was built from, and that list held engine values for exactly as long as
+    /// the array did. The array is minted through the realm now, so all three callers take the
+    /// handle as it stands and nothing converts what this returns.
     /// </remarks>
     public JsValue GetOrCreate(DomElement containerElement) => Build(containerElement);
 
@@ -151,23 +155,22 @@ internal sealed class SubWindowBinding(
     private JsValue Build(DomElement containerElement)
     {
         if (_browsingContexts.TryGetSubWindow(containerElement, out var cached))
-            return JsInterop.FromEngineObject(cached);
+            return cached;
 
         var realm = _host.Realm;
         var subDocument = _host.GetOrCreateSubDocument(containerElement);
         var window = realm.NewObject();
 
-        // The event-target registry and the generic EventTarget installation take handles now, so the
-        // window goes to them as it stands. The other two still hold JS objects as engine values —
-        // the browsing-context cache stores one, and window.postMessage is installed by a member
-        // whose other caller (DomBridge/Registration/Window.cs) hands over an engine object — so the
-        // window is unwrapped once here rather than at each of them. That is a cast, so all four are
-        // given the same object.
-        var engineWindow = JsInterop.ToEngineObject(window);
-        _browsingContexts.SetSubWindow(containerElement, engineWindow);
+        // All four take the handle, so the one object the realm minted above is what the sub-window
+        // identity cache, the owner-window map and both messaging installations file, which is what
+        // `frame.contentWindow === frame.contentWindow` and the owner-window lookup both depend on.
+        // The unwrap that stood here was the last conversion in this file and it served the first
+        // call alone; the cache keys on the handle now (Runtime/BrowsingContextManager.cs) and refuses
+        // one that is not an object.
+        _browsingContexts.SetSubWindow(containerElement, window);
         _eventTargets.SetOwnerWindow(window, window);
         _messaging.InstallEventTargetApi(window, "DomBridge.subWindow.dispatchEvent");
-        _messaging.RegisterWindowMessaging(engineWindow);
+        _messaging.RegisterWindowMessaging(window);
 
         realm.DefineAccessor(window, "document",
             (in _) => _host.GetOrCreateSubDocument(containerElement), null);

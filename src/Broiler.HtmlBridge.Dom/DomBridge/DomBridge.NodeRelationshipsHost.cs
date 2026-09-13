@@ -9,18 +9,17 @@ namespace Broiler.HtmlBridge;
 // interface members, so the module reaches no arbitrary bridge private field and the public surface is
 // unchanged.
 //
-// This file is the engine-typed half of the seam. The module speaks JSEAL and hands back JsValue
-// handles; the reverse wrapper lookup and the document wrapper below still speak Broiler.JS, and they
-// stop doing so when DomBridge/Utilities.cs and DomBridge/ShadowDom.cs migrate. The cast is a cast and
-// not a conversion — a JSEAL object handle carries the engine's own object — so wrapper identity is
-// the same question it was before.
+// Nothing in this file is engine-typed. The module speaks JSEAL and so does everything below it: the
+// reverse wrapper lookup takes a handle (DomBridge/Utilities.cs) and ToJSRootNode already answered one
+// (DomBridge/ShadowDom.cs), which is the pair this comment used to be waiting on. The registry both
+// reach keys on JsValue.ObjectIdentity, so wrapper identity is the same question it was before.
 //
 // The JsContext member is gone: it was here only so the module could raise the DOMException a document
 // clone must throw, and IJsCalls.DomError owns that now.
 public sealed partial class DomBridge : Dom.Features.INodeRelationshipsHost
 {
     DomNode? Dom.Features.INodeRelationshipsHost.FindNode(JsValue wrapper)
-        => wrapper.IsObject ? FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper)) : null;
+        => wrapper.IsObject ? FindDomNodeByJSObject(wrapper) : null;
 
     DomNode Dom.Features.INodeRelationshipsHost.GetTreeRoot(DomNode node) => GetTreeRoot(node);
 

@@ -102,7 +102,12 @@ internal static class BroilerJsMarshal
             JSBoolean boolean => JsValue.Boolean(boolean.BooleanValue),
 
             // Symbols and BigInts stay opaque: neither has a lossless inline representation in a
-            // handle, and the bridge never reads one — it only forwards them.
+            // handle. This used to add "and the bridge never reads one — it only forwards them",
+            // which was false: every coercion a page can hand a BigInt to reads one, and the handle's
+            // own truthiness read 0n as true until IJsValues.ToBoolean existed to ask. The last arm is
+            // also wider than its name. It takes every engine primitive not matched above, and this
+            // engine's decimal (the 0m literal) is one, so a BigInt-kind handle from this provider may
+            // carry either type and anything that reads one asks the value rather than casting it.
             _ when value.IsSymbol => JsProviderValue.Symbol(value),
             _ => JsProviderValue.BigInt(value),
         };

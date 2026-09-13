@@ -2,10 +2,10 @@ using System.Runtime.CompilerServices;
 
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-// The engine namespaces are here for one member: animate()'s body reads the engine's own argument
-// frame (DomBridge/WebAnimations.cs), so the member has to be minted with that frame — see
-// AddPrototypeMethod, which this file also lends to DomBridge/HtmlElementInterface.cs for
-// click/focus/blur.
+// No engine namespace is imported here. This said the engine namespaces were here for animate(),
+// whose body read the engine's argument frame, and named AddPrototypeMethod as the helper lent to
+// DomBridge/HtmlElementInterface.cs for click/focus/blur. ElementAnimate takes a JsCall now, and
+// click/focus/blur are installed with AddInterfaceMethod, which mints through the realm.
 
 namespace Broiler.HtmlBridge;
 
@@ -30,8 +30,10 @@ namespace Broiler.HtmlBridge;
 /// shape a browser's has rather than with whatever the wrapper happened to carry:
 /// <c>title</c>/<c>lang</c>/<c>dir</c>/<c>draggable</c>/<c>accessKey</c>, <c>style</c>,
 /// <c>dataset</c>, <c>innerText</c>, <c>click</c>/<c>focus</c>/<c>blur</c>, the <c>on*</c> handlers
-/// and the <c>offset*</c> metrics are <c>HTMLElement</c>'s and stay on the instance until that
-/// interface moves; <c>appendChild</c> and the other four tree mutations are <c>Node</c>'s;
+/// and the <c>offset*</c> metrics are <c>HTMLElement</c>'s, installed on its prototype by
+/// <c>DomBridge/HtmlElementInterface.cs</c> (a non-HTML element, or a wrapper minted before that
+/// prototype is ready, carries its own copies); <c>appendChild</c> and the other four tree mutations
+/// are <c>Node</c>'s;
 /// <c>textContent</c> is <c>Node</c>'s and deliberately the element's own (its operation differs from
 /// a character-data node's); and <c>data</c>, <c>length</c>, <c>scrollParent</c> and
 /// <c>removeAttributeNodeNS</c> are on no browser's <c>Element.prototype</c> at all, so they are not
@@ -46,16 +48,17 @@ namespace Broiler.HtmlBridge;
 /// every copy against its prototype counterpart by hand.
 /// </para>
 /// <para>
-/// <b>The installer speaks JSEAL, and one member is what is left of the engine vocabulary.</b> Every
-/// member is minted through <see cref="Realm"/> and installed on the target handle, in the position it
-/// is written in, so <c>Object.getOwnPropertyNames</c> reports the order it always did. The exception
-/// is <c>animate</c>: its body is <c>DomBridge/WebAnimations.cs</c>'s <see cref="ElementAnimate"/>,
-/// which reads the engine's own argument frame and parses the keyframes and the options object out of
-/// it. There is no adapter between two call frames — only between two object types — so that one
-/// member is minted with the frame its body reads, and <see cref="ElementForEngineReceiver"/> asks the
-/// single element source below through it. The four <c>ChildNode</c> members and the fullscreen pair
-/// were engine-framed for the same reason and are not any more: their modules read a
-/// <see cref="JsCall"/>.
+/// <b>The installer speaks JSEAL, all of it.</b> Every member is minted through <see cref="Realm"/>
+/// and installed on the target handle, in the position it is written in, so
+/// <c>Object.getOwnPropertyNames</c> reports the order it always did. That includes <c>animate</c>:
+/// its body, <c>DomBridge/WebAnimations.cs</c>'s <see cref="ElementAnimate"/>, takes a
+/// <see cref="JsCall"/> and reads the keyframes and the options object through the realm, and it is
+/// installed with <see cref="AddInterfaceMethod"/>, minted through the realm like every other member.
+/// This remark said <c>animate</c> was the one member left in the engine's vocabulary, minted with the
+/// engine's argument frame and asking an engine-receiver helper for its element; that helper no longer
+/// exists. The four <c>ChildNode</c> members and the fullscreen pair were engine-framed too — the
+/// <c>ChildNode</c> bodies read that frame, and the fullscreen pair was minted with it because its
+/// element source was — and all six are realm-minted now.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -115,9 +118,9 @@ public sealed partial class DomBridge
     /// </remarks>
     private DomElement RequireElementReceiver(in JsCall call, string member)
     {
-        // The wrapper registry is keyed on the engine's own objects and has not migrated, so the
-        // handle is unwrapped to ask it. A non-object receiver never reaches that: it answers the
-        // same TypeError the engine-object test used to.
+        // The wrapper registry keys on JsValue.ObjectIdentity, so the receiver is looked up as it
+        // stands; this said the registry had not migrated and the handle was unwrapped. A non-object
+        // receiver answers the same TypeError the engine-object test used to, without a lookup.
         if (call.This.IsObject &&
             _jsObjects.TryGetNode(call.This, out var node) &&
             node is DomElement element)

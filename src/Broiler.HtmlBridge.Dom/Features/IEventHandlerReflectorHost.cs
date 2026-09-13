@@ -12,11 +12,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>CompileInlineEventAttributes</c> populates from <c>on*</c> content attributes.
 /// </summary>
 /// <remarks>
-/// <b>Three operations rather than the map itself.</b> The map holds the engine's own values, and it
-/// is shared with the unmigrated dispatch and attribute-compilation paths, so it cannot change shape
-/// until they move. Handing it out would put an engine type in this contract's signature; naming the
-/// three things the reflector actually does with it does not, and leaves the store exactly where it
-/// is.
+/// <b>Three operations rather than the map itself.</b> This used to say the map held the engine's own
+/// values and was shared with "the unmigrated dispatch and attribute-compilation paths", so it could
+/// not change shape until they moved. Neither path was unmigrated: the dispatch module spoke JSEAL and
+/// the attribute compiler held a <see cref="JsValue"/>, and each converted only at the map, as this
+/// contract's implementation did. The map is a dictionary of handles now. Three operations remain the
+/// right surface for a different reason — they are the whole of what the reflector does, and a live
+/// per-node store handed out through a contract is one any caller could write to behind the bridge.
 /// </remarks>
 internal interface IEventHandlerReflectorHost
 {

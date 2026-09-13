@@ -16,8 +16,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
 /// type. <see cref="WrapNode"/> and <see cref="FindElement"/> were <c>ToJSObject</c> and
-/// <c>FindDomElementByJSObject</c>: a name that says <em>JSObject</em> is an engine reference too, so
-/// it moves with the type it named.
+/// <c>FindDomElementByJSObject</c>, and this used to call the second of those "an engine reference
+/// too". It is not one the ratchet can see: <c>eng/jseal-budget.json</c> counts the engine's namespace
+/// as text, and a method name spells no namespace — the bridge-side member still carries the old name,
+/// still takes what it now takes, and measures zero either way. The renames were worth making for what
+/// a reader takes from them, which is the honest argument and a different one.
 /// </remarks>
 internal interface ISelectHost
 {

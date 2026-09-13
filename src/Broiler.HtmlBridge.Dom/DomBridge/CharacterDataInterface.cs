@@ -62,9 +62,9 @@ namespace Broiler.HtmlBridge;
 /// the <c>ChildNode</c> mixin four included — because every body below calls a binding that reads a
 /// <see cref="JsCall"/> frame. An engine-typed pair stood beside them for
 /// <c>DomBridge/ElementInterface.cs</c> and <c>DomBridge/HtmlElementInterface.cs</c>, whose bodies
-/// took the engine's argument frame; those two files install through the realm now, and the one
-/// engine-framed helper they still need for the four members whose <em>modules</em> have not
-/// migrated is declared where those four are, in <c>DomBridge/ElementInterface.cs</c>. Nothing here
+/// took the engine's argument frame; those two files install every member through the realm now, and
+/// the engine-framed helper this said they still kept, for <c>animate</c> and
+/// <c>click</c>/<c>focus</c>/<c>blur</c>, is gone with the frame those bodies read. Nothing here
 /// names an engine type.
 /// </para>
 /// </remarks>
@@ -144,10 +144,10 @@ public sealed partial class DomBridge
     /// </remarks>
     private void DropDocumentNodeMemberCopies()
     {
-        // The document wrapper's field is still an engine object held by DomBridge.cs; DocumentHandle
-        // is that same object asked for as a handle, so deleting through the realm deletes from what
-        // the page holds. Missing — no document registered yet — is not an object, which is the same
-        // escape the null test on the field made.
+        // DocumentHandle is the bridge's document root (DomBridge.cs), the handle the page's `document`
+        // is, so deleting through the realm deletes from what the page holds. Missing — no document
+        // registered yet — is not an object, which is the same escape the null test on the old
+        // engine-typed field made.
         var handle = DocumentHandle;
         if (!handle.IsObject)
             return;
@@ -326,8 +326,8 @@ public sealed partial class DomBridge
     /// </summary>
     private DomNode RequireNode(in JsCall call, string interfaceName, string member)
     {
-        // The reverse map is keyed on the engine object, which an object handle carries; a non-object
-        // receiver answers no node without asking, which is the branch the engine-object test took.
+        // The reverse map keys on JsValue.ObjectIdentity, so the receiver is looked up as it stands. A
+        // non-object receiver answers no node without asking, the branch the engine-object test took.
         if (call.This.IsObject &&
             _jsObjects.TryGetNode(call.This, out var node))
         {
@@ -351,8 +351,8 @@ public sealed partial class DomBridge
     /// <summary>Adds a WebIDL attribute to an interface prototype, read-only unless a setter is given.</summary>
     /// <remarks>
     /// A null <paramref name="setter"/> is how a read-only IDL attribute is spelled, and the realm
-    /// names the pair <c>get name</c>/<c>set name</c> — the names the engine-typed pair below gave
-    /// them explicitly.
+    /// names the pair <c>get name</c>/<c>set name</c> — the names its engine-typed sibling,
+    /// <c>AddPrototypeAccessor</c>, gave them explicitly until 5282d02 removed it.
     /// </remarks>
     private void DefinePrototypeAccessor(JsValue proto, string name,
         JsNativeFunction getter, JsNativeFunction? setter = null) =>

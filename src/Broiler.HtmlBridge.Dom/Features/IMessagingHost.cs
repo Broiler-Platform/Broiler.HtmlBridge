@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.HtmlBridge.Dom.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -20,8 +19,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The vocabulary is JSEAL's: a window, a port and an event are <see cref="JsValue"/> handles, and
 /// the realm replaces the former <c>JsContext</c> seam. That seam existed for exactly two purposes —
 /// raising a <c>DataCloneError</c>, which <see cref="IJsCalls.DomError"/> now owns, and structured-
-/// cloning a message payload, which nothing in JSEAL covers and which is therefore the one thing
-/// <see cref="MessagingBinding"/> still does in the engine's own vocabulary.
+/// cloning a message payload, which <see cref="IJsClone.Clone"/> now owns. (This said JSEAL covered no
+/// clone, and that cloning was the one thing the module still did in the engine's own vocabulary.)
 /// </remarks>
 internal interface IMessagingHost
 {
@@ -31,17 +30,6 @@ internal interface IMessagingHost
     /// reachable from an attached document.
     /// </summary>
     IJsRealm Realm { get; }
-
-    /// <inheritdoc cref="EventListenerBinding.AddListener" />
-    /// <remarks>
-    /// The same seam <see cref="IEventTargetHost.AddListener"/> is, and for the same reason: a
-    /// listener record holds the engine's value, so the conversion belongs in the host rather than
-    /// in a module that would otherwise need an argument frame to reach one.
-    /// </remarks>
-    void AddListener(List<EventListenerRegistration> listeners, JsValue listener, JsValue options);
-
-    /// <inheritdoc cref="EventListenerBinding.RemoveListener" />
-    void RemoveListener(List<EventListenerRegistration>? listeners, JsValue listener, JsValue options);
 
     /// <summary>The top-level window wrapper (<see cref="JsValue.Null"/> before attach).</summary>
     JsValue WindowObject { get; }

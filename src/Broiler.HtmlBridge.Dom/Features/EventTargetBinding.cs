@@ -18,34 +18,30 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The three <c>EventTarget</c> operations exist twice, and that is the shape of a half-migrated
-/// installer set rather than a duplication anybody chose.</b> They are installed from four places:
-/// <c>DomBridge/EventTargetInterface.cs</c> routes <c>EventTarget.prototype</c>'s three by receiver
-/// and mints them through the realm, so it needs a JSEAL call frame; and
-/// <c>DomBridge/JsObjects.cs</c> and <c>JsObjects.NonElementNodes.cs</c> (twice) still install
-/// per-wrapper copies for a wrapper minted before the realm carried <c>EventTarget</c>, with the
-/// engine's own function type, so they need an engine argument frame. There is no adapter between two
-/// call frames — only between two object types — so a single body cannot serve both, and the pair
-/// below is what lets the routed methods migrate without the pre-realm path changing. The engine-typed
-/// three go with those two files; the pair collapses to one then.
+/// <b>Each <c>EventTarget</c> operation has one body, and five installers mint it through the
+/// realm.</b> <c>DomBridge/EventTargetInterface.cs</c> routes <c>EventTarget.prototype</c>'s three by
+/// receiver; <c>DomBridge/JsObjects.cs</c> once and <c>DomBridge/JsObjects.NonElementNodes.cs</c> three
+/// times install per-wrapper copies. All five hand the body a JSEAL call frame. This remark used to say
+/// there were four installers, that the per-wrapper ones used the engine's own function type and
+/// needed an engine argument frame, and that "the pair below" existed because one body could not serve
+/// both. There is no pair and no engine frame.
 /// </para>
 /// <para>
-/// <b>The two are the same operation, and each line of the pair is meant to read as the same line.</b>
-/// The event-type coercion is <c>a[0].ToString()</c> on the engine side and the realm's
-/// <c>ToJsString</c> on the JSEAL side, which are the same observable ECMAScript <c>ToString</c>; the
-/// arity guards are the same; and where the engine side calls <see cref="EventListenerBinding"/>
-/// directly with values it already holds, the JSEAL side goes through
-/// <see cref="IEventTargetHost.AddListener"/>, which does that conversion in the host — the seam the
-/// document and window contracts use for the same record.
+/// <b>Registration is <see cref="EventListenerBinding"/>'s, called directly.</b> Its two operations
+/// take the realm the call frame carries, which is what reading an <c>options</c> object's flags and
+/// coercing anything else need. They used to be reached through a host member that converted a handle
+/// into the engine value the listener record held; the record holds a handle now, and the member is
+/// deleted. The event-type coercion is the realm's <c>ToJsString</c>, the observable ECMAScript
+/// <c>ToString</c>.
 /// </para>
 /// <para>
-/// <b>The synthetic events are built through JSEAL either way.</b> Every event object this module
-/// mints — the <c>click</c>, the <c>submit</c> a submit button triggers, and the
-/// <c>focus</c>/<c>blur</c> UIEvents — is a <see cref="JsValue"/> assembled on
+/// <b>The synthetic events are built through JSEAL, and so are the three members that fire them.</b>
+/// Every event object this module mints -- the <c>click</c>, the <c>submit</c> a submit button
+/// triggers, and the <c>focus</c>/<c>blur</c> UIEvents -- is a <see cref="JsValue"/> assembled on
 /// <see cref="IEventTargetHost.Realm"/>, with the property attributes each member always had.
-/// <c>click</c>, <c>focus</c> and <c>blur</c> themselves keep the engine frame because
-/// <c>DomBridge/HtmlElementInterface.cs</c> is their only installer and it has not migrated; they
-/// ignore their arguments entirely, so the frame is a signature and nothing more.
+/// <c>click</c>, <c>focus</c> and <c>blur</c> were said to keep an engine frame because
+/// <c>DomBridge/HtmlElementInterface.cs</c> had not migrated; it installs all three with
+/// <c>AddInterfaceMethod</c> over a JSEAL call frame, and their signatures below say so.
 /// </para>
 /// </remarks>
 internal static class EventTargetBinding
@@ -65,7 +61,7 @@ internal static class EventTargetBinding
             host.GetEventListeners(element)[type] = listeners;
         }
 
-        host.AddListener(listeners, call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
+        EventListenerBinding.AddListener(call.Realm, listeners, call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
         return JsValue.Undefined;
     }
 
@@ -74,7 +70,8 @@ internal static class EventTargetBinding
         if (call.Length < 2)
             return JsValue.Undefined;
         var type = call.Realm.ToJsString(call[0]);
-        host.RemoveListener(
+        EventListenerBinding.RemoveListener(
+            call.Realm,
             host.GetEventListeners(element).TryGetValue(type, out var listeners) ? listeners : null,
             call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
         return JsValue.Undefined;
@@ -82,8 +79,8 @@ internal static class EventTargetBinding
 
     public static JsValue DispatchEvent(IEventTargetHost host, DomNode element, in JsCall call)
     {
-        // A missing argument is not an object either, which is the two guards the engine-typed
-        // sibling spells separately.
+        // A missing argument is not an object either, so this one test answers for an absent
+        // argument and for a non-object one.
         if (!call[0].IsObject)
             return JsValue.True;
         return host.DispatchEvent(element, call[0]);

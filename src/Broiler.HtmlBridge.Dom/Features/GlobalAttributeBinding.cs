@@ -44,8 +44,8 @@ internal static class GlobalAttributeBinding
 
     /// <summary>
     /// The reflectors <c>HTMLElement</c> owns: <c>title</c>, <c>lang</c>, <c>accessKey</c>,
-    /// <c>dir</c> and the enumerated <c>draggable</c>. Still installed on each wrapper, until
-    /// <c>HTMLElement</c>'s own interface moves.
+    /// <c>dir</c> and the enumerated <c>draggable</c>. Installed on <c>HTMLElement.prototype</c> by
+    /// <c>DomBridge/HtmlElementInterface.cs</c>, or on one wrapper that cannot inherit from it.
     /// </summary>
     public static void InstallHtmlElementMembers(IGlobalAttributeHost host, IJsRealm realm, JsValue target, JsElementSource element)
     {

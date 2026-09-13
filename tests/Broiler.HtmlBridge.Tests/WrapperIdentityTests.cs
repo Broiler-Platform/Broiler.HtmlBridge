@@ -4,12 +4,13 @@ namespace Broiler.Browser.Core.Tests;
 
 /// <summary>
 /// Wrapper identity — that one DOM node has exactly one script object for the life of a document —
-/// asserted from page script, ahead of the commits that re-type the registry holding it.
+/// asserted from page script, written ahead of the commit that re-typed the registry (45607c6).
 /// <para>
-/// <c>Runtime/JsObjectRegistry.cs</c> is two dictionaries keyed on a node's reference identity plus a
-/// reverse <c>ConditionalWeakTable</c> keyed on the wrapper, and the remaining interop commits re-type
-/// all three — the forward maps become handle-valued and the reverse table is the member the registry's
-/// own remarks say cannot follow. Nothing else in this suite notices when they stop agreeing:
+/// <c>Runtime/JsObjectRegistry.cs</c> is two handle-valued dictionaries keyed on a node's reference
+/// identity plus a reverse <c>ConditionalWeakTable</c> keyed on the wrapper's
+/// <c>JsValue.ObjectIdentity</c>. (This said the re-type was still to come, and, citing the registry's
+/// own remarks, that the reverse table could not follow it; it did.) Nothing else in this suite notices
+/// when they stop agreeing:
 /// <c>el === el</c> going false throws nothing, changes no serialization and fails no existing test. It
 /// changes what a page's <c>Map</c> finds, whether a listener is reached again, and whether a node
 /// handed back from a lookup is the object the page was already holding.
@@ -42,7 +43,7 @@ public class WrapperIdentityTests
     /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
     /// <c>#out</c>. Reading the result out of the serialized DOM keeps the test to the engine's public
     /// surface — the registry under test is internal, and reaching for it directly would pin its shape
-    /// rather than its behaviour, which is the one thing these commits are about to change.
+    /// rather than its behaviour, and the shape is what the re-type (45607c6) changed.
     /// </summary>
     private static string Run(string script)
     {

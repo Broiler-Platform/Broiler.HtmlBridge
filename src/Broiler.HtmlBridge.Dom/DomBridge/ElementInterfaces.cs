@@ -1,9 +1,12 @@
 using Broiler.HtmlBridge.Jseal;
-// The two engine namespaces left, and one member decides both: <img>.width/height read the used
-// dimension through Features/ComputedStyleBinding.cs, which is not migrated, so that getter takes the
-// engine's argument frame and the property has to be installed with an engine function. The wrapper
-// type comes with it — an engine function needs the engine object to go on — and _tables and
-// FormAssociationBinding, neither of them migrated, are handed that same object.
+
+// No engine namespace, and no engine object either: the wrapper arrives as a handle and every
+// installation below takes it as one. What stood here said "the two engine
+// namespaces left, and one member decides both", naming <img>.width/height's used-dimension getter
+// as the member and _tables and FormAssociationBinding as passengers on it. There were no engine
+// namespaces: Features/ComputedStyleBinding.cs migrated, the getter has been the realm's since, and
+// the only thing keeping the claim half-true was a ToEngineObject feeding two installers that
+// undid it.
 
 namespace Broiler.HtmlBridge;
 
@@ -85,11 +88,11 @@ public sealed partial class DomBridge
     /// because it is an <c>Element</c> or an <c>HTMLElement</c>.
     /// </summary>
     /// <remarks>
-    /// The wrapper arrives as a handle, and the engine object is derived from it rather than the other
-    /// way round — the seam is a cast, not a conversion (<c>Runtime/JsInterop.cs</c>), so both name the
-    /// same object and a member lands in the position it is installed in. That is what keeps
-    /// <c>Object.getOwnPropertyNames(el)</c> reporting the order it always has, with the realm's
-    /// members and the three engine-typed neighbours interleaved exactly as they are written below.
+    /// The wrapper arrives as a handle and stays one: nothing here derives an engine object from it
+    /// any more. Property order is unaffected by that. A handle and the engine object it carries name
+    /// the same object (<c>Runtime/JsInterop.cs</c> is a cast, not a conversion), so every member still
+    /// lands in the position it is installed in and <c>Object.getOwnPropertyNames(el)</c> reports the
+    /// order it always has.
     /// </remarks>
     private void AddElementSpecificMembers(JsValue handle, Broiler.Dom.DomElement element)
     {
@@ -97,14 +100,9 @@ public sealed partial class DomBridge
 
         var tag = element.TagName.ToLowerInvariant();
 
-        // The same wrapper as the engine's own object, for the three installations below whose callee
-        // reads the engine's argument frame: the table interfaces, the form-association members, and
-        // <img>.width/height's used-dimension getter.
-        var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
-
         // HTMLTableElement / HTMLTableSectionElement / HTMLTableRowElement interfaces (Phase 3 P3.5:
         // extracted into the co-located TableBinding feature module).
-        _tables.Install(obj, element, tag);
+        _tables.Install(handle, element, tag);
 
         // HTMLFormElement interface (Phase 3 P3.9: extracted into the co-located FormBinding module).
         _forms.Install(handle, element, tag);
@@ -125,7 +123,7 @@ public sealed partial class DomBridge
         // Form association (HTML §4.10.2, §4.10.4): a control's `form` owner and `labels`, and a
         // label's `control`. Installed per tag rather than on every wrapper, because their absence
         // on a non-form element is observable — see FormAssociationBinding.
-        Dom.Features.FormAssociationBinding.Install(this, obj, element, tag);
+        Dom.Features.FormAssociationBinding.Install(this, handle, element, tag);
 
         // HTMLLabelElement — htmlFor property (maps to 'for' content attribute)
         if (tag == "label")
@@ -368,8 +366,9 @@ public sealed partial class DomBridge
         // SVG DOM interfaces — SVGAnimatedLength/Rect stubs, SVGTextContentElement text metrics, the
         // SVGSVGElement animation timeline and the SMIL animation-element no-ops (Phase 3 P3.50:
         // extracted into the co-located SvgElementBinding feature module). The module is migrated to
-        // JSEAL, so it takes the realm and a handle over this still-engine-typed wrapper —
-        // JsInterop.FromEngineObject is the half-migrated seam, not a conversion.
+        // JSEAL and the wrapper is a handle, so it is passed straight through; the note that used to
+        // stand here called this call a JsInterop.FromEngineObject seam over a "still-engine-typed
+        // wrapper", and it has been neither for some time.
         Dom.Features.SvgElementBinding.Install(Realm, handle, element, tag);
     }
 

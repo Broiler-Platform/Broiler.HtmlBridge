@@ -395,41 +395,6 @@ public sealed partial class DomBridge
             realm.NewMethod("finally", (in call) => { RunAndMaybeFinish(ThenCallback(in call)); return thenable; }, 1));
         return thenable;
     }
-
-    // ── Engine-typed adapter ────────────────────────────────────────────────
-    //
-    // The one entry point as its unmigrated caller still spells it: `subDocument.startViewTransition`
-    // is reached through DomBridge.SubDocumentHost.cs — another group's file this round — which hands
-    // over an engine argument frame. It reads exactly one slot of it, so a handle over that slot is
-    // the whole of what the migrated body above can observe. (`document.startViewTransition` is minted
-    // through the realm now, so it calls StartViewTransition(JsValue) directly.)
-
-    /// <inheritdoc cref="StartSubDocumentViewTransition(DomNode, JsValue)"/>
-    internal JavaScript.Runtime.JSValue StartSubDocumentViewTransition(
-        DomNode docRoot, in JavaScript.Runtime.Arguments arguments) =>
-        Dom.Runtime.JsInterop.ToEngineObject(
-            StartSubDocumentViewTransition(docRoot, OptionsHandle(in arguments)));
-
-    /// <summary>
-    /// A handle over argument zero of an engine call frame, for the adapter above.
-    /// </summary>
-    /// <remarks>
-    /// Only the callable/object distinction survives, which is all either body reads: a primitive
-    /// argument becomes <see cref="JsValue.Missing"/>, and both bodies ignore it exactly as the
-    /// engine-typed narrowing casts they replace did. Minting the handle here rather than through
-    /// <c>Runtime/JsInterop.cs</c> is what keeps a function a function — that helper mints every object
-    /// under the ordinary-object kind, and an update callback narrowed to one would stop being
-    /// callable.
-    /// </remarks>
-    private static JsValue OptionsHandle(in JavaScript.Runtime.Arguments a) =>
-        (a.Length > 0 ? a[0] : null) switch
-        {
-            JavaScript.BuiltIns.Function.JSFunction function => Jseal.Providers.JsProviderValue.Function(function),
-            JavaScript.BuiltIns.Array.JSArray array => Jseal.Providers.JsProviderValue.Array(array),
-            JavaScript.Runtime.JSObject @object => Jseal.Providers.JsProviderValue.Object(@object),
-            _ => JsValue.Missing,
-        };
-
     // ── Serialize-time rendering ────────────────────────────────────────────
 
     /// <summary>

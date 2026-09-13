@@ -8,9 +8,9 @@ namespace Broiler.HtmlBridge;
 // factory via explicit interface members, so the module never reaches an arbitrary bridge private
 // field and the public surface is unchanged.
 //
-// Nothing here names an engine type any more. WrapNode is the JSEAL-vocabulary name for the wrapper
-// the engine-typed factory answers — the same object, since a JSEAL object handle carries the engine's
-// own — and the script-context member is gone with the DOMException plumbing it existed for, which
+// Nothing here names an engine type any more. WrapNode forwards to the bridge's wrapper factory,
+// which answers the realm-minted handle (this said an engine-typed factory stood behind it), and the
+// script-context member is gone with the DOMException plumbing it existed for, which
 // IJsCalls.DomError now owns.
 public sealed partial class DomBridge : Dom.Features.ICharacterDataHost
 {
