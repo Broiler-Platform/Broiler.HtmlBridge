@@ -197,11 +197,11 @@ public sealed partial class DomBridge
         // so this is applied to the result of every scrolling entry point rather than to any
         // one of them (CSS Scroll Snap 1 §2). A non-snapping container is unchanged.
         //
-        // This runs even under `clamp: false` (window.scrollTo/scrollBy and the element
-        // scroll/scrollTo/scrollBy bindings), which is deliberate: snapping is a property of
-        // the container, not of the API used to reach it, and a snap position is by definition
-        // inside the scrollable range. Callers that opt out of clamping still get no clamping
-        // on an ordinary scroll container — only on one that asked to snap.
+        // This runs even under `clamp: false`, which is deliberate: snapping is a property of the
+        // container, not of the API used to reach it, and a snap position is by definition inside the
+        // scrollable range. Only the sub-window scroll contract (DomBridge.SubWindowHost.cs) passes it:
+        // the page window's and every element's scroll/scrollTo/scrollBy clamp. A caller that opts out
+        // still gets no clamping on an ordinary scroll container — only on one that asked to snap.
         nextLeft = ResolveScrollSnapPosition(element, vertical: false, nextLeft);
         nextTop = ResolveScrollSnapPosition(element, vertical: true, nextTop);
 
