@@ -940,7 +940,7 @@ public class JsealConformanceTests
     /// constructor saw <see cref="JsValue.Missing"/>. The value was there to be had: the engine's
     /// own [[Construct]] sets <c>ec.CurrentNewTarget</c> to the constructor immediately before
     /// invoking the delegate, and its <c>Object</c> factory reads exactly that.
-    /// <c>BroilerJsRealm.cs:309-322</c> now reads both, in that order, and states why. Custom-element
+    /// <c>BroilerJsRealm.cs:329-342</c> now reads both, in that order, and states why. Custom-element
     /// construction is the caller that needed it, and was smuggling new.target through as argument
     /// zero from a JavaScript shim for want of it.
     /// </remarks>
