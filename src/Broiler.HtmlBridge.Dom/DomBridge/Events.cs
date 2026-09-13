@@ -172,18 +172,42 @@ public sealed partial class DomBridge
     /// bridge-owned inline event handler state.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>The compile goes through the realm, and the store holds what the realm answered.</b>
-    /// <see cref="IJsSource.EvaluateHostScript"/> is the right call and not merely the available one:
-    /// an event-handler content attribute is source the <em>page</em> wrote, but the wrapper around it
-    /// is this repository's, and HTML §8.1.5.1 makes the attribute subject to the
-    /// <c>script-src</c>/<c>unsafe-inline</c> decision taken above rather than to <c>eval</c>'s — so
-    /// the Content-Security-Policy check stays where it is and the evaluation is unconditional, which
-    /// is exactly what the bare <c>Eval</c> it replaces did. The handle is stored as it is. This
-    /// paragraph used to say it had to be unwrapped first because the map was typed over the engine's
-    /// value, "declared in the unowned <c>DomBridge/RuntimeStates.cs</c> and read by the equally unowned
-    /// dispatch path". The dispatch path is <c>Features/EventDispatchBinding.cs</c>, which already spoke
-    /// JSEAL and was handed a handle minted back over the very object unwrapped here, so this unwrap
-    /// and that wrap were one round trip. The function dispatch runs is still the one compiled here.
+    /// <see cref="IJsSource.EvaluateClassicScript"/> is the right call and not merely the available
+    /// one: HTML §8.1.5.1 makes an event-handler content attribute subject to the
+    /// <c>script-src</c>/<c>unsafe-inline</c> decision taken above rather than to <c>eval</c>'s, so
+    /// the Content-Security-Policy check stays where it is and the evaluation here is unconditional.
+    /// </para>
+    /// <para>
+    /// <b>THIS USED TO SAY <see cref="IJsSource.EvaluateHostScript"/>, AND HALF OF WHY WAS WRONG.</b>
+    /// The argument had two limbs: that the directive decides, which is right and is the reason the
+    /// contract now has a member for exactly this; and that the wrapper around the page's statements
+    /// is this repository's, which made the host member's promise — "JavaScript this repository
+    /// authored" — read as literally true. It is not a promise about who typed the punctuation. The
+    /// wrapper is a pair of parentheses and a parameter list; if that converted a page's program into
+    /// this repository's, the promise would have no content at all, since any call site could satisfy
+    /// it by wrapping. The statements inside are the page's and the page can tell.
+    /// </para>
+    /// <para>
+    /// <b>It is not a cosmetic re-labelling on every engine.</b> On a provider whose only compiler is
+    /// a registered artifact provider, the host-script mark is the permission to compile and is held
+    /// for the whole evaluation; the classic-script permit is spent by the one compile it authorises
+    /// and suspends that mark while it runs. So this moves a page's program off the permission meant
+    /// for source this repository authored, which is the distinction
+    /// <see cref="IJsSource.EvaluateClassicScript"/> was added to make, and this was the only site
+    /// handing that permission source text the page wrote. It is not the only way the page's code can
+    /// run while the mark is held: host script that calls a function the page wrote or replaced lends
+    /// it the mark, as <c>broiler:window-onload</c> does with the page's <c>onload</c>.
+    /// </para>
+    /// <para>
+    /// The handle is stored as it is. This remark used to say it had to be unwrapped first because the
+    /// map was typed over the engine's value, "declared in the unowned <c>DomBridge/RuntimeStates.cs</c>
+    /// and read by the equally unowned dispatch path". The dispatch path is
+    /// <c>Features/EventDispatchBinding.cs</c>, which already spoke JSEAL and was handed a handle minted
+    /// back over the very object unwrapped here, so this unwrap and that wrap were one round trip. The
+    /// function dispatch runs is still the one compiled here.
+    /// </para>
     /// </remarks>
     internal void CompileInlineEventAttribute(DomElement element, string attrName, string code)
     {
@@ -212,8 +236,13 @@ public sealed partial class DomBridge
             // One constant label rather than one per handler: it is the location a stack frame
             // reports, and a label that varied with the event name would give the engine's code
             // cache a different key for every attribute compiling the same wrapper shape.
-            var fn = realm.EvaluateHostScript(
-                $"(function(event) {{ {svgEventAlias}{code} }})", "broiler:inline-event-handler");
+            //
+            // It lost its `broiler:` prefix with the member. This repository labels some of the source
+            // it authored that way -- `broiler:window-onload`, `broiler:dataset` -- and a stack frame
+            // naming a page's own onclick that way pointed a reader at the wrong author on the one line
+            // they had to go on.
+            var fn = realm.EvaluateClassicScript(
+                $"(function(event) {{ {svgEventAlias}{code} }})", "inline-event-handler");
             if (fn.IsFunction)
                 GetInlineEventHandlers(element)[eventName] = fn;
         }
