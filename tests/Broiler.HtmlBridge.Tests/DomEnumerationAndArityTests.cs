@@ -172,8 +172,8 @@ public class DomEnumerationAndArityTests
     }
 
     [Fact(Skip =
-        "getRootNode is minted with a declared length of 1 at DomBridge/JsObjects.cs:463, " +
-        "DomBridge/JsObjects.NonElementNodes.cs:212, :328 and :585, and on the character-data " +
+        "getRootNode is minted with a declared length of 1 at DomBridge/JsObjects.cs:440, " +
+        "DomBridge/JsObjects.NonElementNodes.cs:209, :325 and :581, and on the character-data " +
         "prototype at DomBridge/CharacterDataInterface.cs:248. DOM §4.4 declares " +
         "`Node getRootNode(optional GetRootNodeOptions options = {})`, so its only argument is " +
         "optional and a browser reports 0 — a page feature-detecting composed-tree support by " +

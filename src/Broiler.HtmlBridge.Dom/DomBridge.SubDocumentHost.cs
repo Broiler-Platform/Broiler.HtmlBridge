@@ -14,23 +14,25 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The contract above is spelled in JSEAL; this file is where that meets the half of the bridge that is
-/// still engine-typed. <see cref="Dom.Runtime.JsInterop"/> is the cast between them and not a
-/// conversion — a JSEAL object handle carries the engine's own object — so wrapper identity
-/// (<c>el === el</c>, and the weak tables keyed on it) is the same question it was before.
+/// <b>This file named no engine type, and a paragraph here said it did.</b> It listed two things
+/// "on the other side of the seam" as the reason: the two reverse wrapper lookups, and the two name
+/// validations plus the selector check "each of which raises its <c>DOMException</c> against the
+/// script context". Neither survives inspection — the lookups take a JSEAL handle, the three
+/// validations raise against the realm rather than against any script context (two take it as an
+/// argument and <c>ValidateSelector</c> reads the field), and the engine reference it claimed was
+/// never one the ratchet could see, because what stood here was a <c>JsInterop</c> crossing and a
+/// crossing names no engine type.
 /// </para>
 /// <para>
-/// Two things on the other side of the seam are unmigrated and are why this file names an engine type
-/// at all: the two reverse wrapper lookups, whose <em>names</em> spell the engine's object type at
-/// every call site and which are declared in <c>DomBridge/Utilities.cs</c>, not here; and the two name
-/// validations and the selector check, each of which raises its <c>DOMException</c> against the script
-/// context. The reverse lookups are unwrapped here and nowhere above.
+/// Wrapper identity (<c>el === el</c>, and the weak tables keyed on it) is the same question it was
+/// before, because <c>Runtime/JsObjectRegistry</c> keys on <see cref="JsValue.ObjectIdentity"/> — the
+/// reference the handle carries — rather than on an engine object.
 /// </para>
 /// <para>
-/// Four things have left that list, and each of them is now a plain forward: the wrapper factory
-/// (<c>WrapNode</c>) answers a handle, <c>DomCollectionBinding</c> and <c>DocumentCollectionBinding</c>
-/// both mint into a realm, and <c>StartSubDocumentViewTransition</c> takes the one argument it reads
-/// rather than an engine frame around it.
+/// Everything this file forwards is now a plain forward: the wrapper factory (<c>WrapNode</c>) answers
+/// a handle, <c>DomCollectionBinding</c> and <c>DocumentCollectionBinding</c> both mint into a realm,
+/// <c>StartSubDocumentViewTransition</c> takes the one argument it reads rather than an engine frame
+/// around it, and the two reverse lookups take the handle their callers already held.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge : ISubDocumentHost
@@ -39,12 +41,13 @@ public sealed partial class DomBridge : ISubDocumentHost
 
     // Missing rather than undefined for "there is no window yet": the module tests it with IsObject,
     // and the value is never handed to script — the null check it replaces guarded the same thing.
-    // That is exactly what the bridge's own WindowHandle answers, so this is the sibling handle
-    // (DomBridge.cs) rather than a second reading of the engine-typed field.
+    // That is exactly what the bridge's window root holds, so this forwards WindowHandle
+    // (DomBridge.cs) as it stands.
     JsValue ISubDocumentHost.MainWindow => WindowHandle;
 
-    // The bridge's wrapper factory answers a handle now (DomBridge/JsObjects.cs), so this forwards
-    // rather than unwrapping the engine-typed adapter beside it and re-wrapping the result.
+    // A plain forward to the bridge's wrapper factory (DomBridge/JsObjects.cs), which answers a handle.
+    // Until 5282d02 this read FromEngineObject(ToJSObject(node)), when ToJSObject was the engine-typed
+    // factory itself; 5282d02 made ToJSObject a cast over WrapNode, and bcce315 retired it.
     JsValue ISubDocumentHost.ToJsObject(DomNode node) => WrapNode(node);
 
     void ISubDocumentHost.LinkToInterface(JsValue wrapper, string interfaceName) =>
@@ -52,13 +55,14 @@ public sealed partial class DomBridge : ISubDocumentHost
 
     bool ISubDocumentHost.NodeInterfacePrototypesReady => _nodeInterfacePrototypesReady;
 
-    // The module only asks these of a handle it has already established is an object, so unwrapping
-    // cannot fail here; a non-object would mean the module skipped its own guard.
+    // Plain forwards: both reverse lookups take the same handle. There is no unwrap left to fail, and
+    // a handle that is not an object answers null — which every caller in SubDocumentBinding still
+    // means these never have to do, because each of them guards with IsObject first.
     DomElement? ISubDocumentHost.FindElement(JsValue wrapper) =>
-        FindDomElementByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper));
+        FindDomElementByJSObject(wrapper);
 
     DomNode? ISubDocumentHost.FindNode(JsValue wrapper) =>
-        FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper));
+        FindDomNodeByJSObject(wrapper);
 
     void ISubDocumentHost.RegisterDocumentWrapper(DomNode docRoot, JsValue doc)
     {
@@ -175,7 +179,7 @@ public sealed partial class DomBridge : ISubDocumentHost
         foreach (var value in arguments)
         {
             if (value.IsObject &&
-                FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(value)) is { } candidateNode)
+                FindDomNodeByJSObject(value) is { } candidateNode)
             {
                 if (candidateNode is DomDocumentFragment candidateFragment)
                 {

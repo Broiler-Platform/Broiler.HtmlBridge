@@ -9,12 +9,13 @@ namespace Broiler.HtmlBridge;
 // method — the module now names the exact geometry surface it depends on instead of reaching into the
 // bridge directly.
 //
-// This file is the engine-typed half of the seam, and two members sit on it. The scroll-option readers in
-// LayoutMetrics.Scrolling.cs read an engine call frame and are shared word for word with the window and
-// sub-window scroll hosts, which have not migrated; so the *dispatch* on what the page passed is asked of
-// the JSEAL handle here, and the reads out of the options dictionary are still that file's, on the engine
-// object the handle carries. Both stop being needed when LayoutMetrics.Scrolling.cs moves and all three
-// hosts can name one JSEAL reader.
+// This file names no engine type, and the two option-reading members below are why it used to. Each
+// unwrapped the JSEAL handle the page had passed into the engine's own object and handed it to an
+// adapter in LayoutMetrics.Scrolling.cs, whose entire body wrapped it back into a handle to do the
+// read. The comment that stood here justified the detour by saying those readers "read an engine call
+// frame and are shared word for word with the window and sub-window scroll hosts": they read a JSEAL
+// handle, and they were shared with nothing -- these two members were their only callers in the tree.
+// The window and sub-window hosts have their own copy, in DomBridge.SubWindowHost.cs.
 public sealed partial class DomBridge : Dom.Features.IElementGeometryHost
 {
     bool Dom.Features.IElementGeometryHost.IsViewportElementForMetrics(DomElement element) => IsViewportElementForMetrics(element);
@@ -43,9 +44,7 @@ public sealed partial class DomBridge : Dom.Features.IElementGeometryHost
         => GetBoundingClientRectForDomElement(element, isRoot);
 
     /// <summary>
-    /// <c>scrollIntoView</c>'s argument, which is a dictionary, a boolean, or nothing at all — the same
-    /// three answers the engine-typed reader in <c>LayoutMetrics.Scrolling.cs</c> gives, decided from the
-    /// JSEAL handle instead of from the engine value.
+    /// <c>scrollIntoView</c>'s argument, which is a dictionary, a boolean, or nothing at all.
     /// </summary>
     /// <remarks>
     /// The no-argument case is <see cref="JsValue.IsMissing"/> rather than a length test for the reason
@@ -64,11 +63,10 @@ public sealed partial class DomBridge : Dom.Features.IElementGeometryHost
 
         if (first.IsObject)
         {
-            var options = Dom.Runtime.JsInterop.ToEngineObject(first);
             return (
-                NormalizeScrollIntoViewAlignment(GetOptionalStringOption(options, "block"), defaultBlock),
-                NormalizeScrollIntoViewAlignment(GetOptionalStringOption(options, "inline"), defaultInline),
-                GetOptionalScrollBehavior(options));
+                NormalizeScrollIntoViewAlignment(ReadScrollStringOption(first, "block"), defaultBlock),
+                NormalizeScrollIntoViewAlignment(ReadScrollStringOption(first, "inline"), defaultInline),
+                ReadScrollBehaviorOption(first));
         }
 
         if (first.IsBoolean)
@@ -100,11 +98,10 @@ public sealed partial class DomBridge : Dom.Features.IElementGeometryHost
 
         if (first.IsObject)
         {
-            var options = Dom.Runtime.JsInterop.ToEngineObject(first);
             return (
-                GetOptionalScrollCoordinate(options, "left"),
-                GetOptionalScrollCoordinate(options, "top"),
-                GetOptionalScrollBehavior(options));
+                ReadScrollCoordinateOption(first, "left"),
+                ReadScrollCoordinateOption(first, "top"),
+                ReadScrollBehaviorOption(first));
         }
 
         var second = call[1];

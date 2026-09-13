@@ -148,7 +148,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         // Drive the engine's own module machinery only when it actually binds imports (patches 0010/0011);
         // otherwise the page runs on a plain JSContext and modules come in as linked strings via the linker.
         var useEngineModules = roots.Count > 0 && EngineModuleSupport.Available;
-        var moduleContext = useEngineModules ? new BridgeModuleContext(Csp, url) : null;
+        var moduleContext = useEngineModules ? new BridgeModuleContext(Csp, url, roots) : null;
 
         try
         {
@@ -340,7 +340,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         Csp = ContentSecurityPolicy.FromHtml(html) ?? previousCsp;
 
         var useEngineModules = roots.Count > 0 && EngineModuleSupport.Available;
-        var moduleContext = useEngineModules ? new BridgeModuleContext(Csp, url) : null;
+        var moduleContext = useEngineModules ? new BridgeModuleContext(Csp, url, roots) : null;
 
         // Ownership of the context + bridge transfers to the returned InteractiveSession, which
         // disposes both. If setup throws before the session is built, the catch disposes them so a

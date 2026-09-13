@@ -72,10 +72,10 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
     /// keyed into the same table so its flags read through to the internals that owns them.
     /// </summary>
     /// <remarks>
-    /// Keyed on the object identity behind the handle (see <see cref="IdentityOf"/>) rather than on
-    /// the handle itself: a <see cref="JsValue"/> is a struct and cannot be a
-    /// <see cref="ConditionalWeakTable{TKey,TValue}"/> key, while the engine object it carries is the
-    /// same instance the rest of the bridge's wrapper tables are keyed on. The keys stay weak, so an
+    /// Keyed on the identity the handle carries (see <see cref="IdentityOf"/>),
+    /// <see cref="JsValue.ObjectIdentity"/>, rather than on the handle itself, whose struct type a
+    /// <see cref="ConditionalWeakTable{TKey,TValue}"/> cannot key on. That is the identity the wrapper
+    /// registry's reverse table keys on too, and every provider supplies it. The keys stay weak, so an
     /// internals the page has dropped is not kept alive by this table.
     /// </remarks>
     private readonly ConditionalWeakTable<object, InternalsState> _states = new();

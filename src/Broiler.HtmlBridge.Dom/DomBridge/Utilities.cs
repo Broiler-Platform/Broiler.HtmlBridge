@@ -1,11 +1,9 @@
 using System.Text;
 using System.Text.RegularExpressions;
-// One engine namespace, and only one: JSObject, for the two wrapper-cache reverse lookups below.
-// Fifteen files outside this one hand them an engine object (each unwrapping a JSEAL handle at its own
-// seam), so the parameter type is pinned from outside and the using goes when they stop. The searches
-// and the collections they build are the realm's now, so JSNull and JSValue are gone with them.
+// No engine namespace at all. The two wrapper-cache reverse lookups below take a JSEAL handle, which
+// is what all fifteen of their callers already held; they stopped unwrapping it at their own seams in
+// the same commit that re-typed these, and the using that comment described went with them.
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
 using Broiler.CSS;
 
@@ -227,27 +225,41 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Finds the <see cref="DomElement"/> corresponding to a given wrapper object
-    /// by looking up the JS object cache.
+    /// Finds the <see cref="DomElement"/> a wrapper handle stands for, or <see langword="null"/>
+    /// when it stands for none — a handle that is not an object included.
     /// </summary>
     /// <remarks>
-    /// <b>The engine parameter type is pinned from outside, and so is the name.</b> Fifteen files
-    /// across the assembly call this pair, every one of them unwrapping a JSEAL handle at its own
-    /// seam; the declaration cannot take a <c>JsValue</c> — nor lose the <em>JSObject</em> in its
-    /// name — until they all ask with one. <see cref="Dom.Runtime.JsObjectRegistry"/> holds the
-    /// mapping either way.
+    /// <para>
+    /// <b>The parameter is the handle every caller already held.</b> Fifteen files across the
+    /// assembly call this pair, and each of them used to unwrap its handle at its own seam only for
+    /// this pair to wrap it straight back up before asking
+    /// <see cref="Dom.Runtime.JsObjectRegistry"/> — which has been keyed on
+    /// <see cref="JsValue.ObjectIdentity"/> since it was re-typed, so the round trip resolved to the
+    /// same lookup it started from. The <em>names</em> still spell the type they no longer take;
+    /// renaming them is a separate change, and nothing the neutrality ratchet measures depends on it,
+    /// because that check counts the engine's namespace as text and a method name spells none.
+    /// </para>
+    /// <para>
+    /// <b>A handle that is not an object answers <see langword="null"/> rather than throwing.</b>
+    /// The registry treats a non-object wrapper as simply absent from the map, so the
+    /// <c>IsObject</c> test that ten of the call sites still put in front of these is now the same
+    /// question this asks and is redundant rather than load-bearing. Collapsing those is a separate
+    /// change; it would also turn <c>JsObjects.NonElementNodes.cs</c>'s <c>NodeForWrapper</c> into a
+    /// bare alias and pull its six call sites in with it.
+    /// </para>
     /// </remarks>
-    private DomElement? FindDomElementByJSObject(JSObject jsObj) => FindDomNodeByJSObject(jsObj) as DomElement;
+    private DomElement? FindDomElementByJSObject(JsValue wrapper) =>
+        FindDomNodeByJSObject(wrapper) as DomElement;
 
     /// <summary>
-    /// Finds the canonical <see cref="DomNode"/> corresponding to a given wrapper object
-    /// by reverse-scanning the JS-object cache. Unlike
+    /// Finds the canonical <see cref="DomNode"/> a wrapper handle stands for, in constant time
+    /// (the reverse map is a hash lookup, not the scan this used to describe). Unlike
     /// <see cref="FindDomElementByJSObject"/> this also resolves text/comment nodes
     /// (RF-BRIDGE-1c Phase F — needed once ranges/selection carry canonical char-data nodes).
     /// </summary>
     /// <inheritdoc cref="FindDomElementByJSObject" path="/remarks" />
-    private DomNode? FindDomNodeByJSObject(JSObject jsObj) =>
-        _jsObjects.TryGetNode(Dom.Runtime.JsInterop.FromEngineObject(jsObj), out var node) ? node : null;
+    private DomNode? FindDomNodeByJSObject(JsValue wrapper) =>
+        _jsObjects.TryGetNode(wrapper, out var node) ? node : null;
 
     // Phase 4 item 5: the bridge's IsDescendant(ancestor, candidate) copy is deleted; call sites use
     // the canonical Broiler.Dom.DomNode.IsDescendantOf(ancestor) instance method (identical ancestor

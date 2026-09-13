@@ -8,10 +8,12 @@ namespace Broiler.Browser.Core.Tests;
 /// four are read through, asserted from page script.
 /// <para>
 /// One DOM node has exactly one JavaScript object for the life of a document, and the tables that
-/// guarantee it are the engine-typed ones: a node→wrapper dictionary and a weakly-keyed wrapper→node
-/// table. Every operation here reaches one or both — <c>contains</c> and <c>compareDocumentPosition</c>
-/// resolve their argument through the reverse map, <c>getRootNode</c> and <c>parentNode</c> mint their
-/// answer through the forward one. Re-typing that storage is what these tests are written ahead of, and
+/// guarantee it are <c>JsObjectRegistry</c>'s: a node→wrapper dictionary of handles and a wrapper→node
+/// table weakly keyed on <c>JsValue.ObjectIdentity</c>. Every operation here reaches one or both —
+/// <c>contains</c> and <c>compareDocumentPosition</c> resolve their argument through the reverse map,
+/// <c>parentNode</c> mints its answer through the forward one, as <c>getRootNode</c> does for every root but
+/// the main document, whose handle it answers directly. These tests were
+/// written ahead of re-typing that storage onto handles (this called the tables engine-typed), and
 /// the failure mode is silent: a wrapper that stops holding does not throw, it hands back a second object
 /// that is <c>!==</c> the first, so every identity comparison a page makes goes quietly false.
 /// </para>

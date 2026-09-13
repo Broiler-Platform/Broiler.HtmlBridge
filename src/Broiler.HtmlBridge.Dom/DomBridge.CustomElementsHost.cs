@@ -1,5 +1,4 @@
 using Broiler.HtmlBridge.Dom.Features;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
@@ -30,9 +29,9 @@ public sealed partial class DomBridge : ICustomElementsHost
 
     IReadOnlyList<DomElement> ICustomElementsHost.Elements => Elements;
 
-    // The bridge's own JSEAL-vocabulary wrapper factory: a handle over the object the engine-typed
-    // wrapper cache already holds. It is a cast, not a conversion, so wrapper identity is unchanged
-    // and the weak tables keyed on it keep keying on the same instances.
+    // The bridge's wrapper factory, forwarded as it stands: WrapNode answers the handle
+    // JsObjectRegistry caches for the node, so wrapper identity is unchanged. (This called it a cast
+    // over an engine-typed wrapper cache; the cache holds handles.)
     JsValue ICustomElementsHost.WrapNode(DomNode node) => WrapNode(node);
 
     bool ICustomElementsHost.TryGetWrapper(DomElement element, out JsValue wrapper)
@@ -47,10 +46,10 @@ public sealed partial class DomBridge : ICustomElementsHost
         return false;
     }
 
-    // The registry only asks this of a handle it has already established is an object, so unwrapping
-    // cannot fail here.
+    // A plain forward: the reverse lookup takes the same handle. The registry guards with IsObject
+    // before it calls, and a handle that is not an object would answer null rather than throw.
     DomNode? ICustomElementsHost.FindNode(JsValue wrapper) =>
-        FindDomNodeByJSObject(JsInterop.ToEngineObject(wrapper));
+        FindDomNodeByJSObject(wrapper);
 
     DomElement ICustomElementsHost.CreateBridgeElement(string tagName) => CreateBridgeElement(tagName);
 

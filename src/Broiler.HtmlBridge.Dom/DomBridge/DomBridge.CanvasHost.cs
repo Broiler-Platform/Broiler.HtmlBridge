@@ -6,14 +6,13 @@ namespace Broiler.HtmlBridge;
 // the realm's Uint8ClampedArray constructor through the window object and nothing else, so the module
 // touches no bridge private state and the public surface is unchanged.
 //
-// The window field is still the engine's own object (registration has not migrated), so this is the
-// engine-typed half of the seam: JsInterop carries the object across without converting it. A bridge
-// that has not registered a window yet answers `undefined`, which is what the module's `IsObject` guard
-// reads — the previous contract expressed the same absence as a CLR null.
+// The window is the bridge's root, a handle, so this forwards it. A bridge that has not registered a
+// window yet still answers `undefined` and not the Missing the root holds: the module's `IsObject`
+// guard reads the two alike, but `undefined` is what this member has answered since the contract
+// stopped expressing the absence as a CLR null, and dropping the coalesce would have compiled without
+// a word.
 public sealed partial class DomBridge : Dom.Features.ICanvasHost
 {
     JsValue Dom.Features.ICanvasHost.Window =>
-        _windowJSObject is { } window
-            ? Dom.Runtime.JsInterop.FromEngineObject(window)
-            : JsValue.Undefined;
+        WindowHandle.IsMissing ? JsValue.Undefined : WindowHandle;
 }

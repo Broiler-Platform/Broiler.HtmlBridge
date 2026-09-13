@@ -13,8 +13,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type: the realm arrives on the call frame, and the wrapper the host hands back is a
-/// <see cref="JsValue"/> over the same engine object it always was.
+/// type: the realm arrives on the call frame, and the host hands back the wrapper it has always cached
+/// for the node, as a <see cref="JsValue"/> handle.
 /// </remarks>
 internal static class DocumentStructureBinding
 {

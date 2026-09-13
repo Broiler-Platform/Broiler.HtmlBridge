@@ -27,16 +27,20 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// installer had to hand each feature module the frame its own signature named. Both hubs
 /// (<c>DomBridge/ElementInterface.cs</c>, <c>DomBridge/HtmlElementInterface.cs</c>) and every module
 /// they installed against now speak JSEAL, so the twin is gone and this is the only declaration.
-/// The two members whose <em>bodies</em> still read the engine's frame — <c>animate()</c> and
-/// <c>click</c>/<c>focus</c>/<c>blur</c>, whose modules are not migrated — ask this same source for
-/// their element through a receiver-only <see cref="JsCall"/> built at their install site, so there
-/// is still exactly one rule for "which element is this".
+/// <c>animate()</c> and <c>click</c>/<c>focus</c>/<c>blur</c> included, every member the two hubs install
+/// asks this source with the call frame it was invoked with, so those members share exactly one rule
+/// for "which element is this".
+/// (This said those bodies still read the engine's frame and asked through a receiver-only
+/// <see cref="JsCall"/> built at their install site; both take the real <see cref="JsCall"/> now.)
 /// </para>
 /// <para>
-/// The name is <c>JsElementSource</c> rather than <c>ElementSource</c> only because four feature
-/// modules outside this file declare their installers against it — <c>ElementContentBinding</c>,
-/// <c>ElementGeometryBinding</c>, <c>GlobalAttributeBinding</c> and <c>InsertAdjacentBinding</c>.
-/// Renaming it is a rename of those seven signatures and nothing else.
+/// The name is <c>JsElementSource</c> rather than <c>ElementSource</c> only because six feature
+/// modules outside this file declare installers against it — <c>DialogBinding</c>,
+/// <c>ElementContentBinding</c>, <c>ElementGeometryBinding</c>, <c>FormControlBinding</c>,
+/// <c>GlobalAttributeBinding</c> and <c>InsertAdjacentBinding</c>. Renaming it is a rename of their nine
+/// signatures, the eight in the two hubs, and five doc crefs no build checks (in <c>ElementInterface</c>,
+/// <c>HtmlElementInterface</c>, <c>DialogBinding</c>, <c>FormControlBinding</c> and this file's
+/// <c>WrapperSource</c> summary). (This said four modules, seven signatures and nothing else.)
 /// </para>
 /// </remarks>
 internal delegate DomElement JsElementSource(in JsCall call, string member);

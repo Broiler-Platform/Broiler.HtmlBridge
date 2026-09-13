@@ -178,9 +178,27 @@ public readonly struct JsValue : IEquatable<JsValue>
     };
 
     /// <summary>
-    /// This value as a boolean, using ECMAScript truthiness, without calling into the engine. Every
-    /// object is truthy, so no engine call is needed for any kind.
+    /// This value as a boolean, using ECMAScript truthiness, without calling into the engine — for
+    /// every kind except <see cref="JsValueKind.BigInt"/>, which this answers wrongly for zero.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This summary used to say "every object is truthy, so no engine call is needed for any kind".
+    /// The reason was about objects and the conclusion was about kinds, and one kind falls between
+    /// them.</b> The switch below sends everything above <see cref="JsValueKind.String"/> to
+    /// <see langword="true"/>. That is right for a symbol and for every object, function and array,
+    /// and wrong for <c>0n</c>, whose ToBoolean is <see langword="false"/>.
+    /// <see cref="JsValueKind.BigInt"/> is 7 and <see cref="JsValueKind.Object"/> is 8, so the BigInt
+    /// was never one of the objects the sentence was reasoning about.
+    /// </para>
+    /// <para>
+    /// <b>It cannot be fixed here.</b> A BigInt handle carries the provider's own value as an opaque
+    /// reference, so this assembly has nothing to test. <see cref="IJsValues.ToBoolean"/> answers that
+    /// kind. This member stays, because every other kind is decidable from the handle and the bridge
+    /// reads truthiness where a crossing per read would be the cost of the abstraction; whether a site
+    /// can be handed a BigInt is a question about where its value came from.
+    /// </para>
+    /// </remarks>
     public bool AsBoolean => _kind switch
     {
         JsValueKind.Missing or JsValueKind.Undefined or JsValueKind.Null => false,
@@ -220,11 +238,23 @@ public readonly struct JsValue : IEquatable<JsValue>
 
     /// <summary>
     /// ECMAScript strict equality (<c>===</c>) as far as it can be decided without entering the
-    /// engine — which is all of it, because <c>===</c> never coerces.
+    /// engine — which is every kind but <see cref="JsValueKind.BigInt"/>, because <c>===</c> never
+    /// coerces.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// NaN is not equal to itself here, as the language says. <see cref="Equals(JsValue)"/> deliberately
     /// differs on exactly that one case; see its remarks.
+    /// </para>
+    /// <para>
+    /// <b>This summary used to say "which is all of it", and it was short by the kind
+    /// <see cref="AsBoolean"/> is short by.</b> BigInt strict equality compares mathematical values, and
+    /// a BigInt handle falls to the reference arm below. The Broiler.JS provider's engine allocates a
+    /// fresh value for every BigInt literal it evaluates and every BigInt it computes, so two handles
+    /// over equal BigInts minted separately compare unequal here where <c>===</c> says they are equal.
+    /// Recorded rather than changed: an honest answer needs a provider, as truthiness does, and no
+    /// contract member for it exists.
+    /// </para>
     /// </remarks>
     public static bool operator ==(JsValue left, JsValue right)
     {

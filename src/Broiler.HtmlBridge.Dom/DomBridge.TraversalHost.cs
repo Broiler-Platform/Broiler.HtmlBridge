@@ -12,11 +12,11 @@ namespace Broiler.HtmlBridge;
 /// reaches them only through the interface, never through bridge private fields.
 /// </summary>
 /// <remarks>
-/// This is the half-migrated seam for the traversal slice: the module speaks JSEAL, the rest of the
-/// bridge still holds engine objects, and <see cref="Dom.Runtime.JsInterop"/> is the cast between
-/// them. It is a cast and not a conversion — a JSEAL object handle carries the engine's own object —
-/// so wrapper identity (<c>el === el</c>, and the weak tables keyed on it) is the same question it
-/// was before.
+/// The traversal slice is not a half-migrated seam any more: the module speaks JSEAL and both wrapper
+/// lookups below take the handle they are handed, so no cast is left in this file. Wrapper identity
+/// (<c>el === el</c>, and the weak tables keyed on it) is the same question it was before, because
+/// <c>Runtime/JsObjectRegistry</c> keys on <see cref="JsValue.ObjectIdentity"/> — the reference the
+/// handle carries.
 /// </remarks>
 public sealed partial class DomBridge : ITraversalHost
 {
@@ -27,10 +27,10 @@ public sealed partial class DomBridge : ITraversalHost
     JsValue ITraversalHost.WrapNode(DomNode node) => WrapNode(node);
 
     DomNode? ITraversalHost.FindNode(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper)) : null;
+        wrapper.IsObject ? FindDomNodeByJSObject(wrapper) : null;
 
     DomElement? ITraversalHost.FindElement(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomElementByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper)) : null;
+        wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
 
     int ITraversalHost.CompareBoundaryPosition(DomNode docRoot, DomNode containerA, int offsetA, DomNode containerB, int offsetB) =>
         CompareBoundaryPosition(docRoot, containerA, offsetA, containerB, offsetB);
