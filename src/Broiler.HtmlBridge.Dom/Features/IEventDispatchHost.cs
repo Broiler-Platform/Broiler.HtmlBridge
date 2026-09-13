@@ -15,29 +15,21 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The contract names no engine type: wrappers are <see cref="JsValue"/> handles and the realm is
-/// where the event object's members are installed. This used to say two things behind it did
-/// <em>not</em> move. One of them has since, and both are recorded here rather than hidden: the one
-/// that has not, and why the one that has was never waiting on what it was said to wait on.
+/// The contract names no engine type, and nothing behind it holds one: wrappers are
+/// <see cref="JsValue"/> handles and the realm is where the event object's members are installed. This
+/// remark used to record two things that had not moved, and gave one reason for both.
 /// </para>
 /// <para>
-/// <b><see cref="GetEventListeners"/> hands back engine-typed registrations.</b>
-/// <c>EventListenerRegistration</c> stores its listener as an engine value and lives in
-/// <c>DomBridge/RuntimeStates.cs</c>, which this migration round does not own; it is shared with the
-/// window, form-submit and messaging dispatch paths, so its shape cannot move for the events slice
-/// alone. The listener is invoked through <c>DomBridge.InvokeEventListener</c>, which is likewise
-/// still engine-typed in its listener, and for that record's reason rather than because unmigrated
-/// callers share it: all five of its callers hold the event as a handle, and it takes the event as one.
+/// <b><see cref="GetEventListeners"/> hands back registrations that hold handles.</b>
+/// <c>EventListenerRegistration</c> stored its listener as an engine value and the invoker it is fired
+/// through took one; the record holds a <see cref="JsValue"/> now and the invoker calls it through the
+/// realm, for this path and for the window, form-submit and messaging paths that share both.
 /// </para>
 /// <para>
-/// <b><see cref="InlineEventHandler"/> is narrower than the map it reads, and no longer because of the
-/// map's type.</b> This paragraph said the inline <c>on*</c> handlers lived on
-/// <c>InlineStyleRuntimeState</c> as a dictionary of engine values in "the same unowned file", so the
-/// bridge did the engine-typed lookup on its own side. The map is a dictionary of
-/// <see cref="JsValue"/> handles now, and the file was never the constraint: every reader and writer
-/// the map has is in three bridge files, which moved together. The contract still asks for the one
-/// handler it fires rather than for the map, because the map is also the reflector's and the attribute
-/// compiler's store, and a dispatch module has no business writing to it.
+/// <b><see cref="InlineEventHandler"/> is still narrower than the map it reads, for the reason that
+/// survives.</b> The inline <c>on*</c> handlers are a dictionary of <see cref="JsValue"/> handles, and a
+/// per-node mutable store is not something a dispatching module should be handed, so the contract asks
+/// for the one handler it will fire.
 /// </para>
 /// </remarks>
 internal interface IEventDispatchHost

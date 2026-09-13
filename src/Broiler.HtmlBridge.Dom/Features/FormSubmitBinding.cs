@@ -68,12 +68,11 @@ internal static class FormSubmitBinding
 
             if (host.GetEventListeners(element).TryGetValue("submit", out var submitListeners))
             {
-                // The listener invoker is bridge code, still engine-typed in its listener, and
-                // deliberately reached rather than replaced: InvokeEventListener is the one place a
-                // listener turn is bracketed for JsEntryTrace, resolves the handleEvent form of a
-                // listener object, and swallows a listener's exception into a warning. Re-firing
-                // through the realm here would quietly drop all three. It takes the event as a handle
-                // and unwraps it itself, so nothing in this file crosses the migration seam any more.
+                // The listener invoker is the bridge's, and deliberately reached rather than replaced:
+                // InvokeEventListener is the one place a listener turn is bracketed for JsEntryTrace,
+                // resolves the handleEvent form of a listener object, and swallows a listener's
+                // exception into a warning. It calls through the realm itself, so a realm call here
+                // would buy nothing and quietly drop all three.
                 foreach (var registration in submitListeners.ToList())
                 {
                     DomBridge.InvokeEventListener(realm, registration.Listener, submitEvt, "DomBridge.submit");

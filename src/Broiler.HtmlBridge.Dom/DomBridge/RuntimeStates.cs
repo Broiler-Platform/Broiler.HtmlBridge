@@ -1,11 +1,36 @@
-using Broiler.JavaScript.Runtime;
 using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
-internal readonly record struct EventListenerRegistration(JSValue Listener, bool Capture, bool Once = false, bool Passive = false);
+/// <summary>
+/// One <c>addEventListener</c> registration: the listener a page handed over, and the three flags its
+/// <c>options</c> argument carried when it was added.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>The listener is a <see cref="JsValue"/>, and the record is found by that type's equality.</b>
+/// <c>removeEventListener</c> and the duplicate check compare listeners with <c>==</c>, which on a
+/// handle is strict equality: kind, then the reference an object handle carries. A <c>once</c>
+/// listener's <c>List.Remove</c> reaches this record's field-by-field <c>Equals</c>, which asks
+/// <c>JsValue.Equals</c> the same question. For every object, function and array a page can register,
+/// that is the reference comparison the engine value this replaced was asked: the engine's value type
+/// declares no <c>==</c> and implements no <c>IEquatable</c>, and its object, function and array types
+/// override no <c>Equals(object)</c>. The object type's own <c>Equals</c> over the engine value is loose
+/// equality, and neither <c>==</c> nor a record's equality ever reached it.
+/// </para>
+/// <para>
+/// <b>Only a primitive listener compares differently, and nothing can observe it.</b> The conversion
+/// this replaced minted a fresh engine string or number on every call and <c>==</c> compared
+/// instances, so <c>addEventListener(t, "h")</c> twice filed two registrations that
+/// <c>removeEventListener(t, "h")</c> could not find. A handle compares a primitive by value. WebIDL
+/// does not admit that listener shape and the invoker calls nothing for one, so what changes is how
+/// many entries sit in a list whose length only the transitionend screenshot gate reads
+/// (DomBridge/AnchorResolver/Dialogs.cs).
+/// </para>
+/// </remarks>
+internal readonly record struct EventListenerRegistration(JsValue Listener, bool Capture, bool Once = false, bool Passive = false);
 
 /// <summary>
 /// Per-element inline-style runtime state — the authoritative in-memory inline style, whether it has

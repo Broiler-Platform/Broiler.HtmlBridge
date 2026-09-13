@@ -1,6 +1,5 @@
 using System;
 using Broiler.HtmlBridge.Dom.Features;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
@@ -31,15 +30,6 @@ public sealed partial class DomBridge : IMessagingHost
         WindowHandle.IsMissing ? JsValue.Null : WindowHandle;
 
     string IMessagingHost.PageOrigin => _pageOrigin;
-
-    // The same forward the IEventTargetHost pair makes, to the same conversion.
-    void IMessagingHost.AddListener(
-        List<EventListenerRegistration> listeners, JsValue listener, JsValue options)
-        => ((Dom.Features.IEventTargetHost)this).AddListener(listeners, listener, options);
-
-    void IMessagingHost.RemoveListener(
-        List<EventListenerRegistration>? listeners, JsValue listener, JsValue options)
-        => ((Dom.Features.IEventTargetHost)this).RemoveListener(listeners, listener, options);
 
     // Both answer JsValue.Null for "no window" themselves now, so this is the delegation it reads
     // as rather than a conversion around one.

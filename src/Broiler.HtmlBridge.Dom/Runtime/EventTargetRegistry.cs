@@ -34,17 +34,10 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// window crossing the seam wraps as one), so two handles over one key always agree on kind.
 /// </para>
 /// <para>
-/// <b>What is still engine-typed, and what pins each one.</b> The listener lists hold
-/// <c>EventListenerRegistration</c>, whose listener field is a Broiler.JS value and whose declaration
-/// is in <c>DomBridge/RuntimeStates.cs</c> — outside this round — so the element type of every list
-/// below is engine-typed however the maps are keyed. The visual-viewport list is no longer
-/// engine-typed: it holds <see cref="JsValue"/>. It held the engine's function type, and the reason
-/// recorded here was that <c>DomBridge/LayoutMetrics.Scrolling.cs</c> reads it back as engine functions
-/// and "wants the list itself rather than a converted copy". That reader copied the list on the line
-/// that read it and converted every element back into a handle before invoking it through the realm,
-/// and already did on the day that sentence was written. <see cref="JsValue"/> equality compares kind
-/// and then reference, and every element is kind <c>Function</c> because the host admits nothing
-/// else, so the list still asks of each listener exactly what it asked before: is it the same object.
+/// <b>Nothing in this store is engine-typed any more.</b> The listener lists hold
+/// <c>EventListenerRegistration</c>, whose listener field is a <see cref="JsValue"/>, and the
+/// visual-viewport list holds <see cref="JsValue"/> too, so no list here names an engine type however
+/// its map is keyed.
 /// </para>
 /// </remarks>
 internal sealed class EventTargetRegistry

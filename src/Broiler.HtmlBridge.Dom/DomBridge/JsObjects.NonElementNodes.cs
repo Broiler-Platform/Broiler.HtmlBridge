@@ -21,12 +21,12 @@ namespace Broiler.HtmlBridge;
 /// migrated, so their bodies have a <see cref="JsCall"/> frame of their own.
 /// </para>
 /// <para>
-/// What is left engine-typed is pinned by its callee, not left behind, and it is down to one thing:
-/// <c>EventTargetBinding</c> still takes an engine argument frame, so the three
-/// <c>addEventListener</c>/<c>removeEventListener</c>/<c>dispatchEvent</c> members are minted by the
-/// engine and each populator unwraps the handle for them alone. There is no adapter between two call
-/// frames — only between two object types — so they move when that binding does; the two halves
-/// install onto one object, so the wrapper's shape cannot drift while they are apart.
+/// Nothing is left engine-typed. This remark said one thing was: that <c>EventTargetBinding</c> took
+/// an engine argument frame, so the <c>addEventListener</c>/<c>removeEventListener</c>/
+/// <c>dispatchEvent</c> members were minted by the engine and each populator unwrapped the handle for
+/// them alone. Each populator mints the three through the realm over a <see cref="JsCall"/>, the same
+/// bodies <c>EventTarget.prototype</c>'s routed methods call (<c>DomBridge/EventTargetInterface.cs</c>),
+/// and unwraps nothing.
 /// </para>
 /// <para>
 /// <c>ChildNodeBinding</c> and the variadic <c>append</c>/<c>prepend</c> reader have both migrated;

@@ -22,16 +22,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the same dispatch-local flags they closed over before.
 /// </para>
 /// <para>
-/// <b>One engine-typed strand survives, and it is not this module's to cut.</b> A registered
-/// listener is an <c>EventListenerRegistration</c>, whose listener field is a Broiler.JS value
-/// because the record lives in <c>DomBridge/RuntimeStates.cs</c> and is shared with the window,
-/// form-submit and messaging dispatch paths; it is invoked through <c>DomBridge.InvokeEventListener</c>,
-/// which those same paths share and which is where a listener turn is bracketed for the entry trace.
-/// That strand is the listener alone. The event goes to the invoker as the handle this module was
-/// given, with the realm beside it, and the invoker does the unwrap. What stood here said the
-/// engine's event object was taken "once per dispatch": it was taken once per listener fired, inside
-/// the loop in <c>FireListeners</c>, and the "both lines" that were to go with the listener store
-/// were one line. When the store moves, that line need not change at all.
+/// <b>No engine-typed strand survives.</b> A registered listener is an
+/// <c>EventListenerRegistration</c>, whose listener field is a <see cref="JsValue"/>, and it is invoked
+/// through <c>DomBridge.InvokeEventListener</c>, which the window, form-submit and messaging firing
+/// paths share and which is where a listener turn is bracketed for the entry trace. That invoker calls
+/// through the realm, in the shape <see cref="FireListeners"/> already used for the inline <c>on*</c>
+/// handler, so the line below hands over the listener and the event exactly as this module holds them.
 /// </para>
 /// </remarks>
 internal sealed class EventDispatchBinding(IEventDispatchHost host)
@@ -159,8 +155,7 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
                 // In target phase (capturePhase == null), fire all listeners.
                 if (capturePhase.HasValue && registration.Capture != capturePhase.Value) continue;
                 currentListenerPassive = registration.Passive;
-                // The listener is still the engine's (see the remarks on this type); the event goes
-                // over as the handle the page dispatched, and the invoker unwraps it.
+                // Listener, event and invoker are all the realm's; nothing converts here.
                 DomBridge.InvokeEventListener(_host.Realm, registration.Listener, evt, "DomBridge.dispatchEvent");
                 currentListenerPassive = false;
 

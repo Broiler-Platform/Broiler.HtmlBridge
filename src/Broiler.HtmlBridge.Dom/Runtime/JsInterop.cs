@@ -96,9 +96,11 @@ internal static class JsInterop
     /// still handed an array elsewhere, and a grep for its call sites is the census, not this sentence.
     /// What is not guarded is a map
     /// keyed on a handle:
-    /// <c>EventTargetRegistry</c>'s dictionaries are correct today only because every key it holds is
-    /// kind <c>Object</c>, which is exactly the invariant that ends when a listener record becomes a
-    /// handle. Fixing it here, before anything depends on it, is the cheap order.
+    /// <c>EventTargetRegistry</c>'s maps, whose keys are all kind <c>Object</c> -- message ports and
+    /// sub-windows. This said that invariant ends when a listener record becomes a handle. The record
+    /// is one now and it did not end: a listener is an element of a list, never a key, and every
+    /// listener handle in those lists arrives from a call frame the provider filled rather than
+    /// through this method. Fixing the kind here was still the cheap order.
     /// </para>
     /// <para>
     /// The test order matters and mirrors the provider's: <c>JSArray</c> derives from

@@ -1,9 +1,5 @@
-using Broiler.JavaScript.Storage;
-using Broiler.JavaScript.Runtime;
-using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 
@@ -20,75 +16,63 @@ public sealed partial class DomBridge
     // EventListenerBinding feature module (Broiler.HtmlBridge.Dom.Features).
 
     /// <summary>
-    /// Calls one registered listener — a function, or an object with a <c>handleEvent</c> — and
+    /// Calls one registered listener -- a function, or an object with a <c>handleEvent</c> -- and
     /// swallows what it throws into a warning, because a listener that fails must not abort the
     /// dispatch of the ones after it.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>The event is a handle; the listener is still the engine's, and that pin is not in this
-    /// file.</b> Four firing paths reach this through five call sites: element and document dispatch
-    /// (<c>Features/EventDispatchBinding.cs</c>), window dispatch (<c>DomBridge.WindowLoad.cs</c>),
-    /// form submit (<c>Features/FormSubmitBinding.cs</c>), and the generic event-target dispatch in
-    /// <c>Features/MessagingBinding.cs</c>, which calls it twice. Four of the five hand over an
-    /// <c>EventListenerRegistration</c>'s listener field, a Broiler.JS value because that record is
-    /// declared as one in <c>DomBridge/RuntimeStates.cs</c>. The fifth does not:
-    /// <c>MessagingBinding.InvokeEventTargetHandler</c> reads the target's <c>on…</c> property and
-    /// hands over what it read. This paragraph used to say every path only forwards the field, so the
-    /// step that retypes the record has one caller more to answer for than it was told. Narrowing the
-    /// listener parameter is still that step's, and not before.
+    /// <b>The listener is a handle and the call goes through the realm.</b> Five call sites over four
+    /// firing paths reach this: element and document dispatch (<c>Features/EventDispatchBinding.cs</c>),
+    /// window dispatch (<c>DomBridge.WindowLoad.cs</c>), form submit (<c>Features/FormSubmitBinding.cs</c>)
+    /// and messaging (<c>Features/MessagingBinding.cs</c>, once for a registration and once for an
+    /// <c>on…</c> handler). Four hand over an <c>EventListenerRegistration</c>'s listener field, which
+    /// holds a <see cref="JsValue"/> now, and the fifth reads its handler through the realm. Nothing on
+    /// any of those paths converts a listener or an event, and nothing here names an engine type.
     /// </para>
     /// <para>
-    /// <b>The event parameter never had that pin, and it has moved.</b> All five callers held the
-    /// event as a handle and unwrapped it to call this: once at the top of window dispatch, once per
-    /// listener fired on the element path, once before the listener loop on form submit, and once for
-    /// the <c>on…</c> handler plus once for the listener loop on the generic event-target path. The
-    /// unwrap is below now, once per call on every path, and it is a cast over the object the handle
-    /// carries rather than a conversion. The realm comes in beside it because this method is static
-    /// and the trace label reads the event's <c>type</c> through it; it is also what calling the
-    /// listener through <see cref="IJsCalls.Invoke"/> will need, so the step that retypes the record
-    /// changes what this method does without changing the four call sites that forward the field.
+    /// <b>The receivers are the ones the engine-typed calls passed, including the odd one.</b> A function
+    /// listener is its own <c>this</c>, as the engine argument frame built from the function made it --
+    /// where DOM's inner invoke passes the event's <c>currentTarget</c> -- and an object's
+    /// <c>handleEvent</c> is called with the object. <c>Features/EventDispatchBinding.cs</c> already fires
+    /// the inline <c>on*</c> handler through the realm with itself as receiver; this is that shape.
     /// </para>
     /// <para>
-    /// <b>There is a second reason to move it deliberately rather than in passing, and it has since
-    /// been measured.</b> The call below enters the engine directly, taking the thread exactly as it
-    /// finds it. A listener can be invoked from a thread-pool thread — the messaging path routes one
-    /// into its owner window explicitly for that reason. <c>IJsCalls.Invoke</c> would bracket the
-    /// call in the provider's realm scope, and for <em>this</em> realm that is one difference and not
-    /// two: the bridge adopts the host's engine context rather than owning one, and the provider
-    /// deliberately leaves an adopted realm's synchronization context alone, so no job pump is
-    /// installed. What is installed is the engine's current-context slot — thread-static plus
-    /// async-local — for the duration of the listener, which on a pool thread that has none is a
-    /// change from "whatever the thread was carrying" to "this document's context". That is almost
-    /// certainly the right thing and it is still not the same thing, so it belongs in the commit that
-    /// moves the registration record and can be reasoned about across all four paths at once.
+    /// <b>Three things differ from the direct engine call, and all three were read rather than
+    /// assumed.</b> <see cref="IJsCalls.Invoke"/> takes the provider's realm scope for the call, and so
+    /// does the <c>handleEvent</c> lookup, which is <see cref="IJsMembers.GetProperty"/> -- the same
+    /// indexer, so a getter for it still runs once. For the realm this bridge adopts, that scope makes the
+    /// realm's context the engine's current context and restores the previous one after -- and nothing
+    /// else, because the provider installs a job pump only for a context it created; a listener already
+    /// running under that context sees nothing change. An exception the listener throws reaches the catch
+    /// below as the provider's <see cref="JsEngineException"/> rather than the engine's own, constructed
+    /// from the same message, so the warning reads the same. And the event is no longer unwrapped ahead
+    /// of the turn, where a handle carrying no object used to fail out to the dispatch that passed it;
+    /// none can arrive, because every <c>dispatchEvent</c> a page can call refuses a non-object, and every
+    /// event the bridge dispatches itself is an object it minted or tested as one.
     /// </para>
     /// </remarks>
-    internal static void InvokeEventListener(IJsRealm realm, JSValue listener, JsValue evt, string logContext)
+    internal static void InvokeEventListener(
+        IJsRealm realm, JsValue listener, JsValue evt, string logContext)
     {
-        // The event crosses to the engine here for all five callers, and "here" means ahead of the
-        // turn and outside the try: that is where each caller's own unwrap sat, so a handle carrying no
-        // engine object still fails out to the dispatch that passed it instead of being logged as a
-        // listener error.
-        var engineEvent = Dom.Runtime.JsInterop.ToEngineObject(evt);
-
         // Every DOM listener the page runs passes through here, which makes this the one place a
         // listener turn can be bracketed. Inactive unless a run asked for it; see JsEntryTrace.
         using var turn = JsEntryTrace.Enter(JsEntryKind.Event, EventTurnLabel(realm, evt, logContext));
 
         try
         {
-            if (listener is JSFunction fn)
+            if (listener.IsFunction)
             {
-                fn.InvokeFunction(new Arguments(fn, engineEvent));
+                realm.Invoke(listener, listener, [evt]);
                 return;
             }
 
-            if (listener is JSObject listenerObject &&
-                listenerObject[(KeyString)"handleEvent"] is JSFunction handleEvent)
-            {
-                handleEvent.InvokeFunction(new Arguments(listenerObject, engineEvent));
-            }
+            if (!listener.IsObject)
+                return;
+
+            var handleEvent = realm.GetProperty(listener, "handleEvent");
+            if (handleEvent.IsFunction)
+                realm.Invoke(handleEvent, listener, [evt]);
         }
         catch (Exception ex)
         {

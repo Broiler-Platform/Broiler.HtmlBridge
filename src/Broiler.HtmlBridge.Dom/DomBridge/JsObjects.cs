@@ -13,21 +13,21 @@ namespace Broiler.HtmlBridge;
 /// <b>Two names for one wrapper, and the direction between them has inverted.</b>
 /// <see cref="WrapNode"/> is the JSEAL-vocabulary entry point and now the implementation: the object
 /// is minted by <see cref="IJsRealm.NewObject"/> — or by <see cref="IJsRealm.NewExotic"/> for a
-/// <c>&lt;form&gt;</c> — and all but three of its members are installed through the realm.
+/// <c>&lt;form&gt;</c> — and all of its members are installed through the realm.
 /// <see cref="ToJSObject"/> is the engine-typed sibling and is one cast over it. They answer the same
 /// instance, because a JSEAL object handle carries the engine's own object; wrapper identity lives in
 /// <c>Runtime/JsObjectRegistry.cs</c> and is untouched by either.
 /// </para>
 /// <para>
-/// <b>What is still engine-typed here is pinned from outside, not left behind.</b> A wrapper's
+/// <b>Every install site here has migrated, and this paragraph said two had not.</b> A wrapper's
 /// members are installed by a dozen modules, and a member cannot be minted by the realm while the body
 /// it would call reads the engine's argument frame: there is no adapter between the two call frames,
-/// only between the two object types. So each install site migrates when its callee does, and this
-/// file is down to one callee that has not — <c>EventTargetBinding</c>, whose three members are named
-/// at their site below. <c>FormControlBinding</c>, <c>IframeElementBinding</c>, the element and
-/// HTMLElement interface installers and the per-tag member pass all took an engine object until this
-/// round and take the handle now; <c>ElementContentBinding.InstallTextContent</c> is the one
-/// install site still handed <c>obj</c>, and that module's own file decides it.
+/// only between the two object types, so each install site migrated when its callee did. The paragraph
+/// named <c>EventTargetBinding</c> as the callee that had not; its three members are realm-minted over
+/// a <see cref="JsCall"/> at their site below. It named <c>ElementContentBinding.InstallTextContent</c>
+/// as still handed the engine object; it is handed the handle. <c>FormControlBinding</c>,
+/// <c>IframeElementBinding</c>, the element and HTMLElement interface installers and the per-tag member
+/// pass had already moved from an engine object to the handle.
 /// </para>
 /// <para>
 /// <b><see cref="ToJSObject"/> stays, and its callers are why.</b> Twenty-six files across this
@@ -262,9 +262,9 @@ public sealed partial class DomBridge
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
         // routed by receiver (DomBridge.EventTargetInterface.cs) — one function for every target, as
-        // in a browser. A wrapper minted before the realm carried it installs its own, and those three
-        // are the engine's: EventTargetBinding reads the engine's argument frame, so they move when
-        // it does.
+        // in a browser. A wrapper minted before the realm carried it installs its own, through the
+        // realm and with a JSEAL frame, exactly as the routed path does. (This said the three were the
+        // engine's and read the engine's argument frame; neither was so.)
         if (!_eventTargetRoutingReady)
         {
             Realm.DefineValue(handle, "addEventListener",

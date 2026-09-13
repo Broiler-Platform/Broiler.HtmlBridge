@@ -289,9 +289,9 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// Built and dispatched entirely in JSEAL: the three node-target sites above hand it straight to
-    /// <c>EventDispatchBinding</c>, and <see cref="DispatchWindowEvent"/> now takes a handle too, so
-    /// nothing unwraps this on the way in. The one unwrap left on that path is at the listener call
-    /// itself, which belongs to <c>InvokeEventListener</c> rather than to anything built here.
+    /// <c>EventDispatchBinding</c>, <see cref="DispatchWindowEvent"/> takes a handle, and the listener
+    /// invoker both paths share takes one and calls through the realm, so nothing unwraps this anywhere
+    /// between being built and reaching a listener.
     /// </remarks>
     private JsValue SimpleEvent(string type, bool bubbles)
     {
@@ -328,15 +328,12 @@ public sealed partial class DomBridge
     /// to a handle on the same line.
     /// </para>
     /// <para>
-    /// <b>One pin was real, it was a call site rather than a signature, and it has gone too.</b>
-    /// <c>InvokeEventListener</c> in <c>DomBridge/Events.cs</c> took the engine's event object, so
-    /// this method unwrapped the event once, at its top, for the listener loop below. The reason given
-    /// was the listener beside it, which comes out of an <c>EventListenerRegistration</c> whose record
-    /// is engine-typed in <c>DomBridge/RuntimeStates.cs</c> — and that pins the invoker's listener
-    /// parameter, not its event one. The invoker takes the event as a handle, with the realm beside
-    /// it, and unwraps it itself, so this method hands over the object it was given. The paragraph
-    /// also called its unwrap "the shape <c>Features/EventDispatchBinding.cs</c> already uses"; it was
-    /// not: that module unwrapped inside its listener loop, once per listener fired.
+    /// <b>One pin was real, it was a call site rather than a signature, and it is gone.</b>
+    /// <c>InvokeEventListener</c> in <c>DomBridge/Events.cs</c> took the engine's event object and the
+    /// engine's value for the listener, because the listener came out of an
+    /// <c>EventListenerRegistration</c> whose field was engine-typed. That field is a
+    /// <see cref="JsValue"/> now and the invoker calls it through the realm, so the loop below hands over
+    /// the registration's listener and the event this method was given, and nothing converts either.
     /// </para>
     /// <para>
     /// <b>The five propagation-control operations are local functions now, and that is what let them
@@ -357,12 +354,11 @@ public sealed partial class DomBridge
     /// </remarks>
     private bool DispatchWindowEvent(JsValue evt)
     {
-        // The event is not unwrapped here any more. It was, above the guard, so that a handle carrying
-        // no engine object failed before this method's first property write; InvokeEventListener does
-        // the unwrap now, per listener, and nothing that calls this method can pass such a handle:
-        // SimpleEvent, LocationBinding's hashchange and MessagingBinding's postMessage each hand it an
-        // object the realm has just minted, and WindowEventTargetBinding.DispatchEvent returns before
-        // the call unless its argument is an object.
+        // Nothing on this path converts the event. The loop below hands the invoker the handle this
+        // method was given, and the invoker calls each listener through the realm. A conversion used
+        // to be taken here, before the guard, and could only have thrown for a handle carrying no
+        // object; the one page-facing entry, DispatchEvent in Features/WindowEventTargetBinding.cs,
+        // returns before calling this unless its argument is an object.
 
         // The window root is a handle (DomBridge.cs), so absence is IsMissing. The null test that stood
         // here was right while the root was a reference; against a handle it would still compile, be
