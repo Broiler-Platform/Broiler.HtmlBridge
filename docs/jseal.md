@@ -68,8 +68,9 @@ it as the reason no page load runs on the VM.
 whole neutrality claim.** Everywhere else in this repository engine neutrality is asserted by
 grepping for a namespace. Here it is asserted by the compiler: an assembly that references nothing
 cannot name a `Broiler.JavaScript` type, a `Broiler.VM` type, or anything either drags in. Adding a
-reference is a diff a reviewer sees, and `scripts/check-engine-neutrality.sh` fails if the element
-ever gains a child.
+reference is a diff a reviewer sees, and `scripts/check-engine-neutrality.sh` fails CI if the project
+file ever declares either kind of reference. It inspects those two elements and nothing else; the file
+already carries a `PropertyGroup` and `InternalsVisibleTo` items.
 
 The corollary is that JSEAL cannot reach `Broiler.HtmlBridge.Core` either — no `ContentSecurityPolicy`,
 no `MicroTaskQueue`, no `RenderLogger`. That costs less than it looks: what JSEAL needs from those is
@@ -115,6 +116,17 @@ debug rendering is the observable ECMAScript coercion, and can execute page scri
 re-enter the realm. The bridge has 343 such calls. JSEAL's renders `[object]` and the real coercion is
 `IJsValues.ToJsString`, which is honest about entering the engine.
 
+**`AsBoolean` decides every kind but BigInt, and `IJsValues.ToBoolean` is the member for that one.**
+The handle's switch sends every kind above `String` to `true`, which is right for a symbol and for
+every object and wrong for `0n`: `JsValueKind.BigInt` is 7 and `Object` is 8, so "every object is
+truthy" never covered it. A BigInt handle is an opaque provider reference, so the contract assembly
+has nothing to test. `ToBoolean` sits beside `ToJsString` and `ToNumber` for a different reason from
+theirs — it runs no script, and is there because only a provider may look inside the value. Under
+Broiler.JS a BigInt-kind handle may also carry that engine's decimal (`0m`), and the provider asks the
+engine about both. Broiler.VM's profile has no BigInt at all, so its provider answers from the handle
+and refuses a BigInt handle as foreign. The same opacity is why `==` compares two BigInt handles by
+reference rather than by value: BigInt is the one kind for which "`==` is `===`" above does not hold.
+
 ## The realm
 
 `IJsRealm` aggregates seven narrow contracts, the way `IScriptEngine` was split in this repository's
@@ -124,7 +136,7 @@ able to do.
 
 | Contract | What it covers |
 |---|---|
-| `IJsValues` | creating objects, arrays, methods, constructors, exotics; the two coercions that can run user code |
+| `IJsValues` | creating objects, arrays, methods, constructors, exotics; the two coercions that can run user code, and `ToBoolean`, which runs none but is the only truthiness test a BigInt can be given |
 | `IJsMembers` | `DefineValue` / `DefineAccessor` / `DefineIndex`, reads and writes, own keys, prototype link |
 | `IJsCalls` | `Invoke`, `Construct`, and raising an `Error` or a `DOMException` from host code |
 | `IJsJobs` | the microtask queue, and promises the host can settle |
