@@ -1,6 +1,5 @@
 using System;
 using Broiler.HtmlBridge.Dom.Features;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
@@ -15,30 +14,22 @@ namespace Broiler.HtmlBridge;
 /// <c>DomBridge.WindowContext.cs</c>), pending a future <c>BrowsingContextManager</c>.
 /// </summary>
 /// <remarks>
-/// This file is the engine-typed half of the seam and it no longer names an engine type to be it: the
-/// contract speaks in <see cref="JsValue"/> handles, and a handle over an object carries the engine's
-/// own object, so <see cref="JsInterop"/> carries one across in either direction without converting
-/// it. A window that does not exist yet crosses as JavaScript <c>null</c> rather than a CLR one — the
-/// module asks <c>IsObject</c> where it used to ask for null, which is the same question and one the
-/// compiler cannot silently drop.
+/// Nothing here converts. The contract speaks in <see cref="JsValue"/> handles and the window is the
+/// bridge's root, which is one. (This used to describe the file as the half of the seam where a cast
+/// carried the window across.) A window that does not exist yet crosses as JavaScript <c>null</c>, not
+/// as the <see cref="JsValue.Missing"/> the root holds, and that is kept rather than collapsed: the
+/// module asks <c>IsObject</c> in most places, which reads the two alike, but it also compares a
+/// target window against this member with handle equality, and there null and Missing are different
+/// answers.
 /// </remarks>
 public sealed partial class DomBridge : IMessagingHost
 {
     IJsRealm IMessagingHost.Realm => Realm;
 
     JsValue IMessagingHost.WindowObject =>
-        _windowJSObject is { } window ? JsInterop.FromEngineObject(window) : JsValue.Null;
+        WindowHandle.IsMissing ? JsValue.Null : WindowHandle;
 
     string IMessagingHost.PageOrigin => _pageOrigin;
-
-    // The same forward the IEventTargetHost pair makes, to the same conversion.
-    void IMessagingHost.AddListener(
-        List<EventListenerRegistration> listeners, JsValue listener, JsValue options)
-        => ((Dom.Features.IEventTargetHost)this).AddListener(listeners, listener, options);
-
-    void IMessagingHost.RemoveListener(
-        List<EventListenerRegistration>? listeners, JsValue listener, JsValue options)
-        => ((Dom.Features.IEventTargetHost)this).RemoveListener(listeners, listener, options);
 
     // Both answer JsValue.Null for "no window" themselves now, so this is the delegation it reads
     // as rather than a conversion around one.
@@ -46,11 +37,13 @@ public sealed partial class DomBridge : IMessagingHost
 
     JsValue IMessagingHost.ResolveOwnerWindow(JsValue target) => ResolveOwnerWindow(target);
 
+    // The unwrap this used to do bought one thing: it picked the engine-typed overload, which
+    // wrapped the same object straight back. That overload is gone and the handle travels as it
+    // stands, which is what the manager below has always taken.
     void IMessagingHost.RunWithWindowContext(JsValue targetWindow, Action callback) =>
-        RunWithWindowContext(JsInterop.ToEngineObject(targetWindow), callback);
+        RunWithWindowContext(targetWindow, callback);
 
     void IMessagingHost.QueueFrameAction(Action callback) => QueueFrameAction(callback);
 
-    void IMessagingHost.DispatchWindowEvent(JsValue evt) =>
-        DispatchWindowEvent(JsInterop.ToEngineObject(evt));
+    void IMessagingHost.DispatchWindowEvent(JsValue evt) => DispatchWindowEvent(evt);
 }

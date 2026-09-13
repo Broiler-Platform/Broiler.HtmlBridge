@@ -54,14 +54,14 @@ namespace Broiler.HtmlBridge;
 /// same change as this file. They did.
 /// </para>
 /// <para>
-/// <b>What did not move is the receiver resolution, and it is a table rather than a call frame.</b>
-/// The node-wrapper registry and the window wrapper field are keyed on the engine's own object, and
-/// both live in files this group does not own — so the receiver is unwrapped to ask them, which is a
-/// cast over the object the handle already carries and not a conversion. The same pin is why
-/// <c>DomBridge/JsObjects.cs</c> and <c>JsObjects.NonElementNodes.cs</c> still install per-wrapper
-/// copies for a wrapper minted before the realm carried <c>EventTarget</c> (guarded by
-/// <see cref="_eventTargetRoutingReady"/>), and why <c>Dom.Features.EventTargetBinding</c> keeps an
-/// engine-framed twin of each of the three below for them.
+/// <b>The receiver resolution moved as well, and this remark said it had not.</b> It said the
+/// node-wrapper registry and the window wrapper field were keyed on the engine's own object, that the
+/// receiver was unwrapped to ask them, and that the same pin kept an engine-framed twin of each of the
+/// three below in <c>Dom.Features.EventTargetBinding</c>. The registry is asked with the handle and the
+/// window test is handle equality (<see cref="RouteEventTargetMethod"/>). The per-wrapper copies
+/// <c>DomBridge/JsObjects.cs</c> and <c>JsObjects.NonElementNodes.cs</c> still install are
+/// realm-minted over the same <see cref="JsCall"/> bodies the routed methods call, and there is no
+/// twin.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -129,13 +129,16 @@ public sealed partial class DomBridge
     {
         Realm.DefineValue(proto, name, Realm.NewMethod(name, (in call) =>
         {
-            // The two tables below are keyed on the engine's own object, which an object handle
-            // carries; a non-object receiver is in neither without asking.
+            // A non-object receiver is neither the window nor a node, so neither is looked for. The
+            // window test is handle equality, which for an object compares the kind and then the
+            // reference the handle carries. The receiver and the window root come out of the same
+            // provider wrapping the same engine object, so their kinds cannot differ, and this asks
+            // exactly what comparing the two unwrapped references asked. (This used to say both
+            // tables were keyed on the engine's own object; the node registry has keyed on the handle
+            // since it was re-typed, and the unwrap that fed the window test is gone with the test.)
             if (call.This.IsObject)
             {
-                var receiver = Dom.Runtime.JsInterop.ToEngineObject(call.This);
-
-                if (_windowJSObject is { } window && ReferenceEquals(receiver, window))
+                if (call.This == WindowHandle)
                     return onWindow(in call);
 
                 if (_jsObjects.TryGetNode(call.This, out var node))

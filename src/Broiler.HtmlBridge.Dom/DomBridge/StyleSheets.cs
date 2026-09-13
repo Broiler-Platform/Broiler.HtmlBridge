@@ -112,9 +112,9 @@ public sealed partial class DomBridge
         var realm = Realm;
         var sheet = realm.NewObject();
 
-        // ownerNode — the wrapper factory keeps its engine-shaped name because DomBridge/Utilities.cs,
-        // which owns the wrapper cache, has not migrated; the handle over what it returns is the same
-        // object, so sheet.ownerNode === el still holds.
+        // ownerNode — the element's wrapper from WrapNode, the handle JsObjectRegistry caches, so
+        // sheet.ownerNode === el still holds. (This said the factory kept an engine-shaped name
+        // because DomBridge/Utilities.cs, owning the wrapper cache, had not migrated.)
         realm.DefineAccessor(sheet, "ownerNode",
             (in _) => WrapNode(styleElement), null);
 

@@ -14,8 +14,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. <see cref="WrapNode"/> was <c>ToJSObject</c>: a name that says <em>JSObject</em> is an
-/// engine reference too, so it moves with the type it named.
+/// type. <see cref="WrapNode"/> was <c>ToJSObject</c>, a name that spelled the engine's object type.
+/// The engine-reference count in <c>eng/jseal-budget.json</c> matches namespaces, not method names,
+/// so it never saw that one; the name went with the type.
 /// </remarks>
 internal interface IFormHost
 {

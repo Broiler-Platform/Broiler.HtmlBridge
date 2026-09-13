@@ -10,15 +10,26 @@ namespace Broiler.HtmlBridge.Jseal;
 // instead of one surface of forty members.
 
 /// <summary>
-/// Creating values, and the conversions between a JavaScript value and a CLR one that only the engine
-/// can perform.
+/// Creating values, and the conversions between a JavaScript value and a CLR one that a handle cannot
+/// perform for itself.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The cheap conversions are not here — they are on <see cref="JsValue"/> itself
 /// (<see cref="JsValue.AsBoolean"/>, <see cref="JsValue.AsNumber"/>, <see cref="JsValue.AsString"/>),
-/// because they are decidable from the handle and a host that has to enter the engine to ask whether
-/// a value is truthy will do it on every branch of every callback. What is here is the set that can
-/// run user code: <c>ToString</c> on an object may call a <c>toString</c> the page wrote.
+/// because a host that has to enter the engine to ask whether a value is truthy will do it on every
+/// branch of every callback.
+/// </para>
+/// <para>
+/// <b>What is here is what the handle cannot answer, and that is two reasons rather than one.</b>
+/// This paragraph used to call the cheap conversions "decidable from the handle" and the members here
+/// "the set that can run user code". <see cref="ToJsString"/> and <see cref="ToNumber"/> are here for
+/// that reason: <c>ToString</c> on an object may call a <c>toString</c> the page wrote.
+/// <see cref="ToBoolean"/> is not, because ECMAScript's ToBoolean calls nothing for any value. It is
+/// here because truthiness is NOT decidable from the handle for every kind: a
+/// <see cref="JsValueKind.BigInt"/> is carried as an opaque provider reference, so whether it is zero
+/// is a question only code entitled to name the engine's value can ask.
+/// </para>
 /// </remarks>
 public interface IJsValues
 {
@@ -125,6 +136,27 @@ public interface IJsValues
     /// ECMAScript <c>ToNumber</c>. Enters the engine, and may run page script or throw.
     /// </summary>
     double ToNumber(JsValue value);
+
+    /// <summary>
+    /// ECMAScript <c>ToBoolean</c>. Runs no page script.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>For every kind but one this is <see cref="JsValue.AsBoolean"/>, and a caller that knows its
+    /// value cannot be that kind should keep using the handle.</b> The exception is
+    /// <see cref="JsValueKind.BigInt"/>: <c>ToBoolean(0n)</c> is <see langword="false"/>, the handle's
+    /// switch sends every kind above <see cref="JsValueKind.String"/> to <see langword="true"/>, and the
+    /// handle carries a BigInt as a reference it cannot look inside. A site reading a value the page
+    /// supplied — an argument, a member of a dictionary the page wrote — can be handed one.
+    /// </para>
+    /// <para>
+    /// <b>A provider decides that kind however its engine lets it, and may answer every other kind
+    /// from the handle without a crossing.</b> What it may not do is answer <see langword="true"/> for a
+    /// zero BigInt. A provider whose engine has no BigInt cannot be handed one by its own realm, and
+    /// refuses one as it refuses any handle another engine minted.
+    /// </para>
+    /// </remarks>
+    bool ToBoolean(JsValue value);
 }
 
 /// <summary>

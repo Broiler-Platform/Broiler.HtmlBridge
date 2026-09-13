@@ -9,8 +9,8 @@ using Broiler.JavaScript.Runtime;
 namespace Broiler.HtmlBridge.Jseal.BroilerJs;
 
 /// <summary>
-/// <see cref="IJsValues"/>: minting the realm's own values, and the two coercions that can run page
-/// script.
+/// <see cref="IJsValues"/>: minting the realm's own values, the two coercions that can run page
+/// script, and the truthiness test a handle cannot perform for a BigInt.
 /// </summary>
 internal sealed partial class BroilerJsRealm
 {
@@ -174,5 +174,36 @@ internal sealed partial class BroilerJsRealm
     {
         using var scope = Enter();
         return BroilerJsMarshal.Unwrap(value).DoubleValue;
+    }
+
+    /// <summary>
+    /// ECMAScript <c>ToBoolean</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Only the BigInt kind reaches the engine.</b> Every other kind is answered by the handle, which
+    /// agrees with this engine's own <c>BooleanValue</c> for each of them, and the bridge asks on
+    /// argument reads, where materialising an engine string or number just to ask would be the cost of
+    /// the abstraction rather than of the work. A disposed realm is refused on both paths, as it is by
+    /// every other member here.
+    /// </para>
+    /// <para>
+    /// <b>The engine arm asks the value, not a type, because the kind covers two types.</b>
+    /// <see cref="BroilerJsMarshal.Wrap"/> mints under <see cref="JsValueKind.BigInt"/> every engine
+    /// primitive it does not otherwise recognise, and this engine has a decimal literal (<c>0m</c>)
+    /// besides its BigInt. Both answer <c>BooleanValue</c> with a comparison against zero and run no
+    /// page script; a cast to the BigInt type would have thrown for the decimal.
+    /// </para>
+    /// </remarks>
+    public bool ToBoolean(JsValue value)
+    {
+        if (value.Kind is not JsValueKind.BigInt)
+        {
+            ThrowIfDisposed();
+            return value.AsBoolean;
+        }
+
+        using var scope = Enter();
+        return BroilerJsMarshal.Unwrap(value).BooleanValue;
     }
 }

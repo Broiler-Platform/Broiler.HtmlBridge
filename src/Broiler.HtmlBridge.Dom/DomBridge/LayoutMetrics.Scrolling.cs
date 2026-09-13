@@ -5,9 +5,6 @@ using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Dom.Runtime;
 
-// Engine-typed only for the three option-reader adapters below, whose caller —
-// DomBridge.ElementGeometryHost.cs — unwraps a JSEAL handle before it asks.
-using Broiler.JavaScript.Runtime;
 using Broiler.Dom;
 using Broiler.CSS;
 using System.Globalization;
@@ -74,24 +71,30 @@ public sealed partial class DomBridge
         }
     }
 
-    // -------- the scroll-option readers, and why three of them still have an engine-shaped face --------
+    // -------- the scroll-option readers, and who actually calls them --------
     //
-    // These answer one member of a ScrollToOptions/ScrollIntoViewOptions dictionary, and they are shared
-    // by every scrolling entry point the bridge has: the element-geometry contract, the window scroll
-    // contract and the sub-window one. The reads are JSEAL's below — a missing, null or undefined member
-    // means "leave this alone", and a member that is present goes through the realm's own ToNumber and
-    // ToString, because that is the coercion a page observes when it writes `scrollTo({ left: "100" })`.
-    // The handle's own rendering deliberately does not run a page's toString, so it cannot be used here.
+    // These answer one member of a ScrollToOptions/ScrollIntoViewOptions dictionary. The reads are the
+    // realm's: a missing, null or undefined member means "leave this alone", and a member that is
+    // present goes through the realm's own ToNumber and ToString, because that is the coercion a page
+    // observes when it writes `scrollTo({ left: "100" })`. The handle's own rendering deliberately does
+    // not run a page's toString, so it cannot be used here.
     //
-    // The JSObject overloads are adapters, not implementations. DomBridge.ElementGeometryHost.cs — not
-    // this file's to change — decides the shape of a scrollIntoView/scroll argument from a JSEAL handle
-    // and then unwraps the options object to ask these; keeping the overloads is what lets that file go
-    // on compiling untouched, and they disappear when it names the JSEAL readers directly. All six are
-    // instance members rather than statics for one reason: the JSEAL readers need the bridge's realm, and
-    // a static has no way to obtain one.
+    // WHAT STOOD HERE NAMED CALLERS IT DID NOT HAVE, WHICH IS WHY THE ADAPTERS BELOW IT SURVIVED THREE
+    // MIGRATIONS. It said these are "shared by every scrolling entry point the bridge has: the
+    // element-geometry contract, the window scroll contract and the sub-window one". They are shared
+    // with nothing. DomBridge.ElementGeometryHost.cs is the only caller in the tree; the window and
+    // sub-window contracts read their own options through ScrollCoordinateOption/ScrollBehaviorOption in
+    // DomBridge.SubWindowHost.cs, which is a second copy of this reading rather than a use of it. The
+    // same comment said all six members are instance rather than static "for one reason: the JSEAL
+    // readers need the bridge's realm, and a static has no way to obtain one" -- that pair is static and
+    // takes the realm as a parameter, so it is a preference here, not a constraint.
     //
-    // The whole-argument-list reading that used to sit above these — GetScrollArguments(in Arguments),
-    // for the window scroll contract — is gone: window.scroll/scrollTo/scrollBy are minted through the
+    // The three engine-typed adapters that sat below these are gone. Each took the engine object its one
+    // caller had just unwrapped out of a handle and wrapped it straight back into a handle to do the
+    // read; the caller passes the handle it was given.
+    //
+    // The whole-argument-list reading that used to sit above these -- GetScrollArguments(in Arguments),
+    // for the window scroll contract -- is gone: window.scroll/scrollTo/scrollBy are minted through the
     // realm now, so DomBridge.WindowScrollHost.cs forwards to the one JSEAL reading in
     // DomBridge.SubWindowHost.cs rather than this file keeping a second copy of it.
 
@@ -112,15 +115,6 @@ public sealed partial class DomBridge
         var text = Realm.ToJsString(value);
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
-
-    private double? GetOptionalScrollCoordinate(JSObject options, string propertyName)
-        => ReadScrollCoordinateOption(JsInterop.FromEngineObject(options), propertyName);
-
-    private string? GetOptionalScrollBehavior(JSObject options)
-        => ReadScrollBehaviorOption(JsInterop.FromEngineObject(options));
-
-    private string? GetOptionalStringOption(JSObject options, string propertyName)
-        => ReadScrollStringOption(JsInterop.FromEngineObject(options), propertyName);
 
     private static string NormalizeScrollIntoViewAlignment(string? value, string fallback)
     {
@@ -203,11 +197,11 @@ public sealed partial class DomBridge
         // so this is applied to the result of every scrolling entry point rather than to any
         // one of them (CSS Scroll Snap 1 §2). A non-snapping container is unchanged.
         //
-        // This runs even under `clamp: false` (window.scrollTo/scrollBy and the element
-        // scroll/scrollTo/scrollBy bindings), which is deliberate: snapping is a property of
-        // the container, not of the API used to reach it, and a snap position is by definition
-        // inside the scrollable range. Callers that opt out of clamping still get no clamping
-        // on an ordinary scroll container — only on one that asked to snap.
+        // This runs even under `clamp: false`, which is deliberate: snapping is a property of the
+        // container, not of the API used to reach it, and a snap position is by definition inside the
+        // scrollable range. Only the sub-window scroll contract (DomBridge.SubWindowHost.cs) passes it:
+        // the page window's and every element's scroll/scrollTo/scrollBy clamp. A caller that opts out
+        // still gets no clamping on an ordinary scroll container — only on one that asked to snap.
         nextLeft = ResolveScrollSnapPosition(element, vertical: false, nextLeft);
         nextTop = ResolveScrollSnapPosition(element, vertical: true, nextTop);
 
@@ -444,15 +438,15 @@ public sealed partial class DomBridge
 
     private void DispatchVisualViewportScrollEvent()
     {
-        var viewport = _visualViewportJSObject;
-        if (viewport == null || _eventTargets.VisualViewportScrollListeners.Count == 0)
+        var target = VisualViewportHandle;
+        if (target.IsMissing || _eventTargets.VisualViewportScrollListeners.Count == 0)
             return;
 
-        // The visualViewport object and its listener list are still held as engine values by the
-        // registration hub and the event-target registry, so both cross the seam as handles over the
-        // engine's own objects: the listeners are the ones the page added, and the target they see is the
-        // visualViewport they registered on.
-        var target = JsInterop.FromEngineObject(viewport);
+        // The target is the visualViewport root (DomBridge.cs), the handle the registration hub minted,
+        // so the object the listeners see is the one they registered on with no conversion. The listener
+        // list is still held as engine values by the event-target registry, so each listener crosses
+        // below. IsMissing replaces a null test that, against a handle, would have compiled, been false
+        // forever, and run the listeners against an absent target.
         var evt = Realm.NewObject();
         Realm.DefineValue(evt, "type", JsValue.String("scroll"));
         Realm.DefineValue(evt, "target", target);
@@ -463,8 +457,7 @@ public sealed partial class DomBridge
             try
             {
                 // `this` is the listener itself, as it has been since this dispatch was written.
-                var callee = JsInterop.FromEngineObject(listener);
-                Realm.Invoke(callee, callee, [evt]);
+                Realm.Invoke(listener, listener, [evt]);
             }
             catch (Exception ex)
             {

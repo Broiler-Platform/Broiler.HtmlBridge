@@ -23,8 +23,10 @@
     change needs one, the reference has to be added here first, in a diff a reviewer sees, rather
     than arriving transitively through a helper.
 
-    scripts/check-engine-neutrality.sh fails the build if this element ever gains a child, so the
-    property survives a refactor that did not read this comment.
+    scripts/check-engine-neutrality.sh fails CI if this file ever declares a ProjectReference or a
+    PackageReference — those two elements and nothing else, since the file already carries a
+    PropertyGroup and InternalsVisibleTo items — so the property survives a refactor that did not
+    read this comment.
 
     The corollary is that JSEAL cannot reach Broiler.HtmlBridge.Core either — no ContentSecurityPolicy,
     no MicroTaskQueue, no RenderLogger. That is deliberate and costs less than it looks: the policy

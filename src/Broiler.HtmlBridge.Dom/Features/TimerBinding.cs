@@ -20,23 +20,28 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The JavaScript vocabulary is JSEAL's: arguments are read off the call frame, the callback wrapper
-/// and the <c>IdleDeadline</c> are minted by the realm, and a callback is invoked through it. The one
-/// exception is <see cref="ToEngineCallback"/>, and it is a boundary rather than an oversight —
-/// <see cref="BrowserEventLoop"/>'s queues hold the engine's own function type, and it is not part of
-/// this migration. What that queue needs in order to hold a <see cref="JsValue"/> instead is small
-/// and worth stating: its <c>TimerEntry.Fn</c>, its <c>_rafCallbacks</c> map and the four
-/// registration signatures would take a handle, its "no callback" test would become
-/// <c>!callback.IsFunction</c> in place of a null check, and its drain would call the realm's
-/// <c>Invoke</c> rather than the function's own — which also means the loop would have to be handed
-/// the realm it drains into, since a handle carries no way back to one.
+/// The JavaScript vocabulary is JSEAL's, and as of this commit that is the whole of it: arguments are
+/// read off the call frame, the callback wrapper and the <c>IdleDeadline</c> are minted by the realm,
+/// a callback is invoked through it, and a callback handed to <see cref="BrowserEventLoop"/> stays the
+/// handle the realm minted. This file names no engine type.
+/// </para>
+/// <para>
+/// <b>The exception this remark used to describe had already stopped existing.</b> It said
+/// <see cref="BrowserEventLoop"/>'s queues "hold the engine's own function type", and listed what
+/// porting them would take: its <c>TimerEntry.Fn</c>, its <c>_rafCallbacks</c> map and its
+/// registration signatures — three of them, not the four it counted — taking a handle, its
+/// "no callback" test becoming <c>!callback.IsFunction</c>, and its drain invoking through a realm it
+/// would have to be handed. Every one of those is how that class is already written. What was left was
+/// a private <c>ToEngineCallback</c> here unwrapping each handle to the engine's function, and three
+/// overloads there wrapping the same reference straight back into the handle it came from — a round
+/// trip whose two halves were each other's only caller.
 /// </para>
 /// </remarks>
 internal static class TimerBinding
 {
     public static JsValue SetTimeout(BrowserEventLoop loop, WindowContextManager windows, in JsCall call) =>
         JsValue.Number(loop.SetTimeout(
-            ToEngineCallback(BindToRegisteringContext(call.Realm, windows, call[0])), ReadDelayMs(in call)));
+            BindToRegisteringContext(call.Realm, windows, call[0]), ReadDelayMs(in call)));
 
     // The delay argument (call[1]) in ms; absent / NaN / negative are treated as 0 (the event loop
     // clamps too). ToNumber rather than the handle's own reading: `setTimeout(f, "100")` is ordinary
@@ -53,7 +58,7 @@ internal static class TimerBinding
 
     public static JsValue SetInterval(BrowserEventLoop loop, WindowContextManager windows, in JsCall call) =>
         JsValue.Number(loop.SetInterval(
-            ToEngineCallback(BindToRegisteringContext(call.Realm, windows, call[0])), ReadDelayMs(in call)));
+            BindToRegisteringContext(call.Realm, windows, call[0]), ReadDelayMs(in call)));
 
     public static JsValue ClearInterval(BrowserEventLoop loop, in JsCall call)
     {
@@ -65,7 +70,7 @@ internal static class TimerBinding
 
     public static JsValue RequestAnimationFrame(BrowserEventLoop loop, WindowContextManager windows, in JsCall call) =>
         JsValue.Number(loop.RequestAnimationFrame(
-            ToEngineCallback(BindToRegisteringContext(call.Realm, windows, call[0]))));
+            BindToRegisteringContext(call.Realm, windows, call[0])));
 
     public static JsValue CancelAnimationFrame(BrowserEventLoop loop, in JsCall call)
     {
@@ -74,21 +79,6 @@ internal static class TimerBinding
 
         return JsValue.Undefined;
     }
-
-    /// <summary>
-    /// The engine function behind a callback handle, for the queue that still holds one, and
-    /// <see langword="null"/> for anything that is not callable — which is what the loop's "an id was
-    /// allocated but nothing will run" case is spelled as.
-    /// </summary>
-    /// <remarks>
-    /// The one engine-typed helper in this file, and the seam described in this class's remarks: a
-    /// handle carries the engine's own function, so this is a cast and not a conversion, and the
-    /// identity <c>clearTimeout</c> and the drain depend on is the identity it always was.
-    /// </remarks>
-    private static JavaScript.BuiltIns.Function.JSFunction? ToEngineCallback(JsValue callback) =>
-        callback.IsFunction
-            ? JsInterop.ToEngineObject(callback) as JavaScript.BuiltIns.Function.JSFunction
-            : null;
 
     /// <summary>
     /// Ties a callback to the browsing context that registered it, so that when the queue drains it
@@ -113,9 +103,11 @@ internal static class TimerBinding
     /// make constantly. Only a frame pays for being a frame.
     /// </para>
     /// <para>
-    /// A value that is not callable is handed back untouched, so the caller's
-    /// <see cref="ToEngineCallback"/> turns it into the null the loop reads as "allocate an id and
-    /// queue nothing" — the same answer the engine-typed <c>as</c> cast gave before.
+    /// A value that is not callable is handed back untouched, and the loop reads it as "allocate an id
+    /// and queue nothing" on its own: every registration allocates the id first and stores an entry only
+    /// when <c>IsFunction</c> holds. This used to be spelled by narrowing the value to a CLR
+    /// <see langword="null"/> on the way through, which the test at the other end could not tell from
+    /// any other non-function and which cost a crossing into the engine to produce.
     /// </para>
     /// </remarks>
     private static JsValue BindToRegisteringContext(IJsRealm realm, WindowContextManager windows, JsValue callback)
@@ -168,7 +160,7 @@ internal static class TimerBinding
         var realm = call.Realm;
         var callback = BindToRegisteringContext(realm, windows, call[0]);
         if (!callback.IsFunction)
-            return JsValue.Number(loop.SetTimeout(null));
+            return JsValue.Number(loop.SetTimeout(JsValue.Undefined));
 
         // A timeout means "run by then at the latest". There is no idle period here for the callback
         // to have been run in earlier, so a callback that carries one is always running because that
@@ -186,7 +178,7 @@ internal static class TimerBinding
 
         // Scheduling it on the timer queue is what keeps the handle cancellable: the id comes from the
         // same space clearTimeout/cancelIdleCallback act on.
-        return JsValue.Number(loop.SetTimeout(ToEngineCallback(withDeadline), timeoutMs));
+        return JsValue.Number(loop.SetTimeout(withDeadline, timeoutMs));
     }
 
     /// <summary>

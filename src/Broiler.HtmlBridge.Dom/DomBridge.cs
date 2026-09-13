@@ -1,6 +1,5 @@
 using System.Net;
 using System.Runtime.CompilerServices;
-using Broiler.JavaScript.Runtime;
 using Broiler.JavaScript.Engine;
 using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Logging;
@@ -83,21 +82,28 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     // Per-element inline-style runtime state (the last concern de-globalized off the former process-static
     // ElementRuntimeState table, 2026-07-17); reached via InlineStyleStateFor.
     private readonly ConditionalWeakTable<DomNode, InlineStyleRuntimeState> _inlineStyleStates = [];
-    // The three wrapper roots: the JS objects for `document`, `window` and `window.visualViewport`.
+    // The three wrapper roots: the JS objects for `document`, `window` and `window.visualViewport`,
+    // held as the handles the realm minted. Registration assigns each once (the first two in
+    // DomBridge/Registration/Registration.cs, the third in DomBridge/Registration/Window.cs) and
+    // ClearWrapperRoots below drops them.
     //
-    // They are still the engine's own objects because fourteen other files in this assembly read
-    // them as such — the two Registration passes and Registration/Window.cs assign them; the eleven
-    // readers are DomBridge.EventDispatchHost / .MessagingHost / .SubWindowHost / .WindowContextHost
-    // / .WindowLoad, DomBridge/CharacterDataInterface, /DomBridge.CanvasHost, /DomBridge.EventTargetHost,
-    // /EventTargetInterface, /LayoutMetrics.Scrolling and /ShadowDom — and a field cannot be half a
-    // type. The JSEAL half of each is the sibling handle below: the same object asked for as a
-    // JsValue, so a migrated caller neither unwraps nor re-wraps, and the two halves cannot drift the
-    // way two separately-assigned fields would. Nine of those readers do nothing but wrap the field
-    // the way the sibling already does, so each becomes a one-line change when its owner migrates;
-    // when the last one goes, the field becomes the handle and the sibling goes with it.
-    private JSObject? _documentJSObject;
-    private JSObject? _windowJSObject;
-    private JSObject? _visualViewportJSObject;
+    // THEY WERE THE ENGINE'S OWN OBJECTS BECAUSE THIS COMMENT SAID FOURTEEN OTHER FILES READ THEM AS
+    // SUCH, AND ITS ROSTER WAS WRONG IN BOTH DIRECTIONS. Twelve other files named a root. The roster
+    // listed DomBridge/CharacterDataInterface and DomBridge/ShadowDom, neither of which still does -- both
+    // stopped in 5282d02 and 38815c8 and read DocumentHandle now; the roster was right when it was
+    // written and went stale -- and left out DomBridge/Registration/CustomElements and the guard in
+    // DomBridge/Registration/Registration.cs's SyncWindowMembersOntoGlobal, which did. Nor did the
+    // readers all "do nothing but wrap the field the way the sibling already does": four answer
+    // something other than Missing for a root that is not there yet -- null from
+    // DomBridge/Registration/CustomElements and DomBridge.MessagingHost, undefined from
+    // DomBridge/DomBridge.CanvasHost and DomBridge.WindowContextHost -- and each of the four still
+    // does, explicitly, because Missing is neither.
+    //
+    // THE NAMES WENT WITH THE TYPE, AND THAT IS WHAT MADE THE RETYPE SAFE. Against a struct,
+    // `root == null` is at most a warning that it is always false, and `root is { } x` is no
+    // diagnostic at all and always true; in this assembly two guards were written the first way and
+    // ten reads the second. With the engine-typed names gone every one of them had to be rewritten or
+    // fail to compile, so none of them could go on compiling while it stopped testing anything.
     private JSContext? _jsContext;
 
     /// <summary>
@@ -109,24 +115,23 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     /// yet" is not a value any page can observe — every caller either tests it or coalesces it to the
     /// JavaScript value its own contract promises (<c>INodeAccessorsHost.DocumentWrapper</c> answers
     /// <c>null</c>, for instance). Choosing one of those here would hide the distinction from the
-    /// other.
+    /// other. Missing is also <c>default(JsValue)</c>, so a bridge that has not attached yet and one
+    /// that has been disposed read the same way.
     /// </para>
     /// <para>
-    /// The handle carries the engine object, so this is a cast rather than a conversion and the
-    /// wrapper identity — <c>document === document</c>, and the weak tables keyed on it — is the same
-    /// question either way.
+    /// <b>This is the root itself, not a view of one.</b> It used to wrap an engine-typed field on
+    /// every read. A handle over an object carries that object, so the field and this were always one
+    /// instance and <c>document === document</c> was never in question; what went is the field and
+    /// the conversion.
     /// </para>
     /// </remarks>
-    internal JsValue DocumentHandle =>
-        _documentJSObject is { } document ? Dom.Runtime.JsInterop.FromEngineObject(document) : JsValue.Missing;
+    internal JsValue DocumentHandle { get; private set; }
 
     /// <inheritdoc cref="DocumentHandle"/>
-    internal JsValue WindowHandle =>
-        _windowJSObject is { } window ? Dom.Runtime.JsInterop.FromEngineObject(window) : JsValue.Missing;
+    internal JsValue WindowHandle { get; private set; }
 
     /// <inheritdoc cref="DocumentHandle"/>
-    internal JsValue VisualViewportHandle =>
-        _visualViewportJSObject is { } viewport ? Dom.Runtime.JsInterop.FromEngineObject(viewport) : JsValue.Missing;
+    internal JsValue VisualViewportHandle { get; private set; }
 
     /// <summary>
     /// Drops the three wrapper roots. Called from <see cref="Dispose"/>, which owns the teardown
@@ -134,9 +139,9 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     /// </summary>
     private void ClearWrapperRoots()
     {
-        _documentJSObject = null;
-        _windowJSObject = null;
-        _visualViewportJSObject = null;
+        DocumentHandle = JsValue.Missing;
+        WindowHandle = JsValue.Missing;
+        VisualViewportHandle = JsValue.Missing;
     }
 
     // P2.4: the timer/interval/requestAnimationFrame/frame-action queues, their id counters and the
@@ -664,7 +669,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     private Dictionary<string, List<EventListenerRegistration>> GetEventListeners(DomNode element) =>
         _eventTargets.NodeListeners(element);
 
-    private Dictionary<string, JSValue> GetInlineEventHandlers(DomNode element) =>
+    private Dictionary<string, JsValue> GetInlineEventHandlers(DomNode element) =>
         InlineStyleStateFor(element).InlineEventHandlers;
 
     internal bool TryGetStoredScrollOffset(DomElement element, bool vertical, out double offset)

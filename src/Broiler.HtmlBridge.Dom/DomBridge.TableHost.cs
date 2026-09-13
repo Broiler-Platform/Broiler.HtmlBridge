@@ -12,11 +12,14 @@ namespace Broiler.HtmlBridge;
 /// seams do not widen the public <c>DomBridge</c> surface.
 /// </summary>
 /// <remarks>
-/// This is the half-migrated seam for the table slice: the module speaks JSEAL, the rest of the
-/// bridge still holds engine objects, and <see cref="Dom.Runtime.JsInterop"/> is the cast between
-/// them. It is a cast and not a conversion — a JSEAL object handle carries the engine's own object —
-/// so wrapper identity (<c>row === row</c>, and the weak tables keyed on it) is the same question it
-/// was before.
+/// The table slice is spelled in JSEAL end to end: every member of this contract is realm- or
+/// handle-typed, and the module's last engine-typed member went with the installer overload whose
+/// caller had stopped needing it. What stood here called this "the half-migrated seam for the table
+/// slice" and named <see cref="Dom.Runtime.JsInterop"/> as "the cast between them": this file has
+/// never performed that cast, and since the installer's deletion nothing in the slice does. The
+/// property the remark was defending holds and still matters -- a JSEAL object handle carries the
+/// engine's own object, so wrapper identity (<c>row === row</c>, and the weak tables keyed on it) is
+/// the same question it was before.
 /// </remarks>
 public sealed partial class DomBridge : ITableHost
 {

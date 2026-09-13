@@ -1,8 +1,6 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -54,18 +52,14 @@ public sealed partial class DomBridge
     /// point, and the page's Content-Security-Policy has no say over it.
     /// </para>
     /// </remarks>
-    /// <param name="context">
-    /// The engine context the unmigrated caller (<c>DomBridge/Registration/Registration.cs</c>) still
-    /// holds. Nothing here reads it: this pass works through <see cref="Realm"/>, which is the same
-    /// realm. The parameter stays only so that call site needs no edit while it is another group's
-    /// file.
-    /// </param>
     /// <param name="window">
-    /// The window object <c>customElements</c> is installed on. Under this engine it is the global
-    /// itself, but it is taken rather than derived so this pass installs on the same object the
-    /// registration hub built everything else on.
+    /// The window object <c>customElements</c> is installed on, as a handle. Under this engine it
+    /// is the global itself, but it is taken rather than derived so this pass installs on the same
+    /// object the registration hub built everything else on — and a handle carries that object
+    /// rather than wrapping it, so the property defined below lands on the very window every other
+    /// registration pass wrote to, not on a second view of it.
     /// </param>
-    private void RegisterCustomElements(JSContext context, JSObject window)
+    private void RegisterCustomElements(JsValue window)
     {
         var realm = Realm;
 
@@ -143,7 +137,7 @@ public sealed partial class DomBridge
             """,
             "broiler:custom-elements");
 
-        realm.DefineValue(JsInterop.FromEngineObject(window), "customElements", registry);
+        realm.DefineValue(window, "customElements", registry);
         SubscribeCustomElementReactions();
     }
 
@@ -227,9 +221,14 @@ public sealed partial class DomBridge
     /// <summary>The JS object for a document node — the window's <c>document</c> for the page, its own
     /// wrapper for a document this bridge minted, and <c>null</c> for one that has neither.</summary>
     /// <remarks>
-    /// The wrapper caches are still engine-typed, so each answer crosses through
-    /// <see cref="JsInterop"/> — a cast, not a conversion, so the handle carries the object the page
-    /// already holds and <c>evt.oldDocument === frameDoc</c> stays the question it was.
+    /// Nothing here converts: the page's document is the bridge's document root and a minted
+    /// document's wrapper is the registry's entry, both handles already held, so
+    /// <c>evt.oldDocument === frameDoc</c> is the question it always was. (This used to say the wrapper
+    /// caches were engine-typed and each answer crossed through a cast; the registry had not been
+    /// engine-typed for some time, and the root is not now.) The <c>null</c> for the page's own
+    /// document before one is registered is kept deliberately: the root holds
+    /// <see cref="JsValue.Missing"/> then, and this member answers a document or <c>null</c>, which is
+    /// what a page can read.
     /// </remarks>
     private JsValue DocumentValue(DomDocument? document)
     {
@@ -237,7 +236,7 @@ public sealed partial class DomBridge
             return JsValue.Null;
 
         if (ReferenceEquals(document, _document))
-            return _documentJSObject is { } main ? JsInterop.FromEngineObject(main) : JsValue.Null;
+            return DocumentHandle.IsMissing ? JsValue.Null : DocumentHandle;
 
         return _jsObjects.TryGetDocument(document, out var wrapper) ? wrapper : JsValue.Null;
     }

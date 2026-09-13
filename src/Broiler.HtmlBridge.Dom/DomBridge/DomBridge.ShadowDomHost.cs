@@ -45,7 +45,7 @@ public sealed partial class DomBridge : Dom.Features.IShadowDomHost
         return shadowRoot;
     }
 
-    // The bridge's own JSEAL-vocabulary wrapper factory: a handle over the object its wrapper cache
-    // already holds, which is a cast rather than a conversion, so wrapper identity is unchanged.
+    // The bridge's wrapper factory, forwarded as it stands: WrapNode answers the handle its wrapper
+    // cache holds, so wrapper identity is unchanged. (This called the forward a cast.)
     JsValue Dom.Features.IShadowDomHost.WrapNode(DomNode node) => WrapNode(node);
 }

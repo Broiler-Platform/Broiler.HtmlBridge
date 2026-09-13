@@ -13,10 +13,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The contract names no engine type: every JavaScript value it carries is a <see cref="JsValue"/>
-/// and the realm is an <see cref="IJsRealm"/>. Two of the members it forwards to — the streams module
-/// and the bridge's own wrapper lookup — are not migrated, so the conversions live on the bridge side
-/// in <c>DomBridge.FetchHost.cs</c>, which is where a seam belongs while one half of it is still
-/// engine-typed.
+/// and the realm is an <see cref="IJsRealm"/>. No member of the bridge side, <c>DomBridge.FetchHost.cs</c>,
+/// converts: the streams module is typed in <see cref="JsValue"/> wherever it carries a JavaScript value,
+/// and the wrapper-to-node lookup takes a handle. (This said those two were not migrated and the bridge
+/// side held the conversions for a seam half of which was engine-typed.)
 /// </remarks>
 internal interface IFetchHost
 {

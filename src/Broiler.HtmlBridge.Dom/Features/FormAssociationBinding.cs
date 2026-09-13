@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -35,13 +34,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// use its own position) gives <c>null</c> there and is wrong.
 /// </para>
 /// <para>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). One member is an engine-typed
-/// adapter and it is pinned from outside: <see cref="Install(IFormAssociationHost, JSObject,
-/// DomElement, string)"/>, whose caller <c>DomBridge/ElementInterfaces.cs</c> holds the wrapper as an
-/// engine object. It forwards through <see cref="Runtime.JsInterop"/> — a cast, not a conversion —
-/// and disappears when that caller migrates. The second adapter, <c>LabelsNodeList</c>, is gone with
-/// the migration of <see cref="IElementInternalsHost"/>: that contract's <c>LabelsFor</c> now takes
-/// a <see cref="JsValue"/> back, so it reads <see cref="LabelsList"/> directly.
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), and this file now names no engine
+/// type at all. Both adapters that made it name one are gone: <c>LabelsNodeList</c> with the
+/// migration of <see cref="IElementInternalsHost"/>, whose <c>LabelsFor</c> takes a
+/// <see cref="JsValue"/> back and reads <see cref="LabelsList"/> directly, and the engine-typed
+/// <c>Install</c> with the one line in <c>DomBridge/ElementInterfaces.cs</c> that used to convert a
+/// handle into an engine object for the sole purpose of letting this file convert it back.
 /// </para>
 /// </remarks>
 internal static class FormAssociationBinding
@@ -62,13 +60,6 @@ internal static class FormAssociationBinding
     private static readonly HashSet<string> FormAssociatedTags =
         new(StringComparer.OrdinalIgnoreCase)
         { "button", "fieldset", "input", "label", "object", "output", "select", "textarea", "img" };
-
-    /// <summary>
-    /// Engine-typed adapter for <c>DomBridge/ElementInterfaces.cs</c>, which still holds the element
-    /// wrapper as an engine object. See the remarks on this class.
-    /// </summary>
-    public static void Install(IFormAssociationHost host, JSObject obj, DomElement element, string tag) =>
-        Install(host, Runtime.JsInterop.FromEngineObject(obj), element, tag);
 
     public static void Install(IFormAssociationHost host, JsValue obj, DomElement element, string tag)
     {
