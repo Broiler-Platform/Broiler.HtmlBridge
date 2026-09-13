@@ -1,7 +1,7 @@
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
-// Engine-typed for three reasons, and only three:
+// Engine-typed for two reasons, and only two:
 //
 //   * RegisterDocument takes the script context the host hands Attach and swaps its code cache for
 //     the process-shared one. That is a Broiler.JS optimisation with no JSEAL vocabulary — there is
@@ -9,18 +9,8 @@ using Broiler.HtmlBridge.Logging;
 //     a step not yet taken.
 //   * AdoptRealm (DomBridge.Realm.cs) takes that same context to produce the realm, so the context
 //     has to reach it.
-//   * The three wrapper-root fields (_documentJSObject, _windowJSObject, _visualViewportJSObject)
-//     are engine-typed and DictionaryCodeCache is the engine's own cache type. The fields are read
-//     by files outside this migration group, so the two ToEngineObject calls below stay until those
-//     readers ask with a handle.
 //
-//     RegisterCustomElements (DomBridge/Registration/CustomElements.cs) used to be named here as a
-//     third holder of the engine-typed window, and outside the migration group besides. It is
-//     neither: it is a private method of this class with exactly one caller, and that caller is the
-//     line in this file. It takes a handle now, so the window conversion below feeds
-//     _windowJSObject and nothing else.
-//
-// The adapters that used to be a fourth reason are gone; see the note at the foot of this file.
+// The adapters that used to be a further reason are gone; see the note at the foot of this file.
 // Everything the hubs install is built through the realm, and every module they register is handed
 // that realm rather than the context — which is not only tidier: a module handed the context adopted
 // it, and a second realm over one context has a job queue of its own that no event loop drains.
@@ -133,9 +123,7 @@ public sealed partial class DomBridge
         // checks like 'range.commonAncestorContainer === document' work. The registry holds the
         // handle, keyed on the DomNode going out and on JsValue.ObjectIdentity coming back — not
         // on the engine's own object, which is only what that identity happens to be under the
-        // Broiler.JS provider. `documentObject` below is that same object, minted here for the
-        // wrapper-root field rather than for the registry.
-        var documentObject = Dom.Runtime.JsInterop.ToEngineObject(document);
+        // Broiler.JS provider. The document root assigned below holds that same handle.
         _jsObjects.Set(_document, document);
 
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegDocumentObject))
@@ -148,7 +136,7 @@ public sealed partial class DomBridge
             RegisterDocumentEventTargetAndMetadata(document);
         }
 
-        _documentJSObject = documentObject;
+        DocumentHandle = document;
         realm.SetProperty(realm.Global, "document", document);
 
         // `window` IS the global object, exactly as it is in a browser — the realm's global is the
@@ -170,8 +158,7 @@ public sealed partial class DomBridge
         // That the two are one is a fact about this engine and the realm says so:
         // JsCapabilities.GlobalIsVariableScope is what a provider asserts it with.
         var window = realm.Global;
-        var windowObject = Dom.Runtime.JsInterop.ToEngineObject(window);
-        _windowJSObject = windowObject;
+        WindowHandle = window;
 
         var windowBasicsScope = Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowBasics);
         var console = RegisterWindowBasics(document, window);
@@ -353,7 +340,8 @@ public sealed partial class DomBridge
     /// </summary>
     public void SyncWindowMembersOntoGlobal()
     {
-        if (_windowJSObject is not { } window)
+        var window = WindowHandle;
+        if (window.IsMissing)
             return;
 
         // THE MIRROR IS THE WORK; THE CACHE SWAP IS AN OPTIMISATION, AND THEY USED TO SHARE A GUARD.
@@ -366,7 +354,7 @@ public sealed partial class DomBridge
         // runs whenever there is one.
         if (_jsContext is not { } context)
         {
-            MirrorWindowMembersOntoGlobal(Realm, Dom.Runtime.JsInterop.FromEngineObject(window));
+            MirrorWindowMembersOntoGlobal(Realm, window);
             return;
         }
 
@@ -380,7 +368,7 @@ public sealed partial class DomBridge
         context.CodeCache = DictionaryCodeCache.Current;
         try
         {
-            MirrorWindowMembersOntoGlobal(Realm, Dom.Runtime.JsInterop.FromEngineObject(window));
+            MirrorWindowMembersOntoGlobal(Realm, window);
         }
         finally
         {

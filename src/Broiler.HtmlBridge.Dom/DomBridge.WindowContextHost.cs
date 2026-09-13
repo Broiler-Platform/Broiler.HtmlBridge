@@ -12,21 +12,22 @@ namespace Broiler.HtmlBridge;
 /// implementation of <see cref="IWindowContextHost.Realm"/> would not compile.
 /// </summary>
 /// <remarks>
-/// This file is the seam's engine-typed half, and only where the bridge's own state is still engine
-/// typed: the top-level window/document objects and the sub-document builder are fields and methods
-/// other groups' files hold as the engine's own object, so each is wrapped as a handle here. That is a cast
-/// — a JSEAL handle carries the engine's own object — so the window identity the manager compares and
-/// the one the browsing-context maps are keyed on stay the same instance.
+/// Nothing here converts. The window and document are the bridge's roots, which are the handles the
+/// realm minted, and the sub-document builder answers a handle of its own, so the window the manager
+/// compares against is the same instance by construction rather than by a cast. (This used to call
+/// the file the seam's engine-typed half and say all three were wrapped as handles here; the
+/// sub-document builder was already forwarded as it stands.)
 /// </remarks>
 public sealed partial class DomBridge : IWindowContextHost
 {
     IJsRealm? IWindowContextHost.Realm => _realm;
 
-    JsValue IWindowContextHost.WindowObject =>
-        _windowJSObject is { } window ? Dom.Runtime.JsInterop.FromEngineObject(window) : JsValue.Missing;
+    JsValue IWindowContextHost.WindowObject => WindowHandle;
 
+    // Undefined rather than the Missing the root holds, as the member's name says: its one consumer,
+    // WindowContextManager.GetWindowDocument, answers undefined on its other branch too.
     JsValue IWindowContextHost.MainDocumentOrUndefined =>
-        _documentJSObject is { } document ? Dom.Runtime.JsInterop.FromEngineObject(document) : JsValue.Undefined;
+        DocumentHandle.IsMissing ? JsValue.Undefined : DocumentHandle;
 
     JsValue IWindowContextHost.GetOrCreateSubDocument(DomElement container) =>
         GetOrCreateSubDocument(container);

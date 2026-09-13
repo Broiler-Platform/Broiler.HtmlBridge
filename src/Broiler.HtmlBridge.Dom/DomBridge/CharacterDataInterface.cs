@@ -144,10 +144,10 @@ public sealed partial class DomBridge
     /// </remarks>
     private void DropDocumentNodeMemberCopies()
     {
-        // The document wrapper's field is still an engine object held by DomBridge.cs; DocumentHandle
-        // is that same object asked for as a handle, so deleting through the realm deletes from what
-        // the page holds. Missing — no document registered yet — is not an object, which is the same
-        // escape the null test on the field made.
+        // DocumentHandle is the bridge's document root (DomBridge.cs), the handle the page's `document`
+        // is, so deleting through the realm deletes from what the page holds. Missing — no document
+        // registered yet — is not an object, which is the same escape the null test on the old
+        // engine-typed field made.
         var handle = DocumentHandle;
         if (!handle.IsObject)
             return;

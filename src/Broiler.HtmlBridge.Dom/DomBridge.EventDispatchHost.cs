@@ -13,10 +13,11 @@ namespace Broiler.HtmlBridge;
 /// these seams do not widen the public <c>DomBridge</c> surface.
 /// </summary>
 /// <remarks>
-/// This is the half-migrated seam for the dispatch slice: the module speaks JSEAL, the wrapper cache
-/// and the two global wrappers the bridge holds are still engine objects, and
-/// <see cref="JsInterop"/> is the cast between them — a cast and not a conversion, so
-/// <c>event.target === el</c> is the same question it always was.
+/// The module speaks JSEAL, and so does every member here but one. The wrapper cache answers handles,
+/// and the document and window wrappers are the bridge's roots, which are the handles the realm
+/// minted, so all three forward without converting and <c>event.target === el</c> is the same
+/// question it always was. (This used to call all three engine objects, with a cast between them.)
+/// The one crossing left is <c>InlineEventHandler</c> below, whose map still holds engine values.
 /// </remarks>
 public sealed partial class DomBridge : IEventDispatchHost
 {
@@ -26,11 +27,9 @@ public sealed partial class DomBridge : IEventDispatchHost
 
     DomNode IEventDispatchHost.DocumentNode => _document;
 
-    JsValue IEventDispatchHost.DocumentWrapper =>
-        _documentJSObject is null ? JsValue.Missing : JsInterop.FromEngineObject(_documentJSObject);
+    JsValue IEventDispatchHost.DocumentWrapper => DocumentHandle;
 
-    JsValue IEventDispatchHost.WindowWrapper =>
-        _windowJSObject is null ? JsValue.Missing : JsInterop.FromEngineObject(_windowJSObject);
+    JsValue IEventDispatchHost.WindowWrapper => WindowHandle;
 
     Dictionary<string, List<EventListenerRegistration>> IEventDispatchHost.GetEventListeners(DomNode node) =>
         GetEventListeners(node);

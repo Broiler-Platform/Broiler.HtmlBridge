@@ -334,7 +334,6 @@ than seven. Every occurrence names its own pin in its own doc comment:
 |---|---|
 | `DomBridge.Realm.cs`, `RegisterDocument(JSContext)` | The floor. One *adopts* a context; the other swaps the code cache, a Broiler.JS optimisation with no JSEAL vocabulary |
 | `IDomBridgeRuntime.Attach(JSContext, …)` | Declared in `Broiler.HtmlBridge.Core`, and consumed by `Broiler.Cli`/`Broiler.Wpt`/`Broiler.DevConsole`, which are not in this checkout |
-| The three wrapper-root fields | `DomBridge` declares them; ten files read them. One commit, whenever someone owns all ten |
 | `JsObjectRegistry` | The wrapper-identity choke point. Its surface is read by ten files that hold the engine's object mid-frame, so it moves in one commit or none. Ordinary work, and the one that unblocks the most |
 | `BridgeModuleContext` | It derives from the engine's module context to inject specifier resolution and CSP-gated fetch. JSEAL has no module-graph contract, and one implementer is not enough to design one from |
 | The event-host surfaces | `DomBridge.WindowEventTargetHost`, `Events`, `DomFunction` and their neighbours still type a listener as the engine's function. Ordinary work, and the largest single group left |

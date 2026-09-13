@@ -41,8 +41,7 @@ public sealed partial class DomBridge : Dom.Features.IEventTargetHost
     JsValue Dom.Features.IEventTargetHost.DispatchEvent(DomNode element, JsValue evt)
         => JsValue.Boolean(_eventDispatch.DispatchEventOnElement(element, evt).AsBoolean);
 
-    JsValue Dom.Features.IEventTargetHost.WindowWrapper =>
-        _windowJSObject is null ? JsValue.Missing : JsInterop.FromEngineObject(_windowJSObject);
+    JsValue Dom.Features.IEventTargetHost.WindowWrapper => WindowHandle;
 
     FormControlRuntimeState Dom.Features.IEventTargetHost.FormControlStateFor(DomElement element)
         => FormControlStateFor(element);

@@ -356,14 +356,16 @@ public sealed partial class DomBridge
     {
         // Taken before the guard because that is where it always happened: the three adapters
         // converted on the way in, so a handle carrying no engine object failed before this method's
-        // first property write, and it still does. `_windowJSObject` is the engine's own field
-        // (DomBridge.cs), so the null test beside it is a reference test and stays one.
+        // first property write, and it still does.
         var engineEvent = Dom.Runtime.JsInterop.ToEngineObject(evt);
 
-        if (_realm is not { } realm || _windowJSObject == null)
+        // The window root is a handle (DomBridge.cs), so absence is IsMissing. The null test that stood
+        // here was right while the root was a reference; against a handle it would still compile, be
+        // false forever, and dispatch window events against an absent window.
+        if (_realm is not { } realm || WindowHandle.IsMissing)
             return true;
 
-        var window = Dom.Runtime.JsInterop.FromEngineObject(_windowJSObject);
+        var window = WindowHandle;
 
         // A CLR-absent `type` is the only thing that reads as "unknown"; an explicit `undefined`
         // coerces to the string "undefined", exactly as the former ToString() did.

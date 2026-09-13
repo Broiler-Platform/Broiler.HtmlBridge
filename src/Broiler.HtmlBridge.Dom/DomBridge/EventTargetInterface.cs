@@ -129,13 +129,16 @@ public sealed partial class DomBridge
     {
         Realm.DefineValue(proto, name, Realm.NewMethod(name, (in call) =>
         {
-            // The two tables below are keyed on the engine's own object, which an object handle
-            // carries; a non-object receiver is in neither without asking.
+            // A non-object receiver is neither the window nor a node, so neither is looked for. The
+            // window test is handle equality, which for an object compares the kind and then the
+            // reference the handle carries. The receiver and the window root come out of the same
+            // provider wrapping the same engine object, so their kinds cannot differ, and this asks
+            // exactly what comparing the two unwrapped references asked. (This used to say both
+            // tables were keyed on the engine's own object; the node registry has keyed on the handle
+            // since it was re-typed, and the unwrap that fed the window test is gone with the test.)
             if (call.This.IsObject)
             {
-                var receiver = Dom.Runtime.JsInterop.ToEngineObject(call.This);
-
-                if (_windowJSObject is { } window && ReferenceEquals(receiver, window))
+                if (call.This == WindowHandle)
                     return onWindow(in call);
 
                 if (_jsObjects.TryGetNode(call.This, out var node))
