@@ -185,7 +185,7 @@ public class FrameScriptExecutionTests
                  "frames[0].frameGlobal and the page's unqualified frameGlobal are one binding, and " +
                  "two frames declaring the same name overwrite each other. HTML gives every nested " +
                  "browsing context a global object of its own. " +
-                 "src/Broiler.HtmlBridge.Dom/DomBridge/SubDocuments.cs:372")]
+                 "src/Broiler.HtmlBridge.Dom/DomBridge/SubDocuments.cs:418")]
     public void AFramesDeclarationsDoNotLandOnTheContainingPagesWindow()
     {
         Assert.Equal(
@@ -207,7 +207,7 @@ public class FrameScriptExecutionTests
                  "an object nothing keeps: frames[0].marked is undefined while the frame's own echo " +
                  "proves the assignment happened. Which of the two windows survives also depends on " +
                  "whether the page reads contentDocument or contentWindow first. " +
-                 "src/Broiler.HtmlBridge.Dom/DomBridge/SubDocuments.cs:358")]
+                 "src/Broiler.HtmlBridge.Dom/DomBridge/SubDocuments.cs:395")]
     public void APropertyTheFramesScriptPutsOnItsWindowIsOnTheWindowThePageSees()
     {
         Assert.Equal(
