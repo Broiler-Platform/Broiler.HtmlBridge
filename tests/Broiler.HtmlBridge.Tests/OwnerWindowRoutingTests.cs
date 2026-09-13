@@ -9,7 +9,7 @@ namespace Broiler.Browser.Core.Tests;
 /// <para>
 /// <b>Nothing has ever asserted this, and the map that implements it can be deleted without a
 /// single existing test noticing.</b> <c>EventTargetRegistry</c> files a port's owner at creation
-/// (<c>Features/MessagingBinding.cs:685</c>) and <c>WindowContextManager.ResolveOwnerWindow</c>
+/// (<c>Features/MessagingBinding.cs:674</c>) and <c>WindowContextManager.ResolveOwnerWindow</c>
 /// reads it back — but on a miss that method falls through to <c>ResolveCurrentWindow()</c>, so on
 /// a one-window page the fallback and the map answer the same object. Every routing test that can
 /// be written against a single window therefore passes with the map gone.
@@ -17,10 +17,10 @@ namespace Broiler.Browser.Core.Tests;
 /// <para>
 /// <b>Which is also why this is not a <c>frameWindow.postMessage</c> test.</b> That path's caller
 /// already wraps its own delivery in the window switch
-/// (<c>Features/MessagingBinding.cs:384-399</c>), so by the time the owner map is consulted the
+/// (<c>Features/MessagingBinding.cs:373-388</c>), so by the time the owner map is consulted the
 /// current window IS the target window and the fallback is again indistinguishable. The port path
 /// is the one that queues its delivery as a bare frame action
-/// (<c>Features/MessagingBinding.cs:757-766</c>) and reaches
+/// (<c>Features/MessagingBinding.cs:746-755</c>) and reaches
 /// <c>RunInOwnerWindow</c> with nothing having switched: the channel is built inside the frame's
 /// script, where the current window is the sub-window, and the message is delivered from the
 /// post-load drain, where it is the page's. Owner and current differ, and the map is the only

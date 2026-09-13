@@ -197,11 +197,11 @@ public sealed partial class DomBridge
         // so this is applied to the result of every scrolling entry point rather than to any
         // one of them (CSS Scroll Snap 1 §2). A non-snapping container is unchanged.
         //
-        // This runs even under `clamp: false` (window.scrollTo/scrollBy and the element
-        // scroll/scrollTo/scrollBy bindings), which is deliberate: snapping is a property of
-        // the container, not of the API used to reach it, and a snap position is by definition
-        // inside the scrollable range. Callers that opt out of clamping still get no clamping
-        // on an ordinary scroll container — only on one that asked to snap.
+        // This runs even under `clamp: false`, which is deliberate: snapping is a property of the
+        // container, not of the API used to reach it, and a snap position is by definition inside the
+        // scrollable range. Only the sub-window scroll contract (DomBridge.SubWindowHost.cs) passes it:
+        // the page window's and every element's scroll/scrollTo/scrollBy clamp. A caller that opts out
+        // still gets no clamping on an ordinary scroll container — only on one that asked to snap.
         nextLeft = ResolveScrollSnapPosition(element, vertical: false, nextLeft);
         nextTop = ResolveScrollSnapPosition(element, vertical: true, nextTop);
 
@@ -438,15 +438,15 @@ public sealed partial class DomBridge
 
     private void DispatchVisualViewportScrollEvent()
     {
-        var viewport = _visualViewportJSObject;
-        if (viewport == null || _eventTargets.VisualViewportScrollListeners.Count == 0)
+        var target = VisualViewportHandle;
+        if (target.IsMissing || _eventTargets.VisualViewportScrollListeners.Count == 0)
             return;
 
-        // The visualViewport object and its listener list are still held as engine values by the
-        // registration hub and the event-target registry, so both cross the seam as handles over the
-        // engine's own objects: the listeners are the ones the page added, and the target they see is the
-        // visualViewport they registered on.
-        var target = JsInterop.FromEngineObject(viewport);
+        // The target is the visualViewport root (DomBridge.cs), the handle the registration hub minted,
+        // so the object the listeners see is the one they registered on with no conversion. The listener
+        // list is still held as engine values by the event-target registry, so each listener crosses
+        // below. IsMissing replaces a null test that, against a handle, would have compiled, been false
+        // forever, and run the listeners against an absent target.
         var evt = Realm.NewObject();
         Realm.DefineValue(evt, "type", JsValue.String("scroll"));
         Realm.DefineValue(evt, "target", target);
@@ -457,8 +457,7 @@ public sealed partial class DomBridge
             try
             {
                 // `this` is the listener itself, as it has been since this dispatch was written.
-                var callee = JsInterop.FromEngineObject(listener);
-                Realm.Invoke(callee, callee, [evt]);
+                Realm.Invoke(listener, listener, [evt]);
             }
             catch (Exception ex)
             {

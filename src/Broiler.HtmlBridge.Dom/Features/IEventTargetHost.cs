@@ -7,7 +7,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The narrow host surface <see cref="EventTargetBinding"/> needs from the bridge: the realm the
 /// synthetic <c>click</c>/<c>focus</c>/<c>blur</c> events are built in, the per-node listener store
-/// (<c>addEventListener</c>/<c>removeEventListener</c> mutate it), the registration operations over it,
+/// (<c>addEventListener</c>/<c>removeEventListener</c> mutate it),
 /// the propagation engine (<c>dispatchEvent</c>/<c>click</c>/<c>focus</c>/<c>blur</c> all run
 /// capture→target→bubble via it), and the window JS object (the synthetic <c>focus</c>/<c>blur</c>
 /// UIEvents expose it as <c>view</c>). The listener-registration semantics live in
@@ -17,19 +17,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The registration pair is the seam, and it is the same one the document and window contracts
-/// use.</b> An <c>EventListenerRegistration</c> holds its listener as a Broiler.JS value — the record
-/// is in the unowned <c>DomBridge/RuntimeStates.cs</c> and is shared with the window, form-submit and
-/// messaging paths — and <see cref="EventListenerBinding"/> is written against that, so a handle
-/// becomes an engine value in the implementation rather than in the module. See
-/// <c>ToEngineListenerValue</c> in <c>DomBridge.WindowEventTargetHost.cs</c>, which all three
-/// contracts share.
+/// <b>There is no registration pair on this contract any more, and it was the seam.</b> Two members
+/// here took a listener and an <c>options</c> argument as handles and converted both into the engine
+/// values an <c>EventListenerRegistration</c> held, through a converter the document and window
+/// contracts shared and the messaging contract reached by forwarding to this one. The record holds a
+/// <see cref="JsValue"/> now, so <see cref="EventTargetBinding"/> calls <see cref="EventListenerBinding"/>
+/// itself with the realm its call frame carries, and the pair is deleted rather than left forwarding.
 /// </para>
 /// <para>
-/// <b><see cref="GetEventListeners"/> is engine-typed for the same reason and cannot hide it</b>: the
-/// dictionary it hands back is the store itself, and its element type is that record's — declared in
-/// the unowned <c>DomBridge/RuntimeStates.cs</c>, which is where this contract's one remaining engine
-/// claim comes from and where it goes when that record moves.
+/// <b><see cref="GetEventListeners"/> hands back the store itself</b>, and its element type is that
+/// record's. It was this contract's last engine-typed claim, and it is not one any more.
 /// </para>
 /// </remarks>
 internal interface IEventTargetHost
@@ -39,12 +36,6 @@ internal interface IEventTargetHost
     IJsRealm Realm { get; }
 
     Dictionary<string, List<EventListenerRegistration>> GetEventListeners(DomNode element);
-
-    /// <inheritdoc cref="EventListenerBinding.AddListener" />
-    void AddListener(List<EventListenerRegistration> listeners, JsValue listener, JsValue options);
-
-    /// <inheritdoc cref="EventListenerBinding.RemoveListener" />
-    void RemoveListener(List<EventListenerRegistration>? listeners, JsValue listener, JsValue options);
 
     /// <summary>
     /// Capture→target→bubble dispatch of <paramref name="evt"/> at <paramref name="element"/>,

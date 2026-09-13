@@ -155,8 +155,14 @@ public class JsealConformanceTests
         Assert.False(JsValue.String(string.Empty).IsNullish);
     }
 
+    /// <remarks>
+    /// Named for the kinds the handle can decide, because there is one it cannot: a BigInt is an
+    /// opaque reference here, so <see cref="JsValue.AsBoolean"/> answers <see langword="true"/> for
+    /// <c>0n</c>. That kind is <see cref="IJsValues.ToBoolean"/>'s, asserted per provider by
+    /// <c>ToBooleanIsTheHandlesAnswerExceptForABigInt</c>.
+    /// </remarks>
     [Fact]
-    public void AsBooleanIsEcmaScriptTruthinessWithoutEnteringTheEngine()
+    public void AsBooleanIsEcmaScriptTruthinessForEveryKindTheHandleCanDecide()
     {
         Assert.False(JsValue.String(string.Empty).AsBoolean);
 
@@ -176,7 +182,8 @@ public class JsealConformanceTests
     public void AsNumberDoesNotCoerceAStringAndAsStringDoesNotCoerceANumber()
     {
         // The cheap conversions answer only what the handle already knows; the coercions are on the
-        // realm because they can run page script.
+        // realm because they can run page script — all but ToBoolean, which runs nothing and is on
+        // the realm because a handle cannot see inside a BigInt.
         Assert.True(double.IsNaN(JsValue.String("42").AsNumber));
         Assert.Equal(1d, JsValue.True.AsNumber);
         Assert.Equal(0d, JsValue.False.AsNumber);
@@ -252,6 +259,85 @@ public class JsealConformanceTests
 
         Assert.Equal(42d, realm.ToNumber(JsValue.String("42")));
         Assert.True(double.IsNaN(JsValue.String("42").AsNumber));
+    }
+
+    /// <summary>
+    /// <see cref="IJsValues.ToBoolean"/> gives the handle's answer for every kind the handle can
+    /// decide, and the language's answer for a BigInt, where the handle's is wrong.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Agreement is half the contract.</b> If the two members could differ on an ordinary kind, no
+    /// caller could safely keep the cheap one, and the DOM bridge reads the cheap one throughout. So every
+    /// kind both providers can mint is asserted equal across the two, and the loop is bracketed by one
+    /// falsy and one truthy answer, because a member answering a constant would agree with about half
+    /// of it by accident.
+    /// </para>
+    /// <para>
+    /// <b>The BigInt half is guarded on the realm having a <c>BigInt</c> global, not on a capability,</b>
+    /// because a BigInt is not a capability: one engine implements the value kind and the other
+    /// implements it nowhere, and no <see cref="JsCapabilities"/> flag tells them apart. Past the guard
+    /// each value's kind is asserted before anything is asked of it, so a mint that produced something
+    /// else fails rather than passing on a number. The guard is also the one way this test can pass
+    /// vacuously: an engine that had BigInts and lost the global would skip the half that matters.
+    /// </para>
+    /// <para>
+    /// <b>The handle's wrong answer is asserted too, on purpose.</b> If the handle is ever taught to
+    /// answer <see langword="false"/> for <c>0n</c>, that line should fail, so that the reason this
+    /// member exists is argued again rather than kept by habit.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ToBooleanIsTheHandlesAnswerExceptForABigInt(string engine)
+    {
+        using var realm = NewRealm(engine);
+
+        var symbol = realm.EvaluateHostScript("Symbol('probe')", "test:symbol");
+        Assert.Equal(JsValueKind.Symbol, symbol.Kind);
+
+        JsValue[] decidable =
+        [
+            JsValue.Missing, JsValue.Undefined, JsValue.Null,
+            JsValue.True, JsValue.False,
+            JsValue.Number(0d), JsValue.Number(-0d), JsValue.Number(double.NaN),
+            JsValue.Number(1d), JsValue.Number(double.NegativeInfinity),
+            JsValue.String(string.Empty), JsValue.String("0"), JsValue.String("false"),
+            symbol,
+            realm.NewObject(),
+            realm.NewArray(),
+            realm.NewMethod("f", static (in JsCall _) => JsValue.Undefined),
+        ];
+
+        Assert.False(realm.ToBoolean(JsValue.String(string.Empty)));
+
+        // The kind rides along in the tuple so a failure names which value disagreed.
+        foreach (var value in decidable)
+            Assert.Equal((value.Kind, value.AsBoolean), (value.Kind, realm.ToBoolean(value)));
+
+        Assert.True(realm.ToBoolean(realm.NewObject()));
+
+        // A provider WITHOUT BigInt skips the half below, and the VM profile is one. But a provider that
+        // HAS it must not be able to lose it and stay green: a skip nobody can see is a test that never
+        // ran. Broiler.JS declares BigInt, so there the absence is a failure rather than a skip.
+        var hasBigInt = realm.GetProperty(realm.Global, "BigInt").IsFunction;
+        if (engine == "broiler-js")
+            Assert.True(hasBigInt, "broiler-js exposes a BigInt global; the BigInt half must run there.");
+
+        if (!hasBigInt)
+            return;
+
+        var zero = realm.EvaluateHostScript("0n", "test:bigint-zero");
+        var one = realm.EvaluateHostScript("1n", "test:bigint-one");
+
+        Assert.Equal(JsValueKind.BigInt, zero.Kind);
+        Assert.Equal(JsValueKind.BigInt, one.Kind);
+
+        // Wrong, and pinned as wrong: see the remarks.
+        Assert.True(zero.AsBoolean);
+
+        Assert.False(realm.ToBoolean(zero));
+        Assert.True(realm.ToBoolean(one));
     }
 
     /// <summary>

@@ -7,20 +7,19 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>document.removeEventListener</c>, <c>document.dispatchEvent</c> — co-located as an HtmlBridge
 /// feature module (Phase 3). Each resolves the document node's per-type listener store and applies the
 /// add/remove via the P3.4 <see cref="EventListenerBinding"/> operations, or runs the capture→target→
-/// bubble dispatch via the bridge's shared algorithm. The document node, listener store, registration
-/// operations and dispatch are reached through the <see cref="IDocumentEventTargetHost"/> contract.
+/// bubble dispatch via the bridge's shared algorithm. The document node, listener store and dispatch
+/// are reached through the <see cref="IDocumentEventTargetHost"/> contract.
 /// Previously the bridge's <c>JsRegistrationAddEventListener060Core</c>/<c>RemoveEventListener061Core</c>/<c>DispatchEvent062Core</c>
 /// in the shared JsFunctionCallbacks/Registration.cs grab-bag. (The window and visualViewport EventTarget
 /// wiring, which use different listener stores and dispatch paths, are separate concerns.)
 /// </summary>
 /// <remarks>
-/// The call frame is JSEAL's — <c>DomBridge/Registration/Document.cs</c> mints all three through the
-/// realm — and so is everything this module itself says. What has not moved is behind the contract: a
-/// registration's listener field is still a Broiler.JS value in the unowned
-/// <c>DomBridge/RuntimeStates.cs</c>, and the add/remove semantics are still the engine-typed
-/// <c>EventListenerBinding</c>, so the host implementation is where a handle becomes an engine value.
-/// The event-type coercion below is the realm's <c>ToJsString</c>, which is the observable ECMAScript
-/// <c>ToString</c> the engine's <c>a[0].ToString()</c> ran here before.
+/// The call frame is JSEAL's -- <c>DomBridge/Registration/Document.cs</c> mints all three through the
+/// realm -- and so is everything behind it now. The add/remove semantics take the realm the frame
+/// carries and a listener record that holds a <see cref="JsValue"/>. They used to be reached through the
+/// contract, whose implementation converted a handle into the engine value that record held, and that
+/// pair of members is deleted. The event-type coercion below is the realm's <c>ToJsString</c>, which is
+/// the observable ECMAScript <c>ToString</c> the engine's <c>a[0].ToString()</c> ran here before.
 /// </remarks>
 internal static class DocumentEventTargetBinding
 {
@@ -36,7 +35,7 @@ internal static class DocumentEventTargetBinding
             host.GetEventListeners(doc)[type] = listeners;
         }
 
-        host.AddListener(listeners, call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
+        EventListenerBinding.AddListener(call.Realm, listeners, call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
         return JsValue.Undefined;
     }
 
@@ -45,7 +44,8 @@ internal static class DocumentEventTargetBinding
         if (call.Length < 2)
             return JsValue.Undefined;
         var type = call.Realm.ToJsString(call[0]);
-        host.RemoveListener(
+        EventListenerBinding.RemoveListener(
+            call.Realm,
             host.GetEventListeners(host.DocumentNode).TryGetValue(type, out var listeners) ? listeners : null,
             call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
         return JsValue.Undefined;

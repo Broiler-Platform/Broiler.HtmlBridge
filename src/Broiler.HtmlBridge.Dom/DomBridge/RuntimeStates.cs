@@ -1,10 +1,36 @@
-using Broiler.JavaScript.Runtime;
 using Broiler.CSS;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
-internal readonly record struct EventListenerRegistration(JSValue Listener, bool Capture, bool Once = false, bool Passive = false);
+/// <summary>
+/// One <c>addEventListener</c> registration: the listener a page handed over, and the three flags its
+/// <c>options</c> argument carried when it was added.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>The listener is a <see cref="JsValue"/>, and the record is found by that type's equality.</b>
+/// <c>removeEventListener</c> and the duplicate check compare listeners with <c>==</c>, which on a
+/// handle is strict equality: kind, then the reference an object handle carries. A <c>once</c>
+/// listener's <c>List.Remove</c> reaches this record's field-by-field <c>Equals</c>, which asks
+/// <c>JsValue.Equals</c> the same question. For every object, function and array a page can register,
+/// that is the reference comparison the engine value this replaced was asked: the engine's value type
+/// declares no <c>==</c> and implements no <c>IEquatable</c>, and its object, function and array types
+/// override no <c>Equals(object)</c>. The object type's own <c>Equals</c> over the engine value is loose
+/// equality, and neither <c>==</c> nor a record's equality ever reached it.
+/// </para>
+/// <para>
+/// <b>Only a primitive listener compares differently, and nothing can observe it.</b> The conversion
+/// this replaced minted a fresh engine string or number on every call and <c>==</c> compared
+/// instances, so <c>addEventListener(t, "h")</c> twice filed two registrations that
+/// <c>removeEventListener(t, "h")</c> could not find. A handle compares a primitive by value. WebIDL
+/// does not admit that listener shape and the invoker calls nothing for one, so what changes is how
+/// many entries sit in a list whose length only the transitionend screenshot gate reads
+/// (DomBridge/AnchorResolver/Dialogs.cs).
+/// </para>
+/// </remarks>
+internal readonly record struct EventListenerRegistration(JsValue Listener, bool Capture, bool Once = false, bool Passive = false);
 
 /// <summary>
 /// Per-element inline-style runtime state — the authoritative in-memory inline style, whether it has
@@ -19,9 +45,18 @@ internal readonly record struct EventListenerRegistration(JSValue Listener, bool
 /// </summary>
 internal sealed class InlineStyleRuntimeState
 {
-    // P2.5: addEventListener listeners moved off this (process-global) table into the instance-scoped
-    // EventTargetRegistry; only inline on* handlers remain node-runtime state here.
-    public Dictionary<string, JSValue> InlineEventHandlers { get; } = new(StringComparer.OrdinalIgnoreCase);
+    // P2.5: addEventListener listeners moved off this table into the instance-scoped EventTargetRegistry;
+    // only the inline on* handlers remain node-runtime state here. (The table was process-global when that
+    // happened. It is per-bridge now, as the note at the end of this class records, and this comment used
+    // to call it process-global in the present tense.)
+    //
+    // The handlers are JSEAL handles. Every read and write of this map goes through
+    // DomBridge.GetInlineEventHandlers, and every caller of that is in three files: DomBridge/Events.cs
+    // compiles an on* attribute into it, DomBridge.EventDispatchHost.cs fires from it, and
+    // DomBridge/DomBridge.EventHandlerReflectorHost.cs reflects it as element.onclick. All three already
+    // held a handle on their own side and converted only at this map. EventListenerRegistration, above,
+    // is a different declaration in the same file; this map's type never depended on it.
+    public Dictionary<string, JsValue> InlineEventHandlers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Inline-style property names last written through the JS <c>element.style</c> /

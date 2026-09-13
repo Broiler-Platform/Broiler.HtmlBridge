@@ -24,8 +24,8 @@ namespace Broiler.Browser.Core.Tests;
 /// <b>One test pins this bridge's shape rather than a browser's, deliberately.</b> A browser answers
 /// <c>Object.keys(location)</c> with nothing, its components being prototype accessors, where a frame's
 /// Location here carries thirteen own enumerable properties. That list and its order are asserted
-/// because <c>Features/LocationBinding.cs</c> holds two builders for the object, and moving the frame's
-/// call site from one to the other has no other page-visible surface at all.
+/// because <c>Features/LocationBinding.cs</c> held two builders for the object, and moving the frame's
+/// call site from one to the other, which has since happened, had no other page-visible surface.
 /// </para>
 /// </summary>
 public class FrameStructureTests
@@ -195,7 +195,7 @@ public class FrameStructureTests
     }
 
     [Fact(Skip = "window.frames is a fresh array built on every read (BuildWindowFramesArray, " +
-                 "src/Broiler.HtmlBridge.Dom/DomBridge.WindowLoad.cs:486, installed as the accessor at " +
+                 "src/Broiler.HtmlBridge.Dom/DomBridge.WindowLoad.cs:489, installed as the accessor at " +
                  "src/Broiler.HtmlBridge.Dom/DomBridge/Registration/Window.cs:479), where HTML's Window " +
                  "interface has window, self and frames all answer with the Window itself — so " +
                  "`window.frames === window` is false and two reads hand back two objects, which is " +

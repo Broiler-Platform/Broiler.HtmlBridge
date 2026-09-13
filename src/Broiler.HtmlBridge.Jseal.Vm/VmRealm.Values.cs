@@ -5,7 +5,8 @@ using Broiler.VM.Profile.JavaScript;
 namespace Broiler.HtmlBridge.Jseal.Vm;
 
 /// <summary>
-/// <see cref="IJsValues"/>: minting values, and the two coercions that can run guest code.
+/// <see cref="IJsValues"/>: minting values, the two coercions that can run guest code, and a truthiness
+/// test that on this profile needs no crossing at all.
 /// </summary>
 internal sealed partial class VmRealm
 {
@@ -371,6 +372,33 @@ internal sealed partial class VmRealm
         var converted = VmMarshal.Unwrap(value);
 
         return InStep(realm => realm.ToNumber(converted));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// <b>No crossing, because the one kind the contract member exists for is one this profile does not
+    /// have.</b> Its host surface has no BigInt value kind, its <c>BigInt</c> global is unbound, and its
+    /// front end refuses a BigInt literal by name, so every value of this realm is of a kind
+    /// <see cref="JsValue.AsBoolean"/> already decides correctly. Crossing to ask would spend a host-call
+    /// charge to be told what the handle knew. There is nothing to delegate to either: the host realm
+    /// publishes no truthiness coercion, and the host value's own <c>AsBoolean()</c> reads a boolean's
+    /// payload and answers <see langword="false"/> for every other kind, a non-empty string included.
+    /// </para>
+    /// <para>
+    /// <b>The unwrap is a refusal, not a conversion.</b> A BigInt handle cannot have come from this
+    /// realm, and <see cref="VmMarshal.Unwrap"/> is the one place that says so, for the same reason it
+    /// refuses a handle another engine minted. Answering from the handle there would answer
+    /// <see langword="true"/> for another engine's <c>0n</c>, which is the defect this member was added
+    /// to remove.
+    /// </para>
+    /// </remarks>
+    public bool ToBoolean(JsValue value)
+    {
+        ThrowIfDisposed();
+        _ = VmMarshal.Unwrap(value);
+
+        return value.AsBoolean;
     }
 
     /// <summary>

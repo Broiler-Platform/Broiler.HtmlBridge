@@ -41,8 +41,8 @@ public sealed partial class DomBridge : ISubDocumentHost
 
     // Missing rather than undefined for "there is no window yet": the module tests it with IsObject,
     // and the value is never handed to script — the null check it replaces guarded the same thing.
-    // That is exactly what the bridge's own WindowHandle answers, so this is the sibling handle
-    // (DomBridge.cs) rather than a second reading of the engine-typed field.
+    // That is exactly what the bridge's window root holds, so this forwards WindowHandle
+    // (DomBridge.cs) as it stands.
     JsValue ISubDocumentHost.MainWindow => WindowHandle;
 
     // The bridge's wrapper factory answers a handle now (DomBridge/JsObjects.cs), so this forwards

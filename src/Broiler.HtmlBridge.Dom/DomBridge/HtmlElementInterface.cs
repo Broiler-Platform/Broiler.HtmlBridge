@@ -45,15 +45,15 @@ namespace Broiler.HtmlBridge;
 /// <c>el.dataset === el.dataset</c> hold while the element itself carries neither.
 /// </para>
 /// <para>
-/// <b>The installer speaks JSEAL, and three members are what is left of the engine vocabulary.</b>
-/// <c>click</c>, <c>focus</c> and <c>blur</c> are <see cref="Dom.Features.EventTargetBinding"/>'s, and
-/// that module reads the engine's own argument frame because unmigrated files install the same three
-/// elsewhere; there is no adapter between two call frames, only between two object types, so those
-/// three are minted with the frame their bodies read and ask
-/// <see cref="ElementForEngineReceiver"/> for their element through it. The form-control reflectors
-/// beside them were a fourth case and are not any more. Everything else is minted through
-/// <see cref="Realm"/> onto a handle over the same object, which is a cast rather than a conversion,
-/// so every member lands in the order it is written in.
+/// <b>The installer speaks JSEAL, all of it.</b> This remark said <c>click</c>, <c>focus</c> and
+/// <c>blur</c> were what was left of the engine vocabulary: that
+/// <see cref="Dom.Features.EventTargetBinding"/> read the engine's own argument frame, so the three
+/// were minted with that frame and asked an engine-receiver helper for their element. They are
+/// installed like every other member here, and the comment at their site gives the circle that kept
+/// them; the helper no longer exists. The form-control reflectors beside them were a fourth case and
+/// are not any more. Every member is minted through <see cref="Realm"/> onto a handle over the same
+/// object, which is a cast rather than a conversion, so every member lands in the order it is written
+/// in.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge

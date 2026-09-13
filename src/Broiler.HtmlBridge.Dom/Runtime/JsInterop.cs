@@ -41,9 +41,10 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// six now key on <see cref="JsValue.ObjectIdentity"/> — the reference the handle carries, which
 /// every provider already makes canonical per object because handle equality is defined by it — and
 /// <c>Runtime/JsObjectRegistry.cs</c> was the last per-object table naming an engine type and no
-/// longer does — it measures zero. The one that still does is
-/// <c>Runtime/BrowsingContextManager.cs</c>'s sub-window map. There is
-/// no reference-key floor. So this
+/// longer does — it measures zero. So does the table this sentence named next, the sub-window maps
+/// in <c>Runtime/BrowsingContextManager.cs</c>: they key on <see cref="JsValue"/> itself, being strong
+/// maps emptied on demand rather than weak tables, so no per-object table in this bridge names an
+/// engine type. There is no reference-key floor. So this
 /// is a cast, and the assertion it makes is that the realm the bridge
 /// is attached to is a Broiler.JS realm. On a build serving a different engine it would fail loudly at
 /// the first migrated binding, which is correct: the unmigrated half of the bridge cannot run on
@@ -87,15 +88,20 @@ internal static class JsInterop
     /// <em>before</em> reference: <c>a == b</c> was false for two handles on one object.
     /// </para>
     /// <para>
-    /// <b>Nothing observed it yet, and the migration is what would have.</b> Of the two places that
-    /// could see it, one is gone rather than guarded: <c>window.frames</c> was an engine array
-    /// wrapped here and unwrapped again on the line that received it, and the realm mints it now,
-    /// so it does not reach this method at all. The other is guarded on the engine side — the
-    /// event-dispatch path tests <c>is JSFunction</c> before wrapping. What is not guarded is a map
+    /// <b>Nothing observed it yet, and the migration is what would have.</b> This paragraph used to
+    /// name two places that could see it, and both are gone rather than guarded. <c>window.frames</c>
+    /// was an engine array wrapped here and unwrapped again on the line that received it, and the realm
+    /// mints it now. The inline <c>on*</c> handler, which the event-dispatch path tested
+    /// <c>is JSFunction</c> before wrapping and the <c>onclick</c> getter wrapped behind a plain object
+    /// test, is stored as a handle and handed back as one. They were never the only two: this method is
+    /// still handed an array elsewhere, and a grep for its call sites is the census, not this sentence.
+    /// What is not guarded is a map
     /// keyed on a handle:
-    /// <c>EventTargetRegistry</c>'s dictionaries are correct today only because every key it holds is
-    /// kind <c>Object</c>, which is exactly the invariant that ends when a listener record becomes a
-    /// handle. Fixing it here, before anything depends on it, is the cheap order.
+    /// <c>EventTargetRegistry</c>'s maps, whose keys are all kind <c>Object</c> -- message ports and
+    /// sub-windows. This said that invariant ends when a listener record becomes a handle. The record
+    /// is one now and it did not end: a listener is an element of a list, never a key, and every
+    /// listener handle in those lists arrives from a call frame the provider filled rather than
+    /// through this method. Fixing the kind here was still the cheap order.
     /// </para>
     /// <para>
     /// The test order matters and mirrors the provider's: <c>JSArray</c> derives from

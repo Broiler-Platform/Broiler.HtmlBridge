@@ -13,12 +13,11 @@ namespace Broiler.HtmlBridge;
 /// geometry it reaches through here.
 /// </summary>
 /// <remarks>
-/// The contract is spelled in JSEAL and one bridge member behind it is not: <c>_windowJSObject</c> is
-/// still the engine's own object, so <c>MainWindow</c> below casts it up through
-/// <see cref="Dom.Runtime.JsInterop"/>, and that is the last crossing in this file. The sub-document,
-/// the computed-style object and the element lookup all forward a handle. A cast is not a conversion
-/// — a handle carries the engine's own object — so what the module receives is what the bridge's own
-/// caches hold.
+/// The contract is spelled in JSEAL and so is every bridge member behind it. <c>MainWindow</c> below
+/// forwards the bridge's window root, the handle the realm minted, which took out the last crossing in
+/// this file; the sub-document, the computed-style object and the element lookup already forwarded
+/// handles. What the module receives is what the bridge's own caches hold, because it is the same
+/// handle rather than a second one over the same object.
 /// </remarks>
 public sealed partial class DomBridge : ISubWindowHost
 {
@@ -26,8 +25,7 @@ public sealed partial class DomBridge : ISubWindowHost
 
     // Missing rather than undefined for "there is no window yet": the module tests it with IsObject
     // and never hands it to script, which is what the null check it replaces did.
-    JsValue ISubWindowHost.MainWindow =>
-        _windowJSObject is { } window ? Dom.Runtime.JsInterop.FromEngineObject(window) : JsValue.Missing;
+    JsValue ISubWindowHost.MainWindow => WindowHandle;
 
     JsValue ISubWindowHost.GetOrCreateSubDocument(DomElement container) =>
         GetOrCreateSubDocument(container);

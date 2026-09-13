@@ -1,6 +1,5 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -55,8 +54,11 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// It was engine-typed because the wrapper factories that call it were: each held the wrapper it
-    /// had just minted as the engine's own object. They hold a handle now, and this always forwarded
-    /// to the handle-taking overload below.
+    /// had just minted as the engine's own object. Both callers hold a handle now:
+    /// <c>DomBridge/JsObjects.cs</c> mints one through the realm and passes it straight here, and
+    /// the re-link sweep at the end of <c>DomBridge/Registration/Registration.cs</c> reads them
+    /// out of a registry that stores handles. <c>LinkToInterface</c> below is the only one there
+    /// is; the engine-typed overload it used to sit beside is gone.
     /// </remarks>
     internal void ApplyInterfacePrototype(JsValue wrapper, DomNode node)
     {
@@ -90,19 +92,6 @@ public sealed partial class DomBridge
         if (prototype.IsObject)
             realm.SetPrototype(wrapper, prototype);
     }
-
-    /// <summary>
-    /// <see cref="LinkToInterface(JsValue, string)"/> for a caller holding the engine's own object.
-    /// </summary>
-    /// <remarks>
-    /// The wrapper factories (<c>DomBridge/JsObjects.cs</c> and its non-element sibling),
-    /// <c>DomBridge/CharacterDataInterface.cs</c>, <c>DomBridge/Registration/Registration.cs</c> and
-    /// <c>DomBridge.AttributesHost.cs</c> all mint a wrapper as a <see cref="JSObject"/> — they are
-    /// other groups' files this round — so the conversion is gathered here rather than repeated at
-    /// each of them. It is a cast, not a conversion: the handle carries that same object.
-    /// </remarks>
-    internal void LinkToInterface(JSObject wrapper, string interfaceName) =>
-        LinkToInterface(Dom.Runtime.JsInterop.FromEngineObject(wrapper), interfaceName);
 
     /// <summary>
     /// The interface a node implements, or <see langword="null"/> for a kind this does not reach.

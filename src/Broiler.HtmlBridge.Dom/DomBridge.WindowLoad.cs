@@ -289,9 +289,9 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// Built and dispatched entirely in JSEAL: the three node-target sites above hand it straight to
-    /// <c>EventDispatchBinding</c>, and <see cref="DispatchWindowEvent"/> now takes a handle too, so
-    /// nothing unwraps this on the way in. The one unwrap left on that path is at the listener call
-    /// itself, which belongs to <c>InvokeEventListener</c> rather than to anything built here.
+    /// <c>EventDispatchBinding</c>, <see cref="DispatchWindowEvent"/> takes a handle, and the listener
+    /// invoker both paths share takes one and calls through the realm, so nothing unwraps this anywhere
+    /// between being built and reaching a listener.
     /// </remarks>
     private JsValue SimpleEvent(string type, bool bubbles)
     {
@@ -328,12 +328,12 @@ public sealed partial class DomBridge
     /// to a handle on the same line.
     /// </para>
     /// <para>
-    /// <b>One pin was real, and it is a call site rather than a signature.</b>
-    /// <c>InvokeEventListener</c> in <c>DomBridge/Events.cs</c> takes the engine object, because the
-    /// listener beside it comes out of an <c>EventListenerRegistration</c> whose record is
-    /// engine-typed in the unowned <c>DomBridge/RuntimeStates.cs</c>. So the crossing is one
-    /// conversion at the top of this method, in the shape <c>Features/EventDispatchBinding.cs</c>
-    /// already uses for the same call, rather than one in each of three callers.
+    /// <b>One pin was real, it was a call site rather than a signature, and it is gone.</b>
+    /// <c>InvokeEventListener</c> in <c>DomBridge/Events.cs</c> took the engine's event object and the
+    /// engine's value for the listener, because the listener came out of an
+    /// <c>EventListenerRegistration</c> whose field was engine-typed. That field is a
+    /// <see cref="JsValue"/> now and the invoker calls it through the realm, so the loop below hands over
+    /// the registration's listener and the event this method was given, and nothing converts either.
     /// </para>
     /// <para>
     /// <b>The five propagation-control operations are local functions now, and that is what let them
@@ -354,16 +354,19 @@ public sealed partial class DomBridge
     /// </remarks>
     private bool DispatchWindowEvent(JsValue evt)
     {
-        // Taken before the guard because that is where it always happened: the three adapters
-        // converted on the way in, so a handle carrying no engine object failed before this method's
-        // first property write, and it still does. `_windowJSObject` is the engine's own field
-        // (DomBridge.cs), so the null test beside it is a reference test and stays one.
-        var engineEvent = Dom.Runtime.JsInterop.ToEngineObject(evt);
+        // Nothing on this path converts the event. The loop below hands the invoker the handle this
+        // method was given, and the invoker calls each listener through the realm. A conversion used
+        // to be taken here, before the guard, and could only have thrown for a handle carrying no
+        // object; the one page-facing entry, DispatchEvent in Features/WindowEventTargetBinding.cs,
+        // returns before calling this unless its argument is an object.
 
-        if (_realm is not { } realm || _windowJSObject == null)
+        // The window root is a handle (DomBridge.cs), so absence is IsMissing. The null test that stood
+        // here was right while the root was a reference; against a handle it would still compile, be
+        // false forever, and dispatch window events against an absent window.
+        if (_realm is not { } realm || WindowHandle.IsMissing)
             return true;
 
-        var window = Dom.Runtime.JsInterop.FromEngineObject(_windowJSObject);
+        var window = WindowHandle;
 
         // A CLR-absent `type` is the only thing that reads as "unknown"; an explicit `undefined`
         // coerces to the string "undefined", exactly as the former ToString() did.
@@ -399,7 +402,7 @@ public sealed partial class DomBridge
                     break;
 
                 currentListenerPassive = registration.Passive;
-                InvokeEventListener(registration.Listener, engineEvent, "DomBridge.window.dispatchEvent");
+                InvokeEventListener(realm, registration.Listener, evt, "DomBridge.window.dispatchEvent");
                 currentListenerPassive = false;
 
                 if (registration.Once)
