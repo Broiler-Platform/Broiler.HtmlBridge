@@ -21,12 +21,12 @@ namespace Broiler.HtmlBridge;
 /// migrated, so their bodies have a <see cref="JsCall"/> frame of their own.
 /// </para>
 /// <para>
-/// What is left engine-typed is pinned by its callee, not left behind, and it is down to one thing:
-/// <c>EventTargetBinding</c> still takes an engine argument frame, so the three
-/// <c>addEventListener</c>/<c>removeEventListener</c>/<c>dispatchEvent</c> members are minted by the
-/// engine and each populator unwraps the handle for them alone. There is no adapter between two call
-/// frames — only between two object types — so they move when that binding does; the two halves
-/// install onto one object, so the wrapper's shape cannot drift while they are apart.
+/// Nothing is left engine-typed. This remark said one thing was: that <c>EventTargetBinding</c> took
+/// an engine argument frame, so the <c>addEventListener</c>/<c>removeEventListener</c>/
+/// <c>dispatchEvent</c> members were minted by the engine and each populator unwrapped the handle for
+/// them alone. Each populator mints the three through the realm over a <see cref="JsCall"/>, the same
+/// bodies <c>EventTarget.prototype</c>'s routed methods call (<c>DomBridge/EventTargetInterface.cs</c>),
+/// and unwraps nothing.
 /// </para>
 /// <para>
 /// <c>ChildNodeBinding</c> and the variadic <c>append</c>/<c>prepend</c> reader have both migrated;
@@ -66,7 +66,6 @@ public sealed partial class DomBridge
         // in a browser. A wrapper minted before the realm carried it installs its own.
         if (!_eventTargetRoutingReady)
         {
-            var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
 
             Realm.DefineValue(handle, "addEventListener",
                 Realm.NewMethod("addEventListener",
@@ -347,12 +346,12 @@ public sealed partial class DomBridge
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
         // routed by receiver (DomBridge.EventTargetInterface.cs) — one function for every target, as
-        // in a browser. A wrapper minted before the realm carried it installs its own, and those three
-        // are the engine's: EventTargetBinding reads the engine's argument frame. The handle carries
-        // this very object, so the two halves install onto one.
+        // in a browser. A wrapper minted before the realm carried it installs its own, through the
+        // realm, exactly as the routed path does. (This said the three were "the engine's, because
+        // EventTargetBinding reads the engine's argument frame". It does not: that binding's
+        // AddListener takes a handle on both sides.)
         if (!_eventTargetRoutingReady)
         {
-            var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
 
             Realm.DefineValue(handle, "addEventListener",
                 Realm.NewMethod("addEventListener",
@@ -384,7 +383,6 @@ public sealed partial class DomBridge
     /// </summary>
     private void PopulateDocumentFragmentWrapper(JsValue handle, DomDocumentFragment fragment)
     {
-        var obj = Dom.Runtime.JsInterop.ToEngineObject(handle);
         var bridge = this;
         DomNode node = fragment;
 
@@ -608,11 +606,13 @@ public sealed partial class DomBridge
     /// The DOM node a wrapper handle stands for, or <see langword="null"/> when it stands for none.
     /// </summary>
     /// <remarks>
-    /// The reverse lookup itself is <c>DomBridge/Utilities.cs</c>'s and is keyed on the engine object,
-    /// which a handle carries — so this is one cast, gathered here rather than repeated at each of the
-    /// six argument reads in the fragment's child manipulation. A non-object handle answers null
-    /// without asking, which is the branch the engine-object guard used to take at each site.
+    /// The reverse lookup itself is <c>DomBridge/Utilities.cs</c>'s and takes the handle straight, so
+    /// there is no cast left for this to gather from the six argument reads in the fragment's child
+    /// manipulation. What is left is the non-object answer, and that is the lookup's own answer too
+    /// now: a handle that is not an object is simply not in the wrapper map. The test below is
+    /// therefore redundant rather than load-bearing, and collapsing it would leave this member a bare
+    /// alias — a separate change from the re-typing.
     /// </remarks>
     private DomNode? NodeForWrapper(JsValue value) =>
-        value.IsObject ? FindDomNodeByJSObject(Dom.Runtime.JsInterop.ToEngineObject(value)) : null;
+        value.IsObject ? FindDomNodeByJSObject(value) : null;
 }

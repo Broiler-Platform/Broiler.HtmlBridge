@@ -13,10 +13,11 @@ namespace Broiler.HtmlBridge;
 /// geometry it reaches through here.
 /// </summary>
 /// <remarks>
-/// The contract is spelled in JSEAL and the bridge members behind it are not migrated, so this file is
-/// the seam. <see cref="Dom.Runtime.JsInterop"/> is a cast rather than a conversion — a handle carries
-/// the engine's own object — so the window, the sub-document and the computed-style object the module
-/// receives are the instances the bridge's own caches hold.
+/// The contract is spelled in JSEAL and so is every bridge member behind it. <c>MainWindow</c> below
+/// forwards the bridge's window root, the handle the realm minted, which took out the last crossing in
+/// this file; the sub-document, the computed-style object and the element lookup already forwarded
+/// handles. What the module receives is what the bridge's own caches hold, because it is the same
+/// handle rather than a second one over the same object.
 /// </remarks>
 public sealed partial class DomBridge : ISubWindowHost
 {
@@ -24,8 +25,7 @@ public sealed partial class DomBridge : ISubWindowHost
 
     // Missing rather than undefined for "there is no window yet": the module tests it with IsObject
     // and never hands it to script, which is what the null check it replaces did.
-    JsValue ISubWindowHost.MainWindow =>
-        _windowJSObject is { } window ? Dom.Runtime.JsInterop.FromEngineObject(window) : JsValue.Missing;
+    JsValue ISubWindowHost.MainWindow => WindowHandle;
 
     JsValue ISubWindowHost.GetOrCreateSubDocument(DomElement container) =>
         GetOrCreateSubDocument(container);
@@ -97,10 +97,10 @@ public sealed partial class DomBridge : ISubWindowHost
         return string.IsNullOrWhiteSpace(behavior) ? null : behavior;
     }
 
-    // The module only asks this of a handle it has already established is an object, so unwrapping it
-    // cannot fail here.
+    // A plain forward: the reverse lookup takes the same handle. The module guards with IsObject
+    // before asking, and a handle that is not an object would answer null rather than throw.
     DomElement? ISubWindowHost.FindElement(JsValue wrapper) =>
-        FindDomElementByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper));
+        FindDomElementByJSObject(wrapper);
 
     // The computed-style builder is migrated, so this one hands the handle straight through.
     JsValue ISubWindowHost.BuildComputedStyleObject(DomElement? element, string? pseudoElement) =>

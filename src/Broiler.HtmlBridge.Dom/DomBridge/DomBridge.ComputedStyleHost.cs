@@ -8,17 +8,16 @@ namespace Broiler.HtmlBridge;
 // explicit interface members, so the module never reaches an arbitrary bridge private field and the
 // public surface is unchanged.
 //
-// The contract speaks JSEAL and the rest of the bridge still holds engine objects, so
-// Dom.Runtime.JsInterop is the cast between them — a cast and not a conversion, since a JSEAL object
-// handle carries the engine's own object, which is why the wrapper tables keyed on that object still
-// answer the same question. The wrapper reverse lookup below keeps its engine-shaped name because it
-// lives in DomBridge/Utilities.cs, which has not migrated and is not owned this round.
+// Nothing in this file crosses to the engine. The wrapper reverse lookup in DomBridge/Utilities.cs
+// takes the handle this member is handed, so the member forwards it, and the registry behind it is
+// keyed on JsValue.ObjectIdentity rather than on an engine object. The lookup keeps its engine-shaped
+// name; that is a rename waiting to happen, not a seam.
 public sealed partial class DomBridge : Dom.Features.IComputedStyleHost
 {
     IJsRealm Dom.Features.IComputedStyleHost.Realm => Realm;
 
     DomElement? Dom.Features.IComputedStyleHost.FindElement(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomElementByJSObject(Dom.Runtime.JsInterop.ToEngineObject(wrapper)) : null;
+        wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
 
     JsValue Dom.Features.IComputedStyleHost.BuildComputedStyle(DomElement? element, string? pseudoElement)
         => BuildComputedStyleObject(element, pseudoElement);

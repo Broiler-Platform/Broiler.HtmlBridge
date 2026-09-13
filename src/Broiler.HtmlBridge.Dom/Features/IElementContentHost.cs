@@ -12,14 +12,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// with its style-scope invalidation and mutation-observer notifications.
 /// </summary>
 /// <remarks>
-/// The contract names no engine type. Its two changes of vocabulary are both the same move — say what is
-/// wanted, not which engine produces it. <see cref="NodeTextValue"/> answers a CLR string instead of an
+/// The contract names no engine type. <see cref="NodeTextValue"/> answers a CLR string instead of an
 /// engine string value: the two answers the DOM algorithm actually has are "this text" and "no text at
 /// all" (§4.4 gives a document and a doctype the latter), and a <see langword="null"/> string carries
 /// both, since <see cref="JsValue.String(string?)"/> is defined to make one <c>null</c>. And
-/// <see cref="Realm"/> is here because <see cref="ElementContentBinding.InstallTextContent"/> is still
-/// called from the engine-typed wrapper factory and so has no realm of its own to install through; see
-/// the remarks there.
+/// <see cref="Realm"/> is here only because <see cref="ElementContentBinding.InstallTextContent"/> reads
+/// the realm off the host instead of taking one like its two siblings; its caller, WrapNode, holds that
+/// same realm, as the factory before it did.
+/// (This said the caller was an engine-typed wrapper factory with no realm to hand over.)
 /// </remarks>
 internal interface IElementContentHost
 {

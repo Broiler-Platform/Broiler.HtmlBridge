@@ -67,12 +67,47 @@ internal sealed class BridgeModuleContext : JSModuleContext
 {
     private readonly ContentSecurityPolicy? _csp;
     private readonly string? _pageUrl;
+    private readonly Dictionary<string, string>? _rootUrls;
 
-    public BridgeModuleContext(ContentSecurityPolicy? csp = null, string? pageUrl = null)
+    public BridgeModuleContext(
+        ContentSecurityPolicy? csp = null,
+        string? pageUrl = null,
+        IReadOnlyList<Broiler.HtmlBridge.Scripting.ModuleRoot>? roots = null)
         : base(new SynchronizationContext())
     {
         _csp = csp;
         _pageUrl = pageUrl;
+        _rootUrls = RootUrls(roots);
+    }
+
+    /// <summary>
+    /// What each root key presents as, for <see cref="GetModuleUrl"/>.
+    /// </summary>
+    /// <remarks>
+    /// <c>ModuleRoot.BaseUrl</c> is already the answer for all three kinds a document produces, which
+    /// is why this is a lookup rather than a rule: the extractor sets it to the page's URL for an
+    /// inline root and to the root's own key for a <c>data:</c> or external one
+    /// (<c>Core/Scripting/ScriptExtractionService.cs</c>, the <c>graphKey</c> switch and the line
+    /// after it). Only the first of those differs from the key, and it is the only one that was
+    /// wrong.
+    /// </remarks>
+    private static Dictionary<string, string>? RootUrls(
+        IReadOnlyList<Broiler.HtmlBridge.Scripting.ModuleRoot>? roots)
+    {
+        if (roots is null || roots.Count == 0)
+            return null;
+
+        Dictionary<string, string>? map = null;
+
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrEmpty(root.BaseUrl) || string.Equals(root.Key, root.BaseUrl, StringComparison.Ordinal))
+                continue;
+
+            (map ??= new Dictionary<string, string>(StringComparer.Ordinal))[root.Key] = root.BaseUrl!;
+        }
+
+        return map;
     }
 
     // Resolve an import specifier to its module key (an absolute URL). Mirrors the shared UrlResolver
@@ -97,6 +132,38 @@ internal sealed class BridgeModuleContext : JSModuleContext
     // A resolved module's own relative imports resolve against its full URL (URL relative-reference
     // semantics), not a filesystem directory.
     protected override string GetModuleDirectory(string fullPath) => fullPath;
+
+    /// <summary>
+    /// The URL a module key presents as: <c>import.meta.url</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>THE BASE CLASS ASKED FOR THIS OVERRIDE AND SAID WHAT HAPPENS WITHOUT IT.</b> Its own
+    /// remarks read "Only the host knows what its keys are... A host with keys of another shape
+    /// overrides this", and, of the null it returns for a key it cannot express, "a module whose key
+    /// cannot be expressed as a URL reads <c>undefined</c> — which a script can detect — instead of a
+    /// plausible lie". This host has keys of another shape and did not override it, so the default
+    /// ran: an inline root's key is <c>inline:0</c>, <c>Uri.TryCreate("inline:0", Absolute, out _)</c>
+    /// is TRUE because <c>inline</c> parses as a scheme, and the default returned <c>inline:0</c>
+    /// verbatim. The null branch that would have made it detectable was never reached. Measured, on a
+    /// page at <c>https://example.test/dir/page.html</c>: <c>import.meta.url</c> was <c>inline:0</c>.
+    /// </para>
+    /// <para>
+    /// <b>Only the URL was wrong; resolution was always right.</b> The base a specifier resolves
+    /// against arrives separately, as <c>RunScriptAsync</c>'s second argument, and for an inline root
+    /// that is the page's URL — so <c>import('./sibling.js')</c> from an inline module already
+    /// rejected with <c>module not found: https://example.test/dir/sibling.js</c>, resolved correctly.
+    /// The two facts had diverged, which is why nothing caught it: everything that USES the base
+    /// worked, and only the value a page can READ was false.
+    /// </para>
+    /// </remarks>
+    protected override string GetModuleUrl(string moduleKey)
+    {
+        if (moduleKey is not null && _rootUrls is { } urls && urls.TryGetValue(moduleKey, out var url))
+            return url;
+
+        return base.GetModuleUrl(moduleKey);
+    }
 
     // Read a resolved module's source through the bridge's CSP-gated fetch. `module.filePath` is the key
     // produced by Resolve: a data: URL or an absolute file/http URL.

@@ -49,9 +49,9 @@ public sealed partial class DomBridge : Dom.Features.INodeAccessorsHost
 
     // JsValue.Null rather than a nullable handle: `ownerDocument` coalesced the absent wrapper to
     // JavaScript null at its one call site, so answering that here is the same value by a shorter
-    // route rather than a new decision. The wrapper itself comes from the bridge's sibling handle
-    // (DomBridge.cs), which answers Missing when there is no document yet — the coalesce is this
-    // contract's, not the field's.
+    // route rather than a new decision. The wrapper itself is the bridge's document root
+    // (DomBridge.cs), which holds Missing when there is no document yet — the coalesce is this
+    // contract's, not the root's.
     JsValue Dom.Features.INodeAccessorsHost.DocumentWrapper =>
         DocumentHandle is { IsMissing: false } document ? document : JsValue.Null;
 }

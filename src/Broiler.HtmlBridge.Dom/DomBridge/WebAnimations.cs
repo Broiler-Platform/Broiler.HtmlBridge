@@ -15,24 +15,26 @@ namespace Broiler.HtmlBridge;
 /// (a scaled/faded/animated element drew at its base value).
 /// </summary>
 /// <remarks>
-/// <b>This file is engine-typed end to end, and one call site outside it decides that.</b>
-/// <c>Animatable.animate()</c> is installed by <c>DomBridge/ElementInterface.cs</c> — not a file this
-/// group owns — with the engine's own <c>AddPrototypeMethod</c>, so <see cref="ElementAnimate"/>
-/// receives an engine argument frame. Such a frame cannot be lifted into a JSEAL <c>JsCall</c>: the
-/// mint side of a handle belongs to the provider, so there is no way to turn one of the engine's own
-/// argument values into a <c>JsValue</c> here. Everything below is downstream of those two arguments —
+/// <b>This file speaks JSEAL end to end.</b> <c>Animatable.animate()</c> is installed by
+/// <c>DomBridge/ElementInterface.cs</c> with its realm-minting <c>AddInterfaceMethod</c>, so
+/// <see cref="ElementAnimate"/> receives a <see cref="JsCall"/>, and
 /// <see cref="ParseAnimationKeyframes"/>, <see cref="ParseAnimationTiming"/> and
-/// <see cref="ParseAnimationPseudoElement"/> read the keyframes and the options object out of them —
-/// so the whole parsing surface moves in the same commit that moves the installation, and not before.
-/// The object it hands back is <em>not</em> pinned: it is built through the realm by
-/// <c>BuildAnimation</c> (<c>DomBridge/Registration/Animations.cs</c>) and only unwrapped at the
-/// return, which is a cast over the object the handle already carries.
+/// <see cref="ParseAnimationPseudoElement"/> read the keyframes and the options object through the
+/// realm. The Animation it hands back is built through the realm by <c>BuildAnimation</c>
+/// (<c>DomBridge/Registration/Animations.cs</c>) and returned as built. This remark said the file was
+/// engine-typed end to end: that the installer used the engine's own <c>AddPrototypeMethod</c> and
+/// handed <see cref="ElementAnimate"/> an engine argument frame no <c>JsCall</c> could be made from,
+/// so the parsing had to move with the installation, and that the result was unwrapped at the
+/// return. Both moved, and the unwrap went with the callback's engine return type, as the comment at
+/// the end of <see cref="ElementAnimate"/> records.
 /// </remarks>
 public sealed partial class DomBridge
 {
-    /// <summary>Web-Animations keyframe keys (camelCase) mapped to their CSS property names,
-    /// probed on each keyframe object (the engine's own-key enumeration is internal, and this
-    /// covers the animatable properties the interpolator supports).</summary>
+    /// <summary>Web-Animations keyframe keys (camelCase) mapped to their CSS property names, probed by
+    /// name on each keyframe object or on the property-indexed keyframes object. It is a fixed list rather
+    /// than the interpolator's own: no property off it is read (the array form also reads each keyframe's
+    /// <c>offset</c>), and a listed property the interpolator has no blending rule for steps
+    /// discretely.</summary>
     private static readonly (string Keyframe, string Css)[] AnimatableProperties =
     [
         ("transform", "transform"),

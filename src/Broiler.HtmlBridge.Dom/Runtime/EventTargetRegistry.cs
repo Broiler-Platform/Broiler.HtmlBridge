@@ -1,8 +1,6 @@
 using System.Runtime.CompilerServices;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
-using Broiler.JavaScript.BuiltIns.Function;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
@@ -36,16 +34,10 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// window crossing the seam wraps as one), so two handles over one key always agree on kind.
 /// </para>
 /// <para>
-/// <b>What is still engine-typed, and what pins each one.</b> The listener lists hold
-/// <c>EventListenerRegistration</c>, whose listener field is a Broiler.JS value and whose declaration
-/// is in <c>DomBridge/RuntimeStates.cs</c> — outside this round — so the element type of every list
-/// below is engine-typed however the maps are keyed. <see cref="TryGetOwnerWindow"/> keeps the engine
-/// signature because <c>Runtime/WindowContextManager.cs</c> is its only caller and is not this round's;
-/// it is an adapter over a store that no longer is, and the two <see cref="JsInterop"/> calls in it are
-/// casts over the object the handle already carries. The visual-viewport list holds engine functions
-/// because <c>DomBridge.VisualViewportEventTargetHost.cs</c> fills it and
-/// <c>DomBridge/LayoutMetrics.Scrolling.cs</c> reads it back as engine functions to invoke — neither
-/// belongs to this round either, and the second wants the list itself rather than a converted copy.
+/// <b>Nothing in this store is engine-typed any more.</b> The listener lists hold
+/// <c>EventListenerRegistration</c>, whose listener field is a <see cref="JsValue"/>, and the
+/// visual-viewport list holds <see cref="JsValue"/> too, so no list here names an engine type however
+/// its map is keyed.
 /// </para>
 /// </remarks>
 internal sealed class EventTargetRegistry
@@ -54,7 +46,7 @@ internal sealed class EventTargetRegistry
     private readonly Dictionary<string, List<EventListenerRegistration>> _windowListeners = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<JsValue, Dictionary<string, List<EventListenerRegistration>>> _targetListeners = [];
     private readonly Dictionary<JsValue, JsValue> _ownerWindows = [];
-    private readonly List<JSFunction> _visualViewportScrollListeners = [];
+    private readonly List<JsValue> _visualViewportScrollListeners = [];
 
     // ------------------------------------------------------------------
     //  Node listeners (per DOM node, by event type)
@@ -112,40 +104,55 @@ internal sealed class EventTargetRegistry
 
     /// <summary>The window that owns <paramref name="target"/>, if one was recorded.</summary>
     /// <remarks>
-    /// The engine signature is an adapter over a store that is no longer engine-typed, kept because
-    /// <c>Runtime/WindowContextManager.cs</c> — the only caller, and not this round's file — holds the
-    /// engine's own object on both sides of the call. Both conversions are casts over the object the
-    /// handle already carries, so the window this answers is the instance
-    /// <see cref="SetOwnerWindow"/> filed, and a miss still leaves <paramref name="window"/> null for
-    /// the caller that only reads it after a <see langword="true"/>.
+    /// <para>
+    /// <b>This is the store's own lookup, and the adapter it replaces converted a handle into a key
+    /// the map does not hold and back again.</b> <c>_ownerWindows</c> has been keyed on
+    /// <see cref="JsValue"/> since the listener stores were re-typed, and <see cref="SetOwnerWindow"/>
+    /// files a handle. The engine-typed accessor that stood here unwrapped the caller's handle, minted
+    /// a second handle over the same object to look the entry up under, and unwrapped the stored window
+    /// so the caller could wrap it a third time — four crossings on a round trip whose two ends were
+    /// already handles.
+    /// </para>
+    /// <para>
+    /// <b>The reason recorded here for keeping the engine signature was not true on the day it was
+    /// written.</b> It said the only caller, <c>Runtime/WindowContextManager.cs</c>, held the engine's
+    /// own object on both sides of the call. That file has taken and answered <see cref="JsValue"/>
+    /// since the commit before the one that wrote the sentence, so the conversions this signature was
+    /// said to be sparing were conversions it was causing.
+    /// </para>
+    /// <para>
+    /// A miss now leaves <paramref name="window"/> at <see cref="JsValue.Missing"/> rather than at a
+    /// CLR <see langword="null"/>, which is the same answer in the type the caller already tests:
+    /// <c>Missing</c> is <c>default</c>, so the dictionary's own miss writes it and the out parameter
+    /// needs no null-forgiving operator, and every window <c>WindowContextManager</c> holds is tested
+    /// with <see cref="JsValue.IsObject"/>, which <c>Missing</c> fails. Identity is untouched: the map
+    /// is now asked about the handle the caller holds instead of about a re-minted copy of it.
+    /// </para>
     /// </remarks>
-    public bool TryGetOwnerWindow(JSObject target, out JSObject window)
-    {
-        if (!_ownerWindows.TryGetValue(JsInterop.FromEngineObject(target), out var ownerWindow))
-        {
-            window = null!;
-            return false;
-        }
-
-        window = JsInterop.ToEngineObject(ownerWindow);
-        return true;
-    }
+    public bool TryGetOwnerWindow(JsValue target, out JsValue window) => _ownerWindows.TryGetValue(target, out window);
 
     // ------------------------------------------------------------------
     //  Visual-viewport scroll listeners
     // ------------------------------------------------------------------
 
     /// <summary>Registers a visual-viewport <c>scroll</c> listener (no-op if already registered).</summary>
-    public void AddVisualViewportScrollListener(JSFunction listener)
+    public void AddVisualViewportScrollListener(JsValue listener)
     {
         if (!_visualViewportScrollListeners.Contains(listener))
             _visualViewportScrollListeners.Add(listener);
     }
 
-    public void RemoveVisualViewportScrollListener(JSFunction listener) => _visualViewportScrollListeners.Remove(listener);
+    public void RemoveVisualViewportScrollListener(JsValue listener) => _visualViewportScrollListeners.Remove(listener);
 
-    /// <summary>The registered visual-viewport scroll listeners (snapshot the caller may iterate).</summary>
-    public IReadOnlyList<JSFunction> VisualViewportScrollListeners => _visualViewportScrollListeners;
+    /// <summary>The registered visual-viewport scroll listeners: the list itself, not a snapshot.</summary>
+    /// <remarks>
+    /// This summary used to say "snapshot the caller may iterate", over a property that returns the
+    /// field. Taking the snapshot is the reader's job, and the only reader does it:
+    /// <c>DispatchVisualViewportScrollEvent</c> in <c>DomBridge/LayoutMetrics.Scrolling.cs</c> copies
+    /// the list before invoking anything, which is what lets a listener remove itself mid-dispatch
+    /// without changing the list the loop is walking.
+    /// </remarks>
+    public IReadOnlyList<JsValue> VisualViewportScrollListeners => _visualViewportScrollListeners;
 
     // ------------------------------------------------------------------
 

@@ -15,9 +15,9 @@ internal interface IDocumentStructureHost
     /// The single JS wrapper identity for <paramref name="node"/>, as a JSEAL handle.
     /// </summary>
     /// <remarks>
-    /// The wrapper is still the engine object the bridge's wrapper tables are keyed on — a handle
-    /// carries it rather than copying it — so <c>document.body === document.body</c> is the same
-    /// question it was before this contract changed vocabulary.
+    /// The bridge answers the handle it caches for the node, and that handle carries the same object on
+    /// every call, so <c>document.body === document.body</c> is the same question it was before this
+    /// contract changed vocabulary. (This said the wrapper was an engine object.)
     /// </remarks>
     JsValue ToJsObject(DomNode node);
 

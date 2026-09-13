@@ -19,8 +19,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal interface IDocumentLevelFactoryHost
 {
     /// <summary>
-    /// The single JS wrapper identity for <paramref name="node"/>, as a JSEAL handle over the same
-    /// engine object the bridge's wrapper tables are keyed on.
+    /// The single JS wrapper identity for <paramref name="node"/>, as the JSEAL handle the bridge
+    /// caches for it. The registry's reverse table keys on <see cref="JsValue.ObjectIdentity"/>, not on
+    /// an engine object, which is what this used to say of the wrapper tables.
     /// </summary>
     JsValue ToJsObject(DomNode node);
 
