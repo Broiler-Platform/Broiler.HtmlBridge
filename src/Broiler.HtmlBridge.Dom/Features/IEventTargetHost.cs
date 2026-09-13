@@ -1,7 +1,6 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -28,11 +27,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// <b><see cref="GetEventListeners"/> is engine-typed for the same reason and cannot hide it</b>: the
-/// dictionary it hands back is the store itself, and its element type is that record's.
-/// <see cref="DispatchEventOnElement"/> is engine-typed for a different one — the pre-realm wrapper
-/// path in <c>DomBridge/JsObjects.cs</c> still reads the page's event object out of an engine
-/// argument frame and has nowhere to convert it to; <see cref="DispatchEvent"/> beside it is the
-/// migrated form the two routed call sites use.
+/// dictionary it hands back is the store itself, and its element type is that record's — declared in
+/// the unowned <c>DomBridge/RuntimeStates.cs</c>, which is where this contract's one remaining engine
+/// claim comes from and where it goes when that record moves.
 /// </para>
 /// </remarks>
 internal interface IEventTargetHost
@@ -55,8 +52,6 @@ internal interface IEventTargetHost
     /// </summary>
     JsValue DispatchEvent(DomNode element, JsValue evt);
 
-    /// <summary><see cref="DispatchEvent"/> for a caller that still holds the engine's own object.</summary>
-    JSValue DispatchEventOnElement(DomNode element, JSObject evt);
 
     /// <summary>The JS <c>window</c> wrapper the synthetic focus/blur UIEvents expose as <c>view</c>;
     /// not an object before the window global is installed.</summary>

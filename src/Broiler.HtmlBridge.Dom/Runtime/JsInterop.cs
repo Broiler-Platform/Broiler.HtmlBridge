@@ -15,9 +15,17 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <b>This type is scaffolding, and it is meant to be deleted.</b> The bridge is 250 engine-coupled
 /// files and cannot become engine-neutral in one commit; while it is half migrated, a binding written
 /// against <see cref="IJsRealm"/> hands back a <see cref="JsValue"/> to a caller that still holds a
-/// <c>JSObject</c>, and something has to sit between them. Every use of this class is one such seam,
-/// which is why <c>eng/jseal-budget.json</c> counts them: the number is the length of the remaining
-/// migration, and it may only fall.
+/// <c>JSObject</c>, and something has to sit between them. Every use of this class is one such seam.
+/// <para>
+/// <b>The budget's number is NOT the count of those seams, and reading it that way has now misled
+/// two pieces of work.</b> <c>eng/jseal-budget.json</c> counts occurrences of the engine's own
+/// namespace as TEXT; most files holding a crossing contain none, because the crossing is
+/// spelled <c>JsInterop.</c> and names no engine type. (Spelled around rather than out, because the
+/// metric would count this sentence too — which is the same trap, one layer up.) The commit that deleted four unreachable
+/// members removed six crossings and moved the budget by eleven — the two measure different things,
+/// and neither alone says how much is left. Count crossings with a grep for <c>JsInterop.</c>; count
+/// coupling with the script.
+/// </para>
 /// </para>
 /// <para>
 /// <b>It costs nothing at run time and it is not a conversion.</b> Under the Broiler.JS provider a
@@ -32,8 +40,9 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <c>&lt;object, …&gt;</c> and fed by an <c>IdentityOf</c> that unwrapped through this class. All
 /// six now key on <see cref="JsValue.ObjectIdentity"/> — the reference the handle carries, which
 /// every provider already makes canonical per object because handle equality is defined by it — and
-/// <c>Runtime/JsObjectRegistry.cs</c> is the only per-object table left that still names an engine
-/// type, because re-typing its surface is one commit across ten files rather than a step. There is
+/// <c>Runtime/JsObjectRegistry.cs</c> was the last per-object table naming an engine type and no
+/// longer does — it measures zero. The one that still does is
+/// <c>Runtime/BrowsingContextManager.cs</c>'s sub-window map. There is
 /// no reference-key floor. So this
 /// is a cast, and the assertion it makes is that the realm the bridge
 /// is attached to is a Broiler.JS realm. On a build serving a different engine it would fail loudly at

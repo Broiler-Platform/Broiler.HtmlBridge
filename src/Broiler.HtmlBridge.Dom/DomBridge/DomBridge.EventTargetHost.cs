@@ -2,8 +2,6 @@ using System.Collections.Generic;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.JavaScript.BuiltIns.Boolean;
-using Broiler.JavaScript.Runtime;
 
 namespace Broiler.HtmlBridge;
 
@@ -16,9 +14,12 @@ namespace Broiler.HtmlBridge;
 // registration's listener field is a Broiler.JS value in the unowned DomBridge/RuntimeStates.cs, and
 // Features/EventListenerBinding.cs is written against that, so a handle becomes an engine value here
 // rather than in the module — through ToEngineListenerValue in DomBridge.WindowEventTargetHost.cs,
-// which all three share. The listener store's own element type is that same record's, and the
-// engine-typed DispatchEventOnElement is what the pre-realm wrapper path in DomBridge/JsObjects.cs
-// still needs; both go when the record moves.
+// which all three share. The listener store's own element type is that same record's, and that is the
+// whole of what is left here.
+//
+// An engine-typed DispatchEventOnElement sat beside the migrated one until this file said it was
+// what "the pre-realm wrapper path in DomBridge/JsObjects.cs still needs". That path does not name
+// this contract at all, and the member had no caller anywhere; it is deleted rather than ported.
 public sealed partial class DomBridge : Dom.Features.IEventTargetHost
 {
     IJsRealm Dom.Features.IEventTargetHost.Realm => Realm;
@@ -36,20 +37,9 @@ public sealed partial class DomBridge : Dom.Features.IEventTargetHost
         => Dom.Features.EventListenerBinding.RemoveListener(
             listeners, ToEngineListenerValue(listener), ToEngineListenerValue(options));
 
-    // The migrated dispatch answers the "not cancelled" boolean the DOM says dispatchEvent returns,
-    // which is what the engine-typed adapter beside it re-materialises as a JSBoolean.
+    // Answers the "not cancelled" boolean the DOM says dispatchEvent returns.
     JsValue Dom.Features.IEventTargetHost.DispatchEvent(DomNode element, JsValue evt)
         => JsValue.Boolean(_eventDispatch.DispatchEventOnElement(element, evt).AsBoolean);
-
-    // THE ONE PLACE THIS CONTRACT'S ENGINE SEAM ACTUALLY IS, now that the six callers who held a
-    // handle stopped asking a private adapter to convert it for them. Both ends here are genuinely
-    // the engine's: the JSObject was read out of an Arguments frame, and the JSValue answers back
-    // into one. The boolean is re-materialised rather than round-tripped, because a handle carries
-    // no engine object for a primitive and "not cancelled" is the only thing this can answer.
-    JSValue Dom.Features.IEventTargetHost.DispatchEventOnElement(DomNode element, JSObject evt)
-        => _eventDispatch.DispatchEventOnElement(element, JsInterop.FromEngineObject(evt)).AsBoolean
-            ? JSBoolean.True
-            : JSBoolean.False;
 
     JsValue Dom.Features.IEventTargetHost.WindowWrapper =>
         _windowJSObject is null ? JsValue.Missing : JsInterop.FromEngineObject(_windowJSObject);

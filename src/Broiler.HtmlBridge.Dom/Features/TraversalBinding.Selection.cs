@@ -174,20 +174,6 @@ internal sealed partial class TraversalBinding
         return selection;
     }
 
-    /// <summary>
-    /// <see cref="SelectionObject"/> as an engine value, for the one caller that still holds one:
-    /// <c>DomBridge.SubDocumentHost.cs</c>'s <c>ISubDocumentHost.GetSelection</c>, which is another
-    /// group's file this round. It is a cast and not a conversion — the handle carries the engine's
-    /// own object — and it goes when that seam migrates.
-    /// </summary>
-    internal Broiler.JavaScript.Runtime.JSValue GetSelection(DomNode? documentRoot = null)
-    {
-        var selection = SelectionObject(documentRoot);
-        return selection.IsObject
-            ? Runtime.JsInterop.ToEngineObject(selection)
-            : Broiler.JavaScript.BuiltIns.Null.JSNull.Value;
-    }
-
     // -------- Member plumbing --------
 
     private delegate JsValue SelectionOperation(SelectionState state, in JsCall call);
