@@ -66,10 +66,9 @@ public sealed class BroilerJsEngineProvider : IJsEngineProvider, IJsRealmAdoptio
     /// three members reach <c>JSContext.Eval</c>, which compiles at run time and does not distinguish
     /// them — the distinction is the host's. GuestEval is the only one a realm can lose, and this
     /// provider enforces its absence in two places: at <c>EvaluateDynamicSource</c>
-    /// (<c>BroilerJsRealm.Source.cs</c>), and at the page's own <c>eval</c> and <c>Function</c>
-    /// through the <c>EvalEvent</c> subscription in <c>BroilerJsRealm.cs</c>, an event neither a
-    /// call with no arguments to <c>Function</c> or its async and generator siblings nor
-    /// <c>ShadowRealm.prototype.evaluate</c> ever raises;
+    /// (<c>BroilerJsRealm.Source.cs</c>), and at the page's own <c>eval</c>, <c>Function</c> at every
+    /// arity and <c>ShadowRealm.prototype.evaluate</c> through the <c>EvalEvent</c> subscription in
+    /// <c>BroilerJsRealm.cs</c>, an event the engine raises before each of them compiles;
     /// <see cref="JsCapabilities.Promises"/> is <c>JSPromise</c>, whose delegate constructor settles
     /// from host code; <see cref="JsCapabilities.ExoticObjects"/> is the <c>JSObject</c> lookup
     /// protocol <c>BroilerJsExoticObject</c> overrides; <see cref="JsCapabilities.GlobalIsVariableScope"/>

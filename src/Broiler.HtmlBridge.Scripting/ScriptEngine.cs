@@ -485,18 +485,18 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         // and every route through Function.prototype.constructor, reach the compiler past it.
         //
         // On a DOCUMENT path that gap is closed, because the realm the bridge adopts is built from
-        // this same policy and refuses at the engine's own eval hook -- which fires for eval and
-        // for the dynamic-function constructor every function kind shares, except a constructor
-        // call with no arguments (BroilerJsRealm.cs records that, and ShadowRealm, which never
-        // raises the hook). There the stub adds precedence, not cover: the engine treats a call
-        // whose callee is not the intrinsic eval as an ordinary call, so `eval(...)` reaches this
-        // stub and never the hook, and a page catches a plain Error carrying its
+        // this same policy and refuses at the engine's own eval hook -- which fires for eval, for
+        // the dynamic-function constructor every function kind shares, at every arity, and for
+        // ShadowRealm.prototype.evaluate. There the stub adds precedence, not cover: the engine
+        // treats a call whose callee is not the intrinsic eval as an ordinary call, so `eval(...)`
+        // reaches this stub and never the hook, and a page catches a plain Error carrying its
         // InvalidOperationException where `new Function('...')` gets SyntaxError.
         //
         // It stays for the two paths that have no bridge: Execute(scripts) and
         // ExecuteDetailed(scripts) each build a bare context and adopt no realm, so it is their
         // only cover. THE RESIDUAL IS STATED RATHER THAN LEFT TO BE DISCOVERED: on those paths
-        // `new Function` is still ungated. Closing it means the document-free paths taking a realm
+        // `new Function` and `ShadowRealm.prototype.evaluate` are still ungated, because nothing
+        // subscribes to the hook there. Closing it means the document-free paths taking a realm
         // too, which is a larger change than this one.
         if (Csp != null && !Csp.AllowsEval)
         {

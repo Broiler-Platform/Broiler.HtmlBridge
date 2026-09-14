@@ -1294,6 +1294,172 @@ public class JsealConformanceTests
     }
 
     /// <summary>
+    /// A dynamic function built from no arguments at all is refused there too, for every function
+    /// kind.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It compiles nothing the page wrote, and a browser refuses it anyway.</b> The specification's
+    /// dynamic-function algorithm asks the host whether strings may be compiled before it looks at how
+    /// many it was handed, so <c>new Function()</c> is an <c>'unsafe-eval'</c> question exactly as
+    /// <c>new Function('return 1')</c> is. Broiler.JS used to answer it without asking: its
+    /// argument-less shortcut returned before the hook this refusal hangs on.
+    /// </para>
+    /// <para>
+    /// Each route is its own classic script, so an engine that cannot parse one of them cannot mask
+    /// the answer for another, and every answer is read back as a property rather than evaluated.
+    /// Every engine must refuse <c>new Function()</c> with a <c>SyntaxError</c>, and so must every
+    /// route that builds a function where evaluation is permitted; a route an engine cannot run at all
+    /// has to fail the same way in both realms. No engine may build the function where it is forbidden.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void AnArgumentlessDynamicFunctionIsRefusedInARealmThatForbidsGuestEvaluation(string engine)
+    {
+        var provider = Provider(engine);
+
+        string[] routes =
+        [
+            "new Function()",
+            "Function()",
+            "(function () {}).constructor()",
+            "Reflect.construct(Function, [])",
+            "new (Object.getPrototypeOf(async function () {}).constructor)()",
+            "new (Object.getPrototypeOf(function* () {}).constructor)()",
+            "new (Object.getPrototypeOf(async function* () {}).constructor)()",
+        ];
+
+        using var restricted = provider.CreateRealm(new JsRealmOptions { AllowGuestEval = false });
+        using var permissive = provider.CreateRealm(JsRealmOptions.Default);
+
+        for (var i = 0; i < routes.Length; i++)
+        {
+            var outcome = ProbeConstruction(restricted, engine, $"argumentless{i}", routes[i]);
+
+            // The control, per route: where evaluation is permitted the route builds a function, so its
+            // refusal is the realm's doing and not an engine that cannot run it. Another engine may fail a
+            // route in both realms, but only identically; one it builds when permitted has to be refused,
+            // catchably, when forbidden.
+            var permitted = ProbeConstruction(permissive, engine, $"argumentlessPermitted{i}", routes[i]);
+
+            // The route rides along in the tuple so a failure names the one that was built.
+            if (engine == "broiler-js" || i == 0 || permitted == "made:function")
+            {
+                Assert.Equal((routes[i], "made:function"), (routes[i], permitted));
+                Assert.Equal((routes[i], "refused:SyntaxError"), (routes[i], outcome));
+            }
+            else
+            {
+                Assert.Equal((routes[i], permitted), (routes[i], outcome));
+            }
+        }
+    }
+
+    /// <summary>
+    /// And <c>ShadowRealm.prototype.evaluate</c>, which compiles the page's string in a realm of its
+    /// own, is refused there as well.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The realm the string runs in is new; the string is still the page's.</b> The specification
+    /// asks the host before it parses, as it does for <c>eval</c>, about the ShadowRealm's own realm,
+    /// which Broiler.JS answers with the policy of the realm that constructed it: here, the page's.
+    /// Broiler.JS used to compile the string in a child context that raised nothing, so a page
+    /// forbidden <c>'unsafe-eval'</c> could run <c>new ShadowRealm().evaluate('6 * 7')</c> and read 42.
+    /// </para>
+    /// <para>
+    /// A provider without <c>ShadowRealm</c> passes by not defining it. Broiler.JS defines it, so
+    /// there its absence fails rather than skipping the assertion. Constructing one compiles nothing
+    /// and stays permitted: the probe constructs outside its <c>try</c>, so a refused constructor
+    /// fails the classic script itself.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Engines))]
+    public void ShadowRealmEvaluatesNothingInARealmThatForbidsGuestEvaluation(string engine)
+    {
+        var provider = Provider(engine);
+
+        const string probe =
+            "var shadow = 'absent';" +
+            "if (typeof ShadowRealm === 'function') {" +
+            "  var shadowRealm = new ShadowRealm();" +
+            "  try { shadow = 'compiled:' + shadowRealm.evaluate('6 * 7'); }" +
+            "  catch (e) { shadow = 'refused:' + ((e && e.name) || 'unnamed'); }" +
+            "}";
+
+        using var permissive = provider.CreateRealm(JsRealmOptions.Default);
+        using var restricted = provider.CreateRealm(new JsRealmOptions { AllowGuestEval = false });
+
+        if (engine == "broiler-js")
+        {
+            Assert.True(permissive.GetProperty(permissive.Global, "ShadowRealm").IsFunction,
+                "broiler-js exposes ShadowRealm; the probe must run there.");
+            Assert.True(restricted.GetProperty(restricted.Global, "ShadowRealm").IsFunction,
+                "broiler-js exposes ShadowRealm in a restricted realm too; the probe must run there.");
+        }
+
+        permissive.EvaluateClassicScript(probe, "test:shadow-permitted");
+        restricted.EvaluateClassicScript(probe, "test:shadow-restricted");
+
+        var permitted = permissive.GetProperty(permissive.Global, "shadow").AsString;
+        var refused = restricted.GetProperty(restricted.Global, "shadow").AsString;
+
+        if (engine == "broiler-js")
+        {
+            Assert.Equal("compiled:42", permitted);
+            Assert.Equal("refused:SyntaxError", refused);
+            return;
+        }
+
+        Assert.True(permitted is "compiled:42" or "absent", $"{engine}: {permitted}");
+
+        // Where it compiled when permitted, the refusal has to be the SyntaxError every provider raises
+        // for a refused compile, as the argument-less theory demands; a TypeError would be a restricted
+        // realm whose evaluate went missing.
+        Assert.True(
+            refused == "absent" || (permitted == "compiled:42" && refused == "refused:SyntaxError"),
+            $"{engine}: {refused}");
+
+        // Passing by not defining ShadowRealm means not defining it in either realm: a provider that
+        // removed it only where evaluation is forbidden would be refusing by reshaping the language.
+        Assert.True(
+            (permitted == "absent") == (refused == "absent"),
+            $"{engine} defines ShadowRealm in one realm only: {permitted} / {refused}");
+    }
+
+    /// <summary>
+    /// Runs a classic script that attempts <paramref name="construct"/> and records what happened in
+    /// the global <paramref name="name"/>, then reads that global back as a property.
+    /// </summary>
+    /// <remarks>
+    /// A classic script that throws past the probe's own <c>catch</c> answers <c>unparsed</c>. In
+    /// practice that is an engine that cannot parse the construct, but any other
+    /// <see cref="JsEngineException"/> from the evaluation answers the same, so the label is not proof
+    /// of a parse failure. Broiler.JS parses every construct these tests use, so there any such
+    /// exception fails the test instead.
+    /// </remarks>
+    private static string ProbeConstruction(IJsRealm realm, string engine, string name, string construct)
+    {
+        try
+        {
+            realm.EvaluateClassicScript(
+                $"var {name} = (function () {{" +
+                $"  try {{ return 'made:' + typeof ({construct}); }}" +
+                "  catch (e) { return 'refused:' + ((e && e.name) || 'unnamed'); }" +
+                "})();",
+                $"test:{name}");
+        }
+        catch (JsEngineException) when (engine != "broiler-js")
+        {
+            return "unparsed";
+        }
+
+        return realm.GetProperty(realm.Global, name).AsString;
+    }
+
+    /// <summary>
     /// <c>ForceStrictMode</c> makes the source THIS REPOSITORY hands over strict, and leaves what the
     /// page evaluates alone.
     /// </summary>

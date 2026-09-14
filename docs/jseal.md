@@ -220,10 +220,10 @@ the worker path does today. The top-level document's own scripts never reach it:
 evaluates them on the context it built.
 `EvaluateDynamicSource` is what `eval` and `new Function` ask for on the page's behalf;
 `'unsafe-eval'` governs it, through `JsCapabilities.GuestEval`, and it is exactly what a CSP may
-forbid. Nothing in the bridge calls it, though: the page's own `eval` and `new Function` never reach
-a host member, and each provider refuses them inside a realm built without `GuestEval` — except, on
-Broiler.JS, an argument-less `Function` call and `ShadowRealm.prototype.evaluate`, which get past
-its refusal. A dynamic `import()` is none of the three: `IJsSource` runs no modules. Where a page has
+forbid. Nothing in the bridge calls it, though: the page's own `eval`, `new Function` and
+`ShadowRealm.prototype.evaluate` never reach a host member, and each provider refuses them inside a
+realm built without `GuestEval` (Broiler.VM has no `ShadowRealm`). A dynamic `import()` is none of
+the three members: `IJsSource` runs no modules. Where a page has
 module roots and the engine binds imports, `BridgeModuleContext` checks each module it fetches with
 `AllowsExternalScript` (`script-src-elem`, then `script-src`, then `default-src`); on the plain
 context every other page runs on, `import()` rejects. Separating the members is what
