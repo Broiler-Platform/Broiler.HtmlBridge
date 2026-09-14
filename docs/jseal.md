@@ -151,9 +151,9 @@ Four shapes in there are load-bearing.
 **The realm is on the call, not ambient.** `JsCall` carries its `IJsRealm`. A
 `[ThreadStatic] Js.Current` would read better at every one of the ~900 callback sites and would be
 wrong here: three threads run one page's JavaScript. `ScriptEngine` installs a synchronization context
-before building the realm precisely because promise and generator continuations were resuming on the
-thread pool; `BrowserEventLoop`'s queues are all `ConcurrentDictionary` for the same reason; a Worker
-builds a second realm on a thread of its own. An ambient realm turns each of those into a null
+before building a document's realm precisely because promise and generator continuations were resuming
+on the thread pool; `BrowserEventLoop`'s queues are all `ConcurrentDictionary` for the same reason;
+a Worker builds a second realm on a thread of its own. An ambient realm turns each of those into a null
 reference at run time that no compiler can see — in code being migrated file by file, which is where a
 missing realm is exactly the mistake a reviewer cannot spot.
 
@@ -222,7 +222,11 @@ evaluates them on the context it built.
 `'unsafe-eval'` governs it, through `JsCapabilities.GuestEval`, and it is exactly what a CSP may
 forbid. Nothing in the bridge calls it, though: the page's own `eval`, `new Function` and
 `ShadowRealm.prototype.evaluate` never reach a host member, and each provider refuses them inside a
-realm built without `GuestEval` (Broiler.VM has no `ShadowRealm`). A dynamic `import()` is none of
+realm built without `GuestEval` (Broiler.VM has no `ShadowRealm`). `ScriptEngine`'s document-free
+`Execute(scripts)` and `ExecuteDetailed(scripts)` build no bridge, so they adopt the context they build
+themselves, through the same `DomBridge.AdoptRealm` and the same policy mapping, from the policy a host
+sets on `ScriptEngine.Csp`; a script there meets the same refusal while the call runs. A dynamic
+`import()` is none of
 the three members: `IJsSource` runs no modules. Where a page has
 module roots and the engine binds imports, `BridgeModuleContext` checks each module it fetches with
 `AllowsExternalScript` (`script-src-elem`, then `script-src`, then `default-src`); on the plain

@@ -11,19 +11,24 @@ namespace Broiler.HtmlBridge.Jseal;
 /// <c>JSContext</c> that <c>ScriptEngine</c> builds and owns, and the bridge still uses that context
 /// directly where the contract has no member: to swap its code cache and to run module roots on it.
 /// So the realm cannot be one the provider created; it has to wrap that context. (This said half the
-/// bindings still wrote <c>JSObject</c>s directly.)
+/// bindings still wrote <c>JSObject</c>s directly.) <c>ScriptEngine</c>'s document-free entry points,
+/// <c>Execute(scripts)</c> and <c>ExecuteDetailed(scripts)</c>, adopt the context they build the same
+/// way, through <c>DomBridge.AdoptRealm</c>, so the policy a host sets reaches them. They never call
+/// <c>Attach</c>: what keeps them on a context rather than a created realm is <c>ScriptEngine</c>'s own
+/// use of it, which installs its runtime extensions on that context and runs their scripts on it.
 /// </para>
 /// <para>
 /// Declaring it as a provider capability rather than a static factory on the provider assembly is what
-/// keeps the bridge from having to reference an engine to get one: the bridge asks
-/// <see cref="JsEngineRegistry"/> for the default provider and asks that whether it can adopt what the
-/// host handed over. So the assembly whose engine coupling is being counted down does not gain a
-/// reference on the way.
+/// keeps the bridge from having to reference an engine to get one: the bridge offers what the host
+/// handed over to each provider in <see cref="JsEngineRegistry"/> that implements this interface, in
+/// turn, until one adopts it. So the assembly whose engine coupling is being counted down does not gain
+/// a reference on the way.
 /// </para>
 /// <para>
 /// A provider that cannot do this — because its engine's realms are not host-constructible, or because
 /// it would have no way to tell one of its own realms from a foreign object — simply does not
-/// implement the interface, and the host falls back to creating a realm of its own.
+/// implement the interface, and is passed over. Nothing falls back to creating a realm instead: when no
+/// provider adopts, <c>DomBridge.AdoptRealm</c>, the one host that asks, throws.
 /// </para>
 /// </remarks>
 public interface IJsRealmAdoption

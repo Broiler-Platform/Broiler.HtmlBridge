@@ -121,7 +121,7 @@ public sealed partial class DomBridge
         // common case is unchanged.
         var realm = _realm = AdoptRealm(
             context,
-            new JsRealmOptions { AllowGuestEval = Csp?.AllowsEval ?? true });
+            RealmOptionsFor(Csp));
 
         // EventTarget.prototype's three methods, routed by receiver
         // (DomBridge/EventTargetInterface.cs). First, because every wrapper registration below asks
