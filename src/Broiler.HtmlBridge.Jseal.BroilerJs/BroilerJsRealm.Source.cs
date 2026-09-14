@@ -16,12 +16,11 @@ namespace Broiler.HtmlBridge.Jseal.BroilerJs;
 /// because the <c>script-src</c> decision is its caller's to take, and every caller but
 /// <c>JSWorker</c> takes it before calling. Only
 /// <see cref="EvaluateDynamicSource"/> is refused here, when the realm was built without
-/// <see cref="JsCapabilities.GuestEval"/>. The page's own <c>eval</c> and <c>Function</c> do not go
-/// through these members: <c>RefuseGuestCompilation</c> in <c>BroilerJsRealm.cs</c> refuses them
-/// inside the realm, except a call with no arguments to <c>Function</c> or to the async, generator
-/// or async-generator constructor, which never raises the event that handler listens to. Nor does
-/// <c>ShadowRealm.prototype.evaluate</c>, which compiles the page's string in a child realm the
-/// subscription does not reach. An engine with no run-time compiler would implement the members
+/// <see cref="JsCapabilities.GuestEval"/>. The page's own <c>eval</c>, <c>Function</c> at every arity
+/// (with its async, generator and async-generator siblings) and <c>ShadowRealm.prototype.evaluate</c>
+/// do not go through these members: <c>RefuseGuestCompilation</c> in <c>BroilerJsRealm.cs</c> refuses
+/// them inside the realm, on the event the engine raises before each one compiles. An engine with no
+/// run-time compiler would implement the members
 /// differently — compiling host script when it is built, and lacking both
 /// <see cref="JsCapabilities.ClassicScriptSource"/> and <see cref="JsCapabilities.GuestEval"/>,
 /// because a page's text is not knowable then — and the contract is shaped so that it can.
@@ -60,9 +59,9 @@ internal sealed partial class BroilerJsRealm
     /// The refusal is a capability failure rather than an engine one: the page asked for something
     /// this realm was deliberately built without, which is a different fact from the source being
     /// wrong. A host that read a restrictive Content-Security-Policy and passed
-    /// <c>AllowGuestEval: false</c> gets it here, at the host member. The page's own <c>eval</c> and
-    /// <c>Function</c> are refused separately, inside the realm, by <c>RefuseGuestCompilation</c> in
-    /// <c>BroilerJsRealm.cs</c>, bar the routes the class remarks name.
+    /// <c>AllowGuestEval: false</c> gets it here, at the host member. The page's own <c>eval</c>,
+    /// <c>Function</c> and <c>ShadowRealm.prototype.evaluate</c> are refused separately, inside the
+    /// realm, by <c>RefuseGuestCompilation</c> in <c>BroilerJsRealm.cs</c>.
     /// </remarks>
     public JsValue EvaluateDynamicSource(string source, string label)
     {

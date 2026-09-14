@@ -17,9 +17,9 @@ namespace Broiler.Browser.Core.Tests;
 /// that replaces one global binding in <c>ScriptEngine</c>. That stub cannot see <c>new Function</c>,
 /// and it cannot see <c>Function.prototype.constructor</c> either, so a page under a policy
 /// forbidding <c>'unsafe-eval'</c> could compile whatever it liked by the second route. The refusal
-/// now happens at the engine's own eval hook, which fires for the dynamic-function constructor and
-/// for every function kind, except a call with no arguments; <c>ShadowRealm.prototype.evaluate</c>
-/// never raises it (see <c>BroilerJsRealm.cs</c>).
+/// now happens at the engine's own eval hook, which fires for the dynamic-function constructor of
+/// every function kind at every arity, and for <c>ShadowRealm.prototype.evaluate</c> on the context
+/// that constructed the ShadowRealm, which for one the page constructs is the page's own.
 /// </para>
 /// </summary>
 public class PageEvaluationPolicyTests
@@ -122,5 +122,74 @@ public class PageEvaluationPolicyTests
     public void APolicyForbiddingUnsafeEvalStillRunsThePagesOwnScript()
     {
         Assert.Equal("ok:42", Run("script-src 'self'", Attempt("6 * 7")));
+    }
+
+    /// <summary>
+    /// A <c>Function</c> constructor called with no arguments is refused under the same policy: it is
+    /// an <c>'unsafe-eval'</c> question however few strings it is handed.
+    /// </summary>
+    [Fact]
+    public void APolicyForbiddingUnsafeEvalRefusesAnArgumentlessFunctionConstructor()
+    {
+        Assert.Equal(
+            "refused:SyntaxError",
+            Run("script-src 'self'", Attempt("typeof new Function()")));
+    }
+
+    /// <summary>The control for that route.</summary>
+    [Fact]
+    public void APolicyPermittingUnsafeEvalAllowsAnArgumentlessFunctionConstructor()
+    {
+        Assert.Equal(
+            "ok:function",
+            Run("script-src 'self' 'unsafe-eval'", Attempt("typeof new Function()")));
+    }
+
+    /// <summary>
+    /// The async, generator and async-generator constructors share that path, and none of them is a
+    /// global a stub could replace: a page reaches each one through a function's prototype.
+    /// </summary>
+    [Theory]
+    [InlineData("async function () {}")]
+    [InlineData("function* () {}")]
+    [InlineData("async function* () {}")]
+    public void APolicyForbiddingUnsafeEvalRefusesTheArgumentlessSiblingConstructors(string kind)
+    {
+        Assert.Equal(
+            "refused:SyntaxError",
+            Run("script-src 'self'", Attempt($"typeof new (Object.getPrototypeOf({kind}).constructor)()")));
+    }
+
+    /// <summary>The control for those routes.</summary>
+    [Theory]
+    [InlineData("async function () {}")]
+    [InlineData("function* () {}")]
+    [InlineData("async function* () {}")]
+    public void APolicyPermittingUnsafeEvalAllowsTheArgumentlessSiblingConstructors(string kind)
+    {
+        Assert.Equal(
+            "ok:function",
+            Run("script-src 'self' 'unsafe-eval'", Attempt($"typeof new (Object.getPrototypeOf({kind}).constructor)()")));
+    }
+
+    /// <summary>
+    /// <c>ShadowRealm.prototype.evaluate</c> compiles the page's string in a realm of its own, and the
+    /// policy that governs that string is still the page's.
+    /// </summary>
+    [Fact]
+    public void APolicyForbiddingUnsafeEvalRefusesShadowRealmEvaluate()
+    {
+        Assert.Equal(
+            "refused:SyntaxError",
+            Run("script-src 'self'", Attempt("new ShadowRealm().evaluate('6 * 7')")));
+    }
+
+    /// <summary>The control for that route.</summary>
+    [Fact]
+    public void APolicyPermittingUnsafeEvalAllowsShadowRealmEvaluate()
+    {
+        Assert.Equal(
+            "ok:42",
+            Run("script-src 'self' 'unsafe-eval'", Attempt("new ShadowRealm().evaluate('6 * 7')")));
     }
 }
