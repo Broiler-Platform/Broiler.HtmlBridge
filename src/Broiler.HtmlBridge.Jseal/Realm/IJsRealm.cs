@@ -5,11 +5,11 @@ namespace Broiler.HtmlBridge.Jseal;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the type the DOM bridge binds a document against, and the reason JSEAL exists. Today the
-/// bridge names <c>JSContext</c> in fourteen places and takes one as a parameter on
-/// <c>IDomBridgeRuntime.Attach</c>, which is why an engine that is not Broiler.JS cannot serve a page
-/// no matter what <c>IScriptEngine</c> says: the seam is one level too high. A realm is the right
-/// level, because a realm is what a document has.
+/// This is the type the DOM bridge binds a document against, and the reason JSEAL exists. The
+/// bridge named <c>JSContext</c> in fourteen places on 2026-09-08 and still takes one as a
+/// parameter on <c>IDomBridgeRuntime.Attach</c>, which is why an engine that is not Broiler.JS
+/// cannot serve a page no matter what <c>IScriptEngine</c> says: the seam is one level too high. A
+/// realm is the right level, because a realm is what a document has.
 /// </para>
 /// <para>
 /// <b>The global object may or may not be the realm object.</b> Under Broiler.JS it is — <c>window</c>

@@ -201,15 +201,16 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A bridge DOM object is a plain object whose prototype is <c>Object.prototype</c>:
-    /// it carries its members directly rather than inheriting them from an interface prototype.
-    /// So the ordinary <c>instanceof</c> walk — follow the operand's prototype chain looking for
-    /// the constructor's <c>prototype</c> — can never succeed for one, which is why the
-    /// long-standing <c>Node</c> global (see <c>RegisterNodeConstructor</c>) reported
-    /// <c>document.createElement('div') instanceof Node === false</c>.
+    /// A bridge DOM object was a plain object whose prototype was <c>Object.prototype</c>, carrying
+    /// its members directly, so the ordinary <c>instanceof</c> walk — follow the operand's prototype
+    /// chain looking for the constructor's <c>prototype</c> — could never succeed for one, which is
+    /// why the long-standing <c>Node</c> global (see <c>RegisterNodeConstructor</c>) reported
+    /// <c>document.createElement('div') instanceof Node === false</c>. It is not that shape now: the
+    /// script below chains these prototypes, and <see cref="ApplyInterfacePrototype"/> and
+    /// <see cref="LinkToInterface"/> link each wrapper to its interface's.
     /// </para>
     /// <para>
-    /// Each constructor therefore carries an <c>@@hasInstance</c> that answers from the object's
+    /// Each constructor was therefore given an <c>@@hasInstance</c> that answers from the object's
     /// own <c>nodeType</c>/<c>namespaceURI</c>/<c>tagName</c> instead of from a prototype chain.
     /// That is the spec's own extension point (ES §13.10.1 consults <c>@@hasInstance</c> before
     /// the prototype walk), so this is a real answer rather than a shim — and it is installed with
@@ -217,10 +218,15 @@ public sealed partial class DomBridge
     /// non-writable, so a plain assignment would silently do nothing in sloppy mode.
     /// </para>
     /// <para>
-    /// Giving DOM objects genuine per-interface prototype chains would subsume this and is the
-    /// better long-term shape; it is a far larger change to the object model than making
-    /// <c>instanceof HTMLElement</c> — the single most common way a page asks "is this an
-    /// element?" — stop throwing <c>ReferenceError</c>.
+    /// The hooks are still installed, and still decide: a constructor carrying <c>@@hasInstance</c> is
+    /// asked instead of walked, so <c>node instanceof Text</c> reads <c>nodeType</c> however the wrapper
+    /// is linked. What they give that the link does not is an answer without one: for an object whose
+    /// link was tried before its constructor existed (<see cref="LinkToInterface"/> is a no-op then, and
+    /// the registration re-link revisits only the document and node wrappers), and for the
+    /// <c>ImageData</c> readback, the view transition and the 2D context, plain objects no link reaches.
+    /// <c>HTMLElement</c> is the exception: <c>RegisterCustomElements</c> replaces that global with a
+    /// constructible one that keeps the prototype but not the hook, so <c>instanceof HTMLElement</c>
+    /// walks the chain. (This said per-interface chains would subsume the hooks as a larger change.)
     /// </para>
     /// </remarks>
     private static void RegisterDomInterfaceConstructors(IJsRealm realm)
@@ -414,12 +420,13 @@ public sealed partial class DomBridge
 
         RegisterHtmlElementInterfaces(realm);
 
-        // NodeList and HTMLCollection are the exception to everything above: they get real
-        // prototypes with real methods, and their instances really are instances of them, rather
-        // than an @@hasInstance hook over a foreign object. See DomCollectionBinding — they are
-        // track 6 action 1's "establish real interface prototypes and Web IDL collection behavior
-        // before adding more compatibility-only constructor globals", so adding them in the shape
-        // this file otherwise uses would have been the thing that action rules out.
+        // The five collection interfaces DomCollectionBinding defines — NodeList, HTMLCollection,
+        // StyleSheetList, NamedNodeMap and FileList — are the exception to everything above: they get
+        // real prototypes with real methods, and their instances really are instances of them, rather
+        // than an @@hasInstance hook over a foreign object. (This named NodeList and HTMLCollection
+        // alone.) They are track 6 action 1's "establish real interface prototypes and Web IDL
+        // collection behavior before adding more compatibility-only constructor globals", so adding
+        // them in the shape this file otherwise uses would have been the thing that action rules out.
         // Handed to the custom-elements registration so its constructible HTMLElement can keep
         // this exact prototype object — every element wrapper is linked to it, so replacing it
         // with a fresh one would orphan them all.
@@ -433,7 +440,7 @@ public sealed partial class DomBridge
         }
 
         Dom.Features.DomCollectionBinding.RegisterInterfaces(realm);
-        // The five NamedNodeMap members that need the owning element are host functions, so they
+        // The six NamedNodeMap members that need the owning element are host functions, so they
         // are installed on the interface prototype after it exists.
         Dom.Features.DomCollectionBinding.RegisterNamedNodeMapOperations(realm);
     }
@@ -448,8 +455,14 @@ public sealed partial class DomBridge
     /// These sit under the <c>HTMLElement</c> the method above registers, and they are what a page
     /// uses when it has an element in hand and wants to know <em>which</em> element it is. Only the
     /// bare name existing is not enough for that: it has to answer, so each one carries the same
-    /// <c>@@hasInstance</c> the interfaces above do, reading <c>tagName</c> rather than walking a
-    /// prototype chain a bridge DOM object does not have.
+    /// <c>@@hasInstance</c> the interfaces above do, reading <c>tagName</c> — the test they were
+    /// written with while a bridge DOM object had no prototype chain to walk. An element wrapper is
+    /// linked to its per-tag prototype now (<see cref="ApplyInterfacePrototype"/>), chosen from this
+    /// same table and chained along the same <see cref="HtmlInterfaceBases"/> edges, so for an element
+    /// whose chain still runs through that prototype the tag test and a walk give one answer. The tag
+    /// test is what <c>instanceof</c> still asks, because a constructor carrying the hook is not
+    /// walked; only for a subclass does the hook walk the chain itself — see the
+    /// <c>this !== owner</c> arm in the method.
     /// </para>
     /// <para>
     /// Their absence is a whole-page failure rather than a missing feature, because a bare name that

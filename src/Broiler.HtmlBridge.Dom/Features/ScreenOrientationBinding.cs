@@ -29,13 +29,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// <c>unlock</c> is <em>constructable</em>, and only because it always has been. It was built by the
-/// bridge's <c>UndefinedFunction</c> helper, which mints a plain engine function — one that carries a
-/// <c>prototype</c> object and so passes the engine's constructor test — rather than the
-/// non-constructable shape WebIDL gives an operation. Under JSEAL that distinction is which factory
-/// is called, so preserving the behaviour means asking for a constructor here; a browser answers
-/// <c>undefined</c> for <c>screen.orientation.unlock.prototype</c> and throws on
+/// bridge's <c>UndefinedFunction</c> helper (since removed), which minted a plain engine function —
+/// one that carries a <c>prototype</c> object and so passes the engine's constructor test — rather
+/// than the non-constructable shape WebIDL gives an operation. Under JSEAL that distinction is which
+/// factory is called, so preserving the behaviour means asking for a constructor here; a browser
+/// answers <c>undefined</c> for <c>screen.orientation.unlock.prototype</c> and throws on
 /// <c>new screen.orientation.unlock()</c>, and correcting that is a behaviour change that belongs in
-/// its own commit alongside the helper's other callers.
+/// its own commit alongside the other members that helper used to build.
 /// </para>
 /// </remarks>
 internal static class ScreenOrientationBinding

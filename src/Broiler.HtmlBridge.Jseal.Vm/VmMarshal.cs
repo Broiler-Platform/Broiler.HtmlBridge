@@ -14,11 +14,13 @@ namespace Broiler.HtmlBridge.Jseal.Vm;
 /// happen to return objects is how two of them come to disagree.
 /// </para>
 /// <para>
-/// <b>The reference a handle carries is the VM's own identity object, not a wrapper this assembly
-/// invents.</b> <c>JsHostRef</c> is canonical per guest object for the life of the realm - the
-/// profile keys it on a weak table - so JSEAL's reference equality is the VM's object identity
-/// without anything here having to maintain a second table. That is what makes <c>el === el</c>
-/// true on both sides of the seam, and it is what the seven weak tables in the DOM bridge need.
+/// <b>The reference a handle carries is a box this assembly keeps, one per VM identity object.</b>
+/// <c>JsHostRef</c> is canonical per guest object for the life of the realm - the profile keys it on
+/// a weak table - and <c>Identity</c> boxes the whole <see cref="JsHostValue"/> once per ref in a
+/// second weak table, <c>Boxes</c>, so JSEAL's reference equality is still the VM's object identity.
+/// That is what makes <c>el === el</c> true on both sides of the seam, and it is what the seven weak
+/// tables in the DOM bridge need. (This said the reference was the <c>JsHostRef</c> itself and that
+/// nothing here kept a second table.)
 /// </para>
 /// </remarks>
 internal static class VmMarshal

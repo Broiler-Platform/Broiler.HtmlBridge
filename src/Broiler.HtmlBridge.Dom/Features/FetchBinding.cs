@@ -20,9 +20,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). One thing here cannot be said in
-/// it and is named as such where it occurs: an <c>ArrayBuffer</c>, which <see cref="IJsValues"/> has
-/// no member for — the same line <c>StreamsBinding</c> and <c>BlobBinding</c> record.
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), <c>ArrayBuffer</c> included: the
+/// body readers mint one with <see cref="IJsValues.NewArrayBuffer"/>, as <c>StreamsBinding</c> and
+/// <c>BlobBinding</c> do. (This said <see cref="IJsValues"/> had no member for one.)
 /// </para>
 /// <para>
 /// <b>Every member of these objects is installed as a constructable function, and that is preserved
@@ -99,34 +99,27 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
 
             return null;
         }
-        /// <summary>
-        /// A settled native Promise for a body value that is already in hand — what
-        /// <c>response.text()</c>, <c>.json()</c>, <c>.arrayBuffer()</c>, <c>.blob()</c>,
-        /// <c>.formData()</c> and a stream reader's <c>read()</c> return.
-        /// </summary>
-        /// <remarks>
-        /// This used to be a hand-rolled object carrying one <c>then</c> that invoked the callback and
-        /// returned <b>itself</b>. Returning itself is what broke chaining: <c>.then(a).then(b)</c> ran
-        /// <c>b</c> against the ORIGINAL value rather than <c>a</c>'s result, so a mapping chain read
-        /// the unmapped value — a silently wrong answer rather than an error. It also had no
-        /// <c>catch</c> and no <c>finally</c> (so <c>.finally()</c> was a TypeError), was not
-        /// <c>instanceof Promise</c>, and had no rejection path at all, so a resolver that threw — a
-        /// <c>.json()</c> over a malformed body, say — threw synchronously out of <c>.then</c> instead
-        /// of rejecting the promise.
-        /// <para>
-        /// A real promise fixes all of it at once, and the engine's microtask queue is pumped in a
-        /// capture (a plain <c>Promise.resolve().then(...)</c> callback runs), so settling through the
-        /// real machinery still delivers the callback.
-        /// </para>
-        /// <para>
-        /// The realm hands back the two settle functions rather than running an executor, so the
-        /// promise is settled here instead of inside a callback that only happened to run
-        /// synchronously — the difference <see cref="IJsJobs.NewPromise"/> exists to remove. The
-        /// executor's <c>try</c> came with that shape and is written out: a throwing
-        /// <paramref name="resolver"/> rejects, which is the conforming outcome and what the JSON
-        /// body readers rest on.
-        /// </para>
-        /// </remarks>
+        // A settled native Promise for a body value that is already in hand — what
+        // `response.text()`, `.json()`, `.arrayBuffer()`, `.blob()`, `.formData()` and a stream
+        // reader's `read()` return.
+        //
+        // This used to be a hand-rolled object carrying one `then` that invoked the callback and
+        // returned itself. Returning itself is what broke chaining: `.then(a).then(b)` ran `b`
+        // against the ORIGINAL value rather than `a`'s result, so a mapping chain read the unmapped
+        // value — a silently wrong answer rather than an error. It also had no `catch` and no
+        // `finally` (so `.finally()` was a TypeError), was not `instanceof Promise`, and had no
+        // rejection path at all, so a resolver that threw — a `.json()` over a malformed body,
+        // say — threw synchronously out of `.then` instead of rejecting the promise.
+        //
+        // A real promise fixes all of it at once, and the engine's microtask queue is pumped in a
+        // capture (a plain `Promise.resolve().then(...)` callback runs), so settling through the
+        // real machinery still delivers the callback.
+        //
+        // The realm hands back the two settle functions rather than running an executor, so the
+        // promise is settled here instead of inside a callback that only happened to run
+        // synchronously — the difference `IJsJobs.NewPromise` exists to remove. The executor's `try`
+        // came with that shape and is written out: a throwing `resolver` rejects, which is the
+        // conforming outcome and what the JSON body readers rest on.
         JsValue CreateThenable(Func<JsValue> resolver)
         {
             var promise = realm.NewPromise(out var resolve, out var reject);

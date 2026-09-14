@@ -16,8 +16,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>) throughout, installer and accessor
-/// bodies alike, so this file names no engine type. It carried one engine-typed adapter until this
-/// round: the element-wrapper hub that installs these members (<c>DomBridge/JsObjects.cs</c>) held the
+/// bodies alike, so this file names no engine type. It carried one engine-typed adapter until 5282d02:
+/// the element-wrapper hub that installs these members (<c>DomBridge/JsObjects.cs</c>) held the
 /// wrapper as an engine object and the handle was minted here. That hub mints the wrapper through the
 /// realm now and passes the handle, so the adapter is gone.
 /// </remarks>

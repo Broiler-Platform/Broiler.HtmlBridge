@@ -7,7 +7,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The narrow bridge services the <see cref="FormControlBinding"/> feature module needs (HtmlBridge
 /// complexity-reduction roadmap Phase 3). The form-control IDL reflectors move into the module, but the
 /// per-element form-control state they read/write — the input's dirty IDL <c>value</c> and <c>checked</c>
-/// state — lives on the bridge's <c>ElementRuntimeState.FormControl</c>. It is exposed here as named
+/// state — lives in the bridge's <c>FormControlRuntimeState</c> table. It is exposed here as named
 /// primitives (the P3.7 pattern) so the module never touches the runtime-state object, together with the
 /// realm, the <c>&lt;select&gt;</c> value resolution (owned by <see cref="SelectBinding"/>), the
 /// radio-group mutual-exclusion walk, and style-scope invalidation for the reflected boolean setters.
@@ -15,9 +15,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. The <c>FileList</c> is still built by <see cref="DomCollectionBinding"/>, which is not
-/// migrated; that stays on the bridge's side of the seam, which is why this contract asks for the
-/// finished list rather than for the pieces to build one from.
+/// type. The bridge builds the <c>FileList</c> through <see cref="DomCollectionBinding"/>, which
+/// takes the realm and answers a handle, and keeps one per element; this contract asks for that
+/// finished list. (This said that builder was not migrated, and gave that as the reason.)
 /// </remarks>
 internal interface IFormControlHost
 {

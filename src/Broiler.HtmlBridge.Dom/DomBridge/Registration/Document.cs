@@ -230,7 +230,7 @@ public sealed partial class DomBridge
         // DocumentEventTargetBinding feature module (Phase 3).
         // On EventTarget.prototype now, routed by receiver — the document's wrapper is registered
         // as its node's and its listener store is the same per-node one, so the routed method
-        // reaches exactly what these did (DomBridge.EventTargetInterface.cs).
+        // reaches exactly what these did (DomBridge/EventTargetInterface.cs).
         if (!_eventTargetRoutingReady)
         {
             realm.DefineValue(document, "addEventListener", realm.NewConstructor("addEventListener", (in c) => Dom.Features.DocumentEventTargetBinding.AddEventListener(this, in c), 3));

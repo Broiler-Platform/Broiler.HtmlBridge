@@ -17,10 +17,10 @@ namespace Broiler.HtmlBridge;
 /// <remarks>
 /// <para>
 /// <b>IT RUNS THE SCRIPT-ONLY PATHS AND DELEGATES THE DOM-BEARING ONES, AND THAT SPLIT IS THE
-/// FIRST THING A READER SHOULD KNOW.</b> <see cref="Execute(IReadOnlyList{string})"/> and
-/// <see cref="ExecuteDetailed"/> compile, verify, instantiate and invoke on the VM and touch
-/// Broiler.JS nowhere. Every overload that takes <c>html</c>, and
-/// <see cref="ExecuteInteractive(IReadOnlyList{string}, IReadOnlyList{string}, string, string?)"/>,
+/// FIRST THING A READER SHOULD KNOW.</b> <see cref="Execute(IReadOnlyList{string})"/>,
+/// <see cref="ExecuteDetailed(IReadOnlyList{string})"/> and its module-roots overload compile,
+/// verify, instantiate and invoke on the VM and touch Broiler.JS nowhere. Every overload that takes
+/// <c>html</c>, and <see cref="ExecuteInteractive(IReadOnlyList{string}, IReadOnlyList{string}, string, string?)"/>,
 /// is forwarded verbatim to the Broiler.JS engine passed to the constructor.
 /// </para>
 /// <para>
@@ -35,10 +35,10 @@ namespace Broiler.HtmlBridge;
 /// </para>
 /// <para>
 /// <b>What actually keeps the document-bearing overloads here is the bridge's own signature.</b>
-/// <c>IDomBridgeRuntime.Attach</c> takes a <c>JSContext</c>, and the engine-namespace
-/// references still left in <c>Broiler.HtmlBridge.Dom</c> mean its
-/// unmigrated bindings have nothing else to build on — so a page can only be attached to a realm of
-/// that engine, whatever a second engine is now able to express.
+/// <c>IDomBridgeRuntime.Attach</c> takes a <c>JSContext</c>, and <c>Broiler.HtmlBridge.Dom</c> uses
+/// that context itself: it adopts its realm from it, swaps its code cache while registering a
+/// document and runs sub-document module roots on it — so a page can only be attached to a realm of
+/// that engine, whatever a second engine is now able to express. (This blamed unmigrated bindings.)
 /// <see cref="InteractiveSession"/> used to say the same thing in one line — its constructor took a
 /// <c>JSContext</c> — and it no longer does: it takes an <c>IDisposable</c>, because the context was
 /// read exactly once in that class and only to dispose it. So <c>Attach</c> is now the whole of the

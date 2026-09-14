@@ -11,8 +11,8 @@ namespace Broiler.HtmlBridge;
 /// extracted <see cref="Broiler.HtmlBridge.Dom.Features.SelectBinding"/> feature module consumes
 /// (HtmlBridge complexity-reduction roadmap Phase 3, P3.8). Explicit interface members, so these
 /// seams do not widen the public <c>DomBridge</c> surface. The select/option form-control state
-/// stays on the per-element <see cref="ElementRuntimeState"/>; these named accessors are the seam a
-/// future runtime-state consolidation re-homes.
+/// lives in the bridge's per-element <see cref="FormControlRuntimeState"/> table, reached through
+/// <see cref="FormControlStateFor"/>; these named accessors are the only way the module touches it.
 /// </summary>
 /// <remarks>
 /// The select slice is not a half-migrated seam any more: the module speaks JSEAL, the wrapper factory

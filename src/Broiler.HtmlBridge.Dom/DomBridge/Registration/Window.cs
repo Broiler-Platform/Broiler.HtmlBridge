@@ -21,9 +21,9 @@ public sealed partial class DomBridge
         // areas: a page that stashes per-tab state in one and durable state in the other must not
         // see the two answer each other's reads.
         //
-        // The storage areas are the bridge's four exotic objects' neighbours: WebStorageBinding
-        // mints all six members of each through the realm, over a backing object that completes its
-        // own lookup and its own deletion — which is the one thing IJsExotic cannot yet express.
+        // The storage areas are exotic objects: WebStorageBinding mints all six members of each through
+        // the realm onto an area whose handler completes its own lookup and, through IJsExoticDelete,
+        // its own deletion. (This said deletion was the one thing IJsExotic could not yet express.)
         realm.DefineValue(window, "localStorage", Dom.Features.WebStorageBinding.BuildStorage(realm));
         realm.DefineValue(window, "sessionStorage", Dom.Features.WebStorageBinding.BuildStorage(realm));
 
@@ -67,7 +67,7 @@ public sealed partial class DomBridge
         // window timers / animation frames — thin adapters over the P2.4 BrowserEventLoop, co-located
         // in the TimerBinding feature module (Phase 3). The realm mints all six with the names and
         // arities they had, and the binding reads its arguments off the call frame. The event loop
-        // they queue into still holds engine functions, which is the one seam TimerBinding names.
+        // they queue into holds the handles the realm minted; this said it held engine functions.
         realm.DefineValue(window, "setTimeout", realm.NewMethod("setTimeout", (in a) => Dom.Features.TimerBinding.SetTimeout(_eventLoop, _windowContext, in a), 2));
         realm.DefineValue(window, "clearTimeout", realm.NewMethod("clearTimeout", (in a) => Dom.Features.TimerBinding.ClearTimeout(_eventLoop, in a), 1));
         realm.DefineValue(window, "setInterval", realm.NewMethod("setInterval", (in a) => Dom.Features.TimerBinding.SetInterval(_eventLoop, _windowContext, in a), 2));
@@ -463,8 +463,8 @@ public sealed partial class DomBridge
         // WindowEventTargetBinding feature module (Phase 3). These reach the global object — so
         // the idiomatic unqualified `addEventListener("load", …)` registers a window listener,
         // as it does in a browser — through MirrorWindowMembersOntoGlobal, which shares the
-        // identical function objects so the two spellings address one listener store. The listener
-        // store still holds engine values; the host contract is where a handle becomes one.
+        // identical function objects so the two spellings address one listener store. It holds
+        // handles, and the host contract converts nothing. (This said the store held engine values.)
         realm.DefineValue(window, "addEventListener", realm.NewMethod("addEventListener", (in c) => Dom.Features.WindowEventTargetBinding.AddEventListener(this, in c), 3));
         realm.DefineValue(window, "removeEventListener", realm.NewMethod("removeEventListener", (in c) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c), 3));
         realm.DefineValue(window, "dispatchEvent", realm.NewMethod("dispatchEvent", (in c) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c), 1));

@@ -41,10 +41,10 @@ public sealed partial class DomBridge
     /// <para>
     /// Returning an object from a base constructor is what makes this work: <c>super()</c>'s result
     /// becomes <c>this</c>, so the subclass constructor goes on to run against a real DOM element.
-    /// The element's members are its own properties, so re-pointing its prototype at
-    /// <c>new.target.prototype</c> adds the class's methods without displacing any of them, and the
-    /// class chain already ends at <c>HTMLElement.prototype</c> — which is genuinely in the element's
-    /// chain since the interface prototypes were linked.
+    /// Re-pointing its prototype at <c>new.target.prototype</c> keeps what it inherits from
+    /// <c>EventTarget</c>, <c>Node</c>, <c>Element</c> and <c>HTMLElement</c> reachable: the class chain
+    /// reaches <c>HTMLElement.prototype</c>, which its hyphenated tag linked it to, and what it still
+    /// owns stays put. (This said all its members were its own.)
     /// </para>
     /// <para>
     /// <b>The JavaScript below is host script</b> — authored in this repository and shipped with it —

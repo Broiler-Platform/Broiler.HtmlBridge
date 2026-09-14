@@ -12,7 +12,7 @@ namespace Broiler.HtmlBridge;
 /// <para>
 /// <b>One wrapper factory, and it answers a handle.</b>
 /// <see cref="WrapNode"/> is the JSEAL-vocabulary entry point and the implementation: the object
-/// is minted by <see cref="IJsRealm.NewObject"/> — or by <see cref="IJsRealm.NewExotic"/> for a
+/// is minted by <see cref="IJsValues.NewObject"/> — or by <see cref="IJsValues.NewExotic"/> for a
 /// <c>&lt;form&gt;</c> — and all of its members are installed through the realm. This paragraph named
 /// an engine-typed sibling, <c>ToJSObject</c>, as one cast over it; that member was retired in bcce315.
 /// Wrapper identity lives in <c>Runtime/JsObjectRegistry.cs</c>, whose wrapper-to-node table keys on
@@ -41,9 +41,9 @@ public sealed partial class DomBridge
     private const double DefaultBodyMarginPixels = 8;
     private const int MaxScrollContinuationDepth = 16;
 
-    // RF-BRIDGE-1c Phase F (F3b): the JS-object registry is keyed by canonical DomNode so
-    // text/comment nodes (which get JS wrappers) can round-trip once they flip to canonical
-    // DomText/DomComment. A facade node IS-A DomNode, so this is a behaviour-preserving widen.
+    // RF-BRIDGE-1c Phase F (F3b): the JS-object registry is keyed by canonical DomNode, so the
+    // DomText/DomComment nodes construction creates (which get JS wrappers) round-trip. (This said
+    // they would once construction flipped, and called the widen safe for facade nodes.)
     // P2.2: wrapper identity now lives in JsObjectRegistry, the single authority (was the scattered
     // _jsObjectCache and per-document-root wrapper fields).
     private readonly Dom.Runtime.JsObjectRegistry _jsObjects = new();
@@ -98,16 +98,16 @@ public sealed partial class DomBridge
 
         // Point the wrapper at its interface prototype before any member is installed, so
         // constructor.name and Object.getPrototypeOf answer the interface rather than Object.
-        // Non-element nodes only — see WrapperPrototypes.cs for why an element's is a separate
-        // question.
+        // Every node kind InterfaceNameFor names, elements included — WrapperPrototypes.cs says how
+        // an element's interface is chosen from its tag.
         ApplyInterfacePrototype(handle, node);
 
         // RF-BRIDGE-1c Phase F (F3c): canonical character-data nodes (DomText/DomComment) are not
         // Broiler.Dom.DomElement, so they receive a minimal Node/CharacterData wrapper instead of the full
-        // element surface below. This branch is dead on today's homogeneous facade tree — facade
-        // text/comment nodes are Broiler.Dom.DomElement and fall through to the element wrapper, preserving
-        // behaviour — and goes live once text/comment construction flips to canonical
-        // DomText/DomComment (F3c construction cutover).
+        // element surface below — the `node is not DomElement` arm after the doctype and fragment arms. It
+        // is live: construction has flipped, so every text and comment node takes it, and the only other
+        // kind that reaches it is a DomDocument with no wrapper in either registry map above.
+        // (This said the branch was dead on the homogeneous facade tree until that flip.)
         if (node is DomDocumentType docType)
         {
             // Phase 4 item 1: the doctype is a canonical DomDocumentType (was a #doctype sentinel
@@ -135,7 +135,7 @@ public sealed partial class DomBridge
         // Element's whole interface — tagName, id/className, the attribute surface, classList,
         // innerHTML/outerHTML, the shadow-host pair, the ParentNode/ChildNode/element-sibling members,
         // the selector lookups, the box metrics, requestFullscreen and animate — lives on
-        // Element.prototype and this wrapper inherits it (DomBridge.ElementInterface.cs). A wrapper
+        // Element.prototype and this wrapper inherits it (DomBridge/ElementInterface.cs). A wrapper
         // minted before the realm carried the interfaces inherits nothing and installs its own, from
         // the same installer, so the two shapes cannot drift.
         if (!_elementInterfacePrototypeReady)
@@ -143,7 +143,7 @@ public sealed partial class DomBridge
 
         // HTMLElement's — the global reflectors, style, dataset, innerText/outerText, click/focus/blur,
         // attachInternals, the on* handlers and the offset* metrics — the same way, on
-        // HTMLElement.prototype (DomBridge.HtmlElementInterface.cs). An SVG element installs them on
+        // HTMLElement.prototype (DomBridge/HtmlElementInterface.cs). An SVG element installs them on
         // itself: SVGElement derives straight from Element, so it inherits none of them, and keeping
         // its own copies is what preserves the surface it has today.
         if (!_htmlElementInterfacePrototypeReady || !IsHtmlNamespace(element))
@@ -157,7 +157,7 @@ public sealed partial class DomBridge
         // -- DOM tree navigation --
 
         // The Node members are on Node.prototype and this wrapper inherits them
-        // (DomBridge.CharacterDataInterface.cs). Each was a byte-identical copy of what lives
+        // (DomBridge/CharacterDataInterface.cs). Each was a byte-identical copy of what lives
         // there, so nothing about them changes; only their location does. A wrapper minted before
         // the realm carried the interfaces inherits nothing and still installs its own.
         if (!_nodeInterfacePrototypesReady)
@@ -166,17 +166,17 @@ public sealed partial class DomBridge
         // The CharacterData surface below is minted by the realm: its module is migrated, so each body
         // has a JsCall frame of its own to read its offset and data arguments from.
 
-        // data (read/write) — for text nodes and comment nodes (alias for nodeValue/textContent)
+        // data (read/write) — on every element, where it reads undefined and ignores a write
         Realm.DefineAccessor(handle, "data",
             (in call) => Dom.Features.CharacterDataBinding.GetData(element, in call),
             (in call) => Dom.Features.CharacterDataBinding.SetData(this, element, in call));
 
-        // length (read-only) — character count for text/comment nodes, child count for elements
+        // length (read-only) — on every element, where it answers the child count
         Realm.DefineAccessor(handle, "length",
             (in call) => Dom.Features.CharacterDataBinding.GetLength(element, in call),
             null);
 
-        // splitText(offset) — splits a text node at the given character offset
+        // splitText(offset) — unreachable: no DomElement is a text node, and Text.prototype has it
         if (IsText(element))
         {
             Realm.DefineValue(handle, "splitText",
@@ -184,7 +184,7 @@ public sealed partial class DomBridge
                     (in call) => Dom.Features.CharacterDataBinding.SplitText(this, element, in call), 1));
         }
 
-        // substringData(offset, count) — for text/comment CharacterData nodes
+        // substringData and the other four data methods — unreachable too, for the same reason
         if (IsText(element) || IsComment(element))
         {
             Realm.DefineValue(handle, "substringData",
@@ -261,7 +261,7 @@ public sealed partial class DomBridge
         // -- DOM events --
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
-        // routed by receiver (DomBridge.EventTargetInterface.cs) — one function for every target, as
+        // routed by receiver (DomBridge/EventTargetInterface.cs) — one function for every target, as
         // in a browser. A wrapper minted before the realm carried it installs its own, through the
         // realm and with a JSEAL frame, exactly as the routed path does. (This said the three were the
         // engine's and read the engine's argument frame; neither was so.)
@@ -281,7 +281,7 @@ public sealed partial class DomBridge
         }
 
         // click/focus/blur and the on* handlers are HTMLElement's and are on its prototype
-        // (DomBridge.HtmlElementInterface.cs). Compiling the on* HTML attributes into handlers is not
+        // (DomBridge/HtmlElementInterface.cs). Compiling the on* HTML attributes into handlers is not
         // a member and still belongs to each element.
         CompileInlineEventAttributes(element);
 

@@ -3,10 +3,10 @@ using Broiler.HtmlBridge.Logging;
 
 // Engine-typed for two reasons, and only two:
 //
-//   * RegisterDocument takes the script context the host hands Attach and swaps its code cache for
-//     the process-shared one. That is a Broiler.JS optimisation with no JSEAL vocabulary — there is
-//     no "compile once per process" member on the realm contract — so this is the floor rather than
-//     a step not yet taken.
+//   * RegisterDocument swaps the code cache of the script context the host hands Attach for the
+//     process-shared one, and SyncWindowMembersOntoGlobal repeats the swap on the same context.
+//     That is a Broiler.JS optimisation with no JSEAL vocabulary — there is no "compile once per
+//     process" member on the realm contract — so this is the floor rather than a step not yet taken.
 //   * AdoptRealm (DomBridge.Realm.cs) takes that same context to produce the realm, so the context
 //     has to reach it.
 //
@@ -124,7 +124,7 @@ public sealed partial class DomBridge
             new JsRealmOptions { AllowGuestEval = Csp?.AllowsEval ?? true });
 
         // EventTarget.prototype's three methods, routed by receiver
-        // (DomBridge.EventTargetInterface.cs). First, because every wrapper registration below asks
+        // (DomBridge/EventTargetInterface.cs). First, because every wrapper registration below asks
         // whether the routing is in place before installing its own copies — the document's included.
         // It depends only on the realm's own EventTarget, which the context already carries.
         RegisterEventTargetRouting();
@@ -392,12 +392,12 @@ public sealed partial class DomBridge
     // ── inert members, in the realm's vocabulary ───────────────────────────────────────────────
 
     /// <summary>
-    /// <c>UndefinedFunction</c> and <c>TrueFunction</c> (DomBridge/JsNative.cs) as the realm mints
-    /// them — an inert member that answers <c>undefined</c>, or one that answers <c>true</c>.
+    /// The retired <c>UndefinedFunction</c> and <c>TrueFunction</c> (see DomBridge/JsNative.cs) as the
+    /// realm mints them — an inert member that answers <c>undefined</c>, or one that answers <c>true</c>.
     /// </summary>
     /// <remarks>
-    /// <c>NewConstructor</c> rather than <c>NewMethod</c> because the engine-built pair carries a
-    /// prototype object and is therefore constructable, and preserving that is what makes this a
+    /// <c>NewConstructor</c> rather than <c>NewMethod</c> because the engine-built pair carried a
+    /// prototype object and was therefore constructable, and preserving that is what makes this a
     /// refactor. (WebIDL says an operation should not be constructable; that is a pre-existing
     /// deviation shared by every constructable-function member of the registration hubs, and
     /// correcting it belongs in its own change.)

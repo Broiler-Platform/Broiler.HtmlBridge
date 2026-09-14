@@ -28,7 +28,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// objects, accessors and methods come from the realm, which is handed in when the interfaces are
 /// installed and arrives on the call frame for every accessor and method body afterwards. The three
 /// SMIL no-ops used to be built by the bridge's <c>UndefinedFunction</c>/<c>ZeroFunction</c> factories,
-/// which mint a plain <em>constructable</em> engine function; see the remarks on
+/// which minted a plain <em>constructable</em> engine function; see the remarks on
 /// <see cref="InstallSmilNoOps"/> for why they are asked of the realm as constructors here.
 /// </para>
 /// </summary>
@@ -130,14 +130,14 @@ internal static class SvgElementBinding
     /// </summary>
     /// <remarks>
     /// All three are <em>constructable</em>, and only because they always have been: they were built by
-    /// the bridge's <c>UndefinedFunction</c>/<c>ZeroFunction</c> helpers, which mint a plain engine
-    /// function — one that carries a <c>prototype</c> object and so passes the engine's constructor test
-    /// — rather than the non-constructable shape WebIDL gives an operation. Under JSEAL that distinction
-    /// is which factory is called, so preserving the behaviour means asking for a constructor here. A
-    /// browser answers <c>undefined</c> for <c>el.beginElement.prototype</c> and throws on
-    /// <c>new el.beginElement()</c>; correcting that is a behaviour change that belongs in its own commit
-    /// alongside the helpers' other callers, as <see cref="ScreenOrientationBinding"/> records for
-    /// <c>screen.orientation.unlock</c>.
+    /// the bridge's <c>UndefinedFunction</c>/<c>ZeroFunction</c> helpers, since removed, which minted a
+    /// plain engine function — one that carries a <c>prototype</c> object and so passes the engine's
+    /// constructor test — rather than the non-constructable shape WebIDL gives an operation. Under JSEAL
+    /// that distinction is which factory is called, so preserving the behaviour means asking for a
+    /// constructor here. A browser answers <c>undefined</c> for <c>el.beginElement.prototype</c> and
+    /// throws on <c>new el.beginElement()</c>; correcting that is a behaviour change that belongs in its
+    /// own commit alongside the other members those helpers used to build, as
+    /// <see cref="ScreenOrientationBinding"/> records for <c>screen.orientation.unlock</c>.
     /// </remarks>
     private static void InstallSmilNoOps(IJsRealm realm, JsValue obj)
     {

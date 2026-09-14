@@ -16,7 +16,7 @@ namespace Broiler.HtmlBridge;
 /// <remarks>
 /// <para>
 /// This is the element half of track 6's wrapper item, and it follows the character-data move
-/// (<c>DomBridge.CharacterDataInterface.cs</c>, which describes the receiver mechanism) and the
+/// (<c>DomBridge/CharacterDataInterface.cs</c>, which describes the receiver mechanism) and the
 /// <c>Node</c>-member deletion that came after it. An element carried <b>140</b> own properties where
 /// a browser gives it none, and <c>Element.prototype.getAttribute</c> was
 /// <see langword="undefined"/> — so the ordinary defensive idiom
@@ -347,9 +347,9 @@ public sealed partial class DomBridge
     /// <remarks>
     /// The selector and collection members read their argument here rather than inside
     /// <see cref="Dom.Features.SelectorsBinding"/>, because the module's entry points take the string
-    /// their caller has already produced — the sub-document and <c>DocumentFragment</c> forms share
-    /// them. It is the realm's <c>ToString</c> and not the handle's rendering, which is the same read
-    /// on the same value the engine frame performed.
+    /// their caller has already produced and this file is their only caller; the sub-document and
+    /// <c>DocumentFragment</c> forms read their own (this said they shared them). It is the realm's
+    /// <c>ToString</c> and not the handle's rendering, the same read the engine frame performed.
     /// </remarks>
     private static string StringArgument(in JsCall call) =>
         call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;

@@ -431,29 +431,6 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// The end-edge (bottom / right) margin of <paramref name="descendant"/> that extends the
-    /// <em>viewport's</em> scrolling area past the descendant's border box.
-    ///
-    /// <para>The document's scrolling area is its total layout height, which runs to the end of
-    /// the last block's margin box — a trailing <c>margin-bottom</c> below the last block is
-    /// scrollable. Unioning border boxes alone truncated the document by exactly that margin
-    /// and clamped every programmatic scroll to a max that was too small (issue #1439:
-    /// css-scroll-snap/scroll-snap-root-001 must scroll to 998.4px, but the missing
-    /// <c>#target { margin-bottom: 120vh }</c> capped the document at 636.4px).</para>
-    ///
-    /// <para><b>This is deliberately restricted to the viewport.</b> For an ordinary element
-    /// scroll container, a child's margin does not by itself create scrollable overflow — an
-    /// auto-sized box grows to fit its children's margins, and a margin that collapses out of
-    /// it is not content the box can scroll to. <c>Wpt_CssomView_AutoSized_ScrollMetrics_Do_Not
-    /// _Report_MarginOnly_Overflow</c> pins that: margins alone must leave
-    /// <c>scrollHeight == clientHeight</c>. Applying this to every scroll container broke it.</para>
-    ///
-    /// <para>Only positive margins extend the area: a negative margin pulls content back toward
-    /// the origin and never adds scrollable space. The caller takes a <c>max</c> over all
-    /// descendants, so a margin that collapses up through several ancestors is counted once at
-    /// whichever box carries it rather than accumulating.</para>
-    /// </summary>
-    /// <summary>
     /// Whether this axis's scroll coordinates run backwards — the axis grows toward smaller physical
     /// coordinates, so its scroll offsets are negative and its content overflows toward the physical
     /// start edge.
@@ -477,6 +454,29 @@ public sealed partial class DomBridge
                 || (string.Equals(writingMode, "horizontal-tb", StringComparison.OrdinalIgnoreCase) && isRtl);
     }
 
+    /// <summary>
+    /// The end-side margin of <paramref name="descendant"/> on the axis — bottom / right, or top / left
+    /// when <paramref name="reversed"/> — that extends the <em>viewport's</em> scrolling area past its
+    /// border box.
+    /// <para>The document's scrolling area is its total layout height, which runs to the end of
+    /// the last block's margin box — a trailing <c>margin-bottom</c> below the last block is
+    /// scrollable. Unioning border boxes alone truncated the document by exactly that margin
+    /// and clamped every programmatic scroll to a max that was too small (issue #1439:
+    /// css-scroll-snap/scroll-snap-root-001 must scroll to 998.4px, but the missing
+    /// <c>#target { margin-bottom: 120vh }</c> capped the document at 636.4px).</para>
+    ///
+    /// <para><b>This is deliberately restricted to the viewport.</b> For an ordinary element
+    /// scroll container, a child's margin does not by itself create scrollable overflow — an
+    /// auto-sized box grows to fit its children's margins, and a margin that collapses out of
+    /// it is not content the box can scroll to. <c>Wpt_CssomView_AutoSized_ScrollMetrics_Do_Not
+    /// _Report_MarginOnly_Overflow</c> pins that: margins alone must leave
+    /// <c>scrollHeight == clientHeight</c>. Applying this to every scroll container broke it.</para>
+    ///
+    /// <para>Only positive margins extend the area: a negative margin pulls content back toward
+    /// the origin and never adds scrollable space. The caller takes a <c>max</c> over all
+    /// descendants, so a margin that collapses up through several ancestors is counted once at
+    /// whichever box carries it rather than accumulating.</para>
+    /// </summary>
     private double GetScrollableOverflowEndMargin(
         DomElement descendant, bool vertical, bool reversed, double percentageBasis)
     {

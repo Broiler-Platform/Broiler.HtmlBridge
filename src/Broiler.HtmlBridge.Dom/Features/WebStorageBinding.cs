@@ -76,8 +76,8 @@ internal static class WebStorageBinding
 
         // Non-enumerable, as they are in a browser: there the members live on Storage.prototype and
         // only the stored keys are own properties, so `for (var k in storage)` and
-        // `Object.keys(storage)` yield keys alone. Bridge objects carry their members directly
-        // (see RegisterDomInterfaceConstructors), so hiding them from enumeration is what keeps a
+        // `Object.keys(storage)` yield keys alone. A bridge storage area carries its members directly
+        // (see RegisterStorageConstructor), so hiding them from enumeration is what keeps a
         // page that iterates a storage area from finding four methods among its keys.
         realm.DefineValue(area, "getItem",
             realm.NewMethod("getItem", (in call) => GetItem(storage, in call), 1),
@@ -170,8 +170,8 @@ internal static class WebStorageBinding
     /// <para>
     /// <b>The six interface members are declined at every hook, which is what keeps a key named like
     /// one from costing the page the member.</b> They are ordinary properties of the area — in a
-    /// browser they live on <c>Storage.prototype</c> and only the keys are own properties, but bridge
-    /// objects carry their members directly — and ordinary properties are consulted first, so a stored
+    /// browser they live on <c>Storage.prototype</c> and only the keys are own properties, but a bridge
+    /// storage area carries its members directly — and ordinary properties are consulted first, so a stored
     /// <c>getItem</c> stays readable through <c>getItem</c>, <c>key</c> and <c>length</c> while the
     /// method it collides with goes on being callable.
     /// </para>

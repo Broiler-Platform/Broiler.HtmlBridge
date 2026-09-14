@@ -23,7 +23,7 @@ internal sealed partial class BroilerJsRealm
     /// <code>
     ///   flags                    kind        JSPropertyAttributes
     ///   ───────────────────────  ──────────  ────────────────────────────────
-    ///   Default                  value       EnumerableConfigurableValue      (908 bridge sites)
+    ///   Default                  value       EnumerableConfigurableValue      (908 sites on 2026-09-08)
     ///   Default                  accessor    EnumerableConfigurableProperty   (331)
     ///   NonEnumerable            value       ConfigurableValue                (6)
     ///   NonEnumerable            accessor    ConfigurableProperty             (1)
@@ -40,10 +40,10 @@ internal sealed partial class BroilerJsRealm
     /// <para>
     /// <b><see cref="JsPropertyFlags.Writable"/> is deliberately ignored for an accessor.</b> The
     /// contract says an accessor's writability is whether it has a setter, and the engine agrees —
-    /// <c>Readonly</c> on a <c>Property</c> is a different assertion, and setting it on the 216
-    /// read-only IDL attributes that already express themselves with a null setter would say the same
-    /// thing twice in two vocabularies. Whichever one a future reader believed would be the one that
-    /// was wrong somewhere.
+    /// <c>Readonly</c> on a <c>Property</c> is a different assertion, and setting it on the read-only
+    /// IDL attributes that already express themselves with a null setter (216 on 2026-09-08) would say
+    /// the same thing twice in two vocabularies. Whichever one a future reader believed would be the
+    /// one that was wrong somewhere.
     /// </para>
     /// <para>
     /// The value/accessor split is a parameter here and not a flag for the reason
@@ -82,9 +82,9 @@ internal sealed partial class BroilerJsRealm
     /// <remarks>
     /// <b>A read-only attribute is a CLR <see langword="null"/> setter, not a flag.</b> That is what
     /// the engine expects — <c>FastAddProperty</c> stores the pair as given and the property is
-    /// writable exactly when the setter is there — and it is what the bridge already passes at its 216
-    /// read-only sites (<c>sheet.FastAddProperty("href", NullFunction("get href"), null, …)</c>). So
-    /// a null <paramref name="setter"/> here becomes a null there, unmediated.
+    /// writable exactly when the setter is there — and it is what the bridge already passed at 216
+    /// read-only sites on 2026-09-08 (<c>sheet.FastAddProperty("href", NullFunction("get href"), null,
+    /// …)</c>). So a null <paramref name="setter"/> here becomes a null there, unmediated.
     /// </remarks>
     public void DefineAccessor(JsValue target, string name, JsNativeFunction getter, JsNativeFunction? setter, JsPropertyFlags flags = JsPropertyFlags.Default)
     {
@@ -184,10 +184,10 @@ internal sealed partial class BroilerJsRealm
     /// </summary>
     /// <remarks>
     /// <c>inherited: false</c> is the whole difference between this and a <c>for…in</c>: the engine's
-    /// key enumerator walks the prototype chain when asked to, and the bridge's one caller that needs
-    /// this — the nested-browsing-context sweep that recovers a frame's declarations by diffing the
-    /// global's own names across an evaluation — would find every intrinsic on <c>Object.prototype</c>
-    /// in the diff if it walked.
+    /// key enumerator walks the prototype chain when asked to, and the bridge's two callers want own
+    /// names only — <c>FetchBinding</c> reading an init object and <c>WorkerTransfer</c> a transfer
+    /// list — so a walk would hand both enumerable inherited names. (This named the frame-globals
+    /// sweep as the one caller; it reads <c>Object.getOwnPropertyNames</c> through host script.)
     /// </remarks>
     public IReadOnlyList<string> OwnPropertyNames(JsValue target)
     {

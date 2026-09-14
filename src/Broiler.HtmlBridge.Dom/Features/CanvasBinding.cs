@@ -31,14 +31,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// <b>The JavaScript vocabulary is JSEAL's</b> (<see cref="IJsRealm"/>): objects, accessors, methods,
 /// coercions and errors all come from the realm, which is handed in when the members are installed and
-/// arrives on the call frame for every body afterwards. <b>One line is the exception</b> and it is
-/// named rather than hidden — <see cref="PixelBuffer"/>. JSEAL can mint an object, an array and a
-/// function; it cannot mint an <c>ArrayBuffer</c>, and an <c>ImageData.data</c> that does not share one
-/// with the bytes just read back would have to be copied element by element into a plain array. That
-/// path exists as the fallback below and costs a boxed handle per <em>byte</em> — 24 bytes for each one
-/// — so it is what a realm without <c>Uint8ClampedArray</c> gets and not what every
-/// <c>getImageData</c> pays. The contract gap is real and worth closing; until it is, the seam is one
-/// constructor call wide.
+/// arrives on the call frame for every body afterwards. <b>The pixel buffer is no longer the
+/// exception.</b> It was the one engine-typed line while JSEAL could mint an object, an array and a
+/// function but not an <c>ArrayBuffer</c>; the contract now has <see cref="IJsValues.NewArrayBuffer"/>,
+/// so <c>ImageData.data</c> is the window's <c>Uint8ClampedArray</c> over a realm-minted copy of the
+/// bytes just read back. The plain array built element by element stays as the fallback below and
+/// costs a 24-byte handle per <em>byte</em>, so it is what a realm without <c>Uint8ClampedArray</c> or
+/// without <see cref="JsCapabilities.BinaryData"/> gets, and not what every <c>getImageData</c> pays.
+/// No contract gap remains here, and no seam.
 /// </para>
 /// </remarks>
 internal static class CanvasBinding

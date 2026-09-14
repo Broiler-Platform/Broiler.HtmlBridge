@@ -12,8 +12,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// capture→target→bubble via it), and the window JS object (the synthetic <c>focus</c>/<c>blur</c>
 /// UIEvents expose it as <c>view</c>). The listener-registration semantics live in
 /// <see cref="EventListenerBinding"/> and the propagation engine in <see cref="EventDispatchBinding"/>;
-/// node-type/attribute/runtime-state helpers, the radio-group mutual-exclusion walk and the no-op
-/// function factory are the bridge's <c>internal static</c> helpers.
+/// node-type/attribute helpers are the bridge's <c>internal static</c> helpers, and the form-control
+/// state and the radio-group mutual-exclusion walk are members of this contract. (This called the
+/// walk a static helper too, and named a no-op function factory that is gone.)
 /// </summary>
 /// <remarks>
 /// <para>

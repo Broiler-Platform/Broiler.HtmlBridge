@@ -12,9 +12,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// (option parsing, dedup, match-by-listener+capture) live in <see cref="EventListenerBinding"/> and the
 /// capture→target→bubble engine in <see cref="EventDispatchBinding"/>; this module wires the JS-facing
 /// methods to them, reaching the realm, the per-node listener store, the dispatch engine and the window
-/// JS object through <see cref="IEventTargetHost"/>. Node-type/attribute/runtime-state helpers and the
-/// radio-group mutual-exclusion walk (<c>UncheckRadioSiblings</c>) are the bridge's
-/// <c>internal static</c> helpers, called directly.
+/// JS object through <see cref="IEventTargetHost"/>. Node-type/attribute helpers are the bridge's
+/// <c>internal static</c> helpers, called directly; the form-control state and the radio-group
+/// mutual-exclusion walk (<c>UncheckRadioSiblings</c>) are members of that contract. (This called the
+/// runtime state and the walk static helpers too.)
 /// </summary>
 /// <remarks>
 /// <para>
@@ -204,7 +205,7 @@ internal static class EventTargetBinding
     /// </summary>
     /// <remarks>
     /// <b><see cref="IJsValues.NewConstructor"/>, not <c>NewMethod</c>, and that is faithfulness
-    /// rather than intent.</b> These were minted by <c>DomBridge.UndefinedFunction</c>, which builds
+    /// rather than intent.</b> These were minted by <c>DomBridge.UndefinedFunction</c>, which built
     /// a plain <c>JSFunction</c> — so each carries a <c>prototype</c> object and passes the engine's
     /// constructor test, which WebIDL says an operation must not. <c>NewMethod</c> would be the right
     /// shape and a behaviour change (<c>evt.stopPropagation.prototype</c> would become

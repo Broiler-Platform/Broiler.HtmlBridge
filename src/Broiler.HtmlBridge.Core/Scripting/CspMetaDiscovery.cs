@@ -29,8 +29,9 @@ internal static class HtmlAttributeReader
 /// <summary>
 /// Document-side <b>discovery</b> of a Content Security Policy: locating the policy directive string
 /// declared via a <c>&lt;meta http-equiv="Content-Security-Policy" content="…"&gt;</c> tag. This is
-/// deliberately separate from <see cref="ContentSecurityPolicy"/>, which <b>parses and evaluates</b>
-/// the directive string — discovery answers "where is the policy in this document", the policy answers
+/// deliberately separate from <see cref="Broiler.HtmlBridge.Scripting.ContentSecurityPolicy"/>,
+/// which <b>parses and evaluates</b> the directive string — discovery answers "where is the policy in
+/// this document", the policy answers
 /// "what does it allow" (Phase 7 item 1: split parse / discovery / policy).
 /// </summary>
 /// <remarks>
@@ -44,7 +45,8 @@ internal static class CspMetaDiscovery
     /// <summary>
     /// Returns the directive string (the <c>content</c> value) of the first supported CSP
     /// <c>&lt;meta&gt;</c> tag in <paramref name="html"/>, or <c>null</c> when none is present.
-    /// The returned string is unparsed — hand it to <see cref="ContentSecurityPolicy.Parse"/>.
+    /// The returned string is unparsed — hand it to
+    /// <see cref="Broiler.HtmlBridge.Scripting.ContentSecurityPolicy.Parse"/>.
     /// </summary>
     public static string? FindPolicyContent(string html)
     {

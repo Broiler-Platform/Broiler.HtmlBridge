@@ -23,10 +23,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// <see cref="ElementsByTagName"/> and <see cref="ElementsByClassName"/> replace the pair of
-/// "collect into this list" members for the same reason. Building an <c>HTMLCollection</c> — with the
-/// liveness and the DOM §4.2.10.2 named getter that go with it — is still engine-typed work in
-/// <c>DomCollectionBinding</c>, so the whole of it sits on the bridge side of the seam rather than
-/// being reassembled from an engine-typed list the binding would have to hold.
+/// "collect into this list" members for the same reason. The bridge builds the whole
+/// <c>HTMLCollection</c> — the live contents walk, the DOM §4.2.10.2 named getter and the
+/// <c>DomCollectionBinding.HtmlCollection</c> call, which takes the realm and answers a handle —
+/// and the binding receives it finished. (This said that call was still engine-typed work.)
 /// </para>
 /// </remarks>
 internal interface ISelectorsHost

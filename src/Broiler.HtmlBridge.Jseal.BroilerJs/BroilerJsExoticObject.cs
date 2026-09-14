@@ -22,8 +22,8 @@ namespace Broiler.HtmlBridge.Jseal.BroilerJs;
 /// </para>
 /// <para>
 /// <b>ORDERING IS LOAD-BEARING: the base lookup runs FIRST, and the handler answers only what it did
-/// not.</b> Every one of the six classes does this — <c>DomCollectionBinding.cs:386-393</c> and
-/// <c>StyleDeclarationBinding.cs:280-282</c> are the sites that state it outright — and it is what
+/// not.</b> Every one of the six classes did this — the class remarks of <c>DomCollectionBinding</c> and
+/// <c>StyleDeclarationBinding</c> state it for their replacement handlers — and it is what
 /// WebIDL's named-property semantics require. Getting it backwards is silently wrong rather than
 /// loudly wrong: a collection that happens to contain an element named <c>item</c> would start
 /// shadowing its own <c>item()</c> method, and every ordinary member of a style declaration would

@@ -20,7 +20,7 @@ namespace Broiler.HtmlBridge;
 /// </para>
 /// <para>
 /// Runs inside <see cref="ApplySerializationTransforms"/> after
-/// <see cref="InlineStyleSheetImports"/> (so inlined <c>@import</c> content — already rebased
+/// <see cref="InlineStyleSheetImports(DomElement)"/> (so inlined <c>@import</c> content — already rebased
 /// onto the imported sheet's own URL — carries absolute <c>url()</c>s this pass leaves alone).
 /// Only the render-bound serialization is affected; the live CSSOM rule model and JS-visible
 /// serialization are untouched. <c>&lt;style&gt;</c> <c>url()</c>s and

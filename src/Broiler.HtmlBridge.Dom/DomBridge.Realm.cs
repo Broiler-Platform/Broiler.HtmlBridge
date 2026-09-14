@@ -9,14 +9,15 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Both halves name the same realm, and that is what makes the migration incremental.</b> A
-/// binding that has been migrated builds its objects through <see cref="Realm"/>; one that has not
-/// still builds them on <c>_jsContext</c>. They are the same JavaScript realm, so a
-/// <c>console</c> built through JSEAL and a <c>window</c> built directly can hold each other, and a
-/// page cannot tell which of its globals came from which half. When the last binding moves, the field
-/// below stops being a second name for a context the bridge was handed and becomes the only name it
-/// has — and <c>IDomBridgeRuntime.Attach</c> can then take an <see cref="IJsRealm"/> instead of a
-/// <c>JSContext</c>, which is the change this whole layer exists to make possible.
+/// <b>Both halves name the same realm.</b> Every binding builds its objects through
+/// <see cref="Realm"/>, except the array <c>SetAdoptedStyleSheets</c> copies in engine terms
+/// (see <c>Runtime/JsInterop.cs</c>). <c>_jsContext</c> has two readers left:
+/// <c>SyncWindowMembersOntoGlobal</c>, which swaps the context's code cache around the window mirror,
+/// and the sub-document module tail in <c>DomBridge/SubDocuments.cs</c>, which runs module roots on
+/// it when it is a module context. (This said a binding that had not migrated still built its
+/// objects on the field.) While those and <c>RegisterDocument</c>'s own cache swap need the context,
+/// <c>IDomBridgeRuntime.Attach</c> takes a <c>JSContext</c> rather than an <see cref="IJsRealm"/>;
+/// changing that is the change this whole layer exists to make possible.
 /// </para>
 /// <para>
 /// <b>The realm is adopted, not created.</b> <c>ScriptEngine</c> builds the <c>JSContext</c> and owns
@@ -52,9 +53,9 @@ public sealed partial class DomBridge
     /// </para>
     /// <para>
     /// A failure here is thrown rather than tolerated. A bridge with no realm would build its
-    /// migrated bindings' objects nowhere and register a document missing whichever globals had
-    /// already moved — a page loading with no <c>console</c> and no error. The diagnosis is short and
-    /// worth stating in the message: nothing linked an engine provider.
+    /// bindings' objects nowhere and register a document missing every global they install — a page
+    /// loading with no <c>console</c> and no error. (This said "whichever globals had already moved".)
+    /// The diagnosis is short and worth stating in the message: nothing linked an engine provider.
     /// </para>
     /// </remarks>
     /// <param name="options">

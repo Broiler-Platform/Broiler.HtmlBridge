@@ -64,8 +64,8 @@ internal static class BroilerJsMarshal
     /// <remarks>
     /// <para>
     /// <b>A CLR <see langword="null"/> is <see cref="JsValue.Missing"/>, not <c>undefined</c>.</b>
-    /// Broiler.JS's <c>Arguments</c> indexer answers null for an index past the end, and the 598
-    /// argument reads the bridge performs are entitled to tell "not passed" from "passed undefined".
+    /// Broiler.JS's <c>Arguments</c> indexer answers null for an index past the end, and the bridge's
+    /// argument reads (598 on 2026-09-08) are entitled to tell "not passed" from "passed undefined".
     /// This is the single line that keeps that true; every other reader of an argument goes through
     /// <c>JsCall</c>, which is filled from here.
     /// </para>

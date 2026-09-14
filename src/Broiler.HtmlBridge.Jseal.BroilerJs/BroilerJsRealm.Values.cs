@@ -97,9 +97,9 @@ internal sealed partial class BroilerJsRealm
     /// It is also the memory fix <c>DomBridge/DomFunction.cs</c> recorded, and the reason that file
     /// existed -- it is deleted, and in this repository's history, because every member the bridge
     /// installs now comes through here instead of through a bridge type the bridge had to remember
-    /// to use. A node's wrapper is built eagerly and per node with roughly 149 own members, each of
+    /// to use. A node's wrapper was built eagerly with roughly 149 own members on 2026-09-08, each of
     /// which was allocating a <c>JSFunction</c> <em>plus</em> an unreachable prototype object plus
-    /// that object's <c>constructor</c> back-reference. Dropping the prototype roughly halves the
+    /// that object's <c>constructor</c> back-reference. Dropping the prototype roughly halved the
     /// retained cost of a wrapper — the difference between a document of 10k script-created elements
     /// fitting in the WPT per-test memory budget and being aborted. Every member the bridge installs
     /// comes through here, so the same saving now belongs to the provider rather than to a bridge
@@ -123,8 +123,8 @@ internal sealed partial class BroilerJsRealm
     /// <remarks>
     /// The same constructor with <c>createPrototype: true</c>, which mints the <c>prototype</c> object
     /// an interface's members are installed on and makes the function pass the engine's constructor
-    /// test. There are sixteen of these in the bridge against 1,246 members, which is why this is the
-    /// method that has to be asked for by name and <see cref="NewMethod"/> is the default.
+    /// test. The bridge had sixteen of these against 1,246 members on 2026-09-08, which is why this
+    /// is the method that has to be asked for by name and <see cref="NewMethod"/> is the default.
     /// </remarks>
     public JsValue NewConstructor(string name, JsNativeFunction body, int length = 0)
     {

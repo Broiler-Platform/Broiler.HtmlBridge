@@ -22,10 +22,10 @@ public sealed partial class DomBridge
     private readonly DocumentStyleContext _styleContext = new();
 
     /// <summary>
-    /// Serializes an element's live inline-style map (ElementRuntimeState) to a CSS
+    /// Serializes an element's live inline-style map (InlineStyleRuntimeState.Style) to a CSS
     /// declaration string for the canonical engine's cascade — the bridge's authoritative
-    /// inline source, which includes JS <c>el.style.X=</c> writes and anchor-resolver-written
-    /// geometry that never reach the DOM <c>style</c> attribute the engine would otherwise read.
+    /// inline source. JS <c>el.style.X=</c> writes land in it first, then in the DOM <c>style</c>
+    /// attribute the engine would otherwise read; anchor-resolver bakes land in the baked overlay.
     /// Returns <c>null</c> when there is no inline style.
     /// </summary>
     private string? SerializeInlineStyleForEngine(DomElement element)
@@ -66,9 +66,9 @@ public sealed partial class DomBridge
             // Non-static so the `:checked` state provider can read this bridge's per-instance
             // FormControl table (Phase 2 item 4 de-globalization).
             var engine = new CssStyleEngine(new BridgeSelectorStateProvider(this));
-            // Feed the bridge's live ElementRuntimeState inline map as the cascade's inline
-            // source (see SerializeInlineStyleForEngine) so the engine sees JS-set and
-            // anchor-resolver-written inline that never reaches the DOM style attribute.
+            // Feed the bridge's live InlineStyleRuntimeState.Style map as the cascade's inline
+            // source (see SerializeInlineStyleForEngine), so the engine reads JS-set inline from the
+            // map, not the style attribute it is synced to (anchor bakes stay in the baked overlay).
             engine.SetInlineStyleSource(SerializeInlineStyleForEngine);
             return new ComputedStyleEngineScope(new CssStyleScopeBuilder(engine), engine);
         });

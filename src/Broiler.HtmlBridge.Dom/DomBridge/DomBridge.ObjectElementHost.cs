@@ -8,9 +8,9 @@ namespace Broiler.HtmlBridge;
 // the live page URL plus the sub-document invalidation / load-failure / factory hooks — while the neutral
 // content-attribute and same-origin helpers are called as internal statics.
 //
-// The sub-document factory is where this file is the engine-typed half of the seam: the browsing-context
-// cache holds the engine's own document object, and Dom.Runtime.JsInterop mints a handle over it rather
-// than converting it, so `obj.contentDocument === obj.contentDocument` is the same question it was.
+// Neither half of this seam is engine-typed: the sub-document factory forwards the bridge's own, which
+// answers the handle the browsing-context cache holds, so `obj.contentDocument === obj.contentDocument`
+// compares that handle with itself. (This said the cache held an engine object for JsInterop to wrap.)
 public sealed partial class DomBridge : Dom.Features.IObjectElementHost
 {
     string Dom.Features.IObjectElementHost.PageUrl => _pageUrl;

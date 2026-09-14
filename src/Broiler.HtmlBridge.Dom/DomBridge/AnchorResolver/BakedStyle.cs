@@ -86,7 +86,7 @@ public sealed partial class DomBridge
 
 /// <summary>
 /// Value wrapper the bridge's serialize-time bake writers use (returned by
-/// <see cref="DomBridge.BakedInlineStyle"/>). Writes land in the per-element baked <paramref name="overlay"/>
+/// <see cref="DomBridge.BakedInlineStyle"/>). Writes land in the per-element baked overlay the map wraps
 /// (indexer set → value; <c>Remove</c> → <c>null</c> tombstone); reads return the <b>merged</b>
 /// base ∪ overlay view (overlay wins, tombstones remove). It mirrors the <see cref="Dictionary{TKey,TValue}"/>
 /// surface the cluster uses (indexer get/set, <c>Remove</c>, <c>ContainsKey</c>, <c>TryGetValue</c>,

@@ -63,7 +63,8 @@ internal sealed class WorkerTimers
 
     private double NowMs => _clock.Elapsed.TotalMilliseconds;
 
-    /// <summary>Registers a timer, returning its id. Repeating when <paramref name="periodMs"/> is set.</summary>
+    /// <summary>Registers a timer, returning its id. Repeating when <paramref name="repeating"/> is
+    /// set, with <paramref name="delayMs"/> as its period.</summary>
     /// <remarks>
     /// An id is allocated even for a <see langword="null"/> callback — the caller passes null when the
     /// first argument was not a function — matching <c>setTimeout("string")</c>'s observable behaviour

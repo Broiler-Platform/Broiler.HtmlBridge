@@ -12,9 +12,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
 /// type. What used to be the second kind of member on this contract — calling a JavaScript
-/// constructor, calling a reaction, and the three promise factories <c>whenDefined</c> needed — is
-/// gone: every one of them was an engine operation with no bridge state behind it, and
-/// <see cref="IJsCalls.Construct"/>, <see cref="IJsCalls.Invoke"/> and
+/// constructor, calling a reaction, the three promise factories <c>whenDefined</c> needed and
+/// resolving a pending promise — is gone: every one of them was an engine operation with no bridge
+/// state behind it, and <see cref="IJsCalls.Construct"/>, <see cref="IJsCalls.Invoke"/> and
 /// <see cref="IJsJobs.NewPromise"/> are the realm's own. The registry asks the realm directly, which
 /// is why <see cref="Realm"/> is the one member that replaced six.
 /// </para>

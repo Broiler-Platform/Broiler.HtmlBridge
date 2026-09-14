@@ -13,10 +13,10 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The contract is spelled in JSEAL; this file is where that meets the half of the bridge that is
-/// still engine-typed. <see cref="Dom.Runtime.JsInterop"/> is the cast between them and not a
-/// conversion — a JSEAL object handle carries the engine's own object — so wrapper identity is the
-/// same question it was before.
+/// The contract is spelled in JSEAL, and no member here converts: each forwards the realm, a DOM
+/// read or a handle the bridge or a binding answered, and the one event it fires is a realm object
+/// handed to the dispatcher as it is. (This said the file was where JSEAL met a still engine-typed
+/// half of the bridge, with <c>JsInterop</c> casting between them.)
 /// </para>
 /// <para>
 /// <see cref="Realm"/> is implemented explicitly because it has to be: <c>DomBridge.Realm</c> is
@@ -67,8 +67,8 @@ public sealed partial class DomBridge : IElementInternalsHost
     /// <remarks>
     /// The event object is built through the realm; its three members keep the
     /// enumerable/configurable data-property attributes they had, which is what
-    /// <see cref="JsPropertyFlags.Default"/> spells. Dispatch is still engine-typed, so the handle is
-    /// unwrapped at that one call through the <see cref="Dom.Runtime.JsInterop"/> seam.
+    /// <see cref="JsPropertyFlags.Default"/> spells. The dispatcher takes that handle as it is.
+    /// (This said dispatch was still engine-typed and unwrapped the handle through <c>JsInterop</c>.)
     /// </remarks>
     void IElementInternalsHost.DispatchInvalidEvent(DomElement element)
     {

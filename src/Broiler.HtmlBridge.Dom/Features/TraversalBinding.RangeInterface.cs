@@ -24,14 +24,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// names and finds them there would be reading a shape no browser has.
 /// </para>
 /// <para>
-/// <b>Members on the prototype is the point.</b> Every other DOM wrapper in this bridge still
-/// installs its interface as own properties of each object — the open half of track 6's wrapper item
-/// — so <c>Object.getOwnPropertyNames(node)</c> lists the whole interface and
-/// <c>Text.prototype.splitText</c> is <c>undefined</c>. A range is where that stops: the state lives
+/// <b>Members on the prototype is the point.</b> A range keeps no state on the instance: it lives
 /// in <see cref="TraversalBinding._rangeStates"/>, keyed weakly by the range object, so a prototype
 /// method can find its own boundaries from its receiver and there is nothing left to put on the
 /// instance. <c>Object.getOwnPropertyNames(document.createRange())</c> is <c>[]</c>, as it is in a
-/// browser.
+/// browser. The <c>Node</c>, character-data, <c>Element</c> and <c>HTMLElement</c> members have since
+/// moved onto their prototypes too, so <c>Text.prototype.splitText</c> is defined. (This said every
+/// other DOM wrapper here still installed its interface as own properties of each object, and that
+/// <c>Text.prototype.splitText</c> was <c>undefined</c>.)
 /// </para>
 /// <para>
 /// Reaching a range's state through the receiver is also what makes an illegal invocation —

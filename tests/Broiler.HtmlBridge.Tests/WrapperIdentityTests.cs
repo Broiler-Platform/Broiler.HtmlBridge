@@ -197,8 +197,8 @@ public class WrapperIdentityTests
     }
 
     [Fact(Skip = "Known defect: an innerHTML rewrite drops the forward registry entry for every node it " +
-                 "removes (DomBridge/HtmlFragmentMutation.cs:243 -> RemoveElementsRecursive at :22 -> " +
-                 "JsObjectRegistry.Remove at Runtime/JsObjectRegistry.cs:106), so re-inserting a node " +
+                 "removes (DomBridge/HtmlFragmentMutation.cs: SetElementInnerHtml calls " +
+                 "RemoveElementsRecursive, which calls JsObjectRegistry.Remove), so re-inserting a node " +
                  "the page still holds mints a SECOND wrapper: back/byId answer false while isSameNode " +
                  "answers true — one node, two wrappers, both named by the reverse table. removeChild " +
                  "leaves the entry alone, which is why the test above passes and this one does not.")]

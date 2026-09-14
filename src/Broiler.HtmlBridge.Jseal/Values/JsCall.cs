@@ -7,7 +7,7 @@ namespace Broiler.HtmlBridge.Jseal;
 /// <remarks>
 /// <para>
 /// <b>The realm is on the call, and that is load-bearing.</b> The obvious alternative is an ambient
-/// <c>[ThreadStatic] Js.Current</c>, which reads better at every one of the 917 call sites and is
+/// <c>[ThreadStatic] Js.Current</c>, which reads better at every call site (917 on 2026-09-08) and is
 /// wrong here: three threads run one page's JavaScript. <c>ScriptEngine</c> installs a
 /// synchronization context before it builds the realm precisely because promise and generator
 /// continuations were resuming on the thread pool, <c>BrowserEventLoop</c>'s queues are all
@@ -28,7 +28,7 @@ namespace Broiler.HtmlBridge.Jseal;
 /// indexer answers a CLR <see langword="null"/> there, and the bridge's arity-sensitive operations —
 /// <c>scrollTo()</c> versus <c>scrollTo(undefined)</c>, <c>toggle(name)</c> versus
 /// <c>toggle(name, force)</c> — depend on the difference. Making it a kind rather than a nullable
-/// keeps that distinction without exporting CLR null into 598 argument reads.
+/// keeps that distinction without exporting CLR null into the argument reads (598 on 2026-09-08).
 /// </para>
 /// </remarks>
 public readonly ref struct JsCall
@@ -54,10 +54,11 @@ public readonly ref struct JsCall
     /// <c>new.target</c> for a construct call, and <see cref="JsValue.Missing"/> for an ordinary one.
     /// </summary>
     /// <remarks>
-    /// Broiler.JS's <c>Arguments</c> has no such member, which is why custom-element construction
-    /// currently smuggles <c>new.target</c> through as argument zero from a JavaScript shim. Declaring
-    /// it here lets a provider whose engine supplies it do so directly, and lets the Broiler.JS
-    /// provider keep the shim as its own business rather than the bridge's.
+    /// Broiler.JS's <c>Arguments</c> has no such member, so that provider reads <c>new.target</c>
+    /// from the engine itself; declaring it here lets a provider supply it directly. Custom-element
+    /// construction still passes <c>new.target</c> as argument zero from the bridge's JavaScript
+    /// shim, by choice (see <c>CustomElementsBinding</c>). (This said the missing member was the
+    /// reason, and that the Broiler.JS provider would keep the shim as its own business.)
     /// </remarks>
     public JsValue NewTarget { get; }
 

@@ -4,8 +4,8 @@ using System.Runtime.CompilerServices;
 
 using Broiler.HtmlBridge.Jseal;
 
-// THE ENGINE-TYPED REMAINDER OF THIS FILE IS ONE WEAK TABLE'S KEY. All five collection adapters that
-// took a script context have gone with their callers — the interface-registration hub
+// NO ENGINE TYPE IS LEFT IN THIS FILE, NOT EVEN AS A WEAK TABLE'S KEY. All five collection adapters
+// that took a script context have gone with their callers — the interface-registration hub
 // (DomBridge/Utilities.DomInterfaces.cs), the query/selector/form-association/node-accessor hosts,
 // DomBridge/Utilities.cs, the frame projection in DomBridge.SubDocumentHost.cs, and last
 // DomBridge/DomBridge.FormControlHost.cs, whose file-input `files` was the call this file's previous
@@ -13,16 +13,16 @@ using Broiler.HtmlBridge.Jseal;
 // adapter, contents-marshalling and per-context realm adoption, none of it reachable once that caller
 // passed a realm.
 //
-// What is left is OperationsByMap, a ConditionalWeakTable keyed on the NamedNodeMap's own object. A
-// weak table needs a reference-typed key and a JSEAL handle is a struct, so this one is the value
-// design's cost rather than an unmigrated caller. It is one of three such tables in the assembly.
+// OperationsByMap, the ConditionalWeakTable that finds a NamedNodeMap's operations, keys on
+// JsValue.ObjectIdentity (see IdentityOf): the reference the handle carries. This header said it was
+// keyed on the engine's object because a JSEAL handle is a struct; the struct was never the key.
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// <c>NodeList</c> and <c>HTMLCollection</c> — the two DOM collection interfaces (DOM §4.2.10 and
-/// §4.2.10.2) — and CSSOM's <c>StyleSheetList</c> (§6.1), as real interfaces with real prototypes
-/// rather than the plain JavaScript arrays the bridge used to hand back.
+/// <c>NodeList</c> and <c>HTMLCollection</c> (DOM §4.2.10 and §4.2.10.2), CSSOM's <c>StyleSheetList</c>
+/// (§6.1), and the <c>NamedNodeMap</c> and <c>FileList</c> that share their machinery, as real
+/// interfaces with real prototypes rather than the plain JavaScript arrays the bridge used to hand back.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -50,7 +50,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// collection's members are not a fixed list — every integer below <c>length</c> and, for an
 /// <c>HTMLCollection</c>, every <c>id</c> and <c>name</c> its members carry — so it used to derive
 /// from the engine's own object type and override its lookup protocol. It now declares the hook
-/// instead: <see cref="IJsRealm.NewExotic"/> takes the handler and the provider owns the protocol.
+/// instead: <see cref="IJsValues.NewExotic"/> takes the handler and the provider owns the protocol.
 /// <b>The ordering the subclass established is the ordering the contract mandates</b> — ordinary
 /// properties and the prototype chain are consulted first and the handler answers only what they did
 /// not — which is what keeps a collection containing an element named <c>item</c> from shadowing its
@@ -80,17 +80,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// This is roadmap track 6 action 1, "establish real interface prototypes and Web IDL collection
-/// behavior <em>before</em> adding more compatibility-only constructor globals" — so these two are
-/// deliberately not the <c>@@hasInstance</c> shims the per-tag <c>HTML*Element</c> interfaces use.
-/// An instance's prototype really is <c>NodeList.prototype</c>, so <c>instanceof</c> answers through
-/// the chain rather than through a hook.
+/// behavior <em>before</em> adding more compatibility-only constructor globals" — so none of the five
+/// is one of the <c>@@hasInstance</c> shims the per-tag <c>HTML*Element</c> interfaces use. Each
+/// instance's prototype really is its interface's (<c>NodeList.prototype</c> and so on), so
+/// <c>instanceof</c> answers through the chain rather than through a hook. (This said "these two".)
 /// </para>
 /// </remarks>
 internal static class DomCollectionBinding
 {
     /// <summary>
-    /// Defines the two interfaces and their prototype methods. Runs once per realm, with the
-    /// other DOM interface constructors.
+    /// Defines <c>NodeList</c>, <c>HTMLCollection</c>, <c>StyleSheetList</c>, <c>NamedNodeMap</c>
+    /// and <c>FileList</c> with their prototype methods, once per realm beside the other interfaces.
     /// </summary>
     public static void RegisterInterfaces(IJsRealm realm)
     {

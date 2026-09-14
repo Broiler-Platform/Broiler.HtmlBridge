@@ -7,10 +7,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The <c>Element.classList</c> / <c>DOMTokenList</c> feature binding (HtmlBridge
 /// complexity-reduction roadmap Phase 3, P3.6). It is pure logic over the element's <c>class</c>
 /// attribute via the canonical <see cref="DomTokenList"/>, so it needs no host contract at all: the
-/// only bridge coupling is an injected <paramref name="onClassChanged"/> callback the mutating
-/// operations invoke so the bridge can invalidate the element's style scope. This replaces the
-/// bridge's <c>BuildClassListObject</c> plus its five scattered <c>JsUtilities…025…Core</c>
-/// callbacks.
+/// only bridge coupling is the <c>onClassChanged</c> callback handed to <see cref="Build"/>, which
+/// the mutating operations invoke so the bridge can invalidate the element's style scope. This
+/// replaces the bridge's <c>BuildClassListObject</c> plus its five scattered
+/// <c>JsUtilities…025…Core</c> callbacks.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine

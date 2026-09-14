@@ -21,9 +21,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// None of these five reads an argument — they are IDL attributes, and a getter's call frame carries
-/// nothing they want — so each takes the element it operates on and no call at all. That is why they
-/// can still be reached from the registration site in <c>DomBridge.ElementInterface.cs</c>, which has
-/// not migrated: an engine call frame and a JSEAL one are interchangeable when neither is looked at.
+/// nothing they want — so each takes the element it operates on and no call at all. Their one caller,
+/// <c>DomBridge/ElementInterface.cs</c>, mints the five getters through the realm and gets that element
+/// from its <c>JsElementSource</c>. (This said that site had not migrated and passed an engine frame.)
 /// </para>
 /// </remarks>
 internal static class ElementTraversalBinding

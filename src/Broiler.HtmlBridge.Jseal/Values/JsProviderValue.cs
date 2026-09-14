@@ -16,7 +16,7 @@ namespace Broiler.HtmlBridge.Jseal.Providers;
 /// <b>The kind is the provider's answer, given once.</b> A provider knows whether the value it is
 /// wrapping is callable or an Array exotic at the moment it wraps it, and answering then costs
 /// nothing. Asking later — <c>JsValue.IsFunction</c> on a handle whose engine is behind a C API —
-/// would cost a call across the boundary, on a path the bridge takes 59 times for callability alone.
+/// would cost a call across the boundary at each of the bridge's callability tests (59 on 2026-09-08).
 /// </para>
 /// </remarks>
 public static class JsProviderValue

@@ -5,21 +5,21 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// Phase 3 feature module for the DOM <c>Element</c> selector API — <c>querySelector</c>,
-/// <c>querySelectorAll</c>, <c>matches</c>, <c>closest</c> and <c>getElementsByTagName</c>. These were the
-/// bridge's <c>JsJsObjectsQuerySelector126Core</c>..<c>Closest129Core</c> and
-/// <c>GetElementsByTagName133Core</c> callbacks; selector validation, the descendant selector search, the
-/// two live element collections and the JS-wrapper factory reach the bridge through
-/// <see cref="ISelectorsHost"/>, while selector matching (<c>MatchesSelector</c>) is a host member too
-/// and the element-parent walk (<c>ParentEl</c>) is the bridge's <c>internal static</c> helper, called
-/// directly.
+/// <c>querySelectorAll</c>, <c>matches</c>, <c>closest</c>, <c>getElementsByTagName</c> and
+/// <c>getElementsByClassName</c>. The first five were the bridge's
+/// <c>JsJsObjectsQuerySelector126Core</c>..<c>Closest129Core</c> and <c>GetElementsByTagName133Core</c>
+/// callbacks; selector validation, the descendant selector search, the two live element collections
+/// and the JS-wrapper factory reach the bridge through <see cref="ISelectorsHost"/>, while selector
+/// matching (<c>MatchesSelector</c>) is a host member too and the element-parent walk
+/// (<c>ParentEl</c>) is the bridge's <c>internal static</c> helper, called directly.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type.
-/// The one thing that moved <em>out</em> is the argument read: each entry point takes the string its
-/// caller has already produced, because the registration site in <c>DomBridge.ElementInterface.cs</c>
-/// has not migrated and its call frame is still an engine one. The coercion is unchanged — it is the
-/// same ECMAScript <c>ToString</c> on the same argument — and it moves back in here as
-/// <c>call.Realm.ToJsString(call[0])</c> when that site migrates.
+/// Each entry point takes its argument as a string its caller has already read. The one caller,
+/// <c>DomBridge/ElementInterface.cs</c>, mints all six members through the realm and reads argument
+/// zero with <c>call.Realm.ToJsString</c> — the ECMAScript <c>ToString</c> — or the empty string when
+/// nothing was passed. (This said that registration site had not migrated, that its call frame was an
+/// engine one, and that the read would move back in here when it did.)
 /// </remarks>
 internal static class SelectorsBinding
 {

@@ -169,7 +169,7 @@ public interface IJsMembers
 
     /// <summary>
     /// Installs an accessor property. A <see langword="null"/> <paramref name="setter"/> makes it
-    /// read-only, which is how the bridge expresses a read-only IDL attribute at 216 sites.
+    /// read-only, which is how the bridge expresses a read-only IDL attribute (216 sites on 2026-09-08).
     /// </summary>
     void DefineAccessor(JsValue target, string name, JsNativeFunction getter, JsNativeFunction? setter, JsPropertyFlags flags = JsPropertyFlags.Default);
 

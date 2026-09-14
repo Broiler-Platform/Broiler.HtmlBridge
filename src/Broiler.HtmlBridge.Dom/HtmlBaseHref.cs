@@ -69,7 +69,7 @@ public static class HtmlBaseHref
     }
 
     /// <summary>
-    /// Resolves <paramref name="url"/> against <paramref name="baseHref"/>, or
+    /// Resolves <paramref name="rawUrl"/> against <paramref name="baseHref"/>, or
     /// returns <see langword="null"/> when it must be left untouched — empty,
     /// <c>data:</c>, a bare fragment, or already absolute. The result keeps the
     /// base's shape so downstream resource mapping still recognises it:

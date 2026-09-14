@@ -72,8 +72,8 @@ public sealed partial class DomBridge
         // Fire the onload handler
         try
         {
-            // The event object is minted through the realm; the dispatcher is unmigrated and takes
-            // the engine object, which JsInterop casts to — it is the same object either way.
+            // The event object is minted through the realm, and the dispatcher takes that handle as
+            // it is. (This said the dispatcher was unmigrated and JsInterop cast the handle for it.)
             var evt = Realm.NewObject();
             Realm.DefineValue(evt, "type", JsValue.String("load"));
             Realm.DefineValue(evt, "bubbles", JsValue.False);
@@ -144,7 +144,7 @@ public sealed partial class DomBridge
     /// <para>
     /// Everything inside is JSEAL: the document object is built through the realm by
     /// <see cref="Dom.Features.SubDocumentBinding.Build"/> and the per-container cache in
-    /// <see cref="Runtime.BrowsingContextManager"/> holds the handle it answered with.
+    /// <see cref="Dom.Runtime.BrowsingContextManager"/> holds the handle it answered with.
     /// </para>
     /// <para>
     /// The return type used to be the adapter, pinned by four files that each wrapped the answer
@@ -788,9 +788,9 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Reads a file:// URL from the local filesystem and returns its content with detected MIME type.
-    /// The file existence + binary/text read policy lives in the host <see cref="Runtime.ResourceLoader"/>
-    /// (Phase 7 item 4); this method only maps the URL to a path and the loader's I/O exceptions to the
-    /// empty-document contract.
+    /// The file existence + binary/text read policy lives in the host
+    /// <see cref="Dom.Runtime.ResourceLoader"/> (Phase 7 item 4); this method only maps the URL to a
+    /// path and the loader's I/O exceptions to the empty-document contract.
     /// </summary>
     private (string? content, string contentType) TryReadFileResource(string fileUrl, string extensionMime)
     {

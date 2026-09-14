@@ -110,7 +110,8 @@ internal sealed class AttributesBinding(IAttributesHost host)
     /// cached — and a browser answers <see langword="true"/> across every access path, the index,
     /// the qualified name, <c>getNamedItem</c> and <c>getAttributeNode</c> alike.
     /// <para>
-    /// The map cache boxes its handle because a <see cref="ConditionalWeakTable{TKey,TValue}"/> value
+    /// The map cache boxes its handle because a
+    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/> value
     /// must be a reference type and a <see cref="JsValue"/> is a struct — the same reason the
     /// <c>Attr</c> cache below stores a dictionary rather than a value. The box is the only thing that
     /// changed when the cache stopped holding the engine's own object: a handle carries that very

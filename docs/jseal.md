@@ -91,20 +91,21 @@ runs per property read.
 **Why this layout in particular.** Tag + double + reference is what Broiler.VM's own `JsValue`
 ([`JsValue.cs:83`](../Broiler.VM/src/Broiler.VM.Profile.JavaScript/JsValue.cs), `internal readonly
 struct`) chose, for the reason it records: the collector is the CLR's, so a value that must sometimes
-hold a managed reference cannot be a NaN-boxed word. Matching it means a future Broiler.VM provider
-re-tags rather than converts.
+hold a managed reference cannot be a NaN-boxed word. Matching it means the Broiler.VM provider
+re-tags rather than converts. (This said "a future Broiler.VM provider".)
 
 **`Missing` is kind zero.** Broiler.JS's `Arguments` indexer returns a CLR `null` — not `undefined` —
-past the end, and 598 argument reads in the bridge depend on telling those apart before coercing:
+past the end, and the bridge's argument reads (598 on 2026-09-08) depend on telling those apart
+before coercing:
 `scrollTo()` and `scrollTo(undefined)` are different calls. Broiler.VM's `JsType.Empty` is zero for
 the same reason.
 
 **The reference is the engine's own value, not a wrapper.** Under the Broiler.JS provider an object
-handle carries the `JSObject` the engine already has. That is what keeps wrapper identity working
-across a half-migrated bridge: `el === el`, the six `ConditionalWeakTable<object, …>` the bridge
-keys on `JsValue.ObjectIdentity`, and `JsObjectRegistry`'s reverse map all keep asking the question
-they always asked. A provider whose engine hands out pointers or stack slots is expected to
-canonicalise handles itself.
+handle carries the `JSObject` the engine already has. That is what keeps wrapper identity working:
+`el === el`, and the seven `ConditionalWeakTable<object, …>` the bridge keys on
+`JsValue.ObjectIdentity`, one of them `JsObjectRegistry`'s reverse map, all keep asking the question
+they always asked. (This said "across a half-migrated bridge"; the bridge holds handles throughout.)
+A provider whose engine hands out pointers or stack slots is expected to canonicalise handles itself.
 
 **`==` is `===`; `Equals` is reflexive.** The two deliberately differ on NaN alone — the same split
 `System.Double` makes, and for the same reason: the bridge stores JS values in `List<>`s (event

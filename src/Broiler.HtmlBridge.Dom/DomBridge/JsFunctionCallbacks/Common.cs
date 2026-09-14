@@ -12,8 +12,9 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// The algorithm is engine-neutral and always was — it walks the tree and concatenates strings —
-    /// so it is stated here in CLR terms and the two callers that still want a JavaScript value make
-    /// one from it. <see cref="JsValue.String(string?)"/> turns the <see langword="null"/> into
+    /// so it is stated here in CLR terms, and every getter that wants a JavaScript value makes one
+    /// from it — directly, or through <c>IElementContentHost.NodeTextValue</c>.
+    /// <see cref="JsValue.String(string?)"/> turns the <see langword="null"/> into
     /// JavaScript <c>null</c>, which is exactly the distinction the next paragraph is about.
     /// </remarks>
     private string? NodeTextOrNull(DomNode node)

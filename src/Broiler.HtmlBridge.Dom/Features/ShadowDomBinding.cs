@@ -9,8 +9,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// HtmlBridge feature module (Phase 3). The getter exposes an attached root only when its mode is
 /// <c>open</c>; <c>attachShadow</c> rejects a second attachment (<c>NotSupportedError</c>), normalizes
 /// the requested mode to <c>open</c>/<c>closed</c>, and creates + links the root through the
-/// <see cref="IShadowDomHost"/> contract — the per-element shadow linkage stays the bridge's
-/// <c>ElementRuntimeState.Shadow</c> slot (reached only through named primitives, the P3.7 pattern). Was
+/// <see cref="IShadowDomHost"/> contract — the per-element shadow linkage stays in the bridge's
+/// <c>ShadowRuntimeState</c> table (reached only through named primitives, the P3.7 pattern). Was
 /// the bridge's <c>JsJsObjectsGetShadowRoot019Core</c> / <c>AttachShadow087Core</c>.
 /// </summary>
 /// <remarks>

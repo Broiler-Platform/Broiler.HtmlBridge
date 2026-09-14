@@ -391,7 +391,7 @@ public sealed partial class DomBridge
     /// Runs inside <see cref="ApplySerializationTransforms"/> on the isolated render projection,
     /// so the rewrite delivers no live-document observer records. It is idempotent: the text it
     /// writes reparses to the same rules, and the reparse
-    /// clears <see cref="StyleSheetRuntimeState.RulesMutated"/>, so a second pass is a
+    /// clears <see cref="Dom.Runtime.StyleSheetRuntimeState.RulesMutated"/>, so a second pass is a
     /// no-op. JS-visible <c>innerHTML</c>/<c>outerHTML</c> serialize without the
     /// transforms and still expose the author text.
     /// </para>
@@ -795,8 +795,8 @@ public sealed partial class DomBridge
 
 
     // RF-BRIDGE-1c Phase F (F3c part 2c): the serialization adapter is over canonical DomNode so
-    // text/comment children serialize once construction flips to DomText/DomComment. GetKind keys
-    // text/comment off NodeType (holds for facade and canonical char-data) and the doctype/fragment
+    // text/comment children serialize; construction mints them as DomText/DomComment. GetKind keys
+    // text/comment off NodeType (IsText/IsComment, canonical char-data) and the doctype/fragment
     // kinds off the canonical node types; everything else is an element. GetName/GetAttributes/
     // GetStyles are only invoked for element/doctype nodes (see HtmlSerializer.Append), so their
     // Broiler.Dom.DomElement narrowing is always satisfied.
@@ -840,7 +840,7 @@ public sealed partial class DomBridge
 
     /// <summary>Whether <paramref name="node"/>'s parent is an HTML raw-text element whose text
     /// content is serialized literally (not HTML-escaped). The standard raw-text element set is
-    /// owned by <see cref="SharedHtmlSerializer.RawTextElements"/> (§13.3); this bridge predicate
+    /// owned by <see cref="HtmlSerializer.RawTextElements"/> (§13.3); this bridge predicate
     /// only applies it to the node's parent. (RF-BRIDGE-1c Phase F, F3c part 2d.)</summary>
     private static bool IsRawTextSerializationParent(DomNode node) =>
         node.ParentNode is DomElement parent &&

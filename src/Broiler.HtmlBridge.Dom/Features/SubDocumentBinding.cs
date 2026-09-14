@@ -17,8 +17,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// This slice is what P4.4b unblocked: after the <c>#subdoc-root</c> sentinel was severed, a
 /// sub-document root is a canonical <see cref="Broiler.Dom.DomNode"/>/<see cref="Broiler.Dom.DomDocument"/>,
 /// so the whole surface operates cleanly over a <c>DomNode docRoot</c>. The browsing-context
-/// infrastructure (the sub-document/-window caches, the content-document maps, resource loading, onload
-/// and the sub-<em>window</em> object) stays bridge-owned pending a future <c>BrowsingContextManager</c>;
+/// state (the sub-document/-window caches and the content-document maps) is the P3.16
+/// <c>BrowsingContextManager</c>'s and the sub-<em>window</em> object <c>SubWindowBinding</c>'s; resource
+/// loading and onload dispatch stay bridge-owned (this said all of it did, pending that manager);
 /// the module reaches the bridge only through the explicit <see cref="ISubDocumentHost"/> contract and
 /// the assembly's neutral static <c>DomBridge</c> tree/selector helpers.
 /// </para>

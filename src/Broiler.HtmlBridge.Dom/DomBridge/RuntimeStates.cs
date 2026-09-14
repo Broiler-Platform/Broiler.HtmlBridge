@@ -221,10 +221,10 @@ internal sealed class StyleSheetRuntimeState
     /// text is serialized from the model so the mutation is observed downstream.
     /// </summary>
     /// <remarks>
-    /// The setter is also the CSSOM's mutation signal: <c>DomBridge.MarkRulesMutated</c> sets it from
-    /// <c>insertRule</c>/<c>deleteRule</c>, which change the rule <em>list's contents</em> and so move
-    /// the cascade without touching the DOM at all. <see cref="BridgeRuntimeStateEpoch"/> has to see
-    /// that, or a retained geometry snapshot would answer from the pre-edit stylesheet.
+    /// The setter is also the CSSOM's mutation signal: <c>insertRule</c>/<c>deleteRule</c> set it
+    /// through <c>BuildStyleSheet</c>'s local <c>MarkRulesMutated</c>, and they change the rule
+    /// <em>list's contents</em> and so move the cascade without touching the DOM at all.
+    /// <see cref="BridgeRuntimeStateEpoch"/> must see that, or a retained geometry snapshot goes stale.
     /// </remarks>
     public bool RulesMutated
     {

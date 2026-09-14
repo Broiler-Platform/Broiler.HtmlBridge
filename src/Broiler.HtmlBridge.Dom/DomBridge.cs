@@ -19,8 +19,9 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// That parameter is what <c>IDomBridgeRuntime.Attach</c> hands over, and the interface lives in
-/// <c>Broiler.HtmlBridge.Core</c>. It is the last thing holding the bridge to one engine; see
-/// <c>DomBridge.Realm.cs</c> for the <see cref="Jseal.IJsRealm"/> that will replace it.
+/// <c>Broiler.HtmlBridge.Core</c>. It is not the last thing holding the bridge to one engine (this
+/// said it was): <c>DomBridge.Realm.cs</c>, <c>Runtime/JsInterop.cs</c> and <c>BridgeModuleContext.cs</c>
+/// say what else still does.
 /// </remarks>
 public sealed partial class DomBridge : IDomBridgeRuntime
 {
@@ -371,33 +372,27 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     internal InlineStyleRuntimeState InlineStyleStateFor(DomNode node) =>
         _inlineStyleStates.GetValue(node, static _ => new InlineStyleRuntimeState());
 
-    /// <summary>
-    /// The element's authoritative in-memory inline style dictionary (CSS kebab-case),
-    /// relocated off the <c>Broiler.Dom.DomElement</c> facade into <see cref="ElementRuntimeState"/>
-    /// (RF-BRIDGE-1c Phase B). Lazily seeded once from the element's <c>style=</c>
-    /// attribute; thereafter it is the source of truth (JS <c>element.style</c> writes,
-    /// anchor/form-control styling), synced back to the attribute at serialization.
-    /// </summary>
     // -----------------------------------------------------------------
     // RF-BRIDGE-1c Phase E2: child-node access over canonical ChildNodes,
-    // replacing the facade Broiler.Dom.DomElement.Children (LegacyChildList). The bridge
-    // tree is homogeneous Broiler.Dom.DomElement today, so ChildElements is a drop-in for
-    // the old enumeration; the Cast/ChildAt casts are safe until text/comment
-    // flip to canonical DomText/DomComment (Phase F), when ChildElements narrows
-    // to OfType and callers gain IsText handling.
+    // replacing the facade Broiler.Dom.DomElement.Children (LegacyChildList, since removed).
+    // Phase F has since made text and comment nodes canonical DomText/DomComment children
+    // (CreateBridgeTextNode), so ChildElements is an OfType filter that skips them, ChildAt
+    // answers a DomNode, and callers that need text or comment children walk ChildNodes
+    // with IsText/IsComment checks.
     // -----------------------------------------------------------------
 
     /// <summary>The element's <see cref="DomElement"/> children. RF-BRIDGE-1c Phase F (F3c part 2c):
     /// narrowed from <c>Cast</c> to <c>OfType&lt;Broiler.Dom.DomElement&gt;()</c> so it skips canonical
-    /// <c>DomText</c>/<c>DomComment</c> children once construction flips; a no-op on today's
-    /// homogeneous tree. Callers that need text/comment children walk raw <c>ChildNodes</c> instead.</summary>
+    /// <c>DomText</c>/<c>DomComment</c> children, which the bridge creates today (see
+    /// <see cref="CreateBridgeTextNode"/>). Callers that need text/comment children walk raw
+    /// <c>ChildNodes</c> instead.</summary>
     internal static IEnumerable<DomElement> ChildElements(DomNode element) =>
         element.ChildNodes.OfType<DomElement>();
 
     /// <summary>The child node at <paramref name="index"/> (old <c>Children[index]</c>). RF-BRIDGE-1c
     /// Phase F (F3c part 2c): returns canonical <see cref="DomNode"/> — a child may be a
-    /// <c>DomText</c>/<c>DomComment</c> once construction flips. Element-only callers narrow with
-    /// <c>as Broiler.Dom.DomElement</c>/<c>is Broiler.Dom.DomElement</c>; on today's homogeneous tree every child is an element.</summary>
+    /// <c>DomText</c>/<c>DomComment</c>. Element-only callers narrow with <c>as Broiler.Dom.DomElement</c>
+    /// or <c>is Broiler.Dom.DomElement</c>, since not every child is an element.</summary>
     internal static DomNode ChildAt(DomNode element, int index) => element.ChildNodes[index];
 
     /// <summary>The child node at <paramref name="index"/>, supporting from-end indices like <c>^1</c>
@@ -436,8 +431,9 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         return true;
     }
 
-    /// <summary>Old raw <c>Children.RemoveAt(index)</c> (no mutation notifications — matches the
-    /// LegacyChildList primitive; distinct from the notifying <c>RemoveChildAt</c> helper).</summary>
+    /// <summary>Old raw <c>Children.RemoveAt(index)</c>, now canonical <c>RemoveChild</c>, which publishes
+    /// its own child-list mutation record; <see cref="RemoveChildAt"/> adds a style-scope invalidation
+    /// (its two notify hooks are empty).</summary>
     internal static void RemoveNthChild(DomNode parent, int index) => parent.RemoveChild(parent.ChildNodes[index]);
 
     /// <summary>Old <c>Children.Clear()</c>.</summary>
@@ -448,22 +444,22 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     }
 
     /// <summary>Whether <paramref name="node"/> is a text node (RF-BRIDGE-1c Phase D: replaces
-    /// the facade <c>IsText(Broiler.Dom.DomElement)</c>). NodeType-based, so it holds for the current
-    /// facade text nodes and for canonical <c>DomText</c> once construction flips in the
-    /// <c>Children</c>/text cutover.</summary>
+    /// the facade <c>IsText(Broiler.Dom.DomElement)</c>). NodeType-based; construction has flipped,
+    /// so a text node is a canonical <c>DomText</c> (<see cref="CreateBridgeTextNode"/>). (This said
+    /// it held for facade text nodes, and for <c>DomText</c> once construction flipped.)</summary>
     internal static bool IsText(DomNode node) => node.NodeType == DomNodeType.Text;
 
     /// <summary>Whether <paramref name="node"/> is a comment node (RF-BRIDGE-1c Phase F).
-    /// NodeType-based, so it holds for the current facade comment nodes and for canonical
-    /// <c>DomComment</c> once construction flips — the replacement for the many
-    /// <c>TagName == "#comment"</c> checks, since a canonical <c>DomComment</c> has no
-    /// <c>TagName</c>.</summary>
+    /// NodeType-based — the replacement for the many <c>TagName == "#comment"</c> checks, since a
+    /// canonical <c>DomComment</c> has no <c>TagName</c>; construction has flipped, so every comment
+    /// is one (<see cref="CreateBridgeCommentNode"/>). (This said it held for facade comment nodes,
+    /// and for <c>DomComment</c> once construction flipped.)</summary>
     internal static bool IsComment(DomNode node) => node.NodeType == DomNodeType.Comment;
 
-    /// <summary>Reads a text/comment node's character data (RF-BRIDGE-1c Phase F). Canonical
-    /// <c>DomText</c>/<c>DomComment</c> expose it as <c>Data</c>; the facade text/comment nodes
-    /// (pre-flip) expose it as <c>TextContent</c>. The single accessor both models funnel through
-    /// during the text cutover; returns <c>""</c> (never null) for character-data nodes.</summary>
+    /// <summary>Reads a text/comment node's character data (RF-BRIDGE-1c Phase F): a canonical
+    /// <c>DomText</c>/<c>DomComment</c>'s <c>Data</c>, otherwise <c>NodeValue</c>, which no other node
+    /// kind overrides, so <c>""</c> (never null). (This also named facade text/comment nodes that
+    /// exposed it as <c>TextContent</c>, and a text cutover both models funnelled through.)</summary>
     internal static string BridgeText(DomNode node) => node switch
     {
         DomCharacterData characterData => characterData.Data,
@@ -590,6 +586,13 @@ public sealed partial class DomBridge : IDomBridgeRuntime
             parent.AppendChild(child);
     }
 
+    /// <summary>
+    /// The element's authoritative in-memory inline style dictionary (CSS kebab-case), relocated off the
+    /// <c>Broiler.Dom.DomElement</c> facade into <see cref="InlineStyleRuntimeState.Style"/> (RF-BRIDGE-1c
+    /// Phase B). Lazily seeded once from the element's <c>style=</c> attribute; thereafter it is the source
+    /// of truth for script writes (JS <c>element.style</c>), and serialize-time bakes land beside it in the
+    /// overlay that <see cref="EffectiveInlineStyle"/> merges when the attribute is synced at serialization.
+    /// </summary>
     internal Dictionary<string, string> InlineStyle(DomElement element)
     {
         // Handing out the mutable dictionary is the only inline-style write seam there is, so it is
@@ -642,12 +645,12 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     internal IReadOnlyCollection<string> InlineStylePropsSetByJs(DomElement element) =>
         InlineStyleStateFor(element).JsSetStyleProps;
 
-    /// <summary>Read-only diagnostic view of an element's resolved inline-style map — the same
-    /// dictionary the anchor resolver reads and writes (display:none, resolved left/top/width/height,
-    /// …). RF-BRIDGE-1c Phase F4 removed the <c>Broiler.Dom.DomElement.Style</c> facade member; internal test and
-    /// tooling callers that need to inspect post-resolution inline styles route through this accessor
-    /// instead. Visible only to <c>InternalsVisibleTo</c> assemblies — not part of the public surface,
-    /// so it does not re-open a public facade seam.</summary>
+    /// <summary>Read-only diagnostic view of an element's script-observable inline-style map
+    /// (<see cref="InlineStyle"/>). Serialize-time bakes, the anchor resolver's included, are not in it:
+    /// they land in the overlay <see cref="EffectiveInlineStyle"/> merges. RF-BRIDGE-1c Phase F4 removed
+    /// the <c>Broiler.Dom.DomElement.Style</c> facade member it replaced; no caller of it is left.
+    /// Visible only to <c>InternalsVisibleTo</c> assemblies — not part of the public surface, so it
+    /// does not re-open a public facade seam.</summary>
     internal IReadOnlyDictionary<string, string> GetInlineStyleView(DomElement element) =>
         InlineStyle(element);
 

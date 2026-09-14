@@ -358,8 +358,8 @@ public sealed partial class DomBridge
         // bridge through the wide IElementGeometryHost contract (DomBridge.ElementGeometryHost.cs).
         // The two interface halves of that module are on their prototypes: Element's client*/scroll*
         // metrics, getBoundingClientRect/getClientRects and the imperative scrolling API
-        // (DomBridge.ElementInterface.cs, with animate()), and HTMLElement's offset* family
-        // (DomBridge.HtmlElementInterface.cs). scrollParent is on neither, because it is on no
+        // (DomBridge/ElementInterface.cs, with animate()), and HTMLElement's offset* family
+        // (DomBridge/HtmlElementInterface.cs). scrollParent is on neither, because it is on no
         // browser's prototype.
         Dom.Features.ElementGeometryBinding.InstallBridgeMembers(this, Realm, handle, element);
 

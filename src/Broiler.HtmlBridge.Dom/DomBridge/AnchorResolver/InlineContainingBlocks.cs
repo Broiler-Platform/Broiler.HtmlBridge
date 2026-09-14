@@ -515,10 +515,10 @@ public sealed partial class DomBridge
         double fontSize = TryParsePx(parentProps.GetValueOrDefault("font-size")) ?? 16;
         double lineHeight = ResolveLineHeight(parentProps, fontSize);
 
-        // Snapshot the child list: a raw foreach over the live LegacyChildList can
-        // throw "Collection was modified" (or the sibling ToList() overflow) if the
-        // tree is mutated mid-walk, aborting anchor resolution. SnapshotChildren
-        // tolerates that, matching the idiom used across these anchor walks.
+        // Snapshot the child list: a raw foreach over the live ChildNodes list (which
+        // ChildElements filters) can throw "Collection was modified" if the tree is
+        // mutated mid-walk, aborting anchor resolution. SnapshotChildren tolerates
+        // that, matching the idiom used across these anchor walks.
         foreach (var sibling in SnapshotChildren(parent))
         {
             if (sibling == element) break;

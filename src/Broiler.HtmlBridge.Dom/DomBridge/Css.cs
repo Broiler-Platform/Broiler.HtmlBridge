@@ -39,8 +39,8 @@ public sealed partial class DomBridge
     /// cascade/computed-style caches together — the single computed-style invalidation route
     /// (see <see cref="DocumentStyleContext.InvalidateComputedStyle"/>). The two must invalidate as
     /// one because <c>GetComputedProps</c> routes through the engine's sparse projection, which reads
-    /// inline style from the live ElementRuntimeState map (an ERS mutation is invisible to the
-    /// engine's own DOM-mutation subscription).
+    /// inline style from the live <see cref="InlineStyleRuntimeState"/> table (a mutation there is
+    /// invisible to the engine's own DOM-mutation subscription).
     /// </summary>
     private void ClearComputedPropsCache() => _styleContext.InvalidateComputedStyle();
 
@@ -58,7 +58,7 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Clears any CSS-derived compatibility values left in the element's inline style
-    /// (<see cref="ElementRuntimeState.Style"/>, reached via <c>InlineStyle</c>)
+    /// (<see cref="InlineStyleRuntimeState.Style"/>, reached via <c>InlineStyle</c>)
     /// after a selector-affecting mutation. Stylesheet declarations are resolved lazily
     /// by the shared style engine; only inline declarations and JavaScript-set values
     /// remain in the bridge-owned declaration map.
@@ -201,18 +201,18 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// A plain <c>ChildElements(root).ToList()</c> is NOT thread-safe here.
-    /// <see cref="DomElement.LegacyChildList"/> projects the live
-    /// <c>ChildNodes</c> collection: <see cref="Enumerable.ToList{T}"/> reads
-    /// <c>Count</c>, allocates a destination array of that size, then calls
-    /// <c>CopyTo</c>, which materialises the <em>current</em> (possibly larger)
-    /// child array. If another thread appends between those two steps the copy
-    /// overflows and throws <see cref="ArgumentException"/> ("Destination array
-    /// was not long enough" — signature
-    /// <c>DomBridge.CollectStyleElementsInTree</c>); a mutation during plain
-    /// enumeration instead throws <see cref="InvalidOperationException"/>
-    /// ("Collection was modified"). Either previously aborted style collection
-    /// for the whole tree, leaving the document unstyled. Retry a bounded number
-    /// of times, then fall back to a tolerant index walk.
+    /// <see cref="ChildElements"/> is a lazy <c>OfType</c> filter over the live
+    /// <see cref="DomNode.ChildNodes"/> list, so <see cref="Enumerable.ToList{T}"/>
+    /// enumerates that list, and a mutation during the walk throws
+    /// <see cref="InvalidOperationException"/> ("Collection was modified"). The
+    /// facade's <c>LegacyChildList</c> projection, since removed, failed a second
+    /// way as well: its <c>Count</c>-sized <c>CopyTo</c> overflowed when another
+    /// thread appended in between, throwing <see cref="ArgumentException"/>
+    /// ("Destination array was not long enough" — signature
+    /// <c>DomBridge.CollectStyleElementsInTree</c>). Either previously aborted
+    /// style collection for the whole tree, leaving the document unstyled; both
+    /// are still caught. Retry a bounded number of times, then fall back to a
+    /// tolerant index walk.
     /// </remarks>
     private static List<DomElement> SnapshotChildren(DomElement root)
     {
@@ -770,8 +770,8 @@ public sealed partial class DomBridge
         {
             // The event object is built through the realm (JSEAL); the two members keep the
             // enumerable/configurable data-property attributes they had, which is what
-            // JsPropertyFlags.Default spells. Dispatch is still engine-typed, so the handle is
-            // unwrapped at that one call through the JsInterop seam.
+            // JsPropertyFlags.Default spells. The dispatcher takes that handle as it is. (This said
+            // dispatch was still engine-typed and unwrapped the handle through the JsInterop seam.)
             var evt = Realm.NewObject();
             Realm.DefineValue(evt, "type", JsValue.String(loaded ? "load" : "error"));
             Realm.DefineValue(evt, "bubbles", JsValue.False);

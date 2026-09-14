@@ -7,9 +7,9 @@ using Xunit;
 namespace Broiler.Browser.Core.Tests;
 
 /// <summary>
-/// <c>JsInterop</c> is the seam between the migrated and unmigrated halves of the DOM bridge, and
-/// the one property it owes is that a handle crossing it is indistinguishable from one the provider
-/// made.
+/// <c>JsInterop</c> is the cast between an engine object and a JSEAL handle that the DOM bridge still
+/// makes where the contract lacks an operation, and the one property it owes is that a handle
+/// crossing it is indistinguishable from one the provider made.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -19,17 +19,20 @@ namespace Broiler.Browser.Core.Tests;
 /// budget increase and this file is where the argument for it belongs." The argument is that the
 /// seam's whole subject is the correspondence between an engine object and a JSEAL handle, so a test
 /// that could not name the first half could not assert the correspondence — it could only assert
-/// that JSEAL agrees with itself. The increase is two references and it buys the only check that
-/// would catch the defect below coming back.
+/// that JSEAL agrees with itself. The increase is one reference, a using line, and it buys the only
+/// check that would catch the defect below coming back. (This said two references.)
 /// </para>
 /// <para>
 /// <b>What it pins.</b> <c>JsProviderValue.Object</c> is documented as the wrapper for an engine
 /// object that is neither callable nor an Array exotic, and <c>FromEngineObject</c> called it for
 /// everything — so a function crossing the seam came back kind <c>Object</c> while the same function
 /// from <c>BroilerJsMarshal.Wrap</c> came back kind <c>Function</c>. <see cref="JsValue"/> compares
-/// kind before reference, so the two handles were unequal despite naming one object. Latent while
-/// nothing keys a map on a handle that might hold a function; load-bearing the moment a listener
-/// record does.
+/// kind before reference, so the two handles were unequal despite naming one object. This said the
+/// defect stayed latent only until a listener record held a handle. The record has held one since
+/// cb0ecb2, and a listener is a list element, never a map key. A map that does key on function
+/// handles, <c>CustomElementsBinding</c>'s constructor map, files and finds them with handles
+/// straight from call frames the provider filled, and the one bridge call to
+/// <c>FromEngineObject</c> mints an array.
 /// </para>
 /// </remarks>
 public class JsInteropSeamTests
@@ -62,7 +65,7 @@ public class JsInteropSeamTests
             var fromProvider = realm.EvaluateHostScript(source, "test:seam");
             Assert.Equal(expected, fromProvider.Kind);
 
-            // Down to the engine and back, which is what an unmigrated caller does with it.
+            // Down to the engine and back across the cast.
             var engineObject = (JSObject)JsProviderValue.ReferenceOf(fromProvider)!;
             var roundTripped = JsInterop.FromEngineObject(engineObject);
 
@@ -90,7 +93,7 @@ public class JsInteropSeamTests
         Assert.Equal(fromProvider.GetHashCode(), roundTripped.GetHashCode());
 
         // And the same handle used as a dictionary key finds its own entry, which is the shape the
-        // bridge's listener and target maps are.
+        // bridge's target and constructor maps are; a listener sits in a list, not as a key.
         var map = new System.Collections.Generic.Dictionary<JsValue, string> { [fromProvider] = "listener" };
         Assert.True(map.TryGetValue(roundTripped, out var found));
         Assert.Equal("listener", found);

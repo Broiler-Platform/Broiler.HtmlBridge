@@ -15,12 +15,12 @@ public sealed partial class DomBridge
     /// <summary>
     /// Whether an element's <c>anchor()</c> insets are the MVP subset the engine's native
     /// placement post-pass reproduces (P5.8d.2b), so the bridge can hand them off instead of
-    /// pre-baking (see <see cref="CssBox"/>'s <c>TryApplyAnchorInsetPlacement</c>). Requires:
-    /// every <c>anchor()</c> reference is in a physical inset (<c>left</c>/<c>right</c>/
-    /// <c>top</c>/<c>bottom</c>) and names a registered, accessible anchor; no
-    /// <c>anchor-size()</c>; at most one inset per axis (opposing-inset sizing needs a re-flow
-    /// the reposition-only pass can't do); the box is not fixed/modal and has no intervening
-    /// scroll offset (the engine uses no scroll adjustment); and no <c>position-try</c>.
+    /// pre-baking (see <see cref="Broiler.Layout.Engine.CssBox.TryApplyAnchorInsetPlacement"/>).
+    /// Requires: every <c>anchor()</c> reference is in a physical inset (<c>left</c>/<c>right</c>/
+    /// <c>top</c>/<c>bottom</c>) and names a registered, accessible anchor; no <c>anchor-size()</c>;
+    /// opposing insets on an axis only over a childless <c>auto</c> or an intrinsic-keyword length;
+    /// not a non-modal <c>fixed</c> box; no intervening scroll offset (the engine uses none); and
+    /// <c>position-try</c> only as <see cref="NativePositionTryHandoffSupported"/> admits.
     /// </summary>
     private bool IsMvpNativeAnchorInsetBox(
         DomElement element, Dictionary<string, string> cssProps,
@@ -234,7 +234,7 @@ public sealed partial class DomBridge
     /// <summary>
     /// Whether an element's <c>anchor-size()</c> sizing is the MVP subset the engine's native
     /// sizing pass reproduces (P5.8d.2b), so the bridge can hand it off instead of pre-baking
-    /// (see <see cref="CssBox"/>'s <c>TryApplyNativeAnchorSizing</c>). Requires: an absolutely
+    /// (see <see cref="Broiler.Layout.Engine.CssBox.TryApplyNativeAnchorSizing"/>). Requires: an absolutely
     /// positioned, <b>childless</b> box (the engine only sizes childless boxes without a
     /// re-flow); <c>anchor-size()</c> only in <c>width</c>/<c>height</c>, each naming a
     /// registered accessible anchor; no <c>anchor()</c> inset (the combined case stays baked);
