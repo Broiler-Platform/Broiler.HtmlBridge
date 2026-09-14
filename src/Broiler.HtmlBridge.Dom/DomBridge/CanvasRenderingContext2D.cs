@@ -1,6 +1,12 @@
 using System.Drawing;
 using Broiler.CSS;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
+using Broiler.Graphics.Geometry;
+using Broiler.Graphics.Imaging;
+using Broiler.Graphics.Rendering;
+using Broiler.Graphics.RenderList;
+using Broiler.Graphics.Text;
 using Broiler.Media.Image;
 
 namespace Broiler.HtmlBridge;
@@ -83,7 +89,7 @@ internal sealed class CanvasRenderingContext2D
     /// <summary>Current global alpha (transparency).</summary>
     public float GlobalAlpha { get; set; } = 1.0f;
     /// <summary>Current compositing/blending operator.</summary>
-    public string GlobalCompositeOperation { get; set; } = "source-over";
+    public BCanvas.BlendMode GlobalCompositeOperation { get; set; } = BCanvas.BlendMode.normal;
 
     /// <summary>True when this context has a bitmap to draw into and read back from.</summary>
     public bool HasBitmap => _bitmap is not null;
@@ -108,7 +114,7 @@ internal sealed class CanvasRenderingContext2D
         Font = "10px sans-serif";
         TextAlign = "start";
         GlobalAlpha = 1.0f;
-        GlobalCompositeOperation = "source-over";
+        GlobalCompositeOperation = BCanvas.BlendMode.normal;
     }
 
     private void Allocate(int width, int height)
@@ -376,7 +382,7 @@ internal sealed class CanvasRenderingContext2D
             return;
 
         using BCanvas canvas = _bitmap.OpenCanvas();
-        string? blendMode = BlendModeFor(GlobalCompositeOperation);
+        BCanvas.BlendMode? blendMode = BlendModeFor(GlobalCompositeOperation);
         if (blendMode is null)
         {
             operation(canvas);
@@ -392,12 +398,31 @@ internal sealed class CanvasRenderingContext2D
     /// Maps a <c>globalCompositeOperation</c> to the blend mode <see cref="BCanvas"/> implements, or
     /// null for plain source-over.
     /// </summary>
-    private static string? BlendModeFor(string operation) => operation?.ToLowerInvariant() switch
+    private static BCanvas.BlendMode? BlendModeFor(BCanvas.BlendMode operation) => operation switch
     {
-        "multiply" or "screen" or "overlay" or "darken" or "lighten"
-            or "difference" or "plus-lighter" => operation.ToLowerInvariant(),
+        BCanvas.BlendMode.multiply or BCanvas.BlendMode.screen or BCanvas.BlendMode.overlay or BCanvas.BlendMode.darken
+            or BCanvas.BlendMode.lighten or BCanvas.BlendMode.difference or BCanvas.BlendMode.plus_lighter => operation,
         _ => null,
     };
+
+    /// <summary>
+    /// How script spells each operator. The enum cannot carry a hyphen, so neither direction may go through
+    /// it by name: <c>ToString</c> answers <c>plus_lighter</c>, and <c>Enum.TryParse</c> also accepts digits,
+    /// comma-separated lists and surrounding whitespace, each of which would set a state no page asked for.
+    /// <c>source-over</c> is held as <c>normal</c>: it is the operator every blend mode already composites
+    /// with, and a <c>normal</c> blend is plain drawing, which is all <see cref="Draw"/> does for it.
+    /// </summary>
+    private static readonly (string Keyword, BCanvas.BlendMode Operation)[] CompositeOperationKeywords =
+    [
+        ("source-over", BCanvas.BlendMode.normal),
+        ("multiply", BCanvas.BlendMode.multiply),
+        ("screen", BCanvas.BlendMode.screen),
+        ("overlay", BCanvas.BlendMode.overlay),
+        ("darken", BCanvas.BlendMode.darken),
+        ("lighten", BCanvas.BlendMode.lighten),
+        ("difference", BCanvas.BlendMode.difference),
+        ("plus-lighter", BCanvas.BlendMode.plus_lighter),
+    ];
 
     /// <summary>
     /// Whether the setter should accept this <c>globalCompositeOperation</c>. HTML requires an
@@ -407,8 +432,46 @@ internal sealed class CanvasRenderingContext2D
     /// support, and every canvas feature detector tests exactly this round-trip.
     /// </summary>
     public static bool IsSupportedCompositeOperation(string? operation) =>
-        string.Equals(operation, "source-over", StringComparison.OrdinalIgnoreCase)
-        || BlendModeFor(operation ?? string.Empty) is not null;
+        TryParseCompositeOperation(operation, out _);
+
+    /// <summary>
+    /// The operator a supported <c>globalCompositeOperation</c> keyword names. The value is lowercased and
+    /// then compared ordinally, which is how the string state this replaced decided what to accept. Fails for
+    /// anything <see cref="Draw"/> would not composite as named, so an accepted value is always one that is
+    /// applied.
+    /// </summary>
+    public static bool TryParseCompositeOperation(string? value, out BCanvas.BlendMode operation)
+    {
+        string? lowered = value?.ToLowerInvariant();
+        foreach ((string keyword, BCanvas.BlendMode candidate) in CompositeOperationKeywords)
+        {
+            if (string.Equals(lowered, keyword, StringComparison.Ordinal)
+                && (candidate == BCanvas.BlendMode.normal || BlendModeFor(candidate) is not null))
+            {
+                operation = candidate;
+                return true;
+            }
+        }
+
+        operation = BCanvas.BlendMode.normal;
+        return false;
+    }
+
+    /// <summary>
+    /// The keyword <c>globalCompositeOperation</c> reads back as. An operator with no keyword cannot be
+    /// stored through the setter; should one arrive another way it reads as <c>source-over</c>, which is
+    /// what <see cref="Draw"/> composites it as.
+    /// </summary>
+    public static string CompositeOperationKeyword(BCanvas.BlendMode operation)
+    {
+        foreach ((string keyword, BCanvas.BlendMode candidate) in CompositeOperationKeywords)
+        {
+            if (candidate == operation)
+                return keyword;
+        }
+
+        return "source-over";
+    }
 
     private List<PointF> CurrentSubpath()
     {
@@ -568,6 +631,6 @@ internal sealed class CanvasRenderingContext2D
         public string Font { get; init; } = string.Empty;
         public string TextAlign { get; init; } = string.Empty;
         public float GlobalAlpha { get; init; }
-        public string GlobalCompositeOperation { get; init; } = string.Empty;
+        public BCanvas.BlendMode GlobalCompositeOperation { get; init; } = BCanvas.BlendMode.normal;
     }
 }

@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using Broiler.Dom;
 using Broiler.Graphics;
+using Broiler.Graphics.Imaging;
+using Broiler.Graphics.Rendering;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.Media.Image;
 
@@ -208,7 +210,7 @@ internal static class CanvasBinding
         // at the setter (the spec's "ignore an invalid value") instead of round-tripping as if it had
         // been applied.
         realm.DefineAccessor(ctx, "globalCompositeOperation",
-            (in _) => JsValue.String(context2d.GlobalCompositeOperation),
+            (in _) => JsValue.String(CanvasRenderingContext2D.CompositeOperationKeyword(context2d.GlobalCompositeOperation)),
             (in call) => SetGlobalCompositeOperation(context2d, in call));
 
         // canvas — the element that owns this context. Was a fresh empty object, so ctx.canvas.width did
@@ -317,9 +319,12 @@ internal static class CanvasBinding
     {
         // Coerced twice, as it always was: an object argument whose toString answers differently on the
         // second call sets a value the check did not approve, and reproducing that is what "preserve the
-        // behaviour" means here.
-        if (call.Length > 0 && CanvasRenderingContext2D.IsSupportedCompositeOperation(call.Realm.ToJsString(call[0])))
-            context2d.GlobalCompositeOperation = call.Realm.ToJsString(call[0]);
+        // behaviour" means here. The state is the operator now rather than the string, so a second answer
+        // that names no supported operator has nothing to be stored as and leaves the state unchanged.
+        if (call.Length > 0
+            && CanvasRenderingContext2D.IsSupportedCompositeOperation(call.Realm.ToJsString(call[0]))
+            && CanvasRenderingContext2D.TryParseCompositeOperation(call.Realm.ToJsString(call[0]), out BCanvas.BlendMode operation))
+            context2d.GlobalCompositeOperation = operation;
         return JsValue.Undefined;
     }
 
