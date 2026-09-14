@@ -6,7 +6,6 @@ using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
-using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
@@ -60,7 +59,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
 
         using var context = new JSContext();
         RegisterRuntimeExtensions(context);
-        using var realm = AdoptDocumentFreeRealm(context);
+        AdoptDocumentFreeRealm(context);
         var allSucceeded = true;
         for (var i = 0; i < scripts.Count; i++)
         {
@@ -396,7 +395,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
 
         using var context = new JSContext();
         RegisterRuntimeExtensions(context);
-        using var realm = AdoptDocumentFreeRealm(context);
+        AdoptDocumentFreeRealm(context);
         var errors = new List<ScriptError>();
 
         for (var i = 0; i < scripts.Count; i++)
@@ -492,14 +491,15 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         // dynamic-function constructor every function kind shares, at every arity, and for
         // ShadowRealm.prototype.evaluate. A document path's bridge adopts it in Attach;
         // Execute(scripts) and ExecuteDetailed(scripts) adopt it themselves, straight after this
-        // method, for as long as the call runs (AdoptDocumentFreeRealm says what that leaves out).
-        // So, while a call runs, the stub adds precedence, not cover: the engine treats a call whose
-        // callee is not the intrinsic eval as an ordinary call, so `eval(...)` reaches this stub and
-        // never the hook, and a page catches a plain Error carrying its InvalidOperationException where
-        // `new Function('...')` gets SyntaxError. Retiring it would give eval the realm's SyntaxError on
-        // every path, the document paths a browser loads included, which a page can see and belongs in
-        // its own change -- one that must also keep eval refused in work that outlives a document-free
-        // call, where only this stub still refuses it.
+        // method, and never dispose it, so it refuses for as long as anything can run on the context
+        // (AdoptDocumentFreeRealm).
+        // So, wherever that realm is subscribed, the stub adds precedence, not cover: the engine treats a
+        // call whose callee is not the intrinsic eval as an ordinary call, so `eval(...)` reaches this
+        // stub and never the hook, and a page catches a plain Error carrying its InvalidOperationException
+        // where `new Function('...')` gets SyntaxError. Retiring it would give eval the realm's SyntaxError
+        // on every path, the document paths a browser loads included, which a page can see and belongs in
+        // its own change -- one that must also keep eval refused in work that outlives a document's
+        // bridge, where only this stub still refuses it.
         if (Csp != null && !Csp.AllowsEval)
         {
             context["eval"] = new JSFunction((in Arguments _) => JsScriptEngineEval002Core(in _), "eval", 1);
@@ -514,8 +514,8 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
 
     /// <summary>
     /// Wraps the context a document-free entry point built as a JSEAL realm, under the policy set on
-    /// <see cref="Csp"/>, so a script there meets the refusal a document's script meets while the call
-    /// runs.
+    /// <see cref="Csp"/>, and never disposes that realm, so a script there, and work it leaves to run after
+    /// the call returns, meets the refusal a document's script meets.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -531,23 +531,36 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// without guest evaluation subscribes the engine's compile hook, and one built with it subscribes
     /// nothing. An adopted realm never makes its job pump current, entered or not
     /// (<c>BroilerJsRealm.Enter</c>), so it leaves promise reactions where the context already sends them.
-    /// Callers declare it after the context, so it is disposed first, and disposing it unsubscribes the
-    /// hook. (<c>BroilerJsRealm</c>'s remarks name <c>ScriptEngine</c>'s
+    /// Nothing disposes the realm, and this returns nothing so that no caller can. For an adopted realm,
+    /// disposal clears a job queue nothing on this path fills, unsubscribes the refusal, and marks the realm
+    /// disposed, a mark only code holding the realm could observe (<c>BroilerJsRealm.Dispose</c>). The
+    /// handler is static, so the subscription holds no reference to the realm, and disposing the context
+    /// neither cancels its timers nor detaches the handler, so the refusal lasts as long as anything can run
+    /// on the context. (<c>BroilerJsRealm</c>'s remarks name <c>ScriptEngine</c>'s
     /// <c>MicroTaskSynchronizationContext</c> as what an adopted context captured, and a comment in its
     /// <c>Dispose</c> names <c>InteractiveSession</c> as what disposes it. Neither holds here: this context
     /// captured the synchronization context of the thread that called the entry point, if it had one, and
     /// the entry point disposes it.)
     /// </para>
     /// <para>
-    /// <b>The refusal lasts as long as the call.</b> Unlike a document path, these entry points install no
-    /// <c>MicroTaskSynchronizationContext</c>, so two kinds of work can outlive the call: a promise
-    /// reaction scheduled while no script is executing, such as one a <c>queueMicrotask</c> callback
-    /// schedules, which the engine posts to the synchronization context the context captured when it was
-    /// built, or to the thread pool; and a callback on the engine's own <c>setTimeout</c> or
-    /// <c>setInterval</c>, which throw a <c>TypeError</c> unless the thread that built the context had a
-    /// synchronization context. Such work can run after this realm has unsubscribed, and a
-    /// <c>Function</c> constructor or <c>ShadowRealm.prototype.evaluate</c> reached from it is then not
-    /// refused. <c>eval</c> there still meets the stub, which stays on the context.
+    /// <b>The refusal lasts as long as anything can run on the context.</b> These entry points install no
+    /// <c>MicroTaskSynchronizationContext</c>, and disposing the context cancels nothing a script scheduled,
+    /// so work a script leaves behind can run after the call returns: a promise reaction scheduled while no
+    /// script is executing, such as one a <c>queueMicrotask</c> callback schedules, which the engine posts to
+    /// the synchronization context the context captured when it was built, or to the thread pool; and a
+    /// callback on the engine's own <c>setTimeout</c>, <c>setInterval</c> or <c>setImmediate</c>, which post
+    /// to a synchronization context (<c>setTimeout</c> and <c>setInterval</c> throw a <c>TypeError</c> unless
+    /// the thread that built the context had one). Such work still runs, which is why the realm stays
+    /// subscribed. The engine enters a function's own realm to invoke it (<c>JSFunction.InvokeFunction</c>,
+    /// <c>CreateInstance</c>) and a job's posting context to run it (<c>RunJob</c>), so a compile attempted
+    /// there is dispatched on this context and meets the <c>SyntaxError</c>, whichever thread runs it, and
+    /// <c>eval</c> there meets the stub. That rests on a callable capturing its realm when it is created; a
+    /// <c>JSFunction</c> whose constructors never call <c>CaptureRealm</c> has no realm until something asks
+    /// for one while a context is current, and then takes that context; an ask made while none is current
+    /// enters no context and leaves it without a realm. Everything that compiles nothing still runs,
+    /// including a call to <c>queueMicrotask</c>, which enqueues its callback onto <see cref="MicroTasks"/>
+    /// on whatever thread makes the call, so that callback runs only when something drains that queue.
+    /// <c>LateWorkEvaluationPolicyTests</c> pins the refusal.
     /// </para>
     /// <para>
     /// Two costs a bare context did not have. Adoption reads the provider's capabilities, and the
@@ -558,8 +571,8 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// throws instead of running its scripts ungated.
     /// </para>
     /// </remarks>
-    private IJsRealm AdoptDocumentFreeRealm(JSContext context) =>
-        DomBridge.AdoptRealm(context, DomBridge.RealmOptionsFor(Csp));
+    private void AdoptDocumentFreeRealm(JSContext context) =>
+        _ = DomBridge.AdoptRealm(context, DomBridge.RealmOptionsFor(Csp));
 
     /// <summary>
     /// Register a minimal <c>WeakRef</c> constructor.  Because .NET's GC

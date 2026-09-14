@@ -227,7 +227,10 @@ built with the constructing page realm's `GuestEval` decision, so what `'unsafe-
 it refuses the worker. `ScriptEngine`'s document-free
 `Execute(scripts)` and `ExecuteDetailed(scripts)` build no bridge, so they adopt the context they build
 themselves, through the same `DomBridge.AdoptRealm` and the same policy mapping, from the policy a host
-sets on `ScriptEngine.Csp`; a script there meets the same refusal while the call runs. A dynamic
+sets on `ScriptEngine.Csp`; a script there, and work it leaves to run after the call returns, meets the
+same refusal: neither entry point disposes that realm, and disposing the context does not unsubscribe the
+refusal, so it stays on the context for as long as anything can still run there. Work a document's script
+leaves to run after the document's bridge is torn down is not guaranteed the refusal. A dynamic
 `import()` is none of
 the three members: `IJsSource` runs no modules. Where a page has
 module roots and the engine binds imports, `BridgeModuleContext` checks each module it fetches with
