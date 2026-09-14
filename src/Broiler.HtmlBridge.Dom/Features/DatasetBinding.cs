@@ -78,7 +78,7 @@ internal static class DatasetBinding
     /// </summary>
     /// <remarks>
     /// The source is this repository's own, not the page's, so it goes through
-    /// <see cref="IJsSource.EvaluateHostScript"/> — the half of the source contract that is exempt
+    /// <see cref="IJsSource.EvaluateHostScript"/> — the one member of the source contract exempt
     /// from the page's content policy. A failure is not cached, exactly as before: a realm that
     /// answered nothing once is asked again rather than remembered as broken.
     /// </remarks>

@@ -3,21 +3,29 @@ using Broiler.VM.Profile.JavaScript;
 namespace Broiler.HtmlBridge.Jseal.Vm;
 
 /// <summary>
-/// <see cref="IJsSource"/>: running script this repository authored, and script the page supplied.
+/// <see cref="IJsSource"/>: running script this repository authored, a classic script the page
+/// carries, and the source a page's <c>eval</c> and <c>new Function</c> ask for.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Both go through the realm's own <c>eval</c>, which is the only thing that evaluates INTO an
+/// <b>All three go through the realm's own <c>eval</c>, the only thing that evaluates INTO an
 /// existing realm.</b> The obvious alternative - compile the text to an artifact and instantiate it
 /// - produces a second realm with its own globals, so a polyfill installed that way would be
 /// installed somewhere the page cannot see. Asking the realm for its <c>eval</c> and invoking it is
 /// what keeps the evaluation in the realm the caller meant.
 /// </para>
 /// <para>
-/// <b>What separates the two is a mark this provider makes, not one the profile carries.</b> The
+/// <b>What separates them is marked by this provider, not carried by the profile.</b> The
 /// profile's evaluation request is the source text and nothing else, so the artifact provider cannot
-/// tell whose evaluation it is answering. <see cref="VmSourceProvider.EnterHostScript"/> is how this
-/// side says so; the reasoning, and the gap it stands in for, are on that type.
+/// tell which kind of evaluation it is answering. <see cref="EvaluateHostScript"/> holds
+/// <see cref="VmSourceProvider.EnterHostScript"/> for the whole evaluation.
+/// <see cref="EvaluateClassicScript"/> holds <see cref="VmSourceProvider.EnterClassicScript"/> for
+/// the whole evaluation as well: it arms a permit the first compile spends, and suspends the
+/// host-script mark until it is disposed. <see cref="EvaluateDynamicSource"/> takes neither, but
+/// it never meets the provider's refusal: a realm built without <c>AllowGuestEval</c> also lacks
+/// <see cref="JsCapabilities.GuestEval"/>, so the member throws before evaluating, while the page's
+/// own <c>eval</c> in that realm is refused inside it. The reasoning, and the gap it stands in for,
+/// are on <see cref="VmSourceProvider"/>.
 /// </para>
 /// </remarks>
 internal sealed partial class VmRealm

@@ -61,18 +61,27 @@ public sealed class BroilerJsEngineProvider : IJsEngineProvider, IJsRealmAdoptio
     /// <remarks>
     /// <para>
     /// Each of these is true of Broiler.JS and is exercised by the bridge today:
-    /// <see cref="JsCapabilities.HostScriptSource"/> and <see cref="JsCapabilities.GuestEval"/> both
-    /// reach <c>JSContext.Eval</c>, which compiles at run time and does not distinguish the two —
-    /// the distinction is the host's, and this provider keeps it (see <c>BroilerJsRealm.Source.cs</c>);
+    /// <see cref="JsCapabilities.HostScriptSource"/>, <see cref="JsCapabilities.ClassicScriptSource"/>
+    /// and <see cref="JsCapabilities.GuestEval"/> each name an <see cref="IJsSource"/> member, and all
+    /// three members reach <c>JSContext.Eval</c>, which compiles at run time and does not distinguish
+    /// them — the distinction is the host's. GuestEval is the only one a realm can lose, and this
+    /// provider enforces its absence in two places: at <c>EvaluateDynamicSource</c>
+    /// (<c>BroilerJsRealm.Source.cs</c>), and at the page's own <c>eval</c> and <c>Function</c>
+    /// through the <c>EvalEvent</c> subscription in <c>BroilerJsRealm.cs</c>, an event neither a
+    /// call with no arguments to <c>Function</c> or its async and generator siblings nor
+    /// <c>ShadowRealm.prototype.evaluate</c> ever raises;
     /// <see cref="JsCapabilities.Promises"/> is <c>JSPromise</c>, whose delegate constructor settles
     /// from host code; <see cref="JsCapabilities.ExoticObjects"/> is the <c>JSObject</c> lookup
     /// protocol <c>BroilerJsExoticObject</c> overrides; <see cref="JsCapabilities.GlobalIsVariableScope"/>
     /// is the engine's defining structural choice, that the <c>JSContext</c> <em>is</em> the global;
     /// <see cref="JsCapabilities.WorkerRealms"/> is a second <c>JSContext</c> on a second thread, which
-    /// is what the bridge's Worker support already builds; and
+    /// is what the bridge's Worker support already builds;
     /// <see cref="JsCapabilities.ReentrantHostCalls"/> is simply how the engine runs — a native
     /// function may call <c>InvokeFunction</c> while the engine is inside it, which is what every
-    /// event dispatch in the bridge does.
+    /// event dispatch in the bridge does; and <see cref="JsCapabilities.BinaryData"/> is
+    /// <c>JSArrayBuffer</c>, which <c>NewArrayBuffer</c> mints over a copy of the host's bytes and
+    /// <c>TryGetArrayBufferBytes</c> reads back, <c>SharedArrayBuffer</c> excluded
+    /// (<c>BroilerJsRealm.Values.cs</c>).
     /// </para>
     /// <para>
     /// <see cref="JsCapabilities.Modules"/> and <see cref="JsCapabilities.DynamicImport"/> appear only

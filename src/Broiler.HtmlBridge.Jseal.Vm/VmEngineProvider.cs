@@ -12,14 +12,15 @@ namespace Broiler.HtmlBridge.Jseal.Vm;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>What it declares now covers <see cref="JsCapabilities.Document"/>, and the last bit to
-/// arrive was <see cref="JsCapabilities.Promises"/>.</b> The profile's host surface can mint
-/// objects, install members and accessors, call back into the guest synchronously, and complete a
-/// lookup for an object whose members are not a fixed list - which is most of what binding a
-/// document needs. The fifth bit was believed to need a seam the profile does not have, and did
-/// not: a promise a host settles is built out of the realm's own <c>Promise</c> through
-/// <c>Construct</c>, which is three ordinary crossings and no evaluation. See
-/// <c>VmRealm.Jobs.cs</c>, which records the argument it replaced.
+/// <b>What it declares now covers <see cref="JsCapabilities.Document"/>.</b> The profile's host
+/// surface can mint objects, install members and accessors, call back into the guest synchronously,
+/// and complete a lookup for an object whose members are not a fixed list - which is most of what
+/// binding a document needs. <see cref="JsCapabilities.Promises"/> was believed to need a seam the
+/// profile does not have, and did not: a promise a host settles is built out of the realm's own
+/// <c>Promise</c> through <c>Construct</c>, which is three ordinary crossings and no evaluation. See
+/// <c>VmRealm.Jobs.cs</c>, which records the argument it replaced. (This used to call
+/// <c>Promises</c> the last bit to arrive; <c>BinaryData</c> and <c>ClassicScriptSource</c> joined
+/// <c>Document</c> after it.)
 /// </para>
 /// <para>
 /// <b>Declaring <c>Document</c> is a claim about this realm and not about the browser.</b> It says
@@ -172,10 +173,10 @@ public sealed class VmEngineProvider : IJsEngineProvider
                 capabilities &= ~JsCapabilities.BinaryData;
 
             // AND THE SAME FOR SOURCE. `eval` is behind the profile's dynamic surface the way the
-            // binary intrinsics are behind its binary one, and both kinds of evaluation reach it -
-            // it is the only thing that evaluates INTO an existing realm, which is what a host
-            // asking a realm to run a script means. A realm without it can run neither, so it
-            // declares neither; the bootstrap program that built this realm was compiled and
+            // binary intrinsics are behind its binary one, and all three kinds of evaluation reach
+            // it - it is the only thing that evaluates INTO an existing realm, which is what a host
+            // asking a realm to run a script means. A realm without it can run none of them, so it
+            // declares none; the bootstrap program that built this realm was compiled and
             // instantiated rather than evaluated, so getting this far proves nothing about `eval`.
             if (bridge.Eval.Kind is not JsHostValueKind.Function)
                 capabilities &= ~(JsCapabilities.HostScriptSource |

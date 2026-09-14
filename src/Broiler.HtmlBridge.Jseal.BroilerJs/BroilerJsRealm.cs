@@ -82,6 +82,16 @@ internal sealed partial class BroilerJsRealm : IJsRealm
         // of them. It is NOT fired by JSContext's own evaluation entry point, which is what the host
         // members reach, so this refuses the page without touching anything this repository runs.
         //
+        // TWO CALLS GET PAST IT. CreateDynamicFunction dispatches EvalEvent only when it is given at
+        // least one argument; with none it returns the empty function before reaching the dispatch,
+        // so new Function() -- and the same call to the async, generator and async-generator
+        // constructors -- still succeeds here, where a browser under the same policy refuses it: the
+        // specification passes an absent body to HostEnsureCanCompileStrings as the empty string
+        // before parsing. That runs nothing the page wrote, though the page sees it succeed.
+        // ShadowRealm.prototype.evaluate runs what the page wrote, never raising EvalEvent, in a
+        // child JSContext nothing subscribes to.
+        // APagesOwnEvalAndFunctionAreRefusedInARealmThatForbidsGuestEvaluation tries neither.
+        //
         // Replacing the eval and Function globals was considered and rejected: Function.prototype
         // .constructor reaches the compiler without either binding, so the stub would be a fence with
         // a gate beside it, and IJsEngineProvider argues against a provider reshaping the language.

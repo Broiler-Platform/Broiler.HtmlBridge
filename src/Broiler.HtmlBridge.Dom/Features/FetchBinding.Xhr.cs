@@ -11,7 +11,7 @@ internal sealed partial class FetchBinding
     /// </summary>
     /// <remarks>
     /// The source is this repository's own, not the page's, so it goes through
-    /// <see cref="IJsSource.EvaluateHostScript"/> — the half of the source contract that is exempt
+    /// <see cref="IJsSource.EvaluateHostScript"/> — the one member of the source contract exempt
     /// from the page's content policy — and the label is what a stack frame raised inside the
     /// polyfill reports as its location. The declarations are top-level on purpose: <c>window</c>
     /// <em>is</em> the global here, so <c>function XMLHttpRequest</c> is what publishes the

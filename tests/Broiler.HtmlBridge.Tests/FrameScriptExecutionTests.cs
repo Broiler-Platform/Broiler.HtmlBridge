@@ -7,13 +7,17 @@ namespace Broiler.Browser.Core.Tests;
 /// document and Location, and the frame's own inline script — that it runs at all, and which
 /// window, document and Location it runs against.
 /// <para>
-/// <b>Nothing in this suite mentioned frames, which is why two ordinary changes could not land.</b>
-/// Retyping <c>SubWindowBinding.GetOrCreate</c> rebinds <c>DomBridge/SubDocuments.cs:407</c>'s
-/// <c>RunWithWindowContext(subWindow, …)</c> from one overload to the other with no textual change
-/// to that line, and pointing the frame's Location at the realm-framed builder moves a live path
-/// onto a builder that has never executed. Neither failure is one a compiler sees: the first reads
-/// as a frame running against the wrong globals, or a page never getting its own back; the second
-/// as a Location missing a member, or carrying the same members in another order.
+/// <b>Nothing in this suite mentioned frames, which is why two ordinary changes could not land
+/// until it did.</b> Retyping <c>SubWindowBinding.GetOrCreate</c> to answer a handle rebound
+/// <c>DomBridge/SubDocuments.cs:407</c>'s <c>RunWithWindowContext(subWindow, …)</c> from the
+/// engine-typed overload to the handle one with no textual change to that line; that overload has
+/// since been deleted, and <c>DomBridge.WindowContext.cs</c> declares only the handle one. Pointing
+/// the frame's Location at the realm-framed builder moved a live path onto a builder that had never
+/// executed; it is now <c>LocationBinding</c>'s only builder, though the top-level Location is
+/// still assembled apart from it, in <c>Registration/Window.cs</c>, over the same navigation
+/// surface. Neither failure is one a compiler sees: the first reads as a frame running against the
+/// wrong globals, or a page never getting its own back; the second as a Location missing a member,
+/// or carrying the same members in another order.
 /// </para>
 /// <para>
 /// <b>The Location test spells the object out, and it pins the CURRENT SHAPE rather than a

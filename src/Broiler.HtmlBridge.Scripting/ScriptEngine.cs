@@ -10,7 +10,7 @@ using Broiler.HtmlBridge.Scripting;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Executes JavaScript using the YantraJS engine.
+/// Executes JavaScript using the Broiler.JS engine.
 /// A fresh <see cref="JSContext"/> is created for each call to
 /// <see cref="Execute(IReadOnlyList{string})"/> so that scripts from different pages are isolated.
 /// </summary>
@@ -146,7 +146,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         Csp = ContentSecurityPolicy.FromHtml(html) ?? previousCsp;
 
         // Drive the engine's own module machinery only when it actually binds imports (patches 0010/0011);
-        // otherwise the page runs on a plain JSContext and modules come in as linked strings via the linker.
+        // otherwise the page runs on a plain JSContext and its module roots are left unrun.
         var useEngineModules = roots.Count > 0 && EngineModuleSupport.Available;
         var moduleContext = useEngineModules ? new BridgeModuleContext(Csp, url, roots) : null;
 
@@ -327,8 +327,8 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// As <see cref="ExecuteInteractive(IReadOnlyList{string}, IReadOnlyList{string}, string, string?)"/>,
     /// with the document's authorised ES-module roots. When the engine binds imports the roots run through
     /// the engine's module machinery on a <see cref="BridgeModuleContext"/> (whose lifetime transfers to the
-    /// returned session); otherwise they are ignored and the linked strings in <paramref name="deferredScripts"/>
-    /// run as before. Modules are deferred, so they run eagerly here after the deferred scripts.
+    /// returned session); otherwise they are left unrun and only the classic scripts run. Modules
+    /// are deferred, so they run eagerly here after the deferred scripts.
     /// </summary>
     public InteractiveSession? ExecuteInteractive(IReadOnlyList<string> scripts, IReadOnlyList<string> deferredScripts, string html, string? url, IReadOnlyList<ModuleRoot>? moduleRoots)
     {
@@ -470,8 +470,9 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
 
     /// <summary>
     /// Register Milestone 4 runtime extensions on the JS context:
-    /// <c>queueMicrotask</c>, CSP-gated <c>eval</c>, and polyfills for
-    /// ES2023+ built-ins not natively provided by YantraJS.
+    /// <c>queueMicrotask</c>, CSP-gated <c>eval</c>, and fallback <c>WeakRef</c> and
+    /// <c>FinalizationRegistry</c> constructors, each installed only when the context does not
+    /// already define it. Broiler.JS defines both natively, so on this engine the fallbacks stay out.
     /// </summary>
     private void RegisterRuntimeExtensions(JSContext context)
     {
@@ -483,24 +484,29 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         // It replaces one global binding, so it refuses `eval(...)` and nothing else: `new Function`,
         // and every route through Function.prototype.constructor, reach the compiler past it.
         //
-        // On a DOCUMENT path that no longer matters, because the realm the bridge adopts is now built
-        // from this same policy and refuses at the engine's own eval hook -- which fires for the
-        // dynamic-function constructor as well, and for every function kind. This stub is reached
-        // first there and is effectively redundant.
+        // On a DOCUMENT path that gap is closed, because the realm the bridge adopts is built from
+        // this same policy and refuses at the engine's own eval hook -- which fires for eval and
+        // for the dynamic-function constructor every function kind shares, except a constructor
+        // call with no arguments (BroilerJsRealm.cs records that, and ShadowRealm, which never
+        // raises the hook). There the stub adds precedence, not cover: the engine treats a call
+        // whose callee is not the intrinsic eval as an ordinary call, so `eval(...)` reaches this
+        // stub and never the hook, and a page catches a plain Error carrying its
+        // InvalidOperationException where `new Function('...')` gets SyntaxError.
         //
-        // It stays because of the path that has no bridge: Execute(scripts) builds a bare context and
-        // adopts no realm, so this is the only cover it has. THE RESIDUAL IS STATED RATHER THAN
-        // LEFT TO BE DISCOVERED: on that path `new Function` is still ungated. Closing it means the
-        // document-free path taking a realm too, which is a larger change than this one.
+        // It stays for the two paths that have no bridge: Execute(scripts) and
+        // ExecuteDetailed(scripts) each build a bare context and adopt no realm, so it is their
+        // only cover. THE RESIDUAL IS STATED RATHER THAN LEFT TO BE DISCOVERED: on those paths
+        // `new Function` is still ungated. Closing it means the document-free paths taking a realm
+        // too, which is a larger change than this one.
         if (Csp != null && !Csp.AllowsEval)
         {
             context["eval"] = new JSFunction((in Arguments _) => JsScriptEngineEval002Core(in _), "eval", 1);
         }
 
-        // WeakRef polyfill (YantraJS may not expose this natively)
+        // WeakRef fallback, installed only when the context lacks one (Broiler.JS defines it natively)
         RegisterWeakRefPolyfill(context);
 
-        // FinalizationRegistry polyfill
+        // FinalizationRegistry fallback, on the same terms
         RegisterFinalizationRegistryPolyfill(context);
     }
 

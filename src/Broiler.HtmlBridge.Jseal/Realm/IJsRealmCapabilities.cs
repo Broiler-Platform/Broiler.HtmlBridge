@@ -273,7 +273,7 @@ public interface IJsJobs
 }
 
 /// <summary>
-/// Turning JavaScript source into something that runs — and the distinction between the two very
+/// Turning JavaScript source into something that runs — and the distinction between the three
 /// different reasons a browser does that.
 /// </summary>
 /// <remarks>
@@ -290,19 +290,23 @@ public interface IJsJobs
 /// member for both cannot express either page, which is why there are three.
 /// </para>
 /// <para>
-/// <b>Host script and guest source are not the same capability, and conflating them is what makes a
-/// second engine look impossible.</b> The bridge itself authors JavaScript: two embedded <c>.js</c>
-/// assets totalling 1,891 lines, plus 54 <c>Eval</c> sites across 28 files that install polyfills,
-/// probe for a global, or re-link a prototype. That source is written by this repository, ships with
-/// it, and is not subject to the page's Content-Security-Policy. Guest source is what <c>eval</c>,
-/// <c>new Function</c> and a dynamic <c>import()</c> ask for on the page's behalf, and it is exactly
-/// what a CSP may forbid.
+/// <b>Host script is not the page's source, and conflating the two is what makes a second engine
+/// look impossible.</b> The bridge itself authors JavaScript, and <c>EvaluateHostScript</c> runs it
+/// throughout <c>Broiler.HtmlBridge.Dom</c>: two calls run the embedded <c>.js</c> assets, 1,891
+/// lines between them, and most of the rest install a polyfill or an interface object, or probe for
+/// a global. That source is written by this repository, ships with it, and is not subject to the
+/// page's Content-Security-Policy. A dynamic <c>import()</c> is none of the three members: it is
+/// <see cref="JsCapabilities.DynamicImport"/>, and <see cref="JsCapabilities.GuestEval"/> does not
+/// gate it.
 /// </para>
 /// <para>
-/// An engine with no run-time compiler can support the first by compiling the bridge's own JavaScript
-/// when the engine is built, and refuse the second — which is the shape Broiler.VM already has, where
-/// refusing is expressed by registering no artifact provider at all rather than by consulting a policy
-/// object mid-execution. Declaring them separately is what lets a provider say so.
+/// An engine with no run-time compiler could support host script by compiling the bridge's own
+/// JavaScript when the engine is built, and lack the other two, because a page's text is not
+/// knowable then. Declaring them separately is what lets a provider say so.
+/// <c>VmEngineProvider</c> is not that engine: all three members compile at run time, through the
+/// artifact provider it registers for every realm, and a forbidden <c>eval</c> is refused inside
+/// that provider rather than by registering none. (This used to say Broiler.VM refuses by
+/// registering no artifact provider; that is <c>VmScriptEngine</c>'s shape, not this provider's.)
 /// </para>
 /// </remarks>
 public interface IJsSource
@@ -312,8 +316,9 @@ public interface IJsSource
     /// </summary>
     /// <param name="source">The script text.</param>
     /// <param name="label">
-    /// A name for the evaluation, used as the location in a stack frame — <c>polyfill:streams</c>,
-    /// <c>probe:module-support</c>. Diagnostics only.
+    /// A name for the evaluation — <c>polyfill:streams</c>, <c>probe:global-this</c>. Broiler.JS
+    /// compiles it as the script's file path, which stack frames report and its code cache keys on;
+    /// Broiler.VM names it only in the error thrown when the realm has no <c>eval</c> intrinsic.
     /// </param>
     JsValue EvaluateHostScript(string source, string label);
 
@@ -339,6 +344,13 @@ public interface IJsSource
     /// realm-shaped option even if the type were reachable. A token minted by the policy layer was
     /// considered and rejected: anything that can call the minter can forge one, so it buys ceremony
     /// rather than enforcement.
+    /// </para>
+    /// <para>
+    /// <b>The worker path does not meet that obligation today.</b> <c>JSWorker</c> hands over a
+    /// worker's top-level script and each <c>importScripts</c> body with no
+    /// Content-Security-Policy consulted, and a worker's top-level script is governed by
+    /// <c>worker-src</c>, which falls back through <c>child-src</c> and <c>script-src</c> to
+    /// <c>default-src</c>; this repository's policy parser reads neither of the first two.
     /// </para>
     /// <para>
     /// Throws when the realm was not built with <see cref="JsCapabilities.ClassicScriptSource"/>.

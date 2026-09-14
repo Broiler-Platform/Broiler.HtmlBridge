@@ -156,6 +156,8 @@ internal sealed class JSWorker
                 // the text is the page's. True, and not what decides it. Nothing on this path takes the
                 // script-src decision the classic member expects of its caller (for a worker the
                 // directive is worker-src): no Content-Security-Policy is consulted before this runs.
+                // Nor does the page's 'unsafe-eval' decision reach the worker: its realm is built above
+                // with JsRealmOptions.Default, so eval and Function inside a worker are never refused.
                 realm.EvaluateClassicScript(_script.Source, $"worker:{_name}");
             }
             catch (Exception ex)

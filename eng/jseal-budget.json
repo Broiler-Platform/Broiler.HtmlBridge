@@ -133,7 +133,7 @@
       "engineProjectRefs": 3,
       "guestEvalSites": 1,
       "role": "provider",
-      "note": "The Broiler.JS provider, and the one project under src/ whose budget is not expected to reach zero. Naming Broiler.JavaScript is what this assembly is for: every reference here is a reference the bridge no longer has to make. The single eval site is JSContext.Eval inside the realm's own IJsSource implementation -- the provider being asked to evaluate, not a binding evaluating. Its two engine project references are Broiler.JavaScript.Engine and .BuiltIns. Its engineProjectRefs rose from 2 to 3 when IJsClone landed: JSGlobalStatic.StructuredClone lives in Broiler.JavaScript.Globals, so the provider that implements structured clone needs it. That is the gate doing its job rather than a regression -- the same reference LEFT Broiler.HtmlBridge.Dom in the same commit, because the bridge's only use of it was the call that is now behind the contract. An engine assembly reached by the provider and not by the bridge is the shape all of these should end in."
+      "note": "The Broiler.JS provider, and the one project under src/ whose budget is not expected to reach zero. Naming Broiler.JavaScript is what this assembly is for: every reference here is a reference the bridge no longer has to make. The single eval site is JSContext.Eval inside the realm's own IJsSource implementation -- the provider being asked to evaluate, not a binding evaluating. Its engine project references were Broiler.JavaScript.Engine and .BuiltIns until IJsClone landed and took engineProjectRefs from 2 to 3: JSGlobalStatic.StructuredClone lives in Broiler.JavaScript.Globals, so the provider that implements structured clone needs it. That is the gate doing its job rather than a regression -- the same reference LEFT Broiler.HtmlBridge.Dom in the same commit, because the bridge's only use of it was the call that is now behind the contract. An engine assembly reached by the provider and not by the bridge is the shape all of these should end in."
     },
     "Broiler.HtmlBridge.Jseal.Vm": {
       "engineReferences": 0,
@@ -149,10 +149,10 @@
       "note": "Five files now: the Broiler.JS ScriptEngine and what it needs to build a realm. InteractiveSession left the count when its constructor stopped taking a JSContext -- it read the context once, to dispose it, so the parameter is typed IDisposable and the class names no engine type at all. That reference was load-bearing for a reason unrelated to what it did: VmScriptEngine named the constructor as half of why the document-bearing overloads are forwarded. This is where the Broiler.JS provider will live once it is one, and the counts here move to a Jseal.BroilerJs assembly rather than to zero -- a provider naming its own engine is what a provider is for."
     },
     "Broiler.HtmlBridge.Scripting.Vm": {
-      "engineReferences": 1,
+      "engineReferences": 0,
       "engineProjectRefs": 5,
       "guestEvalSites": 0,
-      "note": "The 1 is a doc comment in VmScriptEngine.cs saying the profile does not expose Broiler.JavaScript types. It is counted because the metric is textual and stays textual: a check that tried to tell prose from code would need a parser, and would then be arguable in a way this is not. Lower it by rewording the sentence, or leave it -- it costs nothing at 1."
+      "note": "0 since the last occurrence went: a doc comment in VmScriptEngine.cs that named the Dom bridge's remaining engine references by their namespace, with a count that had gone stale (it said a hundred-odd; Dom is at 12). It was reworded rather than left, because the metric is textual and stays textual: a check that tried to tell prose from code would need a parser, and would then be arguable in a way this is not. (This note used to say the 1 was a sentence about the profile not exposing engine types; it was that sentence.)"
     }
   }
 }

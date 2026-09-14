@@ -39,10 +39,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// silent wrong answer.
 /// </para>
 /// <para>
-/// <b>The JavaScript half is host script, not guest source.</b> The two IIFEs below are written by
-/// this repository and ship with it, so they run through <see cref="IJsSource.EvaluateHostScript"/>
-/// and are not subject to the page's Content-Security-Policy — which is the distinction JSEAL draws
-/// and the reason a realm may serve these while refusing the page its own <c>eval</c>.
+/// <b>The JavaScript half is host script.</b> The IIFE below, and the <c>Selection</c> one
+/// <see cref="RegisterSelectionInterface"/> runs after it, are written by this repository and ship
+/// with it, so they run through <see cref="IJsSource.EvaluateHostScript"/> and are not subject to
+/// the page's Content-Security-Policy — which is the distinction JSEAL draws and the reason a realm
+/// may serve these while refusing the page its own <c>eval</c>.
 /// </para>
 /// </remarks>
 internal sealed partial class TraversalBinding

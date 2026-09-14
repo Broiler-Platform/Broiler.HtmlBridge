@@ -48,8 +48,8 @@ public sealed partial class DomBridge
     /// </para>
     /// <para>
     /// <b>The JavaScript below is host script</b> — authored in this repository and shipped with it —
-    /// so it runs through <see cref="IJsSource.EvaluateHostScript"/> rather than the guest-source entry
-    /// point, and the page's Content-Security-Policy has no say over it.
+    /// so it runs through <see cref="IJsSource.EvaluateHostScript"/>, the member the page's
+    /// Content-Security-Policy has no say over.
     /// </para>
     /// </remarks>
     /// <param name="window">
