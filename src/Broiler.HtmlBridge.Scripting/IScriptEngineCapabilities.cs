@@ -76,7 +76,8 @@ public interface IScriptExecutor
     /// <c>'unsafe-eval'</c>, a script the engine runs cannot compile a string at run time through a route
     /// <c>'unsafe-eval'</c> governs -- <c>eval</c>, the <c>Function</c> constructors and, where the engine
     /// has one, <c>ShadowRealm.prototype.evaluate</c> -- on any entry point while the call running it is in
-    /// progress, and the scripts handed to the engine still run. What a refused script catches is up to the
+    /// progress, and, on a document-free call, in work such a script leaves to run after the call returns;
+    /// the scripts handed to the engine still run. What a refused script catches is up to the
     /// engine and need not be one error for every route. A string handed to <c>setTimeout</c> or
     /// <c>setInterval</c> is not in the list because no engine here compiles one.
     /// </summary>
@@ -95,10 +96,12 @@ public interface IScriptExecutor
     /// </para>
     /// <para>
     /// Besides a document whose markup widens this policy, one kind of script is not guaranteed the
-    /// refusal: on a document-free call, work a script leaves to run after the call returns. Script in a
-    /// dedicated <c>Worker</c> a document starts, and in a script the worker imports, meets the refusal
-    /// for as long as the worker runs, under the decision the document's own script meets, which for a
-    /// frame's script is its top-level page's. No source list is consulted for a worker's scripts.
+    /// refusal: on a document-bearing call, work a script leaves to run once its document is torn down,
+    /// whether the call does that before it returns or leaves it to the disposal of an interactive session it
+    /// returns. Script in a dedicated <c>Worker</c> a document starts, and in a script the worker imports,
+    /// meets the refusal for as long as the worker runs, under the decision the document's own script
+    /// meets, which for a frame's script is its top-level page's. No source list is consulted for a
+    /// worker's scripts.
     /// </para>
     /// </remarks>
     ContentSecurityPolicy? Csp { get; set; }
