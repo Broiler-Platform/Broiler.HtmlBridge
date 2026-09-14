@@ -222,7 +222,9 @@ evaluates them on the context it built.
 `'unsafe-eval'` governs it, through `JsCapabilities.GuestEval`, and it is exactly what a CSP may
 forbid. Nothing in the bridge calls it, though: the page's own `eval`, `new Function` and
 `ShadowRealm.prototype.evaluate` never reach a host member, and each provider refuses them inside a
-realm built without `GuestEval` (Broiler.VM has no `ShadowRealm`). `ScriptEngine`'s document-free
+realm built without `GuestEval` (Broiler.VM has no `ShadowRealm`). A dedicated worker's realm is
+built with the constructing page realm's `GuestEval` decision, so what `'unsafe-eval'` refuses the page
+it refuses the worker. `ScriptEngine`'s document-free
 `Execute(scripts)` and `ExecuteDetailed(scripts)` build no bridge, so they adopt the context they build
 themselves, through the same `DomBridge.AdoptRealm` and the same policy mapping, from the policy a host
 sets on `ScriptEngine.Csp`; a script there meets the same refusal while the call runs. A dynamic

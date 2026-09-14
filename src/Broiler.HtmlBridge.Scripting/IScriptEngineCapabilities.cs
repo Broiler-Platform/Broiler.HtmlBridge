@@ -94,9 +94,11 @@ public interface IScriptExecutor
     /// compiling once those rules admit them.
     /// </para>
     /// <para>
-    /// Besides a document whose markup widens this policy, two kinds of script are not guaranteed the
-    /// refusal: script in a dedicated <c>Worker</c> a page starts, whose realm is built without the policy,
-    /// and, on a document-free call, work a script leaves to run after the call returns.
+    /// Besides a document whose markup widens this policy, one kind of script is not guaranteed the
+    /// refusal: on a document-free call, work a script leaves to run after the call returns. Script in a
+    /// dedicated <c>Worker</c> a document starts, and in a script the worker imports, meets the refusal
+    /// for as long as the worker runs, under the decision the document's own script meets, which for a
+    /// frame's script is its top-level page's. No source list is consulted for a worker's scripts.
     /// </para>
     /// </remarks>
     ContentSecurityPolicy? Csp { get; set; }
