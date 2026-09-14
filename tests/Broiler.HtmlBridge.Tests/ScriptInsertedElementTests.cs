@@ -36,9 +36,9 @@ public class ScriptInsertedElementTests
     /// </summary>
     /// <remarks>
     /// The probe writes into <c>#out</c> and so does the program it inserts, with different values.
-    /// Reading the surviving one distinguishes "the inserted program ran" from "it did not" without
-    /// depending on WHEN it ran — an inserted script may take its own turn on the event loop, and a
-    /// probe that read a global on the next line would report a timing accident as a refusal.
+    /// Reading the surviving one distinguishes "the inserted program ran" from "it did not". Every
+    /// program inserted here is inline, which <c>ScriptInsertionRunner</c> runs synchronously in
+    /// <c>appendChild</c>; only a <c>src</c> script waits for its own turn on the event loop.
     /// </remarks>
     private static string Run(string? policy, string script)
     {
@@ -91,16 +91,22 @@ public class ScriptInsertedElementTests
     }
 
     /// <summary>
-    /// A script element is governed by <c>script-src</c>, so a policy forbidding inline script stops
-    /// it — and the page's probe still runs, because the page's own scripts reached the engine before
-    /// any of this and are not what the policy is being asked about here.
+    /// A script element is governed by <c>script-src</c>, so a policy that permits evaluation and
+    /// not inline script stops it. <c>'unsafe-eval'</c> is there so that the page's realm is built
+    /// with guest evaluation, leaving the runner's <c>script-src</c> check as the only thing on
+    /// the path that can stop the program. (This used <c>script-src 'none'</c>, which also leaves
+    /// out <c>'unsafe-eval'</c>, so a program the realm refused would have read the same as one the
+    /// runner refused.) The probe still runs because <c>ScriptEngine.Execute</c> evaluates the
+    /// script it is handed without consulting the policy.
     /// </summary>
     [Fact]
     public void ScriptSrcGovernsAnInsertedScriptElement()
     {
         Assert.Equal(
             "inserted",
-            Run("script-src 'none'", InsertScript("document.getElementById('out').textContent = 'ran';")));
+            Run(
+                "script-src 'unsafe-eval'",
+                InsertScript("document.getElementById('out').textContent = 'ran';")));
     }
 
     /// <summary>

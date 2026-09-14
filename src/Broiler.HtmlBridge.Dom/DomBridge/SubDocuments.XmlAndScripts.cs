@@ -120,8 +120,8 @@ public sealed partial class DomBridge
     /// Scripts call parent.notify() etc. in the main JS context.
     /// </summary>
     /// <param name="policies">
-    /// Every Content-Security-Policy governing this sub-document: whatever its own markup declares,
-    /// plus the one delivered to it — its embedder's when the frame has a local scheme and inherits
+    /// The Content-Security-Policies enforced for this sub-document: the first one its own markup
+    /// declares, plus the one delivered to it — its embedder's when the frame has a local scheme and inherits
     /// it, or its response header's when it came off the network. Each script runs only if all of
     /// them admit it.
     /// </param>

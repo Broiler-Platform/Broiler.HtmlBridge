@@ -47,10 +47,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>Every expectation is Chromium's measured answer over the same probe run against both.</para>
 /// <para>
-/// <b>The JavaScript vocabulary is JSEAL's</b> (<see cref="IJsRealm"/>). The two JavaScript assets
-/// this module installs are source this repository authored and ships, so they run through
-/// <see cref="IJsSource.EvaluateHostScript"/> rather than the guest-source entry point — a page's
-/// Content-Security-Policy has no say over them. No engine type is named anywhere in this file: the
+/// <b>The JavaScript vocabulary is JSEAL's</b> (<see cref="IJsRealm"/>). The one script this module
+/// installs is source this repository authored and ships, so it runs through
+/// <see cref="IJsSource.EvaluateHostScript"/> rather than either of the other two members — a page's
+/// Content-Security-Policy has no say over it. No engine type is named anywhere in this file: the
 /// script context <see cref="RegisterInterfaces"/> used to be handed is gone (the module always
 /// reached its realm through its host and never read it), and <c>DomBridge.TryReadFormDataEntries</c>
 /// now takes a realm and a handle.

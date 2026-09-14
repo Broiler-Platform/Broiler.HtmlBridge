@@ -2,11 +2,13 @@
 #
 # Fails when a project under src/ gains JavaScript-engine coupling it did not have.
 #
-# The browser binds its DOM to Broiler.JS by naming it: 905 occurrences of the
-# Broiler.JavaScript namespace across src/, twelve project references into
-# Broiler.JS/ and Broiler.VM/, and 61 evaluation sites. JSEAL
-# (src/Broiler.HtmlBridge.Jseal) is the engine-neutral contract those are being
-# moved onto, and moving them is a 250-file job.
+# When this check was written (2026-09-08), the browser bound its DOM to Broiler.JS
+# by naming it: the first eng/jseal-budget.json recorded 909 occurrences of the
+# text Broiler.JavaScript across src/ (the root-less spelling counted below was
+# not counted then, and added 16), 16 project references into Broiler.JS/ and
+# Broiler.VM/, and 62 evaluation sites, and scoped the move as a 250-file job.
+# JSEAL (src/Broiler.HtmlBridge.Jseal) is the engine-neutral contract those are
+# being moved onto. Today's counts are in the budget file, not in this comment.
 #
 # A 250-file migration lands one of two ways. As one merge, which nobody can
 # review and which is blocked behind every other change to the same files for as
@@ -21,7 +23,7 @@
 # So this is a ratchet rather than a threshold. eng/jseal-budget.json records what
 # each project's coupling is TODAY; this recounts and fails on any project that
 # went up. Nothing is forbidden outright, which matters -- Broiler.HtmlBridge.Dom
-# is at 891 and every honest change to it lands before it reaches 0 -- but the
+# started far from 0 and every honest change to it lands before it reaches 0 -- but the
 # direction is fixed, and a project already at 0 cannot take a new engine-coupled
 # file at all.
 #

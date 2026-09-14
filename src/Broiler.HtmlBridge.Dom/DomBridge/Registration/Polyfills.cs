@@ -11,9 +11,9 @@ public sealed partial class DomBridge
         // embedded .js asset (Phase 3 work item 6, externalized from inline C# string literals) evaluated
         // once here. See Polyfills/content-rendering-polyfills.js.
         //
-        // Host script, not guest source: this repository authored it, it ships in this assembly, and
-        // it is not subject to the page's content policy — which is the distinction IJsSource exists
-        // to draw and the reason a realm built without GuestEval still runs it.
+        // Host script: this repository authored it, it ships in this assembly, and it is not subject
+        // to the page's content policy — which is what IJsSource.EvaluateHostScript promises, and the
+        // reason a realm built without GuestEval still runs it.
         Realm.EvaluateHostScript(PolyfillAssets.ContentRendering, "polyfill:content-rendering");
 
         // document.cookie — get/set stub (in-memory, non-persistent). Host-driven (not pure JS), so it stays

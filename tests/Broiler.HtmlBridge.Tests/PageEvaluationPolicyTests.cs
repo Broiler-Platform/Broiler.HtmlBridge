@@ -18,7 +18,8 @@ namespace Broiler.Browser.Core.Tests;
 /// and it cannot see <c>Function.prototype.constructor</c> either, so a page under a policy
 /// forbidding <c>'unsafe-eval'</c> could compile whatever it liked by the second route. The refusal
 /// now happens at the engine's own eval hook, which fires for the dynamic-function constructor and
-/// for every function kind.
+/// for every function kind, except a call with no arguments; <c>ShadowRealm.prototype.evaluate</c>
+/// never raises it (see <c>BroilerJsRealm.cs</c>).
 /// </para>
 /// </summary>
 public class PageEvaluationPolicyTests
@@ -104,9 +105,19 @@ public class PageEvaluationPolicyTests
     }
 
     /// <summary>
-    /// And a page whose policy forbids evaluation still runs its own script — the assertion the
-    /// three-member source contract exists to make, checked here at the level a page can see.
+    /// And under a policy forbidding <c>'unsafe-eval'</c> the page's script still runs: the refusal
+    /// reaches what the script asks to evaluate at run time, and not the script itself.
     /// </summary>
+    /// <remarks>
+    /// This does not reach <c>IJsSource.EvaluateClassicScript</c>.
+    /// <c>ScriptEngine.Execute</c> hands the script to <c>RunPageScripts</c>, which evaluates it on
+    /// the engine context directly and consults no <c>script-src</c>. What is asserted is narrower:
+    /// what this policy installs, <c>ScriptEngine</c>'s <c>eval</c> stub and the realm's eval hook,
+    /// does not stop a script the host evaluates. The refusals above are the <c>Function</c>
+    /// constructor's, and nothing in this file calls <c>eval</c>. A classic script under the same
+    /// narrowing is asserted at realm level, by
+    /// <c>JsealConformanceTests.AClassicScriptRunsInARealmThatForbidsGuestEvaluation</c>.
+    /// </remarks>
     [Fact]
     public void APolicyForbiddingUnsafeEvalStillRunsThePagesOwnScript()
     {

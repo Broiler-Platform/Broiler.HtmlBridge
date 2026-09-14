@@ -84,10 +84,14 @@ internal sealed class VmHostBridge : IJsHostSurface
     /// </para>
     /// <para>
     /// One residual is left and is not a defect this closes: the mark is still held while the
-    /// evaluated script's own code runs, so a bridge polyfill that synchronously called a
-    /// page-supplied function would lend it the same permission. Nothing the bridge installs does
-    /// that, and closing it properly means the profile carrying the distinction itself rather than
-    /// this provider standing in for it - which is the gap <see cref="VmSourceProvider"/> records.
+    /// evaluated script's own code runs, so host script that synchronously calls a page-supplied
+    /// function lends it the same permission. The bridge's host script does call page code. In
+    /// <c>DomBridge.WindowLoad.cs</c>, <c>broiler:window-onload</c> calls the page's <c>onload</c>,
+    /// and <c>broiler:body-load-event</c> calls <c>document.createEvent</c>, a member the bridge
+    /// installs writable, so a page can replace it. <c>IDomBridgeRuntime.Attach</c> still takes a
+    /// Broiler.JS context, so no page reaches that code in a realm of this provider yet. Closing the
+    /// residual properly means the profile carrying the distinction itself rather than this provider
+    /// standing in for it - which is the gap <see cref="VmSourceProvider"/> records.
     /// </para>
     /// </remarks>
     internal JsHostValue Eval { get; private set; }

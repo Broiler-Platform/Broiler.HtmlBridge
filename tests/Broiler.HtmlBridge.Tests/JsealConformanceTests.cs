@@ -940,7 +940,7 @@ public class JsealConformanceTests
     /// constructor saw <see cref="JsValue.Missing"/>. The value was there to be had: the engine's
     /// own [[Construct]] sets <c>ec.CurrentNewTarget</c> to the constructor immediately before
     /// invoking the delegate, and its <c>Object</c> factory reads exactly that.
-    /// <c>BroilerJsRealm.cs:329-342</c> now reads both, in that order, and states why. Custom-element
+    /// <c>BroilerJsRealm.cs:339-352</c> now reads both, in that order, and states why. Custom-element
     /// construction is the caller that needed it, and was smuggling new.target through as argument
     /// zero from a JavaScript shim for want of it.
     /// </remarks>
@@ -1133,7 +1133,7 @@ public class JsealConformanceTests
     /// <para>
     /// The Broiler.VM provider's <c>NewPromise</c> refused for exactly this reason until the
     /// argument was found to be about a route rather than about the engine. So the two claims are
-    /// asserted together here: guest source is still refused, and a promise is still made.
+    /// asserted together here: dynamic source is still refused, and a promise is still made.
     /// </para>
     /// </remarks>
     [Theory]
@@ -1147,7 +1147,7 @@ public class JsealConformanceTests
 
         Assert.False(realm.Capabilities.HasFlag(JsCapabilities.GuestEval));
         Assert.Throws<JsCapabilityUnavailableException>(
-            () => realm.EvaluateDynamicSource("1", "test:guest-refused"));
+            () => realm.EvaluateDynamicSource("1", "test:dynamic-refused"));
 
         var promise = realm.NewPromise(out var resolve, out _);
         realm.DefineValue(realm.Global, "restricted", promise);
@@ -1176,7 +1176,7 @@ public class JsealConformanceTests
 
     [Theory]
     [MemberData(nameof(Engines))]
-    public void ARealmBuiltWithoutGuestEvalRefusesGuestSourceAndStillRunsHostScript(string engine)
+    public void ARealmBuiltWithoutGuestEvalRefusesDynamicSourceAndStillRunsHostScript(string engine)
     {
         var provider = Provider(engine);
 
@@ -1184,21 +1184,21 @@ public class JsealConformanceTests
         {
             // The default realm runs both, and the split is only visible when a host asks for it.
             Assert.True(permissive.Capabilities.HasFlag(JsCapabilities.GuestEval));
-            Assert.True(permissive.EvaluateDynamicSource("6 * 7", "test:guest") == JsValue.Number(42d));
+            Assert.True(permissive.EvaluateDynamicSource("6 * 7", "test:dynamic") == JsValue.Number(42d));
         }
 
         using var restricted = provider.CreateRealm(new JsRealmOptions { AllowGuestEval = false });
 
         // A realm is never wider than its provider and may be narrower. This is the only narrowing
-        // the options can express, and it is the whole point of IJsSource: the bridge's own
-        // JavaScript is not subject to the page's Content-Security-Policy and the page's eval is.
+        // the options can express, and it takes away only what 'unsafe-eval' governs: the dynamic
+        // source refused below, and not the bridge's own script, which still runs.
         Assert.False(restricted.Capabilities.HasFlag(JsCapabilities.GuestEval));
         Assert.Equal(
             provider.Capabilities & ~JsCapabilities.GuestEval,
             restricted.Capabilities & ~JsCapabilities.GuestEval);
 
         var refusal = Assert.Throws<JsCapabilityUnavailableException>(
-            () => restricted.EvaluateDynamicSource("6 * 7", "test:guest-refused"));
+            () => restricted.EvaluateDynamicSource("6 * 7", "test:dynamic-refused"));
         Assert.Equal(JsCapabilities.GuestEval, refusal.Missing);
         Assert.Equal(restricted.EngineName, refusal.EngineName);
 
@@ -1300,13 +1300,15 @@ public class JsealConformanceTests
     /// <remarks>
     /// <para>
     /// <b>The two providers disagreed about this in opposite directions and nothing asked either.</b>
-    /// One forced strictness on both members, so a page's own evaluation was strict when the host had
-    /// only asked for its own to be; the other reached only its bootstrap unit, so nothing was strict
-    /// whatever the host asked. Neither is arguable: an indirect <c>eval</c> evaluates a NEW script
-    /// whose strictness comes from its own source, so a host that forced it strict would make one
-    /// page behave differently here than anywhere else, and a host that could not force its own would
-    /// have an option that did nothing. <c>docs/vm-javascript-profile.md</c> already stated the rule
-    /// and measured the script-engine path against it; this is the realm contract catching up.
+    /// One forced strictness on both of the members the contract then had, so a page's own
+    /// evaluation was strict when the host had only asked for its own to be; the other reached only
+    /// its bootstrap unit, so nothing was strict whatever the host asked. Neither is arguable: an
+    /// indirect <c>eval</c> evaluates a NEW script whose strictness comes from its own source, so a
+    /// host that forced it strict would make one page behave differently here than anywhere else,
+    /// and a host that could not force its own would have an option that did nothing.
+    /// <c>docs/vm-javascript-profile.md</c> states the <c>eval</c> half for the script engines'
+    /// <c>StrictModeEnabled</c>, which also makes a document's own scripts strict. This option does
+    /// not reach <c>EvaluateClassicScript</c> on either provider, and this test does not ask.
     /// </para>
     /// <para>
     /// <b>A value probe, not an exception probe.</b> Strictness is read from what <c>this</c> is
@@ -1334,7 +1336,7 @@ public class JsealConformanceTests
 
         Assert.Equal(
             "object",
-            forced.ToJsString(forced.EvaluateDynamicSource(ThisInAPlainCall, "test:strict-does-not-reach-guest")));
+            forced.ToJsString(forced.EvaluateDynamicSource(ThisInAPlainCall, "test:strict-does-not-reach-dynamic")));
 
         // The control: a realm that did not ask for it is sloppy on both sides, so the answers above
         // are ForceStrictMode's doing rather than the provider's fixed behaviour.
@@ -1343,7 +1345,7 @@ public class JsealConformanceTests
         Assert.Equal("object", Eval(relaxed, ThisInAPlainCall, "test:default-host"));
         Assert.Equal(
             "object",
-            relaxed.ToJsString(relaxed.EvaluateDynamicSource(ThisInAPlainCall, "test:default-guest")));
+            relaxed.ToJsString(relaxed.EvaluateDynamicSource(ThisInAPlainCall, "test:default-dynamic")));
     }
 
     [Theory]
@@ -2497,7 +2499,7 @@ public class JsealConformanceTests
         new Dictionary<JsCapabilities, string>
         {
             [JsCapabilities.HostScriptSource] = nameof(EvaluatingHostScriptAnswersTheValueOfTheLastExpression),
-            [JsCapabilities.GuestEval] = nameof(ARealmBuiltWithoutGuestEvalRefusesGuestSourceAndStillRunsHostScript),
+            [JsCapabilities.GuestEval] = nameof(ARealmBuiltWithoutGuestEvalRefusesDynamicSourceAndStillRunsHostScript),
             [JsCapabilities.ClassicScriptSource] = nameof(AClassicScriptRunsInARealmThatForbidsGuestEvaluation),
             [JsCapabilities.Promises] = nameof(APromiseSettlesFromTheHostAndItsReactionRunsAtTheNextDrain),
             [JsCapabilities.ExoticObjects] = nameof(AnOrdinaryPropertyWinsOverTheExoticHandler),
@@ -2516,7 +2518,7 @@ public class JsealConformanceTests
     /// <b>This is a gap in the contracts, recorded here rather than papered over.</b>
     /// <see cref="JsCapabilities.Modules"/> and <see cref="JsCapabilities.DynamicImport"/> describe
     /// binding an ES-module import end to end, and <see cref="IJsSource"/> — the only contract that
-    /// takes source — has no module entry point at all: its two members run a script, which is a
+    /// takes source — has no module entry point at all: its three members run a script, which is a
     /// different thing from instantiating and evaluating a module in a module map. So a provider can
     /// declare both and a host written against JSEAL alone has no way to use either, and no way to
     /// tell whether the claim is true. Nothing here can close that; a <c>EvaluateModule</c> on

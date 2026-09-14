@@ -35,8 +35,8 @@ namespace Broiler.HtmlBridge;
 /// </para>
 /// <para>
 /// <b>What actually keeps the document-bearing overloads here is the bridge's own signature.</b>
-/// <c>IDomBridgeRuntime.Attach</c> takes a <c>JSContext</c>, and the hundred-odd
-/// <c>Broiler.JavaScript</c> references still left in <c>Broiler.HtmlBridge.Dom</c> mean its
+/// <c>IDomBridgeRuntime.Attach</c> takes a <c>JSContext</c>, and the engine-namespace
+/// references still left in <c>Broiler.HtmlBridge.Dom</c> mean its
 /// unmigrated bindings have nothing else to build on — so a page can only be attached to a realm of
 /// that engine, whatever a second engine is now able to express.
 /// <see cref="InteractiveSession"/> used to say the same thing in one line — its constructor took a

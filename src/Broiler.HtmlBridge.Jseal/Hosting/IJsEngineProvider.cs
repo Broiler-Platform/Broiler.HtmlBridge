@@ -36,27 +36,34 @@ public interface IJsEngineProvider
 }
 
 /// <summary>
-/// What a host asks of a realm at the moment it is built — the things that cannot be changed
-/// afterwards because they change the shape of the runtime rather than a flag inside it.
+/// What a host asks of a realm at the moment it is built — options a realm cannot be given
+/// afterwards.
 /// </summary>
 /// <remarks>
-/// <see cref="AllowGuestEval"/> is the clearest case. A page whose policy forbids evaluation and one
-/// that permits it get two differently shaped runtimes, and the refusal is a contract outcome the page
-/// may catch rather than an engine consulting a policy object mid-execution. Broiler.VM's embedding
-/// contract states this directly — a policy forbidding dynamic evaluation is expressed by registering
-/// no artifact-provider capability — and it is the right shape on any engine.
+/// <see cref="AllowGuestEval"/> is the one a host derives from the page's policy. Both providers
+/// fix it when they build the realm, and a page's <c>eval</c> in a realm built without it meets a
+/// refusal the page may catch. Broiler.VM's embedding contract expresses that policy by registering
+/// no artifact-provider capability, and <c>VmScriptEngine</c> does; <c>VmEngineProvider</c>
+/// cannot, because this repository's script and the page's classic scripts compile through the
+/// same artifact provider, so it registers one for every realm and that provider refuses the
+/// page's <c>eval</c> and <c>new Function</c> instead, though not while a host script is running.
 /// </remarks>
 public sealed class JsRealmOptions
 {
     /// <summary>
-    /// Whether the page may evaluate source of its own (<c>eval</c>, <c>new Function</c>). Default
-    /// <see langword="true"/>; a host that has read a restrictive Content-Security-Policy passes
-    /// <see langword="false"/>, and the realm is built without the capability.
+    /// Whether the page's <c>eval</c> and <c>new Function</c> may compile — <c>'unsafe-eval'</c>.
+    /// Default <see langword="true"/>; a host whose page's policy withholds <c>'unsafe-eval'</c>
+    /// passes <see langword="false"/>, and the realm is built without
+    /// <see cref="JsCapabilities.GuestEval"/>. The page's script elements and this repository's own
+    /// script still run in it.
     /// </summary>
     public bool AllowGuestEval { get; init; } = true;
 
     /// <summary>
-    /// Whether every script is run in strict mode regardless of what it says.
+    /// Whether the source this repository hands over through
+    /// <see cref="IJsSource.EvaluateHostScript"/> is run in strict mode regardless of what it says.
+    /// Neither provider forces a classic script. Broiler.VM does force a page's <c>eval</c> or
+    /// <c>new Function</c> compiled while that source is still running; Broiler.JS never does.
     /// </summary>
     public bool ForceStrictMode { get; init; }
 

@@ -25,9 +25,9 @@ namespace Broiler.HtmlBridge.Scripting;
 /// designed.</b> The other bridge units name engine types to build values; this one <em>is</em> an
 /// engine type — the module graph's resolve/fetch hooks are <see langword="protected"/> overrides, so
 /// the coupling is the base class rather than a call. JSEAL still declares only <em>that</em> an
-/// engine binds modules (<c>JsCapabilities.Modules</c>, <c>DynamicImport</c>) and how host versus
-/// guest source is run (<c>IJsSource</c>), neither of which offers a specifier resolver or a source
-/// fetcher.
+/// engine binds modules (<c>JsCapabilities.Modules</c>, <c>DynamicImport</c>) and how host script,
+/// classic script and dynamic source are run (<c>IJsSource</c>), neither of which offers a specifier
+/// resolver or a source fetcher.
 /// </para>
 /// <para>
 /// <b>The contract that would close it, written down so the next attempt does not have to rediscover
@@ -52,7 +52,7 @@ namespace Broiler.HtmlBridge.Scripting;
 /// until that file changes with it. Second, the implementation belongs in
 /// <c>Broiler.HtmlBridge.Jseal.BroilerJs</c>, and <c>JSModuleContext</c> lives in
 /// <c>Broiler.JavaScript.Modules</c>, which that project deliberately does not reference: its
-/// <c>engineProjectRefs</c> budget is 2 and <c>scripts/check-engine-neutrality.sh</c> enforces that
+/// <c>engineProjectRefs</c> budget is 3 and <c>scripts/check-engine-neutrality.sh</c> enforces that
 /// number for a provider as well as for a binding. Adding the reference is a real budget increase and
 /// wants an argument in its own diff, not a side effect of a refactor.
 /// </para>

@@ -789,7 +789,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime
      *
      * The absence is stated rather than left implicit because the method made the feature look
      * present. Anyone implementing it does so fresh, against IJsRealm, and inherits none of what
-     * that body had: an existence probe that evaluated a `typeof` expression as guest source --
+     * that body had: an existence probe that evaluated a `typeof` expression through its context --
      * one of this project's budgeted eval sites, spent on a question the realm answers directly --
      * and a documented defect in that same probe, where the engine's lowercase "true" never
      * matched C#'s "True", so the shadowing skip it exists for was a no-op and a same-named

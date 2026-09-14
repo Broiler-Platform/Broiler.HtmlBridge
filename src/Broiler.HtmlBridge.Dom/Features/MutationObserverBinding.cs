@@ -18,7 +18,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
 /// type. Two seams moved rather than disappeared: the polyfill is <em>host</em> script — this
 /// repository authored it and a page's Content-Security-Policy has no say over it — so it runs
-/// through <see cref="IJsSource.EvaluateHostScript"/> rather than the guest-source entry point; and
+/// through <see cref="IJsSource.EvaluateHostScript"/> rather than a member that policy governs; and
 /// the two <c>__broiler…MutationObserver</c> host functions are installed on
 /// <see cref="IJsRealm.Global"/>, which is the object the script context they were written against
 /// already is under this engine.

@@ -10,20 +10,26 @@ namespace Broiler.HtmlBridge.Jseal.Vm;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Host script and guest source reach the profile through the same door, and telling them apart
-/// is this type's whole job.</b> The Broiler.VM profile carries an evaluation request as the source
-/// text and nothing else - deliberately, because what a specifier means is a language concept and a
-/// provider that could see the difference might be tempted to act on it. That leaves an embedder
-/// with no way to say "this evaluation is mine, not the page's", and the distinction is exactly
-/// what a Content-Security-Policy is about: a policy that forbids <c>eval</c> does not forbid the
-/// bridge's own polyfills.
+/// <b>Host script, classic script and dynamic source reach the profile through the same door, and
+/// telling them apart is this type's whole job.</b> The Broiler.VM profile carries an evaluation
+/// request as the source text and nothing else - deliberately, because what a specifier means is a
+/// language concept and a provider that could see the difference might be tempted to act on it.
+/// That leaves an embedder with no way to say which kind of evaluation a request is, and the
+/// distinction is exactly what a Content-Security-Policy is about: a policy that forbids
+/// <c>eval</c> forbids neither the bridge's own polyfills nor the page's script elements.
 /// </para>
 /// <para>
-/// <b>So the provider marks its own evaluations rather than asking the profile to.</b>
-/// <see cref="EnterHostScript"/> is taken around an evaluation this repository authored, and a
-/// request arriving outside one is the page's. It is a plain field rather than anything thread-aware
-/// because everything it guards happens inside one step, on the guest's own thread, with the
-/// instance's own lifecycle refusing any second entry - so there is no second caller to race with.
+/// <b>So the provider marks the evaluations it is handed rather than asking the profile to.</b>
+/// <see cref="EnterHostScript"/> is held around an evaluation this repository authored, and
+/// <see cref="EnterClassicScript"/> arms a permit for the one compile of a classic script whose
+/// <c>script-src</c> decision is the caller's to take, and nothing here can check that it did. A
+/// request arriving while neither is in force - the page's <c>eval</c> and <c>new Function</c>, with
+/// no host-script depth counted - is refused unless the realm was built with <c>AllowGuestEval</c>;
+/// an <c>import()</c> of a module its artifact does not carry is refused either way, because every
+/// payload is compiled as a script. Both are plain fields rather
+/// than anything thread-aware because everything they guard happens inside one step, on the guest's
+/// own thread, with the instance's own lifecycle refusing any second entry - so there is no second
+/// caller to race with.
 /// </para>
 /// <para>
 /// <b>This is a provider-side answer to a profile-side gap, and it is worth saying which.</b> If the
@@ -44,11 +50,12 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
     /// <remarks>
     /// <b>Single-use, and the host-script mark could not be reused for this.</b> That one is a DEPTH
     /// held for the whole evaluation, so every artifact request issued while the marked code RUNS is
-    /// permitted. That is right for this repository's own script, which calls nothing of the page's.
-    /// It is wrong for a page's script, because a script element whose first statement is an eval is
-    /// an everyday page: under <c>script-src 'unsafe-inline'</c> with no <c>'unsafe-eval'</c> the
-    /// element must run and the eval must not, and a held mark would permit both. A permit spent by
-    /// the compile it authorises is spent before the page's first statement runs.
+    /// permitted, including one made by page code the marked script calls - and this repository's
+    /// script does call page code; see <see cref="VmHostBridge.Eval"/>. For a page's script it is
+    /// wrong outright, because a script element whose first statement is an eval is an everyday page:
+    /// under <c>script-src 'unsafe-inline'</c> with no <c>'unsafe-eval'</c> the element must run and
+    /// the eval must not, and a held mark would permit both. A permit spent by the compile it
+    /// authorises is spent before the page's first statement runs.
     /// </remarks>
     private bool _classicScriptPermit;
 
@@ -74,9 +81,11 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
             return VmArtifactProviderAnswer.NotFound(VmReason.ProviderArtifactNotFound);
 
         // THE POLICY, AND IT IS A REFUSAL RATHER THAN AN ABSENCE. A realm built without guest
-        // evaluation still has an artifact provider registered, because the bridge's own script has
-        // to reach one; what the page gets instead is a provider that declines its requests, which
-        // the profile reports as a run-time error the page may catch.
+        // evaluation still has an artifact provider registered, because host script and classic
+        // scripts have to reach one. A request under neither mark -- the page's eval and Function,
+        // or an import() of a module its artifact does not carry, while no host-script depth is
+        // counted -- is declined, which the profile reports as a run-time error the page may catch
+        // (for an import, a rejected promise).
         if (_classicScriptPermit)
         {
             // SPENT BEFORE COMPILING, not after. A compile that fails must not leave the permit armed
@@ -100,18 +109,21 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
             return VmArtifactProviderAnswer.Refused(VmReason.MalformedEncoding);
         }
 
-        // FORCED STRICTNESS IS THE HOST'S, AND THE MARK IS WHAT TELLS THEM APART.
+        // FORCED STRICTNESS IS THE HOST'S, AND THE HOST-SCRIPT MARK IS WHAT TELLS THEM APART.
         //
         // The realm's ForceStrictMode used to reach only the bootstrap unit (VmEngineProvider), so
         // every compile answered here was sloppy whatever the host asked for -- while the Broiler.JS
         // provider forced it on everything, including the page's own evaluations. Two providers, two
         // wrong answers, in opposite directions, with nothing asking either.
         //
-        // The rule both now keep is the specification's, and docs/vm-javascript-profile.md measures
-        // it: a host may force its OWN script strict, and may not force what the page evaluates,
-        // because an indirect eval evaluates a new script whose strictness comes from its own source.
-        // The host-script depth is already the thing that distinguishes the two, so it decides this
-        // as well rather than a second flag being threaded alongside it.
+        // Both now force it on the source EvaluateHostScript hands over, and this provider on every
+        // compile answered while the host-script mark is held. Neither forces the page's eval and
+        // Function outside that mark, because an indirect eval evaluates a new script whose
+        // strictness comes from its own source, nor a classic script -- here because its permit
+        // suspends the depth read below. docs/vm-javascript-profile.md measures a different flag, the
+        // script engines' StrictModeEnabled, which does make a document script strict; it is not the
+        // measurement of this rule. The host-script depth already marks host script, so it decides
+        // this as well rather than a second flag being threaded alongside it.
         var forceStrict = _hostScriptDepth > 0 && _forceStrictMode;
 
         var compiled = JsCompiler.Compile(
@@ -142,10 +154,11 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
     /// it, a classic script handed over while a host script happened to be on the stack would run its
     /// page code under the host's held mark and reach the compiler by that route instead. Suspending
     /// makes the permission exactly one compile REGARDLESS of what the host was doing when it asked,
-    /// which is what the member's contract promises. Restoring on dispose keeps nesting honest: a
-    /// polyfill invoked from inside a running page script takes its own host mark and gets its depth
-    /// back, and a page script that sets an event-handler attribute re-enters with a fresh permit,
-    /// which is correct because that compile is its own <c>script-src-attr</c> decision.
+    /// which keeps the script's own <c>eval</c> under the in-realm refusal
+    /// <see cref="IJsSource.EvaluateDynamicSource"/> describes. Restoring on dispose keeps nesting
+    /// honest: a polyfill invoked from inside a running page script takes its own host mark and gets
+    /// its depth back, and a page script that sets an event-handler attribute re-enters with a fresh
+    /// permit, which is correct because that compile is its own <c>script-src-attr</c> decision.
     /// </remarks>
     internal readonly struct ClassicScriptScope : IDisposable
     {

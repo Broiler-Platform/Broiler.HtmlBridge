@@ -153,8 +153,8 @@ public sealed partial class DomBridge
     /// rather than this bridge's own: a worker's realm is a different one on a different thread.
     /// </para>
     /// <para>
-    /// Host script, not guest source — the text below is a compile-time constant of this assembly and
-    /// is not subject to the page's content policy, which is the distinction <c>IJsSource</c> draws.
+    /// Host script — the text below is a compile-time constant of this assembly and is not subject to
+    /// the page's content policy, which is the distinction <c>IJsSource</c> draws.
     /// The label is new and diagnostics-only: the engine's bare <c>Eval</c> carried none, and a named
     /// frame is what a stack trace through this constructor now says instead of nothing.
     /// </para>

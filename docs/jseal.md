@@ -20,13 +20,14 @@ enough for a page, because the moment a document is involved the engine reappear
 | Where | What leaks |
 |---|---|
 | [`IDomBridgeRuntime.cs:50,52`](../src/Broiler.HtmlBridge.Core/Dom/IDomBridgeRuntime.cs) | `Attach(JSContext, …)` — the "engine-neutral" core assembly takes a Broiler.JS type |
-| [`InteractiveSession.cs:21`](../src/Broiler.HtmlBridge.Scripting/InteractiveSession.cs) | `internal InteractiveSession(JSContext …)` — the only session type cannot be built from outside Broiler.JS |
-| `src/Broiler.HtmlBridge.Dom` | 891 `Broiler.JavaScript` references across 250 files — the DOM's JavaScript objects *are* Broiler.JS objects |
+| [`InteractiveSession.cs`](../src/Broiler.HtmlBridge.Scripting/InteractiveSession.cs) | `internal InteractiveSession(JSContext …)` — the only session type could not be built from outside Broiler.JS. It takes an `IDisposable` engine lifetime now and no longer names the engine; the constructor is still `internal`, and `Broiler.HtmlBridge.Scripting.Vm` is not among that assembly's friends |
+| `src/Broiler.HtmlBridge.Dom` | 891 `Broiler.JavaScript` references across 250 files when this was written — the DOM named Broiler.JS's object types directly. See [where the migration actually stands](#where-the-migration-actually-stands) for today's count |
 
 So `RenderingPipeline` can be handed any `IScriptEngine` it likes and a page still runs on Broiler.JS,
-because the only method it calls — `ExecuteInteractive` — has to return something built from a
-`JSContext`. [`docs/vm-javascript-profile.md`](vm-javascript-profile.md) states this plainly and lists
-it as the reason no page load runs on the VM.
+because the only method it calls — `ExecuteInteractive` — has to attach a bridge, and
+`IDomBridgeRuntime.Attach` takes a `JSContext`.
+[`docs/vm-javascript-profile.md`](vm-javascript-profile.md) states this plainly and lists it as the
+reason no page load runs on the VM.
 
 **A realm is the right altitude.** A realm is what a document has. JSEAL's central type is therefore
 `IJsRealm`, and the end state of the migration is `Attach(IJsRealm, …)`.
@@ -100,10 +101,10 @@ the same reason.
 
 **The reference is the engine's own value, not a wrapper.** Under the Broiler.JS provider an object
 handle carries the `JSObject` the engine already has. That is what keeps wrapper identity working
-across a half-migrated bridge: `el === el`, the seven `ConditionalWeakTable<JSObject, …>` the bridge
-keys on wrapper identity, and `JsObjectRegistry`'s reverse map all keep asking the question they
-always asked. A provider whose engine hands out pointers or stack slots is expected to canonicalise
-handles itself.
+across a half-migrated bridge: `el === el`, the six `ConditionalWeakTable<object, …>` the bridge
+keys on `JsValue.ObjectIdentity`, and `JsObjectRegistry`'s reverse map all keep asking the question
+they always asked. A provider whose engine hands out pointers or stack slots is expected to
+canonicalise handles itself.
 
 **`==` is `===`; `Equals` is reflexive.** The two deliberately differ on NaN alone — the same split
 `System.Double` makes, and for the same reason: the bridge stores JS values in `List<>`s (event
@@ -140,7 +141,7 @@ able to do.
 | `IJsMembers` | `DefineValue` / `DefineAccessor` / `DefineIndex`, reads and writes, own keys, prototype link |
 | `IJsCalls` | `Invoke`, `Construct`, and raising an `Error` or a `DOMException` from host code |
 | `IJsJobs` | the microtask queue, and promises the host can settle |
-| `IJsSource` | evaluating **host** script and **guest** source — separately |
+| `IJsSource` | evaluating **host** script, the page's **classic** scripts and **dynamic** source (`eval`, `new Function`) — separately, because the page's policy exempts the first and governs the other two by different directives |
 | `IJsClone` | structured clone: `Clone` in one realm, and `Detach`/`Adopt` across two |
 | `IJsExotic` | host-completed property lookup, for the six DOM objects whose members are not a fixed list |
 
@@ -206,13 +207,28 @@ can walk the list itself and classify only what it does not recognise. That matt
 the `{ transfer: [...] }` options the clone actually reads stays in the provider, because that is the
 clone's own signature.
 
-**Host script and guest source are separate capabilities.** The bridge authors JavaScript — two
-embedded `.js` assets totalling 1,891 lines, plus 55 `Eval` sites across 28 files that install
-polyfills, probe for a global, or re-link a prototype. That source ships with this repository and is
-not subject to the page's Content-Security-Policy. Guest source is what `eval`, `new Function` and a
-dynamic `import()` ask for on the page's behalf, and is exactly what a CSP may forbid. Conflating the
-two is what makes an engine with no run-time compiler look impossible to host: it can support the
-first by compiling the bridge's own JavaScript when the engine is built, and refuse the second.
+**Source is split by the Content-Security-Policy decision that governs it, not by who wrote it.**
+`IJsSource` has three members. `EvaluateHostScript` runs JavaScript the bridge authors — two
+embedded `.js` assets totalling 1,891 lines, plus in-source evaluations that install polyfills,
+probe for a global, or re-link a prototype. That source ships with this repository and is not
+subject to the page's policy. `EvaluateClassicScript` runs a classic script the page carries — a
+script element another script inserted, a sub-document's scripts, an event-handler attribute's
+wrapper, a worker's top-level script and each `importScripts` body — and expects its caller to have
+taken the `script-src` decision already (`script-src-attr`, for a handler), which every caller but
+the worker path does today. The top-level document's own scripts never reach it: `ScriptEngine`
+evaluates them on the context it built.
+`EvaluateDynamicSource` is what `eval` and `new Function` ask for on the page's behalf;
+`'unsafe-eval'` governs it, through `JsCapabilities.GuestEval`, and it is exactly what a CSP may
+forbid. Nothing in the bridge calls it, though: the page's own `eval` and `new Function` never reach
+a host member, and each provider refuses them inside a realm built without `GuestEval` — except, on
+Broiler.JS, an argument-less `Function` call and `ShadowRealm.prototype.evaluate`, which get past
+its refusal. A dynamic `import()` is none of the three: `IJsSource` runs no modules. Where a page has
+module roots and the engine binds imports, `BridgeModuleContext` checks each module it fetches with
+`AllowsExternalScript` (`script-src-elem`, then `script-src`, then `default-src`); on the plain
+context every other page runs on, `import()` rejects. Separating the members is what
+lets an engine declare each on its own: `HostScriptSource` can be met by compiling the bridge's own
+JavaScript when the engine is built, `ClassicScriptSource` needs a compiler over text nobody saw
+then, and `GuestEval` is a permission a realm may be built without.
 
 ## Capabilities
 
@@ -296,18 +312,20 @@ adopted realm now leaves the thread's context alone.
 ## Where the migration actually stands
 
 `eng/jseal-budget.json` is the ratchet. Per project it records engine references, engine project
-references, and guest-eval sites; `scripts/check-engine-neutrality.sh` fails when a count *rises* and
-reports when one *falls* so the budget is lowered in the same commit. A CI job runs it. This is what
-lets the remaining files migrate incrementally instead of in one cliff-edge merge, and what stops
-in-flight feature work re-adding coupling behind the migration's back.
+references, and `.Eval(` sites (`guestEvalSites`, whatever they run);
+`scripts/check-engine-neutrality.sh` fails when a count *rises* — for a provider, only its engine
+project references — and reports when one *falls* so the budget is lowered in the same commit. A CI
+job runs it. This is what lets the remaining files migrate incrementally instead of in one
+cliff-edge merge, and what stops in-flight feature work re-adding coupling behind the migration's
+back.
 
 `Broiler.HtmlBridge.Dom/Runtime/JsInterop.cs` is the seam between the migrated and unmigrated halves,
 and it is scaffolding meant to be deleted. It is a cast, not a conversion — a JSEAL object handle
 already carries the engine's `JSObject` — and every use of it is one place the migration has not
 reached.
 
-**Where it stands.** `Broiler.HtmlBridge.Dom`'s engine references have gone from **891 to 67**, and
-its eval sites from 55 to 6. Every DOM feature binding, every registration hub, the node wrapper
+**Where it stands.** `Broiler.HtmlBridge.Dom`'s engine references have gone from **891 to 12**, and
+its eval sites from 55 to 1. Every DOM feature binding, every registration hub, the node wrapper
 factories, the event system, all six exotic objects, the worker/messaging surface, every forwarding
 parameter and every engine argument frame are migrated. `eng/jseal-budget.json` carries the live
 number; this paragraph will go stale and the budget file will not.
@@ -339,22 +357,23 @@ the reason `Promise` is captured there, because every one of them is a writable 
 prototype member. That is now three times this route has answered a gap that looked like it needed a
 new host-surface member.
 
-**The remaining 67 are structural, not unfinished**, spread across 36 files with no cluster larger
-than seven. Every occurrence names its own pin in its own doc comment:
+**The remaining 12 sit in seven files**, none holding more than three:
 
 | What | Why it stays |
 |---|---|
-| `DomBridge.Realm.cs`, `RegisterDocument(JSContext)` | The floor. One *adopts* a context; the other swaps the code cache, a Broiler.JS optimisation with no JSEAL vocabulary |
-| `IDomBridgeRuntime.Attach(JSContext, …)` | Declared in `Broiler.HtmlBridge.Core`, and consumed by `Broiler.Cli`/`Broiler.Wpt`/`Broiler.DevConsole`, which are not in this checkout |
-| `JsObjectRegistry` | The wrapper-identity choke point. Its surface is read by ten files that hold the engine's object mid-frame, so it moves in one commit or none. Ordinary work, and the one that unblocks the most |
-| `BridgeModuleContext` | It derives from the engine's module context to inject specifier resolution and CSP-gated fetch. JSEAL has no module-graph contract, and one implementer is not enough to design one from |
-| The event-host surfaces | `DomBridge.WindowEventTargetHost`, `Events`, `DomFunction` and their neighbours still type a listener as the engine's function. Ordinary work, and the largest single group left |
+| `DomBridge.Realm.cs`, `RegisterDocument(JSContext)` in `DomBridge/Registration/Registration.cs` | The floor. One *adopts* a context; the other swaps the code cache, a Broiler.JS optimisation with no JSEAL vocabulary |
+| `IDomBridgeRuntime.Attach(JSContext, …)`, implemented in `DomBridge.cs` | Declared in `Broiler.HtmlBridge.Core`, and consumed by `Broiler.Cli`/`Broiler.Wpt`/`Broiler.DevConsole`, which are not in this checkout |
+| `BridgeModuleContext`, and the sub-document module roots in `DomBridge/SubDocuments.cs` | It derives from the engine's module context to inject specifier resolution and CSP-gated fetch, and a frame's module roots run on that context. JSEAL has no module-graph contract; the one it would need is written out in `BridgeModuleContext`'s remarks |
+| `DomBridge/ConstructedStyleSheets.cs` | Assigning `document.adoptedStyleSheets` copies the array in engine terms: the realm can mint an array but cannot read one back with the engine's hole treatment. A gap in the contract rather than an unmigrated caller |
+| `Runtime/JsInterop.cs` | The cast between a JSEAL handle and the engine's own object. Two files cross it: `ConstructedStyleSheets.cs` above, and `Features/StyleSheetBinding.cs`, whose `RetireIndex` names no engine type and so is not in the count |
 
-One is a genuine contract gap with a written specification waiting (the module graph); the rest is
-ordinary work.
+Two are contract gaps — the module graph, with a written specification waiting, and reading an array
+back with the engine's hole treatment; the rest is the floor, a signature consumed outside this
+checkout, and that cast. One more gap sits behind the cast and outside the count: `IJsMembers` has
+no indexed delete, so `StyleSheetBinding.RetireIndex` reaches the engine's element list through it.
 
 **What used to be listed here as "the one real cost of the value design" was a mistake, and it is
-worth recording rather than quietly dropping.** Six doc comments, this table and the budget file all
+worth recording rather than quietly dropping.** Six doc comments, the table this section used to carry and the budget file all
 said a `ConditionalWeakTable` could not be keyed from a handle, because such a table needs a
 reference key and `JsValue` is a struct. The struct was never the key: the reference it *carries* is,
 and a provider is already required to make that canonical per guest object because handle equality is
@@ -366,7 +385,7 @@ that reasoning and leaked an entry per `permissions.query()` for the life of a d
 The belief survived four attempts to act on it. What broke it was asking what the *provider* promises
 rather than what the *struct* can be.
 
-**A third gap is recorded and not yet closed.** `IJsExotic` routes an integer-index key to the indexed
+**Another gap is recorded and not yet closed.** `IJsExotic` routes an integer-index key to the indexed
 hooks, has no indexed *write* hook, and gives a handler no way to declare that it has no indexed
 properties at all. `Storage` has named property getters and setters and no indexed ones, so
 `localStorage[8]` is a name — and both engines treat it as an index.
@@ -453,7 +472,8 @@ linked under the `-VM` configurations only, through the same conditional referen
 | Flag | Declared | Why |
 |---|---|---|
 | `HostScriptSource` | yes | Through the realm's own indirect `eval`, which is the only thing that evaluates *into* an existing realm rather than making a second one |
-| `GuestEval` | yes, unless the realm was built without it | A realm built with `AllowGuestEval: false` keeps host script and refuses the page's, which the provider enforces by marking its own evaluations |
+| `ClassicScriptSource` | yes | The same route, under a single-use permit that the one compile it authorises spends, so a realm built without `GuestEval` still runs the page's script elements |
+| `GuestEval` | yes, unless the realm was built without it | A realm built with `AllowGuestEval: false` keeps host script and classic scripts and refuses the page's `eval` and `new Function` outside a host script, which the provider enforces by marking host script and arming a single-use permit per classic script |
 | `ExoticObjects` | yes | The profile's exotic object consults ordinary storage first, which is the order WebIDL requires |
 | `GlobalIsVariableScope` | yes | Measured, not assumed: a top-level `var` becomes an own property of the global |
 | `ReentrantHostCalls` | yes | A host method calling a guest listener is the interpreter's own call path and meets no lifecycle gate |
@@ -474,13 +494,13 @@ much in the clause bounding what its promise stage would add — *"an embedder c
 out of `Construct`"* — and this repository did not read it.
 
 `JsealConformanceTests.APromiseIsStillAvailableInARealmThatForbidsGuestEvaluation` is that claim
-turned into an assertion: a realm built with `AllowGuestEval: false` refuses the page's source and
+turned into an assertion: a realm built with `AllowGuestEval: false` refuses dynamic source and
 still hands back a promise that settles. It runs against both engines.
 
 **What declaring `Document` does and does not say.** It says a host may build a document-bearing page
 in a realm this provider made. It does not say the browser does — `IDomBridgeRuntime.Attach` still
 takes a `JSContext`, so the realm a page load adopts is still Broiler.JS's. That gap is the
-migration's and is the row below.
+migration's, and is the `IDomBridgeRuntime.Attach` row of the table above.
 
 ### What writing it found
 

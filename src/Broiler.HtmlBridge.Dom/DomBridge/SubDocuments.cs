@@ -375,12 +375,12 @@ public sealed partial class DomBridge
 
         // The scripts below are CLASSIC SCRIPTS -- a sub-document's script elements -- so they go
         // through IJsSource.EvaluateClassicScript. Their script-src decision was already taken, by
-        // ScriptExtractionService against the policy this frame is bound by, which is what the
-        // deliveredPolicy argument carries.
+        // ScriptExtractionService against the policy set it builds: the deliveredPolicy argument,
+        // when there is one, and the first policy the frame's own markup declares.
         //
         // This used to read that they stayed on the context because JSEAL typed them as guest source
         // and moving half of one loop would split one path across two vocabularies. The first half
-        // was the misreading the third member exists to correct: 'unsafe-eval' does not govern a
+        // was the misreading the classic member exists to correct: 'unsafe-eval' does not govern a
         // script element, and a realm narrowed by a policy that forbids evaluation must still run
         // these. The second half survives and is the reason the MODULE ROOTS below are still on the
         // context: they need a JSModuleContext the source contract does not describe at all.

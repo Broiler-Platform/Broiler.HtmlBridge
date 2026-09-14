@@ -25,9 +25,10 @@ public enum JsCapabilities : uint
     None = 0,
 
     /// <summary>
-    /// Runs JavaScript this repository authored — the embedded polyfill assets and the 54 in-source
-    /// evaluations. An engine without a run-time compiler can still have this, by compiling that
-    /// source when the engine is built. See <see cref="IJsSource"/>.
+    /// Runs JavaScript this repository authored — the embedded polyfill assets and the source of
+    /// every other <c>EvaluateHostScript</c> call in the bridge. An engine without a run-time
+    /// compiler can still have this, by compiling that source when the engine is built. See
+    /// <see cref="IJsSource"/>.
     /// </summary>
     HostScriptSource = 1 << 0,
 
@@ -41,7 +42,7 @@ public enum JsCapabilities : uint
     /// <b>This is <c>'unsafe-eval'</c> and nothing else, and the negative half is worth stating
     /// because the tree inferred more from it than it says.</b> A realm without this still runs the
     /// page's script ELEMENTS — see <see cref="ClassicScriptSource"/> — and refuses only the page's
-    /// run-time requests for more executable bytes. The two are separate CSP directives, decided by
+    /// <c>eval</c> and <c>new Function</c>. The two are separate CSP directives, decided by
     /// different code at different times: <c>script-src</c> is per script and satisfied by
     /// <c>'unsafe-inline'</c>, a nonce or a hash, while <c>'unsafe-eval'</c> is per realm. A page
     /// served <c>script-src 'unsafe-inline'</c> runs every one of its script elements and no
@@ -154,7 +155,8 @@ public enum JsCapabilities : uint
 
     /// <summary>
     /// Compiles a classic script the page carries — a script element's text, a sub-document's, a
-    /// worker's top-level script. Text this engine did not see when it was built.
+    /// worker's top-level script, an <c>importScripts</c> body, the wrapper compiled from an
+    /// event-handler content attribute. Text this engine did not see when it was built.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -174,8 +176,9 @@ public enum JsCapabilities : uint
     /// <para>
     /// <b>Declaring it says nothing about whether any particular script is allowed.</b> That decision
     /// is <c>script-src</c>'s, it is per script and content-dependent — a nonce matches this element
-    /// and not the next — and it is taken by the caller before it hands the text over. This flag
-    /// answers only "could this realm run a page's script at all".
+    /// and not the next — and the caller takes it before handing the text over, except on the
+    /// worker path, which takes none today. This flag answers only "could this realm run a page's
+    /// script at all".
     /// </para>
     /// </remarks>
     ClassicScriptSource = 1 << 10,
