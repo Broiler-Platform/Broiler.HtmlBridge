@@ -268,6 +268,88 @@ public class VmScriptEngineTests
         Assert.True(engine.Execute(["eval('1 + 1');"]));
     }
 
+    private static string AttemptOnTheProfile(string expression) =>
+        "(function () {" +
+        $"  try {{ return 'ok:' + String({expression}); }}" +
+        "  catch (e) { return 'refused:' + ((e && e.name) || 'unnamed'); }" +
+        "})()";
+
+    /// <summary>
+    /// The <c>Function</c> constructor, at any arity, is refused on the profile when the policy withholds
+    /// <c>'unsafe-eval'</c>, which is what <c>IScriptExecutor.Csp</c> promises of every engine, and answered
+    /// under a permitting policy or none, which is this engine's own choice
+    /// (<c>VmScriptEngine.AnswersGuestLoads</c>). Only the refusal is pinned, not its name: the profile's
+    /// error is its own.
+    /// </summary>
+    [Theory]
+    [InlineData("new Function('return 7')()", "ok:7")]
+    [InlineData("new Function('a', 'b', 'return a + b')(3, 4)", "ok:7")]
+    [InlineData("typeof new Function()", "ok:function")]
+    public void TheFunctionConstructorIsAnsweredExactlyWhenThePolicyPermitsEvaluation(string route, string permitted)
+    {
+        var forbidding = new ContentSecurityPolicy();
+        forbidding.Parse("script-src 'self'");
+        var refusing = Engine();
+        refusing.Csp = forbidding;
+
+        Assert.True(refusing.Execute(
+            [$"var r = {AttemptOnTheProfile(route)}; if (r.indexOf('refused:') !== 0) throw 0;"]));
+
+        var permitting = new ContentSecurityPolicy();
+        permitting.Parse("script-src 'self' 'unsafe-eval'");
+        var answering = Engine();
+        answering.Csp = permitting;
+
+        Assert.True(answering.Execute(
+            [$"var r = {AttemptOnTheProfile(route)}; if (r !== '{permitted}') throw 0;"]));
+
+        Assert.True(Engine().Execute(
+            [$"var r = {AttemptOnTheProfile(route)}; if (r !== '{permitted}') throw 0;"]));
+    }
+
+    /// <summary>
+    /// The async-function, generator and async-generator constructors are refused on the profile whatever
+    /// the policy: its realm builds each constructor as a native that always throws. Each script first
+    /// checks that the route reaches a function other than <c>Function</c>, so an error on the way there
+    /// does not read as the refusal. Only the refusal is pinned, not its name.
+    /// </summary>
+    [Theory]
+    [InlineData("async function () {}")]
+    [InlineData("function* () {}")]
+    [InlineData("async function* () {}")]
+    public void TheOtherFunctionConstructorsAreRefusedOnTheProfileWhateverThePolicy(string kind)
+    {
+        foreach (var text in new string?[] { "script-src 'self'", "script-src 'self' 'unsafe-eval'", null })
+        {
+            var engine = Engine();
+            if (text is not null)
+            {
+                var csp = new ContentSecurityPolicy();
+                csp.Parse(text);
+                engine.Csp = csp;
+            }
+
+            Assert.True(
+                engine.Execute(
+                [
+                    $"var C = Object.getPrototypeOf({kind}).constructor; " +
+                    "if (typeof C !== 'function' || C === Function) throw 0; " +
+                    $"var r = {AttemptOnTheProfile("typeof new C()")}; if (r.indexOf('refused:') !== 0) throw 0;"
+                ]),
+                $"did not reach a function other than Function, or it was not refused, under policy: {text ?? "(none)"}");
+        }
+    }
+
+    /// <summary>
+    /// The profile has no <c>ShadowRealm</c>, so there is no <c>evaluate</c> for a policy to gate. One
+    /// arriving would fail this and would have to meet the policy.
+    /// </summary>
+    [Fact]
+    public void TheProfileHasNoShadowRealmToGate()
+    {
+        Assert.True(Engine().Execute(["if (typeof ShadowRealm !== 'undefined') throw 0;"]));
+    }
+
     /// <summary>
     /// A dynamic <c>import()</c> of a module the document declared resolves and evaluates. The
     /// specifier is resolved by the host against the referrer's base — the same resolution

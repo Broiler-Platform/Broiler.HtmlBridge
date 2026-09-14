@@ -1,4 +1,5 @@
 using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Scripting;
 using Broiler.JavaScript.Engine;
 
 namespace Broiler.HtmlBridge;
@@ -24,7 +25,9 @@ namespace Broiler.HtmlBridge;
 /// its lifetime; the bridge borrows it, and has always only dropped its reference on teardown rather
 /// than disposing it. Asking the registered provider to wrap what the host handed over preserves
 /// exactly that ownership, and it is why this file references no provider assembly — only
-/// <see cref="JsEngineRegistry"/> and the contracts.
+/// <see cref="JsEngineRegistry"/> and the contracts. <c>ScriptEngine</c>'s document-free entry points
+/// adopt the context they build the same way, through <see cref="AdoptRealm"/>, because they have no
+/// bridge to do it for them.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -57,12 +60,24 @@ public sealed partial class DomBridge
     /// loading with no <c>console</c> and no error. (This said "whichever globals had already moved".)
     /// The diagnosis is short and worth stating in the message: nothing linked an engine provider.
     /// </para>
+    /// <para>
+    /// It is <see langword="internal"/> because <c>ScriptEngine</c>'s two document-free entry points,
+    /// <c>Execute(scripts)</c> and <c>ExecuteDetailed(scripts)</c>, adopt the context they build through it
+    /// too. So there is one loop and one place a context the host built is matched to a provider, and a
+    /// missing provider fails here, with this message, before any of the caller's scripts runs on either
+    /// kind of path.
+    /// </para>
     /// </remarks>
-    /// <param name="options">
-    /// What the page is allowed to do, read from its Content-Security-Policy by the caller. An
-    /// adopted realm is bound by this exactly as a created one is; it used to be bound by nothing.
+    /// <param name="context">
+    /// The context the host built and still owns. The realm wraps it and does not dispose it.
     /// </param>
-    private static IJsRealm AdoptRealm(JSContext context, JsRealmOptions options)
+    /// <param name="options">
+    /// What scripts in the realm are allowed to do, mapped by the caller from the policy that governs them
+    /// (<see cref="RealmOptionsFor"/>): the bridge's <c>Csp</c> on a document path, <c>ScriptEngine.Csp</c>
+    /// on a document-free one. An adopted realm is bound by this exactly as a created one is; it used to be
+    /// bound by nothing.
+    /// </param>
+    internal static IJsRealm AdoptRealm(JSContext context, JsRealmOptions options)
     {
         foreach (var provider in JsEngineRegistry.All)
         {
@@ -80,4 +95,15 @@ public sealed partial class DomBridge
             "provider assembly — Broiler.HtmlBridge.Jseal.BroilerJs for Broiler.JS — and that assembly " +
             "registers itself when it is loaded.");
     }
+
+    /// <summary>
+    /// The realm options a policy maps to: guest evaluation is allowed exactly when
+    /// <see cref="ContentSecurityPolicy.AllowsEval"/> says so, and allowed when there is no policy.
+    /// </summary>
+    /// <remarks>
+    /// One mapping for every path that adopts a context the host built: <c>RegisterDocumentCore</c>, with
+    /// the bridge's policy, and <c>ScriptEngine</c>'s two document-free entry points, with the host's.
+    /// </remarks>
+    internal static JsRealmOptions RealmOptionsFor(ContentSecurityPolicy? policy) =>
+        new() { AllowGuestEval = policy?.AllowsEval ?? true };
 }

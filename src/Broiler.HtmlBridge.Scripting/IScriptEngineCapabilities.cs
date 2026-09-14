@@ -72,9 +72,33 @@ public interface IScriptExecutor
     bool StrictModeEnabled { get; set; }
 
     /// <summary>
-    /// The <see cref="ContentSecurityPolicy"/> applied to this engine.
-    /// When set, <c>eval()</c> calls are gated by the policy.
+    /// The <see cref="ContentSecurityPolicy"/> applied to this engine. When it does not allow
+    /// <c>'unsafe-eval'</c>, a script the engine runs cannot compile a string at run time through a route
+    /// <c>'unsafe-eval'</c> governs -- <c>eval</c>, the <c>Function</c> constructors and, where the engine
+    /// has one, <c>ShadowRealm.prototype.evaluate</c> -- on any entry point while the call running it is in
+    /// progress, and the scripts handed to the engine still run. What a refused script catches is up to the
+    /// engine and need not be one error for every route. A string handed to <c>setTimeout</c> or
+    /// <c>setInterval</c> is not in the list because no engine here compiles one.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A document-bearing call uses the first policy its markup declares in a Content-Security-Policy
+    /// <c>meta</c>, ignoring any later one, in place of this one, so a page can widen this policy as well
+    /// as narrow it, and uses this one when the markup declares none.
+    /// </para>
+    /// <para>
+    /// A classic script element a script inserts, and an <c>on*</c> attribute a script sets, are not
+    /// routes <c>'unsafe-eval'</c> governs: the policy's script rules decide them -- its source list for
+    /// an element with a <c>src</c>, its inline-script rules for one without, and its script-attribute
+    /// rules for an <c>on*</c> attribute -- and withholding <c>'unsafe-eval'</c> does not stop them
+    /// compiling once those rules admit them.
+    /// </para>
+    /// <para>
+    /// Besides a document whose markup widens this policy, two kinds of script are not guaranteed the
+    /// refusal: script in a dedicated <c>Worker</c> a page starts, whose realm is built without the policy,
+    /// and, on a document-free call, work a script leaves to run after the call returns.
+    /// </para>
+    /// </remarks>
     ContentSecurityPolicy? Csp { get; set; }
 }
 
