@@ -22,7 +22,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="IJsEngineProvider.CreateRealm"/>, on the first line of <see cref="Pump"/> — so the
 /// realm is built, used and disposed by one thread and never touched from another. The provider is
 /// the one the <em>page's</em> realm names, because the two exchange structured clones and a clone
-/// carries the engine that made it.
+/// carries the engine that made it, and the options carry the page realm's decision about
+/// <c>'unsafe-eval'</c>, so a worker is no way round that decision. (Nothing checks a worker's scripts
+/// against a source list, so it is still a way round <c>worker-src</c> and the directives that stand in
+/// for it: see the comment in <see cref="Pump"/>.)
 /// </description></item>
 /// <item><description>
 /// <b>How a value is cloned out of one realm into another.</b> <see cref="IJsClone"/>, in the two
@@ -74,6 +77,7 @@ internal sealed class JSWorker
     private readonly WorkerScript _script;
     private readonly IWorkerHost _host;
     private readonly IJsEngineProvider _provider;
+    private readonly JsRealmOptions _options;
     private readonly BlockingCollection<JsDetachedValue> _inbox = new(new ConcurrentQueue<JsDetachedValue>());
     private readonly CancellationTokenSource _cancel = new();
     private readonly Thread _thread;
@@ -85,12 +89,22 @@ internal sealed class JSWorker
     private WorkerBinding? _owner;
     private volatile bool _closed;
 
-    public JSWorker(string name, WorkerScript script, IWorkerHost host, IJsEngineProvider provider)
+    /// <param name="name">The specifier the page constructed the worker with, for its thread and labels.</param>
+    /// <param name="script">The worker's resolved top-level script.</param>
+    /// <param name="host">The bridge services the worker reaches the page through.</param>
+    /// <param name="provider">The engine the page's realm runs on, which the worker's realm must share.</param>
+    /// <param name="options">
+    /// What the worker's realm is built with: the constructing realm's decision about
+    /// <c>'unsafe-eval'</c> (<see cref="WorkerBinding"/> derives it), so what <c>'unsafe-eval'</c> refuses
+    /// the page it refuses the worker.
+    /// </param>
+    public JSWorker(string name, WorkerScript script, IWorkerHost host, IJsEngineProvider provider, JsRealmOptions options)
     {
         _name = name;
         _script = script;
         _host = host;
         _provider = provider;
+        _options = options;
         _thread = new Thread(Pump) { IsBackground = true, Name = $"broiler-worker:{name}" };
     }
 
@@ -146,7 +160,7 @@ internal sealed class JSWorker
         IJsRealm? realm = null;
         try
         {
-            realm = _provider.CreateRealm(JsRealmOptions.Default);
+            realm = _provider.CreateRealm(_options);
             InstallWorkerGlobals(realm);
 
             try
@@ -156,8 +170,10 @@ internal sealed class JSWorker
                 // the text is the page's. True, and not what decides it. Nothing on this path takes the
                 // script-src decision the classic member expects of its caller (for a worker the
                 // directive is worker-src): no Content-Security-Policy is consulted before this runs.
-                // Nor does the page's 'unsafe-eval' decision reach the worker: its realm is built above
-                // with JsRealmOptions.Default, so eval and Function inside a worker are never refused.
+                // The page's 'unsafe-eval' decision does reach the worker: its realm is built above with
+                // the options WorkerBinding derived from the constructing realm, so eval, the Function
+                // constructors and ShadowRealm.prototype.evaluate inside a worker, and inside a script
+                // it imports, are refused exactly when the page's are.
                 realm.EvaluateClassicScript(_script.Source, $"worker:{_name}");
             }
             catch (Exception ex)

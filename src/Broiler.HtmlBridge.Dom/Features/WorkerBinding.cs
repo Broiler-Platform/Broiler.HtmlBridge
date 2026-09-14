@@ -60,7 +60,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// meaningful to the realm that minted it and a clone's result may be a primitive, which a handle
 /// cannot carry. <see cref="JSWorker"/> builds its second realm through
 /// <see cref="IJsEngineProvider.CreateRealm"/>, which is what
-/// <see cref="JsCapabilities.WorkerRealms"/> claims and now also describes.
+/// <see cref="JsCapabilities.WorkerRealms"/> claims and now also describes, and builds it with the
+/// constructing realm's decision about <c>'unsafe-eval'</c>, so what <c>'unsafe-eval'</c> refuses the page
+/// it refuses the worker.
 /// </para>
 /// <para>
 /// No engine type is named here. The last one was <see cref="Register"/>, which took the script
@@ -117,6 +119,27 @@ internal sealed class WorkerBinding : IDisposable
         // registered.
         var provider = JsEngineRegistry.Find(realm.EngineName);
 
+        // THE WORKER INHERITS THE PAGE REALM'S DECISION ABOUT 'unsafe-eval'. A realm built under a
+        // policy that withholds it lacks JsCapabilities.GuestEval, so asking the realm that is
+        // constructing the worker carries exactly what that realm was allowed: the bridge's Csp when
+        // RegisterDocumentCore adopted it, which under ScriptEngine is the page's first policy meta, or
+        // ScriptEngine.Csp when the markup declares none. A worker realm built with the default
+        // options used to compile what its page refused, so a page could start a worker and evaluate
+        // there instead.
+        //
+        // Inherited rather than read from the worker script's own response, which is where a browser
+        // takes a network worker's policy from. A worker script here is read from a file, with no
+        // response and nothing to carry a policy, and an absent policy would allow everything, which
+        // is the bypass itself. A browser also inherits a policy rather than reading one for a worker
+        // whose script URL is data:, taking the policy of whatever created the worker; for a file:
+        // script it makes no such promise, so this is this host's choice rather than a copy of one. This
+        // is the eval decision only: no source list, worker-src or script-src, is consulted for a
+        // worker's scripts (see JSWorker).
+        var options = new JsRealmOptions
+        {
+            AllowGuestEval = (realm.Capabilities & JsCapabilities.GuestEval) != 0,
+        };
+
         JSWorker worker;
         try
         {
@@ -126,7 +149,8 @@ internal sealed class WorkerBinding : IDisposable
                 _host,
                 provider ?? throw new InvalidOperationException(
                     $"No JavaScript engine provider is registered under '{realm.EngineName}', so a " +
-                    "worker realm cannot be created for the realm the page is running in."));
+                    "worker realm cannot be created for the realm the page is running in."),
+                options);
         }
         catch (Exception ex)
         {
