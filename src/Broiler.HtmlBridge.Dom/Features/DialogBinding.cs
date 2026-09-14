@@ -18,7 +18,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the realm and every body runs on a <see cref="JsCall"/>, so this file names no engine type at all.
 /// </para>
 /// <para>
-/// It carried two engine-typed adapters until this round, and both were pinned by their caller rather
+/// It carried two engine-typed adapters until 5282d02, and both were pinned by their caller rather
 /// than by anything here. <see cref="Install(JsValue, DomElement, string, bool)"/> took the wrapper as
 /// an engine object because <c>DomBridge/ElementInterfaces.cs</c> held it as one; it takes the handle
 /// that file already has. <see cref="InstallElementMembers"/> minted its two members with the engine's

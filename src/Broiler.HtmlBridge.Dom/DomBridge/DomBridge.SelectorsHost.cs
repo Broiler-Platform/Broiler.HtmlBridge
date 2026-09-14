@@ -5,15 +5,15 @@ namespace Broiler.HtmlBridge;
 
 // Explicit ISelectorsHost implementation for the SelectorsBinding feature module (Phase 3): the bridge
 // exposes selector validation, the descendant selector search, the two live element collections and the
-// JS-wrapper factory via explicit interface members (each forwards to the corresponding static/instance
-// helper, passing the bridge in), so the module reaches no arbitrary bridge private field and the public
-// surface is unchanged.
+// JS-wrapper factory via explicit interface members (the search and the two collection walks call static
+// helpers that take the bridge; validation, matching and the wrapper factory forward to instance
+// members), so the module reaches no arbitrary bridge private field and the public surface is unchanged.
 //
 // The seam this file used to be is gone: DomBridge/Utilities.cs and DomCollectionBinding both speak
 // JSEAL now, so the searches, the collection factory and the wrapper lookups below are the realm's and
 // nothing here converts anything. The two `HTMLCollection` builders that moved here from the module
-// stay put — a live collection's named getter runs on every property read, and pushing it back across
-// an assembly boundary would buy nothing now that both sides hold the same handles.
+// stay put — a live collection's named getter runs on every property read, and moving it back into the
+// module, which is the same assembly, would buy nothing now that both sides hold the same handles.
 public sealed partial class DomBridge : Dom.Features.ISelectorsHost
 {
     void Dom.Features.ISelectorsHost.ValidateSelector(string selector)

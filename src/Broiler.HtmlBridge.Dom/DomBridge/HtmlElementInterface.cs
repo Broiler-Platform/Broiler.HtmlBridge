@@ -12,11 +12,11 @@ namespace Broiler.HtmlBridge;
 /// <remarks>
 /// <para>
 /// The sixth instalment of track 6's wrapper item, and the direct sequel to
-/// <c>DomBridge.ElementInterface.cs</c>, whose <see cref="Dom.Features.JsElementSource"/> mechanism it
+/// <c>DomBridge/ElementInterface.cs</c>, whose <see cref="Dom.Features.JsElementSource"/> mechanism it
 /// reuses unchanged: each member is written once and installed either on the prototype, where it
 /// resolves its element from the receiver, or on one wrapper, where it closes over the element it was
-/// built for. <c>HTMLElement.prototype</c> owned nothing but its <c>constructor</c>; it owns 37
-/// members now, and an element is down from 77 own properties to 40.
+/// built for. <c>HTMLElement.prototype</c> owned nothing but its <c>constructor</c>; it owned 37
+/// members once this landed, and an element went from 77 own properties to 40.
 /// </para>
 /// <para>
 /// <b>What moves is Web IDL's <c>HTMLElement</c>, plus the mixins it includes</b> —
@@ -51,9 +51,9 @@ namespace Broiler.HtmlBridge;
 /// were minted with that frame and asked an engine-receiver helper for their element. They are
 /// installed like every other member here, and the comment at their site gives the circle that kept
 /// them; the helper no longer exists. The form-control reflectors beside them were a fourth case and
-/// are not any more. Every member is minted through <see cref="Realm"/> onto a handle over the same
-/// object, which is a cast rather than a conversion, so every member lands in the order it is written
-/// in.
+/// are not any more. Every member is minted through <see cref="Realm"/> onto the handle the installer
+/// is given, and nothing converts it on the way (this called that handle a cast rather than a
+/// conversion), so every member lands in the order it is written in.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge

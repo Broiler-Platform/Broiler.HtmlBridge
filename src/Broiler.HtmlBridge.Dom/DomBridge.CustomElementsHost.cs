@@ -12,10 +12,10 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Six members are gone with the contract's migration: constructing a definition, calling a reaction
-/// and the three promise factories were engine operations with no bridge state behind them, so the
-/// registry asks the realm for them rather than asking the bridge to relay them. What is left is what
-/// only the bridge can answer.
+/// Six members are gone with the contract's migration: constructing a definition, calling a reaction,
+/// the three promise factories and resolving a pending promise were engine operations with no bridge
+/// state behind them, so the registry asks the realm for them rather than asking the bridge to relay
+/// them. What is left is what only the bridge can answer.
 /// </para>
 /// <para>
 /// <see cref="Realm"/> is implemented explicitly because it has to be: <c>DomBridge.Realm</c> is

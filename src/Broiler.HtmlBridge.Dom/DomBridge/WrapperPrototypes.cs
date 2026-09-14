@@ -32,18 +32,26 @@ namespace Broiler.HtmlBridge;
 /// nothing defined it. See <c>HtmlInterfaceForTag</c>.
 /// </para>
 /// <para>
-/// <b>Moving the members onto those prototypes is a separate change, and it has started.</b> A
-/// character-data node's <c>Node</c>, <c>CharacterData</c> and <c>Text</c> members live on the
+/// <b>Moving the members onto those prototypes is a separate change, and it has reached elements.</b>
+/// A character-data node's <c>Node</c>, <c>CharacterData</c> and <c>Text</c> members live on the
 /// interface prototypes and are found through the receiver — see
-/// <c>DomBridge.CharacterDataInterface.cs</c>, where the mechanism that makes that possible is also
-/// described. An element and a document still install their interface as own properties of each
-/// wrapper, so <c>Object.getOwnPropertyNames(element)</c> still lists all 166 of them; that is the
-/// rest of the item.
+/// <c>DomBridge/CharacterDataInterface.cs</c>, where the mechanism that makes that possible is also
+/// described. An element inherits the <c>Node.prototype</c> members bar <c>textContent</c>,
+/// <c>Element</c>'s (<c>DomBridge/ElementInterface.cs</c>) and, in the HTML namespace,
+/// <c>HTMLElement</c>'s (<c>DomBridge/HtmlElementInterface.cs</c>); what
+/// <c>DomBridge/JsObjects.cs</c> still puts on each wrapper is the rest — <c>textContent</c>, the
+/// child mutations, the form-control reflectors and the per-tag members among it. The page's
+/// document inherits <c>Node.prototype</c>'s members now that <c>DropDocumentNodeMemberCopies</c>
+/// has deleted its own five and its constants; the rest of its surface, bar the routed
+/// <c>EventTarget</c> three, stays its own. A doctype and a fragment still install most of the
+/// <c>Node.prototype</c> members on themselves (<c>DomBridge/JsObjects.NonElementNodes.cs</c>).
+/// (This said an element and a document still installed their whole interface, 166 members for
+/// an element.)
+/// </para>
 /// <para>
 /// Linking the prototype was a real gain on its own even before any member moved: a page that
 /// extends <c>Text.prototype</c> — the ordinary polyfill idiom — reaches instances, where before the
 /// assignment went to an object nothing inherited from.
-/// </para>
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge

@@ -16,17 +16,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The contract names no engine type. The script context it used to carry was there for exactly one
 /// thing — handing it straight back to the <c>NodeList</c> factory so <c>childNodes</c> could reach
 /// <c>NodeList.prototype</c> — so what replaces it is <see cref="ChildNodeList"/>, the operation that
-/// needed it, and nothing else. Building a live collection is still engine-typed work in
-/// <c>DomCollectionBinding</c>, so the whole of it stays on the bridge's side of the seam rather than
-/// being reassembled here from an engine-typed list this module would have to hold; that is the same
-/// split <see cref="ISelectorsHost.ElementsByTagName"/> makes, and for the same reason.
+/// needed it, and nothing else. The bridge builds that live collection: it hands the realm and a
+/// contents function that wraps the node's children on every read to
+/// <c>DomCollectionBinding.NodeList</c> and gets a handle back — the same split
+/// <see cref="ISelectorsHost.ElementsByTagName"/> makes. (This said that was engine-typed work.)
 /// </para>
 /// <para>
 /// The two wrapper members are <see cref="WrapNode"/> and <see cref="DocumentWrapper"/> now. They were
 /// named after the engine type they answered, and a member named after an engine type is an engine
 /// reference too — it could never be migrated away while the name survived. Same wrapper, same
-/// identity: a JSEAL object handle carries the engine's own object, so <c>el === el</c> is the
-/// question it always was.
+/// identity: a JSEAL object handle carries Broiler.JS's own object, or the VM's canonical identity
+/// object under that provider, so <c>el === el</c> is the question it always was.
 /// </para>
 /// </remarks>
 internal interface INodeAccessorsHost

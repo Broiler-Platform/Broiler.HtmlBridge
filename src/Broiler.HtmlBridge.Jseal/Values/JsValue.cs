@@ -21,16 +21,16 @@ namespace Broiler.HtmlBridge.Jseal;
 /// The layout — tag plus <see cref="double"/> plus reference, 24 bytes — is not invented here. It is
 /// what Broiler.VM's own <c>JsValue</c> chose, for the reason it records: the collector is the CLR's,
 /// so a value that must sometimes hold a managed reference cannot be a NaN-boxed word. Matching it
-/// means a future Broiler.VM provider re-tags rather than converts.
+/// means the Broiler.VM provider re-tags rather than converts. (This said "a future" provider.)
 /// </para>
 /// <para>
 /// <b>What <see cref="Reference"/> holds is the engine's value, not a wrapper.</b> A provider mints an
 /// object handle over the object the engine already has. Under the Broiler.JS provider that is a
-/// <c>JSObject</c>, so the seven <c>ConditionalWeakTable</c>s the bridge keys on wrapper identity keep
-/// keying on the same instances they always did, and <c>el === el</c> holds because it is the same
-/// question it was before. A provider that cannot do this — one over a C API whose values are
-/// pointers or stack slots — is expected to canonicalise handles itself; see
-/// <c>docs/jseal.md</c>.
+/// <c>JSObject</c>, and the seven weak tables the bridge keys on <see cref="ObjectIdentity"/> — the
+/// wrapper registry's reverse map and the Blob, NamedNodeMap, ElementInternals, Range, Selection and
+/// PermissionStatus stores — key on the engine's own instances; <c>el === el</c> holds because it is
+/// the same question it was before. A provider that hands over anything else must canonicalise it,
+/// as the Broiler.VM provider does with one box per <c>JsHostRef</c>; see <c>docs/jseal.md</c>.
 /// </para>
 /// </remarks>
 public readonly struct JsValue : IEquatable<JsValue>
@@ -137,8 +137,8 @@ public readonly struct JsValue : IEquatable<JsValue>
 
     /// <summary>
     /// Whether this is <c>null</c>, <c>undefined</c>, or absent — the question the bridge's 21
-    /// <c>IsNullOrUndefined</c> sites are asking, which in every one of them is reached from an
-    /// argument that may not have been passed at all.
+    /// <c>IsNullOrUndefined</c> sites were asking on 2026-09-08, each reached from an argument that
+    /// may not have been passed at all. None of those calls is left in the bridge.
     /// </summary>
     public bool IsNullish => _kind <= JsValueKind.Null;
 
@@ -166,9 +166,9 @@ public readonly struct JsValue : IEquatable<JsValue>
     /// </summary>
     /// <remarks>
     /// This is <b>not</b> ToNumber. A string that looks like a number answers NaN here, because
-    /// coercing it is an engine operation that can run user code through <c>valueOf</c> and this
-    /// property cannot. Use <see cref="IJsRealm.ToNumber"/> when the ECMAScript coercion is what is
-    /// wanted; the bridge's 152 <c>DoubleValue</c> sites are split between the two by whether the
+    /// coercion is an engine operation, one that runs user code through <c>valueOf</c> on an object, and this
+    /// property cannot. Use <see cref="IJsValues.ToNumber"/> when the ECMAScript coercion is what is
+    /// wanted; the bridge's former 152 <c>DoubleValue</c> sites were split between the two by whether the
     /// value came from a place that can be a string.
     /// </remarks>
     public double AsNumber => _kind switch
@@ -210,7 +210,7 @@ public readonly struct JsValue : IEquatable<JsValue>
 
     /// <summary>
     /// This value as a string when it already is one, otherwise <see langword="null"/>. Does not
-    /// coerce; see <see cref="IJsRealm.ToJsString"/> for that.
+    /// coerce; see <see cref="IJsValues.ToJsString"/> for that.
     /// </summary>
     public string? AsString => _kind == JsValueKind.String ? (string)_reference! : null;
 

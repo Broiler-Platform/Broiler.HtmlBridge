@@ -77,7 +77,7 @@ internal sealed class WindowContextManager(
     /// </summary>
     /// <remarks>
     /// Nullable rather than <see cref="JsValue.Missing"/> because its caller
-    /// (<c>Dom.Features.TimerBinding</c>, another group's file) asks the question with
+    /// (<c>Dom.Features.TimerBinding</c>) asks the question with
     /// <c>is not { } frameWindow</c>, and a non-nullable struct always matches that pattern.
     /// </remarks>
     public JsValue? ResolveCurrentSubWindow()

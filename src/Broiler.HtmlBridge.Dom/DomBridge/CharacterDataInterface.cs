@@ -9,13 +9,13 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Every DOM wrapper in this bridge installs its interface as own properties of each object, so
-/// <c>Object.getOwnPropertyNames(node)</c> lists the whole interface and
-/// <c>Text.prototype.splitText</c> is <see langword="undefined"/> — track 6's wrapper item. The
-/// prototype <em>chain</em> has been real since <see cref="ApplyInterfacePrototype"/>
-/// (<c>Text → CharacterData → Node → EventTarget → Object</c>), and the interface objects exist; what
-/// had not happened is the engine putting its members on them. A text node carried 57 own properties
-/// where a browser gives it none.
+/// Every DOM wrapper in this bridge installed its interface as own properties of each object, so
+/// <c>Object.getOwnPropertyNames(node)</c> listed the whole interface and
+/// <c>Text.prototype.splitText</c> was <see langword="undefined"/> — track 6's wrapper item. The
+/// prototype <em>chain</em> was already real through <see cref="ApplyInterfacePrototype"/>
+/// (<c>Text → CharacterData → Node → EventTarget → Object</c>), and the interface objects existed;
+/// what had not happened was the engine putting its members on them. A text node carried 57 own
+/// properties where a browser gives it none.
 /// </para>
 /// <para>
 /// This is the first node interface to move, and the mechanism it needs is the general one:
@@ -42,10 +42,10 @@ namespace Broiler.HtmlBridge;
 /// element's is a different operation from a character-data node's.
 /// </para>
 /// <para>
-/// A document still keeps its own. Its <c>Node</c> members are separate implementations rather than
-/// copies — <c>nodeType</c> is a literal <c>9</c>, <c>childNodes</c> a different binding — so each
-/// has to be checked against the prototype's answer rather than deleted, which is its own piece of
-/// work. The rest of <c>Element</c>'s surface is the larger remainder.
+/// The document kept its own — separate implementations, not copies: <c>nodeType</c> a literal
+/// <c>9</c>, <c>childNodes</c> a different binding — so each was checked against the prototype's
+/// answer before <c>DropDocumentNodeMemberCopies</c> deleted it (a sub-document object still installs
+/// its own), and <c>Element</c>'s surface has moved to its prototypes too. (This left both open.)
 /// </para>
 /// <para>
 /// <b>The three <c>EventTarget</c> members are not here, and not on the instance either.</b> They
@@ -53,7 +53,7 @@ namespace Broiler.HtmlBridge;
 /// its listeners engine-side where the bridge's dispatch would never find them — so a node could not
 /// simply inherit them, and shadowing them on <c>Node.prototype</c> would have put three members on a
 /// prototype no browser carries them on. That is resolved where it belongs, on
-/// <c>EventTarget.prototype</c> itself: see <c>DomBridge.EventTargetInterface.cs</c>, which routes
+/// <c>EventTarget.prototype</c> itself: see <c>DomBridge/EventTargetInterface.cs</c>, which routes
 /// those three by receiver. A text or comment node consequently carries no own properties at all.
 /// </para>
 /// <para>
@@ -175,9 +175,9 @@ public sealed partial class DomBridge
     /// <see cref="JsValue.Undefined"/> when the realm carries no such interface.
     /// </summary>
     /// <remarks>
-    /// The same two property reads <see cref="PrototypeOfInterface"/> makes, through the realm rather
-    /// than through the context — <c>Realm.Global</c> <em>is</em> that context under the Broiler.JS
-    /// provider, so this asks the same object the same question.
+    /// Two property reads through the realm: the global's <paramref name="interfaceName"/>, then that
+    /// constructor's <c>prototype</c>. They are the reads the engine-typed <c>PrototypeOfInterface</c>
+    /// (retired in 5282d02) made through the context, which <c>Realm.Global</c> <em>is</em> under Broiler.JS.
     /// </remarks>
     private JsValue PrototypeHandleOfInterface(string interfaceName)
     {
@@ -190,9 +190,9 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// <c>Node.prototype</c>: the tree accessors and node operations. Installed for every node kind,
-    /// though only character-data wrappers read them today — an element or document shadows each one
-    /// with its own copy until it is migrated too.
+    /// <c>Node.prototype</c>: the tree accessors and node operations. Character data, elements (bar
+    /// <c>textContent</c>) and the document inherit them; a doctype, fragment or sub-document object
+    /// still shadows those it installs itself. (This said an element or document shadowed each one.)
     /// </summary>
     private void InstallNodePrototypeMembers(JsValue proto)
     {
@@ -206,8 +206,8 @@ public sealed partial class DomBridge
             (in call) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, RequireNode(in call, "Node", "nodeValue"), in call));
         DefinePrototypeAccessor(proto, "textContent",
             // JsValue.String turns the "no text at all" null into JavaScript null, which is the
-            // distinction DOM §4.4 draws for a document and a doctype — the same value the engine-typed
-            // GetNodeTextValue adapter produces for the sites that still take an engine value.
+            // distinction DOM §4.4 draws for a document and a doctype. (This also named an engine-typed
+            // GetNodeTextValue adapter as producing the same value elsewhere; that adapter is gone.)
             (in call) => JsValue.String(NodeTextOrNull(RequireNode(in call, "Node", "textContent"))),
             (in call) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, RequireNode(in call, "Node", "textContent"), in call));
 

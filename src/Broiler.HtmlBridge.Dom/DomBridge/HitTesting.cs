@@ -571,6 +571,4 @@ public sealed partial class DomBridge
                value is not bool hasViewport ||
                hasViewport;
     }
-
-    /// <summary>Collects all elements matching a tag name in a sub-tree.</summary>
 }

@@ -7,11 +7,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The narrow bridge services the <see cref="DialogBinding"/> feature module needs (HtmlBridge
 /// complexity-reduction roadmap Phase 3, P3.7). The dialog/popover JS API sets the element's
 /// <c>open</c> attribute and a small amount of per-element browser-runtime state (modal flag,
-/// popover-open flag, top-layer order, dialog return value) that today lives on the bridge's
-/// <c>ElementRuntimeState</c>, and asks the renderer whether a hiding popover keeps its overlay.
-/// These are exposed as named primitives so the feature module never reaches the runtime-state
-/// object directly; the eventual TopLayerManager can re-home the state behind the same contract.
-/// Backdrop/top-layer rendering stays in the bridge.
+/// popover-open flag, top-layer order, dialog return value) that lives in the bridge's per-element
+/// <c>DialogRuntimeState</c> table (the return value in its <c>FormControlRuntimeState</c>), and asks
+/// the renderer whether a hiding popover keeps its overlay. These are exposed as named primitives so
+/// the feature module never reaches the runtime-state object directly; the eventual TopLayerManager
+/// can re-home the state behind the same contract. Backdrop/top-layer rendering stays in the bridge.
 /// </summary>
 internal interface IDialogHost
 {

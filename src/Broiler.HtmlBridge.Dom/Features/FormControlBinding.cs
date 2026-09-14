@@ -5,10 +5,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The form-control IDL reflectors (HtmlBridge complexity-reduction roadmap Phase 3) — <c>value</c>,
-/// <c>checked</c>, <c>type</c>, <c>name</c>, <c>disabled</c>, <c>hidden</c>, <c>tabIndex</c> and
-/// <c>required</c>, registered on every element wrapper. <c>value</c>/<c>checked</c> read and write the
-/// input's dirty IDL state (and, for <c>&lt;select&gt;</c>, delegate to <see cref="SelectBinding"/>) via
-/// the named primitives of the <see cref="IFormControlHost"/> contract; the remaining members are plain
+/// <c>checked</c>, <c>type</c>, <c>name</c>, <c>disabled</c> and <c>required</c> on every element
+/// wrapper, and <c>hidden</c>/<c>tabIndex</c> on <c>HTMLElement.prototype</c>.
+/// <c>value</c>/<c>checked</c> read and write the input's dirty IDL state (and, for
+/// <c>&lt;select&gt;</c>, delegate to <see cref="SelectBinding"/>) via the named primitives of the
+/// <see cref="IFormControlHost"/> contract; the remaining members are plain
 /// content-attribute reflection through the assembly's static <c>DomBridge</c> attribute helpers, with
 /// the boolean setters invalidating the style scope (the <c>:disabled</c>/<c>[hidden]</c>/<c>:required</c>
 /// selectors depend on it). Was the bridge's <c>JsJsObjectsGetValue106Core</c>..<c>SetRequired121Core</c>
@@ -32,7 +33,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// The <c>tabIndex</c> setter's coercion moved with the frame and is the same ECMAScript operation on
 /// the same value: the engine's <c>DoubleValue</c> is <c>ToNumber</c>, and so is
-/// <see cref="IJsRealm.ToNumber"/> — which matters, because <c>el.tabIndex = "3"</c> is a string a
+/// <see cref="IJsValues.ToNumber"/> — which matters, because <c>el.tabIndex = "3"</c> is a string a
 /// page really does assign.
 /// </para>
 /// </remarks>

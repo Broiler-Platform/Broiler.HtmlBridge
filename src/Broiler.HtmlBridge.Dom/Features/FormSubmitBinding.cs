@@ -59,10 +59,10 @@ internal static class FormSubmitBinding
             realm.DefineValue(submitEvt, "preventDefault", realm.NewMethod("preventDefault", PreventDefault, 0));
 
             // stopPropagation is minted as a *constructor* only because it always has been: it came
-            // from the bridge's UndefinedFunction helper, which builds a plain engine function — one
-            // that carries a prototype object and so passes the engine's constructor test — rather
-            // than the non-constructable shape WebIDL gives an operation. Correcting that is a
-            // behaviour change and belongs with the helper's other callers.
+            // from the bridge's UndefinedFunction helper (since removed), which built a plain engine
+            // function — one that carries a prototype object and so passes the engine's constructor
+            // test — rather than the non-constructable shape WebIDL gives an operation. Correcting
+            // that is a behaviour change and belongs with the other members that helper used to build.
             realm.DefineValue(submitEvt, "stopPropagation",
                 realm.NewConstructor("stopPropagation", static (in _) => JsValue.Undefined, 0));
 

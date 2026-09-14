@@ -315,8 +315,8 @@ public sealed partial class DomBridge
         var evt = Realm.NewObject();
         Realm.DefineValue(evt, "type", JsValue.String(eventType));
         Realm.DefineValue(evt, "bubbles", JsValue.False);
-        // Element dispatch has not migrated, so the event crosses back as the engine's own object — a
-        // cast rather than a conversion, so the listeners see the object that was built here.
+        // The dispatcher takes the handle as it is, so the listeners see the object built here. (This
+        // said element dispatch had not migrated and the event crossed back as the engine's object.)
         _eventDispatch.DispatchEventOnElement(element, evt);
     }
 
@@ -444,8 +444,8 @@ public sealed partial class DomBridge
 
         // The target is the visualViewport root (DomBridge.cs), the handle the registration hub minted,
         // so the object the listeners see is the one they registered on with no conversion. The listener
-        // list is still held as engine values by the event-target registry, so each listener crosses
-        // below. IsMissing replaces a null test that, against a handle, would have compiled, been false
+        // list holds handles too, so no listener crosses below; this said the registry held engine
+        // values. IsMissing replaces a null test that, against a handle, would have compiled, been false
         // forever, and run the listeners against an absent target.
         var evt = Realm.NewObject();
         Realm.DefineValue(evt, "type", JsValue.String("scroll"));

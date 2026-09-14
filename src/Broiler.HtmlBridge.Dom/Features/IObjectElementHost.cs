@@ -14,8 +14,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The contract names no engine type — the sub-document is a <see cref="JsValue"/> handle. The bridge
-/// member behind the factory still hands back an engine object, so that seam lives in the bridge's
-/// implementation of this contract rather than in the module.
+/// member behind the factory answers the handle the browsing-context cache holds, so neither side of
+/// this contract converts. (This said that member still handed back an engine object.)
 /// </remarks>
 internal interface IObjectElementHost
 {

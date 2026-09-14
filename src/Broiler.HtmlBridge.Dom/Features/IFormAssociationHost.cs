@@ -14,10 +14,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
 /// type. Where the contract used to hand the binding the bridge's script context — so the binding
 /// could pass it straight back to the collection factory, which is the only thing it did with it —
-/// it now names the one operation that needed it. Building a <c>NodeList</c> is still engine-typed
-/// work in <see cref="DomCollectionBinding"/>, so the whole of it sits on the bridge's side of the
-/// seam rather than being reassembled from an engine-typed list the binding would have to hold; the
-/// same shape <c>ISelectorsHost.ElementsByTagName</c> took for the same reason.
+/// it now names the one operation that needed it. The bridge builds the <c>NodeList</c>, handing
+/// <see cref="DomCollectionBinding"/> the realm and a contents function that re-runs the binding's
+/// own label walk and wraps each element on every read, and gets a handle back — the same shape
+/// <c>ISelectorsHost.ElementsByTagName</c> took. (This said building one was still engine-typed.)
 /// </remarks>
 internal interface IFormAssociationHost
 {

@@ -12,8 +12,9 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// Deferred to later Phase 2 PRs (kept out of scope here so this stays one concern): promoting the
-/// registry to a full <c>BrowserDocumentSession</c>, moving <see cref="IDisposable"/> onto
-/// <c>IDomBridgeRuntime</c>, and de-globalizing the process-static per-element runtime tables.
+/// registry to a full <c>BrowserDocumentSession</c> and moving <see cref="IDisposable"/> onto
+/// <c>IDomBridgeRuntime</c>. (This also listed de-globalizing the process-static per-element runtime
+/// tables; each <c>*RuntimeState</c> table has since become a per-bridge instance field.)
 /// </remarks>
 public sealed partial class DomBridge : IDisposable
 {
@@ -78,7 +79,7 @@ public sealed partial class DomBridge : IDisposable
     /// carries no timers, listeners or observers from the previous document.
     /// </summary>
     /// <remarks>
-    /// Does not touch the canonical document tree or the process-static per-element runtime tables
+    /// Does not touch the canonical document tree or the per-bridge per-element runtime tables
     /// (weak, node-keyed — they GC with this session's nodes). The timer maps are concurrent
     /// because JS continuations may register timers on ThreadPool threads;
     /// <c>ConcurrentDictionary.Clear</c> is thread-safe, and a continuation that races to re-add a

@@ -166,12 +166,12 @@ internal static class NavigatorCapabilityBinding
     }
 
     /// <summary>
-    /// The realm's spelling of <c>DomBridge.NullFunction</c>/<c>UndefinedFunction</c> — an inert
-    /// member answering <c>null</c> or <c>undefined</c>.
+    /// The realm's spelling of <c>DomBridge.NullFunction</c>/<c>UndefinedFunction</c>, both since
+    /// removed: an inert member answering <c>null</c> or <c>undefined</c>.
     /// </summary>
     /// <remarks>
-    /// <c>NewConstructor</c> rather than <c>NewMethod</c> because the engine-built pair carries a
-    /// prototype object and is therefore constructable, and preserving that is what makes this a
+    /// <c>NewConstructor</c> rather than <c>NewMethod</c> because the engine-built pair carried a
+    /// prototype object and was therefore constructable, and preserving that is what makes this a
     /// refactor rather than a change. (WebIDL says an operation should not be constructable; that is
     /// a pre-existing deviation, and correcting it belongs in its own change.)
     /// </remarks>

@@ -12,11 +12,11 @@ namespace Broiler.HtmlBridge;
 /// these seams do not widen the public <c>DomBridge</c> surface.
 /// </summary>
 /// <remarks>
-/// The module speaks JSEAL, and so does every member here but one. The wrapper cache answers handles,
+/// The module speaks JSEAL, and so does every member here. The wrapper cache answers handles,
 /// and the document and window wrappers are the bridge's roots, which are the handles the realm
 /// minted, so all three forward without converting and <c>event.target === el</c> is the same
 /// question it always was. (This used to call all three engine objects, with a cast between them.)
-/// The one crossing left is <c>InlineEventHandler</c> below, whose map still holds engine values.
+/// <c>InlineEventHandler</c> below reads a map of handles too; this called it the one crossing left.
 /// </remarks>
 public sealed partial class DomBridge : IEventDispatchHost
 {

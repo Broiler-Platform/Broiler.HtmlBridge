@@ -62,9 +62,9 @@ internal enum JsEntryKind
 /// <para>
 /// <b>Where it writes.</b> Standard error, and <see cref="RenderLogger"/> for a host that collects
 /// entries. Standard error is deliberate rather than lazy: <see cref="RenderLogger"/> routes to
-/// <see cref="Debug.WriteLine"/>, which a Release build does not emit, and a diagnostic whose whole
-/// value is "set the variable, reproduce it once, read the output" has to be readable from a normal
-/// build without a debugger attached.
+/// <see cref="Debug.WriteLine(string)"/>, which a Release build does not emit, and a diagnostic
+/// whose whole value is "set the variable, reproduce it once, read the output" has to be readable
+/// from a normal build without a debugger attached.
 /// </para>
 /// </remarks>
 internal static class JsEntryTrace

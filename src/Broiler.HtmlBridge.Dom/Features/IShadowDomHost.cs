@@ -6,7 +6,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The narrow host surface <see cref="ShadowDomBinding"/> needs from the bridge for the shadow-DOM
 /// JS-binding members (<c>element.shadowRoot</c> / <c>element.attachShadow()</c>). The per-element
-/// shadow linkage (host, root, mode) lives on the bridge's <c>ElementRuntimeState.Shadow</c> slot and is
+/// shadow linkage (host, root, mode) lives in the bridge's <c>ShadowRuntimeState</c> table and is
 /// exposed here as named primitives (the P3.7 pattern) so the module never touches the runtime-state
 /// object: the existing-root lookup, the open/closed mode read, and a single <c>AttachShadowRoot</c>
 /// primitive that creates the <c>#shadow-root</c> element, links it to its host and records the mode in

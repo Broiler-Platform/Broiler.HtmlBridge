@@ -7,49 +7,55 @@ using Broiler.HtmlBridge.Jseal.Providers;
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// The boundary between the part of the DOM bridge that has been migrated to JSEAL and the part that
-/// has not.
+/// The crossing between a JSEAL handle and the Broiler.JS object it carries, for the operations the
+/// JSEAL contract cannot express yet.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>This type is scaffolding, and it is meant to be deleted.</b> The bridge is 250 engine-coupled
-/// files and cannot become engine-neutral in one commit; while it is half migrated, a binding written
-/// against <see cref="IJsRealm"/> hands back a <see cref="JsValue"/> to a caller that still holds a
-/// <c>JSObject</c>, and something has to sit between them. Every use of this class is one such seam.
-/// <para>
-/// <b>The budget's number is NOT the count of those seams, and reading it that way has now misled
-/// two pieces of work.</b> <c>eng/jseal-budget.json</c> counts occurrences of the engine's own
-/// namespace as TEXT; most files holding a crossing contain none, because the crossing is
-/// spelled <c>JsInterop.</c> and names no engine type. (Spelled around rather than out, because the
-/// metric would count this sentence too — which is the same trap, one layer up.) The commit that deleted four unreachable
-/// members removed six crossings and moved the budget by eleven — the two measure different things,
-/// and neither alone says how much is left. Count crossings with a grep for <c>JsInterop.</c>; count
-/// coupling with the script.
+/// <b>This type is scaffolding, and it is meant to be deleted.</b> Two methods in this project use
+/// it, and each calls itself a gap in the JSEAL contract rather than an unmigrated caller:
+/// <c>SetAdoptedStyleSheets</c> in <c>DomBridge/ConstructedStyleSheets.cs</c> copies an assigned
+/// array with the engine's own hole treatment, which <see cref="IJsRealm"/> cannot read back, and
+/// <c>RetireIndex</c> in <c>Features/StyleSheetBinding.cs</c> deletes an index, which
+/// <see cref="IJsMembers"/> has no member for. The only other caller is <c>JsInteropSeamTests</c>.
+/// (This said the bridge was 250 engine-coupled files, half migrated, and that every use of this
+/// class sat between a migrated binding and a caller still holding a <c>JSObject</c>.)
 /// </para>
+/// <para>
+/// <b>The budget's number is NOT the count of those crossings, and reading it that way has misled
+/// two pieces of work.</b> <c>eng/jseal-budget.json</c> counts occurrences of the engine's own
+/// namespace as TEXT, and a crossing need not contain one: the file holding <c>RetireIndex</c> names
+/// no engine type, while <c>ConstructedStyleSheets.cs</c> has two usings for its copy. (Spelled
+/// around rather than out, because the metric would count this sentence too.) The commit that
+/// deleted four unreachable members removed six crossings and moved the budget by eleven — the two
+/// measure different things, and neither alone says how much is left. Count crossings with a grep
+/// for a call to one of the three members below, since the class name alone also finds the comments
+/// that mention it; count coupling with the script.
 /// </para>
 /// <para>
 /// <b>It costs nothing at run time and it is not a conversion.</b> Under the Broiler.JS provider a
 /// JSEAL object handle carries the engine's own <c>JSObject</c> — that is the provider's central
-/// design rule, and it is what keeps wrapper identity and <c>el === el</c> working across a
-/// half-migrated bridge.
+/// design rule, and it is what keeps wrapper identity and <c>el === el</c> working for an object
+/// that crosses here.
 /// </para>
 /// <para>
-/// <b>The weak tables are no longer among the things it keeps working, and the paragraph that used
-/// to count them here was wrong twice.</b> It said the reference-key floor was three tables and
-/// "a third the size the number implied"; the tree had six, because three more were typed
-/// <c>&lt;object, …&gt;</c> and fed by an <c>IdentityOf</c> that unwrapped through this class. All
-/// six now key on <see cref="JsValue.ObjectIdentity"/> — the reference the handle carries, which
-/// every provider already makes canonical per object because handle equality is defined by it — and
-/// <c>Runtime/JsObjectRegistry.cs</c> was the last per-object table naming an engine type and no
-/// longer does — it measures zero. So does the table this sentence named next, the sub-window maps
-/// in <c>Runtime/BrowsingContextManager.cs</c>: they key on <see cref="JsValue"/> itself, being strong
-/// maps emptied on demand rather than weak tables, so no per-object table in this bridge names an
-/// engine type. There is no reference-key floor. So this
-/// is a cast, and the assertion it makes is that the realm the bridge
-/// is attached to is a Broiler.JS realm. On a build serving a different engine it would fail loudly at
-/// the first migrated binding, which is correct: the unmigrated half of the bridge cannot run on
-/// another engine, and finding that out at the seam is better than producing an object nothing can
-/// use.
+/// <b>The weak tables are not among the things it keeps working.</b> Seven weak tables in this bridge
+/// key on <see cref="JsValue.ObjectIdentity"/> — the reference the handle carries, which every
+/// provider already makes canonical per object because handle equality is defined by it — and none
+/// reaches it through this class: the reverse map in <c>Runtime/JsObjectRegistry.cs</c>, and the
+/// stores behind Blob, NamedNodeMap, ElementInternals, Range, Selection and PermissionStatus
+/// objects. The sub-window maps in <c>Runtime/BrowsingContextManager.cs</c> key on
+/// <see cref="JsValue"/> itself, being strong maps emptied on demand rather than weak tables, so no
+/// per-object table in this bridge names an engine type. (This paragraph used to count a
+/// reference-key floor, at three tables and then six; there is none.)
+/// </para>
+/// <para>
+/// So this is a cast, and the assertion it makes is that the handle came from a Broiler.JS realm.
+/// <see cref="ToEngineObject"/> throws on a handle that carries no Broiler.JS object;
+/// <see cref="ToEngineValue"/> answers <see langword="null"/> instead, and
+/// <c>SetAdoptedStyleSheets</c> takes that as an empty list, so that crossing does not fail loudly.
+/// (This said another engine would fail loudly at the first migrated binding, because the unmigrated
+/// half of the bridge could not run on one.)
 /// </para>
 /// <para>
 /// Nothing here reaches for a provider assembly. <c>JsProviderValue</c> lives in JSEAL itself, and the
@@ -60,7 +66,8 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 internal static class JsInterop
 {
     /// <summary>
-    /// The engine object behind a JSEAL handle, for an unmigrated caller that needs one.
+    /// The engine object behind a JSEAL handle, for an operation the contract cannot express:
+    /// <c>RetireIndex</c> deletes an index through it. (This said "for an unmigrated caller".)
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// The handle does not carry a Broiler.JS object — either it is a primitive, or the realm belongs
@@ -73,10 +80,17 @@ internal static class JsInterop
             "binding produced a value the unmigrated half of the bridge cannot hold; either the realm " +
             "is not a Broiler.JS realm, or the binding returned a primitive where an object was expected.");
 
-    /// <summary>The engine value behind a JSEAL handle, or <see langword="null"/> for a primitive.</summary>
+    /// <summary>
+    /// The engine value behind a JSEAL handle, or <see langword="null"/> when it carries none: a
+    /// primitive the handle holds itself, or another engine's value. This provider's symbols and
+    /// BigInts do carry one. (This said "or null for a primitive".)
+    /// </summary>
     internal static JSValue? ToEngineValue(JsValue value) => JsProviderValue.ReferenceOf(value) as JSValue;
 
-    /// <summary>A JSEAL handle over an engine object, for a migrated callee taking one from an unmigrated caller.</summary>
+    /// <summary>
+    /// A JSEAL handle over an engine object: <c>SetAdoptedStyleSheets</c> hands back its engine-made
+    /// array copy through it. (This said "for a migrated callee taking one from an unmigrated caller".)
+    /// </summary>
     /// <remarks>
     /// <para>
     /// <b>It answers the kind the provider would have answered, and it used to answer
@@ -95,13 +109,15 @@ internal static class JsInterop
     /// <c>is JSFunction</c> before wrapping and the <c>onclick</c> getter wrapped behind a plain object
     /// test, is stored as a handle and handed back as one. They were never the only two: this method is
     /// still handed an array elsewhere, and a grep for its call sites is the census, not this sentence.
-    /// What is not guarded is a map
-    /// keyed on a handle:
-    /// <c>EventTargetRegistry</c>'s maps, whose keys are all kind <c>Object</c> -- message ports and
-    /// sub-windows. This said that invariant ends when a listener record becomes a handle. The record
-    /// is one now and it did not end: a listener is an element of a list, never a key, and every
-    /// listener handle in those lists arrives from a call frame the provider filled rather than
-    /// through this method. Fixing the kind here was still the cheap order.
+    /// What is not guarded is a map keyed on a handle, and there are several. A map whose keys are
+    /// all kind <c>Object</c> never cared, since a handle minted here answered that kind even before
+    /// the fix; one keyed on functions would have, and <c>CustomElementsBinding</c> files each
+    /// definition under its constructor. What keeps every such map safe is where its handles come
+    /// from: each key, and each handle looked up, arrives from a call frame or a realm member the
+    /// provider filled, never through this method. (This named <c>EventTargetRegistry</c>'s maps as
+    /// the only ones and said their invariant would end when a listener record became a handle. It
+    /// is one now and nothing ended: a listener is an element of a list, never a key, and it too
+    /// arrives from a call frame.) Fixing the kind here was still the cheap order.
     /// </para>
     /// <para>
     /// The test order matters and mirrors the provider's: <c>JSArray</c> derives from

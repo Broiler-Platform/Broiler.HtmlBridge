@@ -36,9 +36,9 @@ internal static class NodeAccessorsBinding
     /// The list holds the walk rather than its result, so every read sees the tree as it is now.
     /// </summary>
     /// <remarks>
-    /// Assembling that collection is <see cref="INodeAccessorsHost.ChildNodeList"/>'s: it is still
-    /// engine-typed work in <c>DomCollectionBinding</c>, and handing this module a list to reassemble
-    /// would convert every element of a live collection twice on every property read.
+    /// Assembling that collection is <see cref="INodeAccessorsHost.ChildNodeList"/>'s: the bridge
+    /// mints the <c>NodeList</c> through <c>DomCollectionBinding</c> in its realm, wrapping the
+    /// children on every read. (This said that was engine-typed, and a list would convert twice.)
     /// </remarks>
     public static JsValue GetChildNodes(INodeAccessorsHost host, DomNode node, in JsCall call) =>
         host.ChildNodeList(node);

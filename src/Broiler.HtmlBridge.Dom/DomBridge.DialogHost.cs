@@ -11,15 +11,16 @@ namespace Broiler.HtmlBridge;
 /// extracted <see cref="Broiler.HtmlBridge.Dom.Features.DialogBinding"/> feature module consumes
 /// (HtmlBridge complexity-reduction roadmap Phase 3, P3.7). Each member is an explicit interface
 /// implementation, so these seams do not widen the public <c>DomBridge</c> surface. The dialog/
-/// popover runtime state still lives on the per-element <see cref="ElementRuntimeState"/> tables and
-/// the top-layer counter; these accessors are the single point a future TopLayerManager re-homes.
+/// popover state lives in the per-element <see cref="DialogRuntimeState"/> table (a dialog's
+/// <c>returnValue</c> in <see cref="FormControlRuntimeState"/>) and <c>_topLayerCounter</c>. The
+/// module reaches it only through these accessors, but DomBridge/AnchorResolver reads it directly.
 /// </summary>
 /// <remarks>
-/// This is the half-migrated seam for the dialog slice: the module speaks JSEAL, and the one member
-/// that has to hand an object to the unmigrated half of the bridge —
-/// <see cref="IDialogHost.DispatchFullscreenChange"/>, whose dispatcher still takes an engine object
-/// — builds it through the realm and crosses with <see cref="Dom.Runtime.JsInterop"/>. That is a cast
-/// and not a conversion: a JSEAL object handle carries the engine's own object.
+/// Nothing in this file is engine-typed. The module speaks JSEAL, and the one member that hands an
+/// object to the rest of the bridge, <see cref="IDialogHost.DispatchFullscreenChange"/>, builds its
+/// event through the realm and gives that handle to the element dispatcher as it is. (This called
+/// the file the half-migrated seam, said that dispatcher still took an engine object, and had the
+/// event cross to it through a <c>JsInterop</c> cast.)
 /// </remarks>
 public sealed partial class DomBridge : IDialogHost
 {
@@ -77,9 +78,9 @@ public sealed partial class DomBridge : IDialogHost
     {
         try
         {
-            // The event is built through the realm and unwrapped for the dispatcher, which still
-            // takes an engine object. Both halves name the same realm, so the object the listener
-            // sees is the one this built.
+            // The event is built through the realm and the dispatcher takes the handle as it is, so
+            // the object the listener sees is the one this built. (This said the event was unwrapped
+            // for a dispatcher that still took an engine object.)
             var evt = Realm.NewObject();
             Realm.DefineValue(evt, "type", JsValue.String("fullscreenchange"));
             Realm.DefineValue(evt, "bubbles", JsValue.True);

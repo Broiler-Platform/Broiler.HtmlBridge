@@ -165,13 +165,13 @@ public sealed partial class DomBridge : ISubDocumentHost
     /// <c>append</c>/<c>prepend</c>'s argument list as canonical nodes.
     /// </summary>
     /// <remarks>
-    /// The same reading the bridge's own <c>BuildChildNodeArgumentNodes</c> performs, over a migrated
-    /// call frame rather than an engine one: a wrapper contributes its node (a
+    /// The bridge's one reading of a child-node argument list: the child-node, node-mutation and
+    /// tree-mutation contracts forward here too. A wrapper contributes its node (a
     /// <c>DocumentFragment</c> contributes its children, per DOM), and everything else — a string, a
     /// number, an object that is no node — is coerced and minted as a text node. The coercion is the
     /// realm's <c>ToString</c>, because that is what the engine-typed <c>value.ToString()</c> it
-    /// replaces performed: an object argument runs its own <c>toString</c>. The two readings become
-    /// one again when the other node-mutation contracts migrate their frames.
+    /// replaces performed: an object argument runs its own <c>toString</c>. (This said an engine-framed
+    /// reading stood beside it until the other node-mutation contracts migrated their frames.)
     /// </remarks>
     List<DomNode> ISubDocumentHost.BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments)
     {

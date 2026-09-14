@@ -10,7 +10,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>MessageChannel</c>/<c>MessagePort</c>) and the generic <c>EventTarget</c> dispatch it shares
 /// with sub-windows are deeply entangled with the document's browsing-context state — the active
 /// window override, the sub-window/sub-document caches and the window-context switch — which the
-/// Phase 2 work deliberately left in the bridge (a future <c>BrowsingContextManager</c>). Rather than
+/// Phase 2 work deliberately left in the bridge, and P3.16 and P3.18 have since moved into
+/// <c>BrowsingContextManager</c> and <c>WindowContextManager</c>. Rather than
 /// drag that state into the module, the module reaches the few browsing-context operations it needs
 /// through these named seams, exposed as explicit interface members on <see cref="DomBridge"/> so the
 /// public surface is unchanged.

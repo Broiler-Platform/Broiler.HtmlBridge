@@ -17,11 +17,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): every member is minted by the
-/// realm and every body runs on a <see cref="JsCall"/>, so the migrated half of this file names no
-/// engine type.
+/// realm and every body runs on a <see cref="JsCall"/>, so no part of this file names an engine
+/// type.
 /// </para>
 /// <para>
-/// The file carried one engine-typed adapter until this round, and it was pinned by its caller rather
+/// The file carried one engine-typed adapter until 5282d02, and it was pinned by its caller rather
 /// than by anything here: <c>DomBridge/ElementInterfaces.cs</c> installed these members onto an engine
 /// wrapper it held, so <c>Install</c> took that wrapper and handed it on through
 /// <see cref="Runtime.JsInterop"/>. That file passes the handle it already has, so there is one

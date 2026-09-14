@@ -321,7 +321,7 @@ public sealed partial class DomBridge
         // top/right/bottom/left), attr() length substitution, relative font-weight,
         // form-control size synthesis, and logical-size aliases — through the canonical
         // engine's sparse projection. The engine reads inline style from the bridge's live
-        // ElementRuntimeState map (SetInlineStyleSource in GetSyncedScopedEngine), so it
+        // InlineStyleRuntimeState map (SetInlineStyleSource in GetSyncedScopedEngine), so it
         // sees JS-set and anchor-resolver-written inline that never reaches the DOM style
         // attribute. `sparseInheritance: true` reproduces the bridge's inheritance model:
         // inherited properties propagate only from explicitly-declared ancestor values, so

@@ -6,12 +6,12 @@ namespace Broiler.HtmlBridge.Jseal;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>This exists for the migration and should outlive it by not very long.</b> The DOM bridge is
-/// 250 files of engine-specific binding code, and it cannot become engine-neutral in one commit.
-/// While it is half migrated, one <c>JSContext</c> has to serve both halves: the bindings already
-/// written against <see cref="IJsRealm"/> and the ones still writing <c>JSObject</c>s directly. The
-/// realm cannot be the one the provider created, because the unmigrated half was handed the context
-/// by <c>ScriptEngine</c> and builds on it directly.
+/// <b>This exists for the migration and should outlive it by not very long.</b> The DOM bridge's
+/// bindings build through <see cref="IJsRealm"/>, but its <c>Attach</c> is still handed the
+/// <c>JSContext</c> that <c>ScriptEngine</c> builds and owns, and the bridge still uses that context
+/// directly where the contract has no member: to swap its code cache and to run module roots on it.
+/// So the realm cannot be one the provider created; it has to wrap that context. (This said half the
+/// bindings still wrote <c>JSObject</c>s directly.)
 /// </para>
 /// <para>
 /// Declaring it as a provider capability rather than a static factory on the provider assembly is what

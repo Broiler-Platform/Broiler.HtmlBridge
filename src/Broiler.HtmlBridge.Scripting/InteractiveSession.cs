@@ -17,7 +17,7 @@ namespace Broiler.HtmlBridge;
 /// <see cref="IDomBridgeRuntime"/> or the micro-task queue.
 /// <para>
 /// That single reference was load-bearing for a reason unrelated to what it did:
-/// <c>VmScriptEngine</c>'s remarks name this constructor as half of why the document-bearing
+/// <c>VmScriptEngine</c>'s remarks named this constructor as half of why the document-bearing
 /// overloads are forwarded to Broiler.JS — "its constructor is internal and takes a
 /// <c>JSContext</c>, so an engine outside Broiler.JS cannot produce one at all". Taking an
 /// <see cref="IDisposable"/> instead is the whole of that half. The other half is
@@ -113,9 +113,10 @@ public sealed class InteractiveSession : IDisposable
     /// backstop for work that regenerates at the current instant and never lets the clock move.
     /// <para>
     /// It exists so a host can settle a page off the thread it paints on.
-    /// <see cref="ScriptEngine.ExecuteInteractive"/> drains only microtasks, so every timer a page
-    /// schedules during load is left for the caller to step; a host stepping them from its UI
-    /// thread pays each callback batch there, and one batch of a heavy page is measured in seconds.
+    /// <see cref="ScriptEngine.ExecuteInteractive(IReadOnlyList{string}, IReadOnlyList{string}, string, string?)"/>
+    /// drains only microtasks, so every timer a page schedules during load is left for the caller to
+    /// step; a host stepping them from its UI thread pays each callback batch there, and one batch of
+    /// a heavy page is measured in seconds.
     /// </para>
     /// </remarks>
     public string SettleLoadWindow(CancellationToken cancellationToken = default) =>

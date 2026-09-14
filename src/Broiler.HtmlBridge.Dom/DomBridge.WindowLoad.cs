@@ -289,9 +289,9 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// Built and dispatched entirely in JSEAL: the three node-target sites above hand it straight to
-    /// <c>EventDispatchBinding</c>, <see cref="DispatchWindowEvent"/> takes a handle, and the listener
-    /// invoker both paths share takes one and calls through the realm, so nothing unwraps this anywhere
-    /// between being built and reaching a listener.
+    /// <c>EventDispatchBinding</c>, <see cref="DispatchWindowEvent(JsValue)"/> takes a handle, and
+    /// the listener invoker both paths share takes one and calls through the realm, so nothing unwraps
+    /// this anywhere between being built and reaching a listener.
     /// </remarks>
     private JsValue SimpleEvent(string type, bool bubbles)
     {

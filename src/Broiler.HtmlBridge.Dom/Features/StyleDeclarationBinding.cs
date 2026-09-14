@@ -19,9 +19,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// engine cascade for computed style) and the invalidation side effects stay in the bridge: callers pass
 /// the computed map, an <c>onMutation</c> callback and (for inline declarations) an
 /// <c>onPositionAreaInvalidate</c> callback that clears the bridge-instance position-area memo, and the
-/// module reaches the shared inline-style store and the "set via JS" bookkeeping through the neutral
-/// static <c>DomBridge</c> helpers (<c>InlineStyle</c>, <c>ParseStyle</c>, <c>IsAcceptableInlineValue</c>,
-/// <c>ExpandCssShorthands</c>, <c>Mark/Unmark/Clear/InlineStylePropsSetByJs</c>).
+/// module reaches the shared inline-style store and the "set via JS" bookkeeping through
+/// <see cref="IInlineStyleHost"/> (<c>InlineStyle</c>, <c>MarkInlineStylePropSetByJs</c> and its
+/// siblings), and parses with the static <c>DomBridge</c> helpers <c>ParseStyle</c>,
+/// <c>IsAcceptableInlineValue</c> and <c>ExpandCssShorthands</c>.
 /// </para>
 /// </summary>
 /// <remarks>
@@ -30,7 +31,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// subclasses.</b> <c>el.style.backgroundColor</c> and <c>el.style["background-color"]</c> address the
 /// same CSS property, which no fixed list of members can express, so the declaration used to derive from
 /// the engine's own object type and override its lookup protocol. It now declares the hook instead:
-/// <see cref="IJsRealm.NewExotic"/> takes the handler and the provider owns the protocol. The ordering
+/// <see cref="IJsValues.NewExotic"/> takes the handler and the provider owns the protocol. The ordering
 /// the subclasses established is the ordering the contract mandates — <b>ordinary properties are
 /// consulted first and the handler answers only what they did not</b>, so a CSS property can never
 /// shadow <c>setProperty</c> — and a named <em>write</em> is offered to the handler first, because the

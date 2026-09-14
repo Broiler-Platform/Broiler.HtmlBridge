@@ -94,10 +94,10 @@ internal sealed partial class BroilerJsRealm
     /// will.
     /// </para>
     /// <para>
-    /// The fallback throws a string rather than an <c>Error</c> on purpose: it matches what the bridge
-    /// does today, and a page's <c>catch (e) { e.name }</c> reading <see langword="undefined"/> is a
-    /// clearer signal that the globals are missing than an <c>Error</c> whose <c>name</c> is
-    /// plausible-looking but wrong.
+    /// The fallback throws a string rather than an <c>Error</c> on purpose: it matches what the
+    /// bridge's <c>ThrowDOMException</c> did before it became a call to this member, and a page's
+    /// <c>catch (e) { e.name }</c> reading <see langword="undefined"/> is a clearer signal that the
+    /// globals are missing than an <c>Error</c> whose <c>name</c> is plausible-looking but wrong.
     /// </para>
     /// </remarks>
     public Exception DomError(string name, string message)

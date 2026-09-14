@@ -9,10 +9,10 @@ namespace Broiler.Browser.Core.Tests;
 /// <para>
 /// A constructed sheet owns no element, so the only thing tying it to its rules is the object the
 /// page holds: the rule list is keyed on that object, and the adopted list is a copy of the array the
-/// page assigned. Both are stored in engine terms today, and both fail silently when the storage is
-/// retyped wrongly — a copy that drops a member shortens a list nobody counts, and a key that stops
-/// comparing by reference leaves the sheet sitting in <c>adoptedStyleSheets</c> with its rules
-/// unreachable, which reads as a CSS bug and is not one.
+/// page assigned. Both are held as handles now (this said engine terms), and both fail silently when
+/// the storage is retyped wrongly — a copy that drops a member shortens a list nobody counts, and a
+/// key that stops comparing by reference leaves the sheet sitting in <c>adoptedStyleSheets</c> with
+/// its rules unreachable, which reads as a CSS bug and is not one.
 /// </para>
 /// <para>
 /// <b>Identity is the whole subject, so the assertions compare objects rather than count them.</b> A

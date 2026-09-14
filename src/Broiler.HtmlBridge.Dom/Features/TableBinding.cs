@@ -82,7 +82,7 @@ internal sealed class TableBinding(ITableHost host)
     /// methods are.
     /// </summary>
     /// <remarks>
-    /// It was the bridge's <c>UndefinedFunction</c> helper, which mints a plain <em>constructable</em>
+    /// It was the bridge's <c>UndefinedFunction</c> helper, which minted a plain <em>constructable</em>
     /// engine function carrying a <c>prototype</c>. <see cref="IJsMembers.DefineAccessor"/> mints both
     /// halves of an accessor non-constructable — deliberately, because
     /// <c>new el.__lookupSetter__('caption')()</c> is a <c>TypeError</c> in a browser — so the setter

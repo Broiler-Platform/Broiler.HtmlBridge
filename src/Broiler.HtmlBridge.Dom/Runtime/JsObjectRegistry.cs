@@ -50,10 +50,11 @@ internal sealed class JsObjectRegistry
     /// <remarks>
     /// <para>
     /// A member that lives on an interface prototype has no node captured in a closure — it finds one
-    /// from its receiver, on every call (see <c>DomBridge.CharacterDataInterface.cs</c>). The scan
-    /// <see cref="TryGetNode"/> used to do was fine for the handful of call sites that had it, and is
-    /// not fine per DOM operation: it is linear in the wrappers the document has minted, so a
-    /// prototype method would have cost more the larger the page.
+    /// from its receiver, on every call (see <c>DomBridge/CharacterDataInterface.cs</c>; the
+    /// <c>Element</c>, <c>HTMLElement</c> and <c>EventTarget</c> prototype members resolve theirs the
+    /// same way). The scan <see cref="TryGetNode"/> used to do was fine for the handful of call sites
+    /// that had it, and is not fine per DOM operation: it is linear in the wrappers the document has
+    /// minted, so a prototype method would have cost more the larger the page.
     /// </para>
     /// <para>
     /// <b>Weakly keyed, and outliving <see cref="Remove"/> deliberately.</b> A wrapper the page still

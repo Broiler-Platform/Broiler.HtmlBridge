@@ -13,10 +13,14 @@ namespace Broiler.HtmlBridge;
 // Features/ScreenOrientationBinding.cs, Features/SubDocumentBinding.cs, Features/SvgElementBinding.cs
 // and Features/TableBinding.cs, each of which says which it chose and why.
 //
-// The last of those call sites went with the last of those modules. Nothing in the repository names
-// either factory now, so what is left is dead private code: there is no name for a page to reach and
-// no member for Object.getOwnPropertyNames to see, and removing it changes no observable behaviour.
-// The file stays as this note because five migrated modules point at it for the history.
+// The last of those call sites went with the last of those modules, and the factories they left
+// uncalled were deleted: TrueFunction and ZeroFunction in b045101, UndefinedFunction and NullFunction
+// in 5282d02. No code names one, a page had no name to reach and Object.getOwnPropertyNames no member
+// to see, so removing them changed no observable behaviour. The file stays as this note:
+// DomBridge/Registration/Registration.cs and Features/IFormSubmitHost.cs cite it, and the five
+// above, EventTargetBinding.cs and FormSubmitBinding.cs name its factories, as do comments in
+// DomBridge/JsObjects.NonElementNodes.cs and BroilerJsRealm.Members.cs.
+// (This said dead private code was still left here, and that five modules pointed at it.)
 public sealed partial class DomBridge
 {
 }

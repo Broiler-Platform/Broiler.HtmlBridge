@@ -84,11 +84,11 @@ internal sealed partial class BroilerJsRealm
     /// contract exists to avoid depending on.</b> <c>JSPromise</c>'s delegate constructor calls the
     /// delegate before it returns, so the two locals below are assigned by the time the constructor
     /// has finished — which is what makes the capture safe here and nowhere else. Relying on that is
-    /// relying on an engine's scheduling: the bridge's one deferred promise
-    /// (<c>customElements.whenDefined</c>) does it today, in bridge code, and would break on an engine
+    /// relying on an engine's scheduling: the bridge's deferred promise for
+    /// <c>customElements.whenDefined</c> did it in bridge code, and would have broken on an engine
     /// that ran the executor later. Handing back the pair moves that dependency into the provider,
-    /// where it is a fact about Broiler.JS rather than an assumption the bridge is making about every
-    /// engine it might one day run on.
+    /// where it is a fact about Broiler.JS rather than an assumption the bridge makes about every
+    /// engine it might one day run on; <c>whenDefined</c> takes its pair from here now.
     /// </para>
     /// <para>
     /// The guard afterwards is not paranoia about the current engine but about a future one: if the

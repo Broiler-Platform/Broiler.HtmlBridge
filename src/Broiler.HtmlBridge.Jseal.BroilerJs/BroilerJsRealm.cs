@@ -128,8 +128,8 @@ internal sealed partial class BroilerJsRealm : IJsRealm
     /// changed afterwards. So <see cref="EnqueueJob"/> and <see cref="DrainJobs"/> work, and are the
     /// only jobs this realm knows about; the engine-scheduled reactions stay with the host's own
     /// queue, which is the one already draining them. Two queues is the correct count while the
-    /// bridge has two halves, and it goes to one when the last binding is migrated and the realm is
-    /// created rather than adopted.
+    /// realm is adopted, and it goes to one when the bridge's realm is created rather than adopted.
+    /// (This tied that to the bridge's two halves; the adoption is <c>Attach</c>'s, not a binding's.)
     /// </para>
     /// </remarks>
     internal BroilerJsRealm(BroilerJsEngineProvider provider, JSContext context, JsRealmOptions options)
@@ -327,8 +327,8 @@ internal sealed partial class BroilerJsRealm : IJsRealm
     /// </para>
     /// <para>
     /// <b>Nothing is caught.</b> A host body that throws — a WebIDL TypeError, a DOMException, a bug —
-    /// must propagate into the engine so it becomes a JavaScript exception the page can catch, which
-    /// is what happens today when a <c>DomFunction</c> throws. A <see langword="catch"/> here would
+    /// must propagate into the engine so it becomes a JavaScript exception the page can catch, as
+    /// it did from the <c>DomFunction</c> this replaced. A <see langword="catch"/> here would
     /// turn every one of those into a returned <c>undefined</c>, silently.
     /// </para>
     /// </remarks>
@@ -341,8 +341,8 @@ internal sealed partial class BroilerJsRealm : IJsRealm
         // right answer for a constructor written in JavaScript; a host constructor's body runs as a
         // CLR delegate and pushes no frame, so that read is null and only the execution context's
         // CurrentNewTarget — set by [[Construct]] immediately before it invokes the delegate
-        // (JSFunction.cs:860) — has the value. The engine's own factories read them in exactly this
-        // order for the same reason (EngineAssemblyInitializer.cs:70-71, ObjectClassFactory.cs:40).
+        // (JSFunction.cs:860) — has the value; ObjectClassFactory.cs:40 reads just that. The engine's
+        // NewTargetPrototype reads both in the same order (EngineAssemblyInitializer.cs:70-71).
         //
         // Reading only the first is what made JsCall.NewTarget always Missing in a host constructor,
         // which the JSEAL conformance suite caught. An ordinary call reports Missing rather than

@@ -142,10 +142,6 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// The animated values for one pseudo-element of <paramref name="element"/>, or
-    /// <see langword="null"/> when <c>animate()</c> never targeted it.
-    /// </summary>
-    /// <summary>
     /// Carries the pseudo bakes onto a clone — the render projection imports the whole tree, so
     /// without this the serialization pass would look them up on a node that never saw the
     /// <c>animate()</c> call and find nothing. Same contract as the other per-element tables copied
@@ -172,6 +168,10 @@ public sealed partial class DomBridge
             ? byPseudo.Keys
             : [];
 
+    /// <summary>
+    /// The animated values for one pseudo-element of <paramref name="element"/>, or
+    /// <see langword="null"/> when <c>animate()</c> never targeted it.
+    /// </summary>
     internal Dictionary<string, string>? AnimatedPseudoStyle(DomElement element, string pseudoElement) =>
         _animatedPseudoStyles.TryGetValue(element, out var byPseudo) &&
         byPseudo.TryGetValue(pseudoElement, out var properties) &&

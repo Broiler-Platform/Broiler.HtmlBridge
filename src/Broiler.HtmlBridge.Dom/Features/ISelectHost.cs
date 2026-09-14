@@ -8,7 +8,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// complexity-reduction roadmap Phase 3, P3.8). The select algorithms (option collection, selected
 /// index and value resolution) move into the module, but the per-element form-control state they
 /// read/write — the select's dirty selected index, an option's IDL value, an option's
-/// default-selected flag — lives on the bridge's <c>ElementRuntimeState.FormControl</c>. It is
+/// default-selected flag — lives in the bridge's <c>FormControlRuntimeState</c> table. It is
 /// exposed here as named primitives (the P3.7 pattern) so the module never touches the runtime-state
 /// object, plus the realm and JS-wrapper identity/lookup for the <c>add()</c> and <c>options</c>
 /// members.

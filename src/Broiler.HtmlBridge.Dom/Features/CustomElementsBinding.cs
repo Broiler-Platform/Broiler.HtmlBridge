@@ -65,11 +65,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>&lt;button is="fancy-b"&gt;</c>. Measured against Chromium, both halves.
 /// </para>
 /// <para>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). One member stays engine-typed and
-/// is pinned from outside: <see cref="CreateDefined"/>, whose caller
-/// <c>DomBridge/DomBridge.DocumentFactoryHost.cs</c> implements an <c>IDocumentFactoryHost</c> that
-/// still declares an engine return type. It forwards to <see cref="CreateDefinedElement"/> through
-/// <see cref="Runtime.JsInterop"/> — a cast, not a conversion — and goes when that contract migrates.
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), and no member here is engine-typed.
+/// <c>DomBridge/DomBridge.DocumentFactoryHost.cs</c> calls <see cref="CreateDefinedElement"/> directly
+/// for an <c>IDocumentFactoryHost</c> that answers a <see cref="JsValue"/> too. (This named an
+/// engine-typed adapter, <c>CreateDefined</c>, that crossed through <c>JsInterop</c> for that caller;
+/// 751022c deleted it and pointed the caller at <see cref="CreateDefinedElement"/>.)
 /// </para>
 /// </remarks>
 internal sealed partial class CustomElementsBinding(ICustomElementsHost host)

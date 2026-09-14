@@ -19,7 +19,8 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// concurrent for the same reason the timer maps are: JS continuations dispatched on ThreadPool
 /// threads re-enter computed-style/geometry work concurrently with the main-thread layout pass, and
 /// a plain dictionary corrupts under that race (issue #1143). Instance-scoped to the owning
-/// bridge/document; <see cref="Reset"/> clears it on re-parse and disposal.
+/// bridge/document; <see cref="ResetEngines"/> drops its engine scopes on re-parse, fragment parsing
+/// and disposal.
 /// </remarks>
 internal sealed class DocumentStyleContext
 {
@@ -85,7 +86,7 @@ internal sealed class DocumentStyleContext
     /// Clears the <c>GetComputedProps</c> memo <em>and</em> every per-document engine's
     /// cascade/computed-style caches together. The two must invalidate as one because
     /// <c>GetComputedProps</c> routes through the engine's sparse projection, which reads inline
-    /// style from the bridge's live ElementRuntimeState map — an ERS mutation is invisible to the
+    /// style from the bridge's live InlineStyleRuntimeState map — a write to it is invisible to the
     /// engine's own DOM-mutation subscription, so clearing one without the other leaks stale values.
     /// </summary>
     public void InvalidateComputedStyle()
@@ -141,7 +142,7 @@ internal sealed class DocumentStyleContext
 
 /// <summary>
 /// A document root's shared <see cref="CssStyleEngine"/> and its <see cref="CssStyleScopeBuilder"/>.
-/// The engine is held directly so ElementRuntimeState-inline mutations (which the engine's
+/// The engine is held directly so writes to the InlineStyleRuntimeState map (which the engine's
 /// DOM-mutation subscription does not observe) can invalidate its computed caches.
 /// </summary>
 internal sealed class ComputedStyleEngineScope(CssStyleScopeBuilder scopeBuilder, CssStyleEngine engine)
@@ -151,7 +152,7 @@ internal sealed class ComputedStyleEngineScope(CssStyleScopeBuilder scopeBuilder
 
     /// <summary>
     /// The scope's <c>&lt;style&gt;</c>/<c>&lt;link&gt;</c> elements as of
-    /// <see cref="StyleSheetCandidatesVersion"/>, or <c>null</c> when never collected.
+    /// <see cref="StyleSheetCandidateSnapshot.Version"/>, or <c>null</c> until a walk has been cached.
     /// </summary>
     /// <remarks>
     /// Discovering these means walking the whole tree, and the bridge asks for them once per
@@ -166,7 +167,6 @@ internal sealed class ComputedStyleEngineScope(CssStyleScopeBuilder scopeBuilder
     /// bridge re-reads it per call — so CSSOM <c>insertRule</c> and a late-arriving external sheet
     /// are still seen, and neither needs to invalidate anything.
     /// </para>
-    /// </remarks>
     /// <para>
     /// Held as one snapshot object rather than a list plus a version field so a reader always sees
     /// the two agreeing. Computed style is re-entered from ThreadPool threads (the same race that
@@ -175,6 +175,7 @@ internal sealed class ComputedStyleEngineScope(CssStyleScopeBuilder scopeBuilder
     /// reverse, and treat a stale list as current. One reference assignment cannot be torn, so the
     /// worst a race can now cost is a redundant walk.
     /// </para>
+    /// </remarks>
     public StyleSheetCandidateSnapshot? StyleSheetCandidates { get; set; }
 }
 

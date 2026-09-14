@@ -1,9 +1,9 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
-// Engine-typed only for the one adapter at the foot of this file, whose caller is an unmigrated
-// registration site with an engine call frame: DomBridge/ElementInterfaces.cs installs
-// <img>.width/.height.
+// No engine namespace. This said one adapter at the foot of this file stayed engine-typed for
+// DomBridge/ElementInterfaces.cs's <img>.width/.height; that file mints the pair through the realm
+// and its getter calls GetUsedDimension, and the member at the foot takes a JsCall.
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -22,10 +22,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The JavaScript vocabulary is JSEAL's, so the bodies name no engine type. <c>getComputedStyle</c> now
 /// reads its own call frame — its installer mints it through the realm — and the coercion of the
 /// pseudo-element argument is the realm's <c>ToJsString</c>, which is the same observable ECMAScript
-/// <c>ToString</c> the engine's <c>ToString()</c> ran there. What has not moved is
-/// <c>&lt;img&gt;.width</c>/<c>.height</c>: <c>DomBridge/ElementInterfaces.cs</c> installs those and
-/// still hands over an engine argument frame, so the one adapter at the foot of this file does the
-/// unwrapping until it migrates.
+/// <c>ToString</c> the engine's <c>ToString()</c> ran there. <c>&lt;img&gt;.width</c>/<c>.height</c>
+/// need no frame: <c>DomBridge/ElementInterfaces.cs</c> mints that accessor pair through the realm and
+/// its getter calls <c>GetUsedDimension</c> with the element and dimension name. (This said that file
+/// still handed over an engine argument frame, which an adapter at the foot of this file unwrapped.)
 /// </remarks>
 internal static class ComputedStyleBinding
 {

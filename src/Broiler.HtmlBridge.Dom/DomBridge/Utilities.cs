@@ -255,7 +255,7 @@ public sealed partial class DomBridge
     /// Finds the canonical <see cref="DomNode"/> a wrapper handle stands for, in constant time
     /// (the reverse map is a hash lookup, not the scan this used to describe). Unlike
     /// <see cref="FindDomElementByJSObject"/> this also resolves text/comment nodes
-    /// (RF-BRIDGE-1c Phase F — needed once ranges/selection carry canonical char-data nodes).
+    /// (RF-BRIDGE-1c Phase F), which ranges need now that they carry canonical char-data nodes.
     /// </summary>
     /// <inheritdoc cref="FindDomElementByJSObject" path="/remarks" />
     private DomNode? FindDomNodeByJSObject(JsValue wrapper) =>

@@ -10,10 +10,10 @@ namespace Broiler.HtmlBridge;
 // owns, and the radio-sibling walk / style-scope invalidation forward to the existing bridge helpers.
 // Explicit interface members, so these seams do not widen the public DomBridge surface.
 //
-// This is the half-migrated seam for the form-control slice: the module speaks JSEAL, and the one
-// member that produces a JavaScript object — the FileList — is still built by DomCollectionBinding,
-// which is not migrated. So the engine object is minted on this side and crosses through JsInterop,
-// which carries it without converting it; the module never sees an engine type.
+// Neither half of this seam is engine-typed any more: the module speaks JSEAL, and the one member
+// that produces a JavaScript object — the FileList — is minted by DomCollectionBinding.FileList in
+// the bridge's realm and cached as the JsValue it answers, with no JsInterop cast. (This said the
+// builder was unmigrated and that the engine object crossed through a JsInterop cast.)
 public sealed partial class DomBridge : Dom.Features.IFormControlHost
 {
     /// <summary>One <c>FileList</c> per file input, cached so <c>input.files === input.files</c>. The
@@ -28,7 +28,8 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
         if (_fileLists.TryGetValue(element, out var existing))
             return existing;
 
-        // The realm overload, which answers a JsValue rather than an engine object needing a cast.
+        // DomCollectionBinding.FileList's only overload, which takes the realm and answers a JsValue.
+        // (This said "the realm overload", as if an engine-object one still stood beside it.)
         // DomCollectionBinding's header named this call as the one keeping FileList(JSContext, ...)
         // alive; it is migrated, so a file input no longer asks the bridge for a script context and
         // no longer throws "asked for before the bridge was attached" when there is a realm but no

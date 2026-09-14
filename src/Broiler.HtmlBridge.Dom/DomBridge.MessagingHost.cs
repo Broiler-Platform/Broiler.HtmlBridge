@@ -9,9 +9,9 @@ namespace Broiler.HtmlBridge;
 /// extracted <see cref="Broiler.HtmlBridge.Dom.Features.MessagingBinding"/> feature module consumes
 /// (HtmlBridge complexity-reduction roadmap Phase 3, P3.10). Each member is an explicit interface
 /// implementation, so these seams do not widen the public <c>DomBridge</c> surface. They forward to
-/// the browsing-context machinery that Phase 2 deliberately kept in the bridge (window resolution,
-/// the window-context switch, top-window dispatch and frame-action queueing — see
-/// <c>DomBridge.WindowContext.cs</c>), pending a future <c>BrowsingContextManager</c>.
+/// the browsing-context machinery: top-window dispatch, frame-action queueing, and the window
+/// resolution and window-context switch that <c>DomBridge.WindowContext.cs</c> hands to
+/// <c>WindowContextManager</c>. (This said "pending a future <c>BrowsingContextManager</c>".)
 /// </summary>
 /// <remarks>
 /// Nothing here converts. The contract speaks in <see cref="JsValue"/> handles and the window is the
