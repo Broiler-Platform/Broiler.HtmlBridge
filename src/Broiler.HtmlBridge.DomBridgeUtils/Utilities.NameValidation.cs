@@ -65,28 +65,6 @@ public static partial class DomBridgeUtils
     }
 
     /// <summary>
-    /// Validates a <c>setAttribute</c>/<c>toggleAttribute</c> attribute name (DOM §4.9.1), throwing
-    /// <c>InvalidCharacterError</c> when it does not match the XML <c>Name</c> production.
-    /// </summary>
-    /// <remarks>
-    /// A separate rule from <see cref="ValidateElementName"/> rather than a reuse of it, because
-    /// <c>Name</c> allows colons and the element-name pattern deliberately does not — see
-    /// <see cref="Dom.Features.DomApiSyntax.IsValidAttributeName"/> for why that distinction is the
-    /// load-bearing one. Every call site is a scripted DOM entry point: the canonical
-    /// <c>DomElement.SetAttribute</c> stays permissive because the HTML parser goes through it.
-    /// </remarks>
-    internal static void ValidateAttributeName(string name, IJsRealm? realm)
-    {
-        if (realm is not null && !Dom.Features.DomApiSyntax.IsValidAttributeName(name))
-        {
-            ThrowDOMException(
-                realm,
-                $"Failed to execute 'setAttribute' on 'Element': '{name}' is not a valid attribute name.",
-                "InvalidCharacterError");
-        }
-    }
-
-    /// <summary>
     /// Registers the <c>DOMException</c> constructor on <paramref name="realm"/>.
     /// </summary>
     /// <remarks>

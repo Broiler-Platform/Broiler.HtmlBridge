@@ -39,7 +39,7 @@ public static partial class DomBridgeUtils
     /// adds later — the shape every WPT support library has, <c>window.foo = …</c> in one
     /// <c>&lt;script&gt;</c> and an unqualified <c>foo(…)</c> in the next — appears after it has
     /// run, so a host that evaluates scripts one at a time must call
-    /// <see cref="DomBridge.SyncWindowMembersOntoGlobal"/> between them.
+    /// <c>DomBridge.SyncWindowMembersOntoGlobal</c> between them.
     /// </para>
     /// </summary>
     internal static void MirrorWindowMembersOntoGlobal(IJsRealm realm, JsValue window)

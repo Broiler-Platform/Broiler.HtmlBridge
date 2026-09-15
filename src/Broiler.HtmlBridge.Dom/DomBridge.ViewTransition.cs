@@ -1196,15 +1196,6 @@ public sealed partial class DomBridge
             StripCapturedIdentifiers(child, preserveIds);
     }
 
-    internal readonly record struct ViewTransitionCapture(
-        string Name,
-        // The captured element's `view-transition-class` list, matched by a pseudo argument's
-        // `.class` part (css-view-transitions-2 <pt-class-selector>). Empty when it has none.
-        string Classes,
-        double GroupLeft, double GroupTop,
-        bool HasOld, double OldLeft, double OldTop, double OldWidth, double OldHeight, string OldBackground, DomElement? OldContent,
-        bool HasNew, double NewLeft, double NewTop, double NewWidth, double NewHeight, string NewBackground, DomElement? NewContent);
-
     /// <summary>
     /// The captured names, each pairing the "old" snapshot (from before the update callback) with the
     /// "new" one (the element as it stands now), in old-then-new document order. Names appearing only

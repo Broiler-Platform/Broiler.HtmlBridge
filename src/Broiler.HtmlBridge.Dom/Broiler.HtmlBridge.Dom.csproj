@@ -37,6 +37,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />
+    <!-- DomBridgeUtils: the bridge's static helpers that need no bridge instance. The ones that do stay here
+         as DomBridgeHostUtils. -->
+    <ProjectReference Include="..\Broiler.HtmlBridge.DomBridgeUtils\Broiler.HtmlBridge.DomBridgeUtils.csproj" />
     <!--
       JSEAL: the contracts a migrated binding builds its JavaScript objects through. Contracts only —
       no engine provider, and deliberately so. This project's engine coupling is what the JSEAL work

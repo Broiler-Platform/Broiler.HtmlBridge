@@ -74,51 +74,7 @@ public static partial class DomBridgeUtils
         return text;
     }
 
-    /// <summary>
-    /// The property-indexed keyframe form: each animatable property maps to a list of values (or a
-    /// single value), distributed evenly over the effect. Each property is turned into its own
-    /// keyframes, which is exactly how <c>ResolveKeyframeProperties</c> reads them — it brackets
-    /// each property against only the keyframes that define it, so properties with different list
-    /// lengths need no common offset grid.
-    /// </summary>
-    internal static List<DomBridge.KeyframeEntry> ParsePropertyIndexedKeyframes(IJsRealm realm, JsValue keyframes)
-    {
-        var byPosition = new SortedDictionary<float, Dictionary<string, string>>();
-
-        foreach (var (keyframeKey, cssName) in AnimatableProperties)
-        {
-            var value = realm.GetProperty(keyframes, keyframeKey);
-            if (value.IsMissing || value.IsNullish)
-                continue;
-
-            var values = value.IsArray
-                ? Dom.Features.WorkerTransfer.ArrayElements(realm, value).ToList()
-                : [value];
-
-            for (var i = 0; i < values.Count; i++)
-            {
-                if (values[i].IsMissing || values[i].IsNullish)
-                    continue;
-                var text = realm.ToJsString(values[i]);
-                if (string.IsNullOrWhiteSpace(text))
-                    continue;
-
-                // A list of one is a single keyframe at offset 1 (the spec's implicit-from case);
-                // otherwise the values spread evenly from 0 to 1.
-                var position = values.Count <= 1 ? 1f : (float)i / (values.Count - 1);
-                if (!byPosition.TryGetValue(position, out var properties))
-                {
-                    properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    byPosition[position] = properties;
-                }
-                properties[cssName] = text;
-            }
-        }
-
-        return byPosition.Select(entry => new DomBridge.KeyframeEntry(entry.Key, entry.Value)).ToList();
-    }
-
-    internal static DomBridge.AnimationTiming ParseAnimationTiming(IJsRealm realm, JsValue optionsValue)
+    internal static AnimationTiming ParseAnimationTiming(IJsRealm realm, JsValue optionsValue)
     {
         double duration = 0, delay = 0, iterations = 1, iterationStart = 0;
         var easing = "linear";
@@ -144,7 +100,7 @@ public static partial class DomBridgeUtils
                 fill = realm.ToJsString(f);
         }
 
-        return new DomBridge.AnimationTiming(duration, delay, easing, fill, iterations, iterationStart);
+        return new AnimationTiming(duration, delay, easing, fill, iterations, iterationStart);
     }
 
     /// <summary>
@@ -152,7 +108,7 @@ public static partial class DomBridgeUtils
     /// active time is <c>-delay</c>; a negative delay lands it mid-animation. Returns false when
     /// the animation has no effect at the snapshot (before/after its active phase and not filled).
     /// </summary>
-    internal static bool TryComputeSnapshotProgress(DomBridge.AnimationTiming timing, out float progress)
+    internal static bool TryComputeSnapshotProgress(AnimationTiming timing, out float progress)
     {
         progress = 0f;
         var iterations = timing.Iterations <= 0 ? 1 : timing.Iterations;
@@ -185,6 +141,10 @@ public static partial class DomBridgeUtils
         progress = (float)Math.Clamp(iterationProgress, 0.0, 1.0);
         return true;
     }
+
+    // ------------------------------------------------------------------
+    //  Transform interpolation (component-wise between matching lists)
+    // ------------------------------------------------------------------
 
     internal static bool TryInterpolateTransform(string fromValue, string toValue, float progress, out string result)
     {
@@ -233,10 +193,10 @@ public static partial class DomBridgeUtils
         return true;
     }
 
-    private static List<DomBridge.TransformFunction>? ParseTransformFunctions(string value)
+    private static List<TransformFunction>? ParseTransformFunctions(string value)
     {
         value = value?.Trim() ?? string.Empty;
-        var functions = new List<DomBridge.TransformFunction>();
+        var functions = new List<TransformFunction>();
         if (value.Length == 0 || value.Equals("none", StringComparison.OrdinalIgnoreCase))
             return functions;
 
@@ -269,20 +229,20 @@ public static partial class DomBridgeUtils
                 .ToList();
             i++; // ')'
 
-            functions.Add(new DomBridge.TransformFunction(name, args));
+            functions.Add(new TransformFunction(name, args));
         }
 
         return functions;
     }
 
-    private static DomBridge.TransformFunction IdentityTransform(DomBridge.TransformFunction function)
+    private static TransformFunction IdentityTransform(TransformFunction function)
     {
         var lower = function.Name.ToLowerInvariant();
         string identity =
             lower.StartsWith("scale", StringComparison.Ordinal) ? "1"
             : lower.StartsWith("rotate", StringComparison.Ordinal) || lower.StartsWith("skew", StringComparison.Ordinal) ? "0deg"
             : "0";
-        return new DomBridge.TransformFunction(function.Name, function.Args.Select(_ => identity).ToList());
+        return new TransformFunction(function.Name, function.Args.Select(_ => identity).ToList());
     }
 
     private static bool TryInterpolateNumericToken(string from, string to, float progress, out string result)

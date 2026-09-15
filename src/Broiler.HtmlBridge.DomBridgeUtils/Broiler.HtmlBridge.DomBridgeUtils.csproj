@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Broiler.HtmlBridge</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>The DOM bridge's static helpers that need no bridge instance — tree, attribute, CSS, layout-geometry, serialization and JavaScript-object utilities — below Broiler.HtmlBridge.Dom.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Dom" />
+    <!-- For DomBridgeUtils.RealmOptionsFor, which ScriptEngine's document-free entry points share with the bridge. -->
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Scripting" />
+  </ItemGroup>
+
+  <!--
+    Nothing here may reference Broiler.HtmlBridge.Dom: Dom references this project. A helper that needs
+    the bridge, a feature binding, or the JavaScript engine belongs in DomBridgeHostUtils in Dom instead.
+    No engine project either, which is what keeps this project at 0 in eng/jseal-budget.json.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />
+    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
+  </ItemGroup>
+
+</Project>

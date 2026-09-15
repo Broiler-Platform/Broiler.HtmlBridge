@@ -585,7 +585,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length >= 2)
         {
             var name = call.Realm.ToJsString(call[0]);
-            DomBridgeUtils.ValidateAttributeName(name, call.Realm);
+            DomBridgeHostUtils.ValidateAttributeName(name, call.Realm);
             SetAttributeLikeSetAttribute(element, name, call.Realm.ToJsString(call[1]));
         }
 
@@ -639,7 +639,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length == 0)
             return JsValue.False;
         var attrName = call.Realm.ToJsString(call[0]);
-        DomBridgeUtils.ValidateAttributeName(attrName, call.Realm);
+        DomBridgeHostUtils.ValidateAttributeName(attrName, call.Realm);
         var hasAttribute = DomBridgeUtils.HasAttr(element, attrName);
         var forceSpecified = call.Length > 1 && !call[1].IsUndefined;
         var shouldHaveAttribute = forceSpecified ? call[1].AsBoolean : !hasAttribute;

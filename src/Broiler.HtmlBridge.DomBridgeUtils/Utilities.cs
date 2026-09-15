@@ -1,68 +1,10 @@
 using System.Text;
-using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge;
 
 public static partial class DomBridgeUtils
 {
-    /// <summary>
-    /// Searches descendants of an element using a CSS selector.
-    /// </summary>
-    // Phase 4 item 1: root widened DomElement -> DomNode so querySelector/querySelectorAll work over a
-    // canonical DomDocumentFragment. A fragment cannot itself match a selector, so the :scope-root
-    // self-match is guarded to element roots and the descendant scope is null for a fragment root.
-    internal static JsValue FindInDescendants(DomNode root, string selector, bool all, DomBridge bridge)
-    {
-        // DOM §4.2.6: an unparsable selector is a SyntaxError before the search runs. This is the
-        // shared descendant search, so it covers the DocumentFragment forms as well as the Element
-        // ones — a browser throws from `fragment.querySelector('[')` exactly as it does from the
-        // document's.
-        bridge.ValidateSelector(selector);
-
-        var results = new List<JsValue>();
-
-        // A pseudo-element selects no element, so the search is over before it starts — see
-        // DomApiSyntax.CarriesPseudoElement. The empty list still has to be the right *kind* of
-        // empty: a NodeList for querySelectorAll and null for querySelector.
-        if (Dom.Features.DomApiSyntax.CarriesPseudoElement(selector))
-        {
-            return all
-                ? Dom.Features.DomCollectionBinding.NodeList(bridge.Realm, () => results)
-                : JsValue.Null;
-        }
-
-        var scope = root as DomElement;
-        if (scope is not null && selector.Contains(":scope") &&
-            bridge.MatchesSelector(scope, selector, scope))
-        {
-            results.Add(bridge.WrapNode(scope));
-            if (!all)
-                return results[0];
-        }
-
-        SearchDescendants(root, selector, results, bridge, all, scope);
-        // querySelectorAll is a STATIC NodeList (DOM §4.2.6) — the one collection the specification
-        // defines as a snapshot rather than live, so the list is handed the results it already has
-        // rather than the search that produced them.
-        if (all) return Dom.Features.DomCollectionBinding.NodeList(bridge.Realm, () => results);
-        return results.Count > 0 ? results[0] : JsValue.Null;
-    }
-
-    private static void SearchDescendants(DomNode parent, string selector, List<JsValue> results, DomBridge bridge, bool all, DomElement? scope)
-    {
-        foreach (var child in ChildElements(parent))
-        {
-            if (!IsText(child) && bridge.MatchesSelector(child, selector, scope))
-            {
-                results.Add(bridge.WrapNode(child));
-                if (!all) return;
-            }
-            SearchDescendants(child, selector, results, bridge, all, scope);
-            if (!all && results.Count > 0) return;
-        }
-    }
-
     /// <summary>
     /// Recursively collects text content from a node and its descendants.
     /// </summary>
@@ -240,44 +182,4 @@ public static partial class DomBridgeUtils
         // `while ParentNode` climb); a connected node roots to its DomDocument, a detached one falls
         // back to the canonical owner-document set at construction/adoption.
         node.GetRootNode() as DomDocument ?? node.OwnerDocument;
-
-    /// <summary>
-    /// Collects descendant elements matching a tag name in tree order (depth-first).
-    /// </summary>
-    internal static void CollectDescendantsByTag(DomElement root, string tagName, List<JsValue> results, DomBridge bridge)
-    {
-        // Phase 4 item 4/5: reuse canonical Descendants() (public, document-order, level-snapshotted —
-        // the bridge's own WPT #1143 defensive idiom promoted to canonical, operating on the real child
-        // list so it also avoids the LegacyChildList projection overflow) instead of a hand-rolled
-        // depth-first ChildElements recursion. Same element set + pre-order; mutation-safe where the old
-        // live ChildElements iteration was not.
-        foreach (var element in root.Descendants().OfType<DomElement>())
-        {
-            if (tagName == "*" || string.Equals(element.TagName, tagName, StringComparison.OrdinalIgnoreCase))
-                results.Add(bridge.WrapNode(element));
-        }
-    }
-
-    /// <summary>
-    /// Descendants of <paramref name="root"/> carrying every class in <paramref name="classNames"/>,
-    /// in document order — the element half of <c>getElementsByClassName</c>.
-    /// </summary>
-    /// <remarks>
-    /// The argument is a set of class names, not a selector, so it cannot be routed through the
-    /// selector engine as <c>"." + classNames</c> — a class is a literal here and would need escaping
-    /// to survive as a selector. The set rule itself lives in
-    /// <see cref="Dom.Features.ClassNameSet"/>, shared with the document half of the same method.
-    /// </remarks>
-    internal static void CollectDescendantsByClass(DomElement root, string classNames, List<JsValue> results, DomBridge bridge)
-    {
-        var wanted = Dom.Features.ClassNameSet.Parse(classNames);
-        if (wanted.Length == 0)
-            return;
-
-        foreach (var element in root.Descendants().OfType<DomElement>())
-        {
-            if (Dom.Features.ClassNameSet.Matches(element, wanted))
-                results.Add(bridge.WrapNode(element));
-        }
-    }
 }

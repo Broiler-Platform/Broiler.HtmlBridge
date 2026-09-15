@@ -4,8 +4,10 @@ using Broiler.Dom;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// The static members of <see cref="DomBridge"/>: constants, shared state and helpers that need no bridge
-/// instance. The partial files under <c>DomBridgeUtils/</c> mirror the <c>DomBridge</c> files they came from.
+/// The static members of <c>DomBridge</c> that need no bridge instance: constants, shared state and helpers,
+/// in their own assembly below Broiler.HtmlBridge.Dom. The partial files here mirror the <c>DomBridge</c> files
+/// they came from. The few helpers that need a bridge, a feature binding or the JavaScript engine are
+/// <c>DomBridgeHostUtils</c>, which stays in Dom.
 /// </summary>
 public static partial class DomBridgeUtils
 {
@@ -43,7 +45,7 @@ public static partial class DomBridgeUtils
     /// <summary>The element's <see cref="DomElement"/> children. RF-BRIDGE-1c Phase F (F3c part 2c):
     /// narrowed from <c>Cast</c> to <c>OfType&lt;Broiler.Dom.DomElement&gt;()</c> so it skips canonical
     /// <c>DomText</c>/<c>DomComment</c> children, which the bridge creates today (see
-    /// <see cref="DomBridge.CreateBridgeTextNode"/>). Callers that need text/comment children walk raw
+    /// <c>DomBridge.CreateBridgeTextNode</c>). Callers that need text/comment children walk raw
     /// <c>ChildNodes</c> instead.</summary>
     internal static IEnumerable<DomElement> ChildElements(DomNode element) =>
         element.ChildNodes.OfType<DomElement>();
@@ -91,7 +93,7 @@ public static partial class DomBridgeUtils
     }
 
     /// <summary>Old raw <c>Children.RemoveAt(index)</c>, now canonical <c>RemoveChild</c>, which publishes
-    /// its own child-list mutation record; <see cref="DomBridge.RemoveChildAt"/> adds a style-scope invalidation
+    /// its own child-list mutation record; <c>DomBridge.RemoveChildAt</c> adds a style-scope invalidation
     /// (its two notify hooks are empty).</summary>
     internal static void RemoveNthChild(DomNode parent, int index) => parent.RemoveChild(parent.ChildNodes[index]);
 
@@ -104,14 +106,14 @@ public static partial class DomBridgeUtils
 
     /// <summary>Whether <paramref name="node"/> is a text node (RF-BRIDGE-1c Phase D: replaces
     /// the facade <c>IsText(Broiler.Dom.DomElement)</c>). NodeType-based; construction has flipped,
-    /// so a text node is a canonical <c>DomText</c> (<see cref="DomBridge.CreateBridgeTextNode"/>). (This said
+    /// so a text node is a canonical <c>DomText</c> (<c>DomBridge.CreateBridgeTextNode</c>). (This said
     /// it held for facade text nodes, and for <c>DomText</c> once construction flipped.)</summary>
     internal static bool IsText(DomNode node) => node.NodeType == DomNodeType.Text;
 
     /// <summary>Whether <paramref name="node"/> is a comment node (RF-BRIDGE-1c Phase F).
     /// NodeType-based — the replacement for the many <c>TagName == "#comment"</c> checks, since a
     /// canonical <c>DomComment</c> has no <c>TagName</c>; construction has flipped, so every comment
-    /// is one (<see cref="DomBridge.CreateBridgeCommentNode"/>). (This said it held for facade comment nodes,
+    /// is one (<c>DomBridge.CreateBridgeCommentNode</c>). (This said it held for facade comment nodes,
     /// and for <c>DomComment</c> once construction flipped.)</summary>
     internal static bool IsComment(DomNode node) => node.NodeType == DomNodeType.Comment;
 
