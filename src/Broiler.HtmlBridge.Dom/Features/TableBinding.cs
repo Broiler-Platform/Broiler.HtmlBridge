@@ -115,7 +115,7 @@ internal sealed class TableBinding(ITableHost host)
     private JsValue GetTBodies(IJsRealm realm, DomElement element)
     {
         var bodies = new List<JsValue>();
-        foreach (var c in DomBridge.ChildElements(element))
+        foreach (var c in DomBridgeUtils.ChildElements(element))
             if (string.Equals(c.TagName, "tbody", StringComparison.OrdinalIgnoreCase))
                 bodies.Add(_host.WrapNode(c));
         return WithLength(realm, realm.NewArray([.. bodies]), bodies.Count);
@@ -127,7 +127,7 @@ internal sealed class TableBinding(ITableHost host)
         if (cap != null)
             return _host.WrapNode(cap);
         cap = _host.CreateElement("caption");
-        DomBridge.InsertChildAt(element, 0, cap);
+        DomBridgeUtils.InsertChildAt(element, 0, cap);
         return _host.WrapNode(cap);
     }
 
@@ -156,8 +156,8 @@ internal sealed class TableBinding(ITableHost host)
         var child = FirstChildNamed(element, tag);
         if (child != null)
         {
-            DomBridge.SetParent(child, null);
-            DomBridge.RemoveChildFrom(element, child);
+            DomBridgeUtils.SetParent(child, null);
+            DomBridgeUtils.RemoveChildFrom(element, child);
         }
 
         return JsValue.Undefined;
@@ -183,7 +183,7 @@ internal sealed class TableBinding(ITableHost host)
         {
             var row = rows[index];
             row.Remove();
-            DomBridge.SetParent(row, null);
+            DomBridgeUtils.SetParent(row, null);
         }
 
         return JsValue.Undefined;
@@ -194,7 +194,7 @@ internal sealed class TableBinding(ITableHost host)
     private JsValue SectionGetRows(IJsRealm realm, DomElement element)
     {
         var rows = new List<JsValue>();
-        foreach (var c in DomBridge.ChildElements(element))
+        foreach (var c in DomBridgeUtils.ChildElements(element))
             if (string.Equals(c.TagName, "tr", StringComparison.OrdinalIgnoreCase))
                 rows.Add(_host.WrapNode(c));
         return WithLength(realm, realm.NewArray([.. rows]), rows.Count);
@@ -204,8 +204,8 @@ internal sealed class TableBinding(ITableHost host)
     {
         var index = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : -1;
         var tr = _host.CreateElement("tr");
-        DomBridge.SetParent(tr, element);
-        var trRows = DomBridge.ChildElements(element).Where(c => string.Equals(c.TagName, "tr", StringComparison.OrdinalIgnoreCase)).ToList();
+        DomBridgeUtils.SetParent(tr, element);
+        var trRows = DomBridgeUtils.ChildElements(element).Where(c => string.Equals(c.TagName, "tr", StringComparison.OrdinalIgnoreCase)).ToList();
         if (index < 0 || index >= trRows.Count)
         {
             element.AppendChild(tr);
@@ -213,8 +213,8 @@ internal sealed class TableBinding(ITableHost host)
         else
         {
             var refRow = trRows[index];
-            var idx = DomBridge.ChildIndexOf(element, refRow);
-            DomBridge.InsertChildAt(element, idx, tr);
+            var idx = DomBridgeUtils.ChildIndexOf(element, refRow);
+            DomBridgeUtils.InsertChildAt(element, idx, tr);
         }
 
         return _host.WrapNode(tr);
@@ -225,9 +225,9 @@ internal sealed class TableBinding(ITableHost host)
     private static JsValue RowGetRowIndex(DomElement element)
     {
         // Find parent table (skipping an intervening section)
-        var tableEl = DomBridge.ParentEl(element);
+        var tableEl = DomBridgeUtils.ParentEl(element);
         if (tableEl != null && (string.Equals(tableEl.TagName, "thead", StringComparison.OrdinalIgnoreCase) || string.Equals(tableEl.TagName, "tbody", StringComparison.OrdinalIgnoreCase) || string.Equals(tableEl.TagName, "tfoot", StringComparison.OrdinalIgnoreCase)))
-            tableEl = DomBridge.ParentEl(tableEl);
+            tableEl = DomBridgeUtils.ParentEl(tableEl);
         if (tableEl == null || !string.Equals(tableEl.TagName, "table", StringComparison.OrdinalIgnoreCase))
             return JsValue.Number(-1);
         var rows = HtmlElementQueries.CollectTableRows(tableEl);
@@ -236,11 +236,11 @@ internal sealed class TableBinding(ITableHost host)
 
     private static JsValue RowGetSectionRowIndex(DomElement element)
     {
-        var section = DomBridge.ParentEl(element);
+        var section = DomBridgeUtils.ParentEl(element);
         if (section == null)
             return JsValue.Number(-1);
         var idx = 0;
-        foreach (var c in DomBridge.ChildElements(section))
+        foreach (var c in DomBridgeUtils.ChildElements(section))
         {
             if (ReferenceEquals(c, element))
                 return JsValue.Number(idx);
@@ -254,7 +254,7 @@ internal sealed class TableBinding(ITableHost host)
     private JsValue RowGetCells(IJsRealm realm, DomElement element)
     {
         var cells = new List<JsValue>();
-        foreach (var c in DomBridge.ChildElements(element))
+        foreach (var c in DomBridgeUtils.ChildElements(element))
             if (string.Equals(c.TagName, "td", StringComparison.OrdinalIgnoreCase) || string.Equals(c.TagName, "th", StringComparison.OrdinalIgnoreCase))
                 cells.Add(_host.WrapNode(c));
         return WithLength(realm, realm.NewArray([.. cells]), cells.Count);
@@ -264,8 +264,8 @@ internal sealed class TableBinding(ITableHost host)
     {
         var index = call.Length > 0 ? (int)Math.Truncate(call.Realm.ToNumber(call[0])) : -1;
         var td = _host.CreateElement("td");
-        DomBridge.SetParent(td, element);
-        var cells = DomBridge.ChildElements(element).Where(c => !DomBridge.IsText(c) && DomBridge.IsTableCellElement(c)).ToList();
+        DomBridgeUtils.SetParent(td, element);
+        var cells = DomBridgeUtils.ChildElements(element).Where(c => !DomBridgeUtils.IsText(c) && DomBridgeUtils.IsTableCellElement(c)).ToList();
         if (index < 0 || index >= cells.Count)
         {
             element.AppendChild(td);
@@ -273,11 +273,11 @@ internal sealed class TableBinding(ITableHost host)
         else
         {
             var referenceCell = cells[index];
-            var childIndex = DomBridge.ChildIndexOf(element, referenceCell);
+            var childIndex = DomBridgeUtils.ChildIndexOf(element, referenceCell);
             if (childIndex < 0)
                 element.AppendChild(td);
             else
-                DomBridge.InsertChildAt(element, childIndex, td);
+                DomBridgeUtils.InsertChildAt(element, childIndex, td);
         }
 
         return _host.WrapNode(td);
@@ -288,21 +288,21 @@ internal sealed class TableBinding(ITableHost host)
         if (call.Length == 0)
             throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'deleteCell' on 'HTMLTableRowElement': 1 argument required, but only 0 present.");
         var index = (int)Math.Truncate(call.Realm.ToNumber(call[0]));
-        var cells = DomBridge.ChildElements(element).Where(c => !DomBridge.IsText(c) && DomBridge.IsTableCellElement(c)).ToList();
+        var cells = DomBridgeUtils.ChildElements(element).Where(c => !DomBridgeUtils.IsText(c) && DomBridgeUtils.IsTableCellElement(c)).ToList();
         if (index < 0)
             index = cells.Count + index;
         if (index < 0 || index >= cells.Count)
             throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
         var cell = cells[index];
-        DomBridge.SetParent(cell, null);
-        DomBridge.RemoveChildFrom(element, cell);
+        DomBridgeUtils.SetParent(cell, null);
+        DomBridgeUtils.RemoveChildFrom(element, cell);
         return JsValue.Undefined;
     }
 
     // -------- Helpers --------
 
     private static DomElement? FirstChildNamed(DomElement element, string tag) =>
-        DomBridge.ChildElements(element).FirstOrDefault(c => string.Equals(c.TagName, tag, StringComparison.OrdinalIgnoreCase));
+        DomBridgeUtils.ChildElements(element).FirstOrDefault(c => string.Equals(c.TagName, tag, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Replaces the array's own <c>length</c> with an accessor over the snapshot the array was built
@@ -335,7 +335,7 @@ internal sealed class TableBinding(ITableHost host)
             DomElement? lastSection = null;
             for (int i = table.ChildNodes.Count - 1; i >= 0; i--)
             {
-                if (DomBridge.ChildAt(table, i) is not DomElement childElement)
+                if (DomBridgeUtils.ChildAt(table, i) is not DomElement childElement)
                     continue;
                 var ctag = childElement.TagName.ToLowerInvariant();
                 if (ctag == "thead" || ctag == "tbody" || ctag == "tfoot")
@@ -363,9 +363,9 @@ internal sealed class TableBinding(ITableHost host)
         else if (index >= 0 && index < allRows.Count)
         {
             var refRow = allRows[index];
-            var parent = DomBridge.ParentEl(refRow) ?? table;
-            var idx = DomBridge.ChildIndexOf(parent, refRow);
-            DomBridge.InsertChildAt(parent, idx >= 0 ? idx : parent.ChildNodes.Count, tr);
+            var parent = DomBridgeUtils.ParentEl(refRow) ?? table;
+            var idx = DomBridgeUtils.ChildIndexOf(parent, refRow);
+            DomBridgeUtils.InsertChildAt(parent, idx >= 0 ? idx : parent.ChildNodes.Count, tr);
         }
         return _host.WrapNode(tr);
     }

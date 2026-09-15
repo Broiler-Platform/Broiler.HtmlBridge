@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 // No engine namespace is imported here. This said the engine namespaces were here for animate(),
 // whose body read the engine's argument frame, and named AddPrototypeMethod as the helper lent to
 // DomBridge/HtmlElementInterface.cs for click/focus/blur. ElementAnimate takes a JsCall now, and
@@ -339,30 +340,6 @@ public sealed partial class DomBridge
         AddInterfaceMethod(target, "getElementsByClassName", 1, (in call) =>
             Dom.Features.SelectorsBinding.GetElementsByClassName(this, element(in call, "getElementsByClassName"), StringArgument(in call)));
     }
-
-    /// <summary>
-    /// Argument zero as a string — the ECMAScript coercion, which may run a <c>toString</c> the page
-    /// wrote — or the empty string when nothing was passed.
-    /// </summary>
-    /// <remarks>
-    /// The selector and collection members read their argument here rather than inside
-    /// <see cref="Dom.Features.SelectorsBinding"/>, because the module's entry points take the string
-    /// their caller has already produced and this file is their only caller; the sub-document and
-    /// <c>DocumentFragment</c> forms read their own (this said they shared them). It is the realm's
-    /// <c>ToString</c> and not the handle's rendering, the same read the engine frame performed.
-    /// </remarks>
-    private static string StringArgument(in JsCall call) =>
-        call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
-
-    /// <summary>
-    /// <c>tagName</c>'s value: upper-cased for an HTML element, verbatim otherwise, which is the rule
-    /// the wrapper applied once when it minted the string.
-    /// </summary>
-    private static string TagNameForScript(DomElement element) =>
-        string.IsNullOrEmpty(element.NamespaceUri) ||
-        string.Equals(element.NamespaceUri, "http://www.w3.org/1999/xhtml", StringComparison.OrdinalIgnoreCase)
-            ? element.TagName.ToUpperInvariant()
-            : element.TagName;
 
     /// <summary>The element's one <c>DOMTokenList</c>, built on first use.</summary>
     private JsValue ClassListFor(DomElement element) =>

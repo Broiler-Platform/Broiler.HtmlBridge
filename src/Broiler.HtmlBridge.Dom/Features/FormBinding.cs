@@ -64,7 +64,7 @@ internal sealed class FormBinding(IFormHost host)
             (in _) => JsValue.Number(_host.CollectFormControls(element).Count), null);
         // action (read/write)
         realm.DefineAccessor(obj, "action",
-            (in _) => JsValue.String(DomBridge.TryGetAttribute(element, "action", out var act) ? act : string.Empty),
+            (in _) => JsValue.String(DomBridgeUtils.TryGetAttribute(element, "action", out var act) ? act : string.Empty),
             (in call) => SetAction(element, in call));
         // reset() — HTML §4.10.21.4. It did not exist, so `form.reset()` was a TypeError on
         // undefined: the call that a "clear this form" control is written as aborted the handler
@@ -104,7 +104,7 @@ internal sealed class FormBinding(IFormHost host)
     {
         // ToJsString, not the handle's rendering: an object assigned to `form.action` runs its own
         // toString, which is the coercion a page observes in the attribute afterwards.
-        DomBridge.SetAttr(element, "action", call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+        DomBridgeUtils.SetAttr(element, "action", call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         return JsValue.Undefined;
     }
 
@@ -123,7 +123,7 @@ internal sealed class FormBinding(IFormHost host)
             return false;
 
         // Individual element validation
-        if (!DomBridge.HasAttr(element, "required"))
+        if (!DomBridgeUtils.HasAttr(element, "required"))
             return true;
 
         var tag = element.TagName;
@@ -131,7 +131,7 @@ internal sealed class FormBinding(IFormHost host)
             string.Equals(tag, "textarea", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(tag, "select", StringComparison.OrdinalIgnoreCase))
         {
-            DomBridge.TryGetAttribute(element, "value", out var val);
+            DomBridgeUtils.TryGetAttribute(element, "value", out var val);
             return !string.IsNullOrEmpty(val);
         }
 
@@ -140,9 +140,9 @@ internal sealed class FormBinding(IFormHost host)
 
     private bool AreFormChildrenValid(DomElement form)
     {
-        foreach (var child in DomBridge.ChildElements(form))
+        foreach (var child in DomBridgeUtils.ChildElements(form))
         {
-            if (!DomBridge.IsText(child) && !IsElementValid(child))
+            if (!DomBridgeUtils.IsText(child) && !IsElementValid(child))
                 return false;
             if (!AreFormChildrenValid(child))
                 return false;

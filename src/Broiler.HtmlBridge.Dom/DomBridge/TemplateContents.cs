@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Broiler.Dom;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -114,8 +115,4 @@ public sealed partial class DomBridge
 
         return element.ChildNodes;
     }
-
-    /// <summary>Whether <paramref name="element"/> is an HTML <c>&lt;template&gt;</c>.</summary>
-    internal static bool IsTemplateElement(DomElement element) =>
-        string.Equals(element.TagName, "template", StringComparison.OrdinalIgnoreCase);
 }

@@ -1,5 +1,6 @@
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -38,9 +39,6 @@ namespace Broiler.HtmlBridge;
 /// </remarks>
 public sealed partial class DomBridge
 {
-    private const double DefaultBodyMarginPixels = 8;
-    private const int MaxScrollContinuationDepth = 16;
-
     // RF-BRIDGE-1c Phase F (F3b): the JS-object registry is keyed by canonical DomNode, so the
     // DomText/DomComment nodes construction creates (which get JS wrappers) round-trip. (This said
     // they would once construction flipped, and called the widen safe for facade nodes.)

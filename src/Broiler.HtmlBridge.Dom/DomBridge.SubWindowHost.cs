@@ -1,6 +1,7 @@
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Features;
 using Broiler.Dom;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -79,22 +80,6 @@ public sealed partial class DomBridge : ISubWindowHost
             realm.ToNumber(supplied[0]),
             supplied.Length > 1 ? realm.ToNumber(supplied[1]) : null,
             null);
-    }
-
-    private static double? ScrollCoordinateOption(IJsRealm realm, JsValue options, string propertyName)
-    {
-        var value = realm.GetProperty(options, propertyName);
-        return value.IsNullish ? null : realm.ToNumber(value);
-    }
-
-    private static string? ScrollBehaviorOption(IJsRealm realm, JsValue options)
-    {
-        var value = realm.GetProperty(options, "behavior");
-        if (value.IsNullish)
-            return null;
-
-        var behavior = realm.ToJsString(value);
-        return string.IsNullOrWhiteSpace(behavior) ? null : behavior;
     }
 
     // A plain forward: the reverse lookup takes the same handle. The module guards with IsObject

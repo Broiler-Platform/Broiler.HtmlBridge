@@ -59,7 +59,7 @@ internal static class SelectorsBinding
         if (DomApiSyntax.CarriesPseudoElement(sel))
             return JsValue.Null;
 
-        for (DomElement? current = element; current != null && !current.TagName.StartsWith('#'); current = DomBridge.ParentEl(current))
+        for (DomElement? current = element; current != null && !current.TagName.StartsWith('#'); current = DomBridgeUtils.ParentEl(current))
         {
             if (host.MatchesSelector(current, sel, element))
                 return host.ToWrapper(current);

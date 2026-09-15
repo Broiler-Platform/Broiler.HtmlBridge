@@ -59,7 +59,7 @@ internal static class NodeMutationBinding
         if (childEl != null)
         {
             var doc = host.DocumentNode;
-            var idx = DomBridge.ChildIndexOf(doc, childEl);
+            var idx = DomBridgeUtils.ChildIndexOf(doc, childEl);
             if (idx < 0)
             {
                 // DOM §4.2.3 pre-remove: "If child's parent is not parent, then throw a NotFoundError
@@ -71,8 +71,8 @@ internal static class NodeMutationBinding
             }
 
             host.NotifyNodeIteratorPreRemoval(childEl);
-            DomBridge.RemoveNthChild(doc, idx);
-            DomBridge.SetParent(childEl, null);
+            DomBridgeUtils.RemoveNthChild(doc, idx);
+            DomBridgeUtils.SetParent(childEl, null);
             host.NotifyChildRemoved(doc, childEl, idx);
         }
 
@@ -86,14 +86,14 @@ internal static class NodeMutationBinding
         var childEl = host.FindDomNode(call[0]);
         if (childEl != null)
         {
-            if (DomBridge.ParentEl(childEl) != null)
+            if (DomBridgeUtils.ParentEl(childEl) != null)
             {
-                var oldParent = DomBridge.ParentEl(childEl);
-                var oldIndex = DomBridge.ChildIndexOf(oldParent, childEl);
+                var oldParent = DomBridgeUtils.ParentEl(childEl);
+                var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, childEl);
                 if (oldIndex >= 0)
                 {
                     host.NotifyNodeIteratorPreRemoval(childEl);
-                    DomBridge.RemoveNthChild(oldParent, oldIndex);
+                    DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
                     host.NotifyChildRemoved(oldParent, childEl, oldIndex);
                 }
             }
@@ -172,10 +172,10 @@ internal static class NodeMutationBinding
 
         for (var index = doc.ChildNodes.Count - 1; index >= 0; index--)
         {
-            var child = DomBridge.ChildAt(doc, index);
+            var child = DomBridgeUtils.ChildAt(doc, index);
             host.NotifyNodeIteratorPreRemoval(child);
-            DomBridge.RemoveNthChild(doc, index);
-            DomBridge.SetParent(child, null);
+            DomBridgeUtils.RemoveNthChild(doc, index);
+            DomBridgeUtils.SetParent(child, null);
             host.NotifyChildRemoved(doc, child, index);
         }
 
@@ -194,14 +194,14 @@ internal static class NodeMutationBinding
     {
         RejectElementBeforeDoctype(host, realm, node, index);
 
-        var oldParent = DomBridge.ParentEl(node);
+        var oldParent = DomBridgeUtils.ParentEl(node);
         if (oldParent != null)
         {
-            var oldIndex = DomBridge.ChildIndexOf(oldParent, node);
+            var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, node);
             if (oldIndex >= 0)
             {
                 host.NotifyNodeIteratorPreRemoval(node);
-                DomBridge.RemoveNthChild(oldParent, oldIndex);
+                DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
                 host.NotifyChildRemoved(oldParent, node, oldIndex);
             }
         }
@@ -211,7 +211,7 @@ internal static class NodeMutationBinding
         if (at == doc.ChildNodes.Count)
             doc.AppendChild(node);
         else
-            DomBridge.InsertChildAt(doc, at, node);
+            DomBridgeUtils.InsertChildAt(doc, at, node);
 
         host.NotifyChildAdded(doc, node, at);
     }
@@ -249,14 +249,14 @@ internal static class NodeMutationBinding
         var newEl = host.FindDomNode(call[0]);
         if (newEl == null)
             return call[0];
-        if (DomBridge.ParentEl(newEl) != null)
+        if (DomBridgeUtils.ParentEl(newEl) != null)
         {
-            var oldParent = DomBridge.ParentEl(newEl);
-            var oldIndex = DomBridge.ChildIndexOf(oldParent, newEl);
+            var oldParent = DomBridgeUtils.ParentEl(newEl);
+            var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, newEl);
             if (oldIndex >= 0)
             {
                 host.NotifyNodeIteratorPreRemoval(newEl);
-                DomBridge.RemoveNthChild(oldParent, oldIndex);
+                DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
                 host.NotifyChildRemoved(oldParent, newEl, oldIndex);
             }
         }
@@ -271,7 +271,7 @@ internal static class NodeMutationBinding
             // silent mutation into a position the caller never asked for, leaving the node at the
             // end of the document instead of before the reference.
             var refEl = host.FindDomNode(call[1]);
-            var idx = refEl != null ? DomBridge.ChildIndexOf(doc, refEl) : -1;
+            var idx = refEl != null ? DomBridgeUtils.ChildIndexOf(doc, refEl) : -1;
             if (idx < 0)
             {
                 throw NotFoundError(call.Realm, "insertBefore",
@@ -280,7 +280,7 @@ internal static class NodeMutationBinding
 
             // Single canonical insert (newEl detached above); the prior SetParent-append +
             // reposition fired spurious add-at-end/remove records.
-            DomBridge.InsertChildAt(doc, idx, newEl);
+            DomBridgeUtils.InsertChildAt(doc, idx, newEl);
             host.NotifyChildAdded(doc, newEl, idx);
             return call[0];
         }

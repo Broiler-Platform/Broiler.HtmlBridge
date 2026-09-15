@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.Dom;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -42,17 +43,6 @@ public sealed partial class DomBridge
         return null;
     }
 
-    internal static DomElement? FindContainingShadowRoot(DomNode? node)
-    {
-        for (var current = node; current != null; current = current.ParentNode)
-        {
-            if (current is DomElement element && string.Equals(element.TagName, "#shadow-root", StringComparison.Ordinal))
-                return element;
-        }
-
-        return null;
-    }
-
     // Walk to the absolute root. For a connected node this is the canonical DomDocument (Phase 4: the
     // document root is the DomDocument, not a #document wrapper element); a detached subtree roots to its
     // topmost node. Phase 4 item 4/5: this is exactly canonical DomNode.GetRootNode(), so delegate to it
@@ -88,15 +78,6 @@ public sealed partial class DomBridge
     }
 
     private DomElement? GetSlotHost(DomElement slot) => GetShadowHost(FindContainingShadowRoot(slot));
-
-    private static bool SlotAcceptsNode(DomElement slot, DomElement node)
-    {
-        var slotName = GetAttr(slot, "name");
-        var nodeSlot = GetAttr(node, "slot");
-        return string.IsNullOrEmpty(slotName)
-            ? string.IsNullOrEmpty(nodeSlot)
-            : string.Equals(slotName, nodeSlot, StringComparison.OrdinalIgnoreCase);
-    }
 
     private DomElement? FindAssignedSlot(DomElement root, DomElement node)
     {

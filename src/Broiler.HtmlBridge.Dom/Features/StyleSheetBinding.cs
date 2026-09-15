@@ -142,7 +142,7 @@ internal static partial class StyleSheetBinding
             (in _) => JsStyleSheetsGetCssText013Core(realm, keyText, ruleObj), null);
 
         var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(
-            realm, DomBridge.ParseStyle(CssSerializer.Serialize(styleRule.Declarations)), ruleObj);
+            realm, DomBridgeUtils.ParseStyle(CssSerializer.Serialize(styleRule.Declarations)), ruleObj);
         realm.DefineValue(ruleObj, "style", styleObj);
 
         return ruleObj;
@@ -168,7 +168,7 @@ internal static partial class StyleSheetBinding
             if (braceClose > braceOpen)
             {
                 var declarations = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var styleMap = DomBridge.ParseStyle(declarations);
+                var styleMap = DomBridgeUtils.ParseStyle(declarations);
                 var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(realm, styleMap, ruleObj);
                 realm.DefineValue(ruleObj, "style", styleObj);
             }

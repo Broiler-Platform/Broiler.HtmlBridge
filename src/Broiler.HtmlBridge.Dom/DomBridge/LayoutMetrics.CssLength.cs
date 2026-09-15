@@ -4,6 +4,7 @@ using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 using Broiler.CSS;
 using System.Globalization;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -235,12 +236,6 @@ public sealed partial class DomBridge
         }
 
         return vertical ? _viewportHeight : _viewportWidth;
-    }
-
-    private static bool HasExplicitBodyMargin(string? value)
-    {
-        return !string.IsNullOrWhiteSpace(value) &&
-               !string.Equals(value, "auto", StringComparison.OrdinalIgnoreCase);
     }
 
     private double ResolveLineHeightForLength(DomElement element, bool rootRelative, bool forLineHeight = false)

@@ -261,10 +261,10 @@ internal sealed class SubWindowBinding(
         }
 
         if (string.Equals(containerElement.TagName, "iframe", StringComparison.OrdinalIgnoreCase) &&
-            DomBridge.HasAttr(containerElement, "srcdoc"))
+            DomBridgeUtils.HasAttr(containerElement, "srcdoc"))
             return "about:srcdoc";
 
-        var resolvedUrl = _host.ResolveSubResourceUrl(DomBridge.GetSubResourceUrl(containerElement), _host.GetInheritedSubDocumentBaseUrl(containerElement));
+        var resolvedUrl = _host.ResolveSubResourceUrl(DomBridgeUtils.GetSubResourceUrl(containerElement), _host.GetInheritedSubDocumentBaseUrl(containerElement));
         return !string.IsNullOrWhiteSpace(resolvedUrl) ? resolvedUrl : "about:blank";
     }
 
@@ -286,7 +286,7 @@ internal sealed class SubWindowBinding(
     private DomElement? GetSubDocumentScrollingElement(DomElement containerElement)
     {
         var document = _host.GetContentDocument(containerElement);
-        return document == null ? null : DomBridge.GetDocumentElement(document);
+        return document == null ? null : DomBridgeUtils.GetDocumentElement(document);
     }
 
     /// <summary>
@@ -298,7 +298,7 @@ internal sealed class SubWindowBinding(
         // The container's owning document is a severed sub-document DomDocument when the container is
         // itself nested in another frame; recover that frame via the reverse map (P4.4c: the owning
         // document comes from the canonical tree, was OwnerDocRoot / ParentEl(#subdoc-root)).
-        var parentFrame = _host.GetFrameForContentDocument(DomBridge.GetOwningDocument(containerElement));
+        var parentFrame = _host.GetFrameForContentDocument(DomBridgeUtils.GetOwningDocument(containerElement));
         if (parentFrame != null)
             return Build(parentFrame);
 

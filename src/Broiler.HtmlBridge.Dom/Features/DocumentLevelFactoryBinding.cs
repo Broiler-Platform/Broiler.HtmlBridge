@@ -91,22 +91,22 @@ internal static class DocumentLevelFactoryBinding
         var htmlEl = host.CreateBridgeElement("html");
         docRoot.AppendChild(htmlEl);
         var headEl = host.CreateBridgeElement("head");
-        DomBridge.SetParent(headEl, htmlEl);
+        DomBridgeUtils.SetParent(headEl, htmlEl);
         htmlEl.AppendChild(headEl);
 
         // Add a <title> element if a title argument is provided.
         if (title != null)
         {
             var titleEl = host.CreateBridgeElement("title");
-            DomBridge.SetParent(titleEl, headEl);
+            DomBridgeUtils.SetParent(titleEl, headEl);
             headEl.AppendChild(titleEl);
             var titleText = host.CreateBridgeTextNode(title);
-            DomBridge.SetParent(titleText, titleEl);
+            DomBridgeUtils.SetParent(titleText, titleEl);
             titleEl.AppendChild(titleText);
         }
 
         var bodyEl = host.CreateBridgeElement("body");
-        DomBridge.SetParent(bodyEl, htmlEl);
+        DomBridgeUtils.SetParent(bodyEl, htmlEl);
         htmlEl.AppendChild(bodyEl);
         return host.BuildDocument(docRoot);
     }

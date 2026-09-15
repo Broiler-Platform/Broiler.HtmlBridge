@@ -31,7 +31,7 @@ internal static class DocumentFactoryBinding
             throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createElement': 1 argument required, but only 0 present.");
         var tag = call.Realm.ToJsString(call[0]);
         host.ValidateElementName(tag);
-        tag = DomBridge.AsciiToLower(tag);
+        tag = DomBridgeUtils.AsciiToLower(tag);
 
         // The options argument's only member is `is`, which asks for a customized built-in: the
         // element is still a <button>, and the definition it belongs to is the one that name selects.
@@ -132,7 +132,7 @@ internal static class DocumentFactoryBinding
             throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createAttribute': 1 argument required, but only 0 present.");
         var name = call.Realm.ToJsString(call[0]);
         host.ValidateElementName(name);
-        return host.BuildStandaloneAttrNode(DomBridge.AsciiToLower(name), null);
+        return host.BuildStandaloneAttrNode(DomBridgeUtils.AsciiToLower(name), null);
     }
 
     public static JsValue CreateAttributeNS(IDocumentFactoryHost host, in JsCall call)

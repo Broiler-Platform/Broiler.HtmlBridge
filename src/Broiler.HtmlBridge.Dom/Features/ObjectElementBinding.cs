@@ -49,7 +49,7 @@ internal static class ObjectElementBinding
     /// argument is — see the remarks on this class.</summary>
     internal static void SetData(IObjectElementHost host, DomElement element, string dataUrl)
     {
-        DomBridge.SetAttr(element, "data", dataUrl);
+        DomBridgeUtils.SetAttr(element, "data", dataUrl);
         host.InvalidateCachedSubDocument(element);
     }
 
@@ -59,8 +59,8 @@ internal static class ObjectElementBinding
     /// </summary>
     internal static JsValue ContentDocument(IObjectElementHost host, DomElement element)
     {
-        var dataUrl = DomBridge.TryGetAttribute(element, "data", out var d) ? d : string.Empty;
-        if (DomBridge.IsCrossOrigin(dataUrl, host.PageUrl))
+        var dataUrl = DomBridgeUtils.TryGetAttribute(element, "data", out var d) ? d : string.Empty;
+        if (DomBridgeUtils.IsCrossOrigin(dataUrl, host.PageUrl))
             return JsValue.Null;
         // Check if the resource actually loaded successfully
         if (host.IsObjectLoadFailed(element))
@@ -72,8 +72,8 @@ internal static class ObjectElementBinding
     /// load-failure gate.</summary>
     internal static JsValue SvgDocument(IObjectElementHost host, DomElement element)
     {
-        var dataUrl = DomBridge.TryGetAttribute(element, "data", out var d) ? d : string.Empty;
-        if (DomBridge.IsCrossOrigin(dataUrl, host.PageUrl))
+        var dataUrl = DomBridgeUtils.TryGetAttribute(element, "data", out var d) ? d : string.Empty;
+        if (DomBridgeUtils.IsCrossOrigin(dataUrl, host.PageUrl))
             return JsValue.Null;
         return host.GetOrCreateSubDocument(element);
     }

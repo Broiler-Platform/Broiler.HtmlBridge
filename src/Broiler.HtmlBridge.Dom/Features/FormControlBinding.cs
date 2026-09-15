@@ -71,7 +71,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
         // defaultChecked (read/write) — reflects the `checked` content attribute, which is exactly
         // the state `checked` falls back to when no dirty checkedness has been set.
         realm.DefineAccessor(obj, "defaultChecked",
-            (in _) => JsValue.Boolean(DomBridge.HasAttr(element, "checked")),
+            (in _) => JsValue.Boolean(DomBridgeUtils.HasAttr(element, "checked")),
             (in call) => SetDefaultChecked(element, in call));
 
         // type (read/write) — for input/button elements; getter returns lowercase.
@@ -86,12 +86,12 @@ internal sealed class FormControlBinding(IFormControlHost host)
 
         // disabled (read/write) — for form controls.
         realm.DefineAccessor(obj, "disabled",
-            (in _) => JsValue.Boolean(DomBridge.HasAttr(element, "disabled")),
+            (in _) => JsValue.Boolean(DomBridgeUtils.HasAttr(element, "disabled")),
             (in call) => SetDisabled(element, in call));
 
         // required (read/write) — form validation.
         realm.DefineAccessor(obj, "required",
-            (in _) => JsValue.Boolean(DomBridge.HasAttr(element, "required")),
+            (in _) => JsValue.Boolean(DomBridgeUtils.HasAttr(element, "required")),
             (in call) => SetRequired(element, in call));
 
         // files (read-only) — a FileList on a file input, null on every other control, exactly as
@@ -118,7 +118,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
 
         // hidden (read/write) — global reflected boolean attribute.
         realm.DefineAccessor(target, "hidden",
-            (in call) => JsValue.Boolean(DomBridge.HasAttr(element(in call, "hidden"), "hidden")),
+            (in call) => JsValue.Boolean(DomBridgeUtils.HasAttr(element(in call, "hidden"), "hidden")),
             (in call) =>
             {
                 SetHidden(element(in call, "hidden"), call.Length > 0 && call[0].AsBoolean);
@@ -138,7 +138,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
 
     private JsValue GetFiles(DomElement element) =>
         string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase) &&
-        DomBridge.TryGetAttribute(element, "type", out var inputType) &&
+        DomBridgeUtils.TryGetAttribute(element, "type", out var inputType) &&
         string.Equals(inputType, "file", StringComparison.OrdinalIgnoreCase)
             ? _host.GetFileList(element)
             : JsValue.Null;
@@ -156,7 +156,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
         // could not read back what it had written.
         if (string.Equals(element.TagName, "textarea", StringComparison.OrdinalIgnoreCase))
             return DefaultTextAreaValue(element);
-        if (DomBridge.TryGetAttribute(element, "value", out var val))
+        if (DomBridgeUtils.TryGetAttribute(element, "value", out var val))
             return val;
         return string.Empty;
     }
@@ -168,7 +168,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
     private static string GetDefaultValue(DomElement element) =>
         string.Equals(element.TagName, "textarea", StringComparison.OrdinalIgnoreCase)
             ? DefaultTextAreaValue(element)
-            : DomBridge.TryGetAttribute(element, "value", out var val) ? val : string.Empty;
+            : DomBridgeUtils.TryGetAttribute(element, "value", out var val) ? val : string.Empty;
 
     /// <summary>
     /// Writing <c>defaultValue</c> writes the default itself, not the current value — the
@@ -182,7 +182,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
         if (string.Equals(element.TagName, "textarea", StringComparison.OrdinalIgnoreCase))
             _host.SetElementTextContent(element, value);
         else
-            DomBridge.SetAttr(element, "value", value);
+            DomBridgeUtils.SetAttr(element, "value", value);
         return JsValue.Undefined;
     }
 
@@ -191,9 +191,9 @@ internal sealed class FormControlBinding(IFormControlHost host)
     private JsValue SetDefaultChecked(DomElement element, in JsCall call)
     {
         if (call[0].AsBoolean)
-            DomBridge.SetAttr(element, "checked", string.Empty);
+            DomBridgeUtils.SetAttr(element, "checked", string.Empty);
         else
-            DomBridge.RemoveAttr(element, "checked");
+            DomBridgeUtils.RemoveAttr(element, "checked");
         _host.InvalidateStyleScope(element);
         return JsValue.Undefined;
     }
@@ -204,8 +204,8 @@ internal sealed class FormControlBinding(IFormControlHost host)
         var text = new System.Text.StringBuilder();
         foreach (var child in element.ChildNodes)
         {
-            if (DomBridge.IsText(child))
-                text.Append(DomBridge.BridgeText(child));
+            if (DomBridgeUtils.IsText(child))
+                text.Append(DomBridgeUtils.BridgeText(child));
         }
 
         return text.ToString();
@@ -229,7 +229,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
         else if (tag == "select")
             _host.SetSelectValue(element, v);
         else
-            DomBridge.SetAttr(element, "value", v);
+            DomBridgeUtils.SetAttr(element, "value", v);
         return JsValue.Undefined;
     }
 
@@ -238,7 +238,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
         // IDL property takes precedence over content attribute
         if (_host.TryGetFormControlChecked(element, out var v))
             return v;
-        return DomBridge.HasAttr(element, "checked");
+        return DomBridgeUtils.HasAttr(element, "checked");
     }
 
     private JsValue SetChecked(DomElement element, in JsCall call)
@@ -248,17 +248,17 @@ internal sealed class FormControlBinding(IFormControlHost host)
         if (newVal)
         {
             // Radio button mutual exclusion: uncheck others in same group
-            if (DomBridge.TryGetAttribute(element, "type", out var tp) && string.Equals(tp, "radio", StringComparison.OrdinalIgnoreCase) && DomBridge.TryGetAttribute(element, "name", out var radioName) && !string.IsNullOrEmpty(radioName))
+            if (DomBridgeUtils.TryGetAttribute(element, "type", out var tp) && string.Equals(tp, "radio", StringComparison.OrdinalIgnoreCase) && DomBridgeUtils.TryGetAttribute(element, "name", out var radioName) && !string.IsNullOrEmpty(radioName))
             {
                 // Find the scope for radio group — form parent, or document root if not in a form
-                var scope = DomBridge.ParentEl(element);
+                var scope = DomBridgeUtils.ParentEl(element);
                 while (scope != null && !string.Equals(scope.TagName, "form", StringComparison.OrdinalIgnoreCase))
-                    scope = DomBridge.ParentEl(scope);
+                    scope = DomBridgeUtils.ParentEl(scope);
                 if (scope == null)
                 {
                     scope = element;
-                    while (DomBridge.ParentEl(scope) != null)
-                        scope = DomBridge.ParentEl(scope);
+                    while (DomBridgeUtils.ParentEl(scope) != null)
+                        scope = DomBridgeUtils.ParentEl(scope);
                 }
 
                 _host.UncheckRadioSiblings(scope, element, radioName);
@@ -270,7 +270,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
 
     private static string GetType(DomElement element)
     {
-        if (DomBridge.TryGetAttribute(element, "type", out var t))
+        if (DomBridgeUtils.TryGetAttribute(element, "type", out var t))
             return t.ToLowerInvariant();
         // Default type values per HTML spec
         var tag = element.TagName.ToLowerInvariant();
@@ -281,29 +281,29 @@ internal sealed class FormControlBinding(IFormControlHost host)
 
     private static JsValue SetType(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "type", call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+        DomBridgeUtils.SetAttr(element, "type", call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         return JsValue.Undefined;
     }
 
     private static string GetName(DomElement element)
     {
-        if (DomBridge.TryGetAttribute(element, "name", out var n))
+        if (DomBridgeUtils.TryGetAttribute(element, "name", out var n))
             return n;
         return string.Empty;
     }
 
     private static JsValue SetName(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "name", call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+        DomBridgeUtils.SetAttr(element, "name", call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         return JsValue.Undefined;
     }
 
     private JsValue SetDisabled(DomElement element, in JsCall call)
     {
         if (call[0].AsBoolean)
-            DomBridge.SetAttr(element, "disabled", "disabled");
+            DomBridgeUtils.SetAttr(element, "disabled", "disabled");
         else
-            DomBridge.RemoveAttr(element, "disabled");
+            DomBridgeUtils.RemoveAttr(element, "disabled");
         _host.InvalidateStyleScope(element);
         return JsValue.Undefined;
     }
@@ -315,15 +315,15 @@ internal sealed class FormControlBinding(IFormControlHost host)
     private void SetHidden(DomElement element, bool hidden)
     {
         if (hidden)
-            DomBridge.SetAttr(element, "hidden", string.Empty);
+            DomBridgeUtils.SetAttr(element, "hidden", string.Empty);
         else
-            DomBridge.RemoveAttr(element, "hidden");
+            DomBridgeUtils.RemoveAttr(element, "hidden");
         _host.InvalidateStyleScope(element);
     }
 
     private static int GetTabIndex(DomElement element)
     {
-        if (DomBridge.TryGetAttribute(element, "tabindex", out var rawTabIndex) && int.TryParse(rawTabIndex, out var parsedTabIndex))
+        if (DomBridgeUtils.TryGetAttribute(element, "tabindex", out var rawTabIndex) && int.TryParse(rawTabIndex, out var parsedTabIndex))
         {
             return parsedTabIndex;
         }
@@ -337,14 +337,14 @@ internal sealed class FormControlBinding(IFormControlHost host)
     /// <c>DoubleValue</c> before the installer migrated; both are the same ECMAScript operation.
     /// </summary>
     private static void SetTabIndex(DomElement element, double tabIndex) =>
-        DomBridge.SetAttr(element, "tabindex", ((int)Math.Truncate(tabIndex)).ToString());
+        DomBridgeUtils.SetAttr(element, "tabindex", ((int)Math.Truncate(tabIndex)).ToString());
 
     private JsValue SetRequired(DomElement element, in JsCall call)
     {
         if (call[0].AsBoolean)
-            DomBridge.SetAttr(element, "required", "required");
+            DomBridgeUtils.SetAttr(element, "required", "required");
         else
-            DomBridge.RemoveAttr(element, "required");
+            DomBridgeUtils.RemoveAttr(element, "required");
         _host.InvalidateStyleScope(element);
         return JsValue.Undefined;
     }

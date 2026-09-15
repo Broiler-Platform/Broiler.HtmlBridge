@@ -268,7 +268,7 @@ internal static partial class StyleDeclarationBinding
                 host.InlineStyle(element).Remove(kebab);
                 host.UnmarkInlineStylePropSetByJs(element, kebab);
             }
-            else if (DomBridge.IsAcceptableInlineValue(kebab, val))
+            else if (DomBridgeUtils.IsAcceptableInlineValue(kebab, val))
             {
                 host.InlineStyle(element)[kebab] = val;
                 host.MarkInlineStylePropSetByJs(element, kebab);
@@ -336,7 +336,7 @@ internal static partial class StyleDeclarationBinding
             var val = value.IsMissing ? string.Empty : realm.ToJsString(value);
             if (string.IsNullOrEmpty(val))
                 style.Remove(kebab);
-            else if (DomBridge.IsAcceptableInlineValue(kebab, val))
+            else if (DomBridgeUtils.IsAcceptableInlineValue(kebab, val))
                 style[kebab] = val;
             else
                 return true;   // invalid value ignored; don't store it as an ordinary property either
@@ -361,10 +361,10 @@ internal static partial class StyleDeclarationBinding
     {
         var declared = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        if (DomBridge.TryGetAttribute(element, "style", out var inlineStyle) &&
+        if (DomBridgeUtils.TryGetAttribute(element, "style", out var inlineStyle) &&
             !string.IsNullOrEmpty(inlineStyle))
         {
-            foreach (var kv in DomBridge.ParseStyle(inlineStyle))
+            foreach (var kv in DomBridgeUtils.ParseStyle(inlineStyle))
                 declared[kv.Key] = kv.Value;
         }
 
@@ -386,7 +386,7 @@ internal static partial class StyleDeclarationBinding
             return false;
         }
 
-        DomBridge.ExpandCssShorthands(declared);
+        DomBridgeUtils.ExpandCssShorthands(declared);
 
         if (declared.TryGetValue(property, out value!))
             return true;

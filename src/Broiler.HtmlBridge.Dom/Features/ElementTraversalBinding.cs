@@ -31,9 +31,9 @@ internal static class ElementTraversalBinding
     public static JsValue GetChildren(IElementTraversalHost host, DomElement element)
     {
         var result = new List<JsValue>();
-        foreach (var child in DomBridge.ChildElements(element))
+        foreach (var child in DomBridgeUtils.ChildElements(element))
         {
-            if (!DomBridge.IsText(child))
+            if (!DomBridgeUtils.IsText(child))
                 result.Add(host.ToWrapper(child));
         }
 
@@ -42,25 +42,25 @@ internal static class ElementTraversalBinding
 
     public static JsValue GetFirstElementChild(IElementTraversalHost host, DomElement element)
     {
-        var first = DomBridge.ChildElements(element).FirstOrDefault(c => !DomBridge.IsText(c));
+        var first = DomBridgeUtils.ChildElements(element).FirstOrDefault(c => !DomBridgeUtils.IsText(c));
         return first != null ? host.ToWrapper(first) : JsValue.Null;
     }
 
     public static JsValue GetLastElementChild(IElementTraversalHost host, DomElement element)
     {
-        var last = DomBridge.ChildElements(element).LastOrDefault(c => !DomBridge.IsText(c));
+        var last = DomBridgeUtils.ChildElements(element).LastOrDefault(c => !DomBridgeUtils.IsText(c));
         return last != null ? host.ToWrapper(last) : JsValue.Null;
     }
 
     public static JsValue GetNextElementSibling(IElementTraversalHost host, DomElement element)
     {
-        if (DomBridge.ParentEl(element) == null)
+        if (DomBridgeUtils.ParentEl(element) == null)
             return JsValue.Null;
-        var siblings = DomBridge.ChildElements(DomBridge.ParentEl(element)).ToList();
+        var siblings = DomBridgeUtils.ChildElements(DomBridgeUtils.ParentEl(element)).ToList();
         var idx = siblings.IndexOf(element);
         for (var i = idx + 1; i < siblings.Count; i++)
         {
-            if (!DomBridge.IsText(siblings[i]))
+            if (!DomBridgeUtils.IsText(siblings[i]))
                 return host.ToWrapper(siblings[i]);
         }
 
@@ -69,13 +69,13 @@ internal static class ElementTraversalBinding
 
     public static JsValue GetPreviousElementSibling(IElementTraversalHost host, DomElement element)
     {
-        if (DomBridge.ParentEl(element) == null)
+        if (DomBridgeUtils.ParentEl(element) == null)
             return JsValue.Null;
-        var siblings = DomBridge.ChildElements(DomBridge.ParentEl(element)).ToList();
+        var siblings = DomBridgeUtils.ChildElements(DomBridgeUtils.ParentEl(element)).ToList();
         var idx = siblings.IndexOf(element);
         for (var i = idx - 1; i >= 0; i--)
         {
-            if (!DomBridge.IsText(siblings[i]))
+            if (!DomBridgeUtils.IsText(siblings[i]))
                 return host.ToWrapper(siblings[i]);
         }
 

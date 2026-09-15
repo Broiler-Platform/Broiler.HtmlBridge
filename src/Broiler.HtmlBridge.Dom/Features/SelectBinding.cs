@@ -82,9 +82,9 @@ internal sealed class SelectBinding(ISelectHost host)
         optEl.Remove();
         if (refEl != null)
         {
-            var idx = DomBridge.ChildIndexOf(element, refEl);
+            var idx = DomBridgeUtils.ChildIndexOf(element, refEl);
             if (idx >= 0)
-                DomBridge.InsertChildAt(element, idx, optEl);
+                DomBridgeUtils.InsertChildAt(element, idx, optEl);
             else
                 element.AppendChild(optEl);
         }
@@ -96,7 +96,7 @@ internal sealed class SelectBinding(ISelectHost host)
     private JsValue GetOptions(IJsRealm realm, DomElement element)
     {
         var opts = new List<JsValue>();
-        foreach (var c in DomBridge.ChildElements(element))
+        foreach (var c in DomBridgeUtils.ChildElements(element))
             if (string.Equals(c.TagName, "option", StringComparison.OrdinalIgnoreCase))
                 opts.Add(_host.WrapNode(c));
 
@@ -119,7 +119,7 @@ internal sealed class SelectBinding(ISelectHost host)
 
     private static JsValue GetSize(DomElement element)
     {
-        if (DomBridge.TryGetAttribute(element, "size", out var rawSize) && int.TryParse(rawSize, out var parsedSize) && parsedSize > 0)
+        if (DomBridgeUtils.TryGetAttribute(element, "size", out var rawSize) && int.TryParse(rawSize, out var parsedSize) && parsedSize > 0)
             return JsValue.Number(parsedSize);
         return JsValue.Number(0);
     }
@@ -130,9 +130,9 @@ internal sealed class SelectBinding(ISelectHost host)
             return JsValue.Undefined;
         var size = (int)Math.Truncate(call.Realm.ToNumber(call[0]));
         if (size > 0)
-            DomBridge.SetAttr(element, "size", size.ToString());
+            DomBridgeUtils.SetAttr(element, "size", size.ToString());
         else
-            DomBridge.RemoveAttr(element, "size");
+            DomBridgeUtils.RemoveAttr(element, "size");
         return JsValue.Undefined;
     }
 
@@ -147,7 +147,7 @@ internal sealed class SelectBinding(ISelectHost host)
     internal static List<DomElement> CollectSelectOptions(DomElement element)
     {
         var options = new List<DomElement>();
-        foreach (var child in DomBridge.ChildElements(element).Where(c => !DomBridge.IsText(c)))
+        foreach (var child in DomBridgeUtils.ChildElements(element).Where(c => !DomBridgeUtils.IsText(c)))
         {
             if (string.Equals(child.TagName, "option", StringComparison.OrdinalIgnoreCase))
             {
@@ -175,7 +175,7 @@ internal sealed class SelectBinding(ISelectHost host)
         for (var index = 0; index < options.Count; index++)
         {
             var option = options[index];
-            if (DomBridge.HasAttr(option, "selected") || _host.GetOptionDefaultSelected(option))
+            if (DomBridgeUtils.HasAttr(option, "selected") || _host.GetOptionDefaultSelected(option))
                 return index;
         }
 
@@ -210,10 +210,10 @@ internal sealed class SelectBinding(ISelectHost host)
         if (_host.TryGetOptionValue(option, out var stringValue))
             return stringValue;
 
-        if (DomBridge.TryGetAttribute(option, "value", out var attrValue))
+        if (DomBridgeUtils.TryGetAttribute(option, "value", out var attrValue))
             return attrValue;
 
-        return DomBridge.GetElementTextContent(option);
+        return DomBridgeUtils.GetElementTextContent(option);
     }
 
     /// <summary>Selects the first option whose value matches <paramref name="value"/> (or clears the
@@ -224,9 +224,9 @@ internal sealed class SelectBinding(ISelectHost host)
         for (var index = 0; index < options.Count; index++)
         {
             var option = options[index];
-            var optionValue = DomBridge.TryGetAttribute(option, "value", out var attrValue)
+            var optionValue = DomBridgeUtils.TryGetAttribute(option, "value", out var attrValue)
                 ? attrValue
-                : DomBridge.GetElementTextContent(option);
+                : DomBridgeUtils.GetElementTextContent(option);
             if (string.Equals(optionValue, value, StringComparison.Ordinal))
             {
                 _host.SetSelectedIndex(element, index);

@@ -34,7 +34,7 @@ internal static class DocumentStructureBinding
 
     private static JsValue FindChild(IDocumentStructureHost host, string tagName)
     {
-        foreach (var child in DomBridge.ChildElements(host.DocumentElement))
+        foreach (var child in DomBridgeUtils.ChildElements(host.DocumentElement))
         {
             if (string.Equals(child.TagName, tagName, StringComparison.OrdinalIgnoreCase))
                 return host.ToJsObject(child);

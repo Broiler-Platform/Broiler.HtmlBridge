@@ -1,6 +1,7 @@
 using System.Text;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -55,18 +56,8 @@ public sealed partial class DomBridge
         return IsCrossOrigin(iframeSrcValue, _pageUrl);
     }
 
-
     // MutationObserver option parsing and observe()/disconnect() registration moved to the Phase 3
     // MutationObserverBinding feature module (Broiler.HtmlBridge.Dom.Features).
-
-    // Phase 4 item 1 (P4.4a): docRoot may be a legacy #subdoc-root element OR a canonical
-    // DomDocument browsing-context root; ChildElements works over both. Returns the documentElement,
-    // or — for an element root with none — the root itself (the prior `?? docRoot` fallback). A
-    // canonical DomDocument with no documentElement yields null (per DOM; e.g. createDocument with an
-    // empty qualifiedName), so callers must null-check.
-    internal static DomElement? GetDocumentElement(DomNode docRoot) =>
-        ChildElements(docRoot).FirstOrDefault(c => !IsText(c) && !c.TagName.StartsWith('#')) ?? docRoot as DomElement;
-
 
     private bool IsPositionAfter(DomNode docRoot, DomNode containerA, int offsetA, DomNode containerB, int offsetB)
     {

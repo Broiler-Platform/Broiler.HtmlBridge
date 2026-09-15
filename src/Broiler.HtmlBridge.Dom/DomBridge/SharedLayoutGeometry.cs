@@ -2,21 +2,12 @@ using Broiler.Layout;
 using System.Drawing;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    // RF-BRIDGE-1b: when true, element-geometry queries (offset*/client*/
-    // getBoundingClientRect/check-layout) resolve through the renderer's real layout
-    // engine via the injected ILayoutView instead of the coarse LayoutMetrics
-    // estimators. Enabled once increments 1-3 landed (the LayoutMetrics entry points and
-    // the anchor resolver route through the provider, and the Broiler.HTML inline-box
-    // geometry fix is live on CI) and the increment-4 parity gate confirmed the shared
-    // path matches or improves on the estimators — see
-    // SharedLayoutGeometryParityTests.Shared_Geometry_Matches_Or_Beats_Estimator_On_CheckLayout_Corpus.
-    internal static bool UseSharedLayoutGeometry = true;
-
     // RF-BRIDGE-1b increment 6 cutover — the geometry entry points answer *exclusively* from
     // the shared snapshot: an element with a shared box reads its real geometry and any
     // snapshot-missing element (detached, display:none/contents, text/comment, or an
@@ -24,13 +15,6 @@ public sealed partial class DomBridge
     // LayoutMetrics estimators are deleted, so there is no second source to select between and
     // no flag gating the choice. ElementGeometryBindingModuleTests covers both halves.
     // See docs/architecture/htmlbridge.md#layout-and-geometry.
-
-    // The preferred binding is the per-session factory supplied through DomBridgeSessionOptions,
-    // which keeps simultaneous documents independent. This process-static factory remains only
-    // as a source-compatibility fallback for composition roots that have not migrated yet. A bare
-    // `new DomBridge()` with neither factory falls back to an empty view and does not pull in the
-    // concrete renderer stack.
-    internal static Func<ILayoutView>? LayoutViewFactory;
 
     private readonly Func<ILayoutView>? _layoutViewFactory;
     private ILayoutView? _layoutView;
@@ -61,7 +45,7 @@ public sealed partial class DomBridge
     /// per pass). Returns <c>false</c> when the element produced no box (detached /
     /// <c>display:none</c>); the geometry entry points then report zero, since the coarse
     /// estimators they used to fall back to are gone. Active only when
-    /// <see cref="UseSharedLayoutGeometry"/> is set; the live entry points gate on that.
+    /// <see cref="DomBridgeUtils.UseSharedLayoutGeometry"/> is set; the live entry points gate on that.
     /// </summary>
     private bool TryGetSharedLayoutGeometry(DomElement element, out BoxGeometry geometry)
     {
@@ -95,9 +79,6 @@ public sealed partial class DomBridge
 
         return snapshot.TryGetValue(ResolveRenderSource(element), out geometry);
     }
-
-    private static readonly IReadOnlyDictionary<DomElement, BoxGeometry> EmptySharedGeometry =
-        new Dictionary<DomElement, BoxGeometry>();
 
     /// <summary>
     /// Everything a shared geometry snapshot is a function of, so that two queries carrying the same

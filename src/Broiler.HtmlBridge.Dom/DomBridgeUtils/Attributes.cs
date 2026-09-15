@@ -2,7 +2,7 @@ using Broiler.Dom;
 
 namespace Broiler.HtmlBridge;
 
-public sealed partial class DomBridge
+public static partial class DomBridgeUtils
 {
     // -----------------------------------------------------------------
     // RF-BRIDGE-1c Phase C: string-keyed attribute access over canonical

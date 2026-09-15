@@ -382,7 +382,7 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
         // The object test stays ahead of the call: it is what the engine-typed pattern match
         // performed, and a primitive carries none of those members anyway.
         if (value.IsObject &&
-            DomBridge.TryReadFormDataEntries(call.Realm, value, out var entries))
+            DomBridgeUtils.TryReadFormDataEntries(call.Realm, value, out var entries))
         {
             state.SubmissionEntries = entries;
             return JsValue.Undefined;

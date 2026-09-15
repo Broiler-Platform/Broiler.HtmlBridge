@@ -1,5 +1,6 @@
 using Broiler.Dom;
 using Broiler.CSS;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -102,20 +103,5 @@ public sealed partial class DomBridge
             parent = ParentEl(parent);
         }
         return null;
-    }
-
-    /// <summary>
-    /// Returns <c>true</c> when <paramref name="el"/> is a descendant of
-    /// <paramref name="potentialAncestor"/> in the DOM tree.
-    /// </summary>
-    private static bool IsDescendantOfElement(DomElement el, DomElement potentialAncestor)
-    {
-        var current = ParentEl(el);
-        while (current != null)
-        {
-            if (ReferenceEquals(current, potentialAncestor)) return true;
-            current = ParentEl(current);
-        }
-        return false;
     }
 }

@@ -1,4 +1,5 @@
 using Broiler.Dom;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -22,14 +23,6 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 public sealed partial class DomBridge
 {
-    /// <summary>The render-time carrier for a <c>src</c> frame's live document — the counterpart of
-    /// <c>srcdoc</c>, read by <c>FragmentTreeBuilder.TryLoadEmbeddedDocument</c>.</summary>
-    private const string FrameDocumentAttr = "data-broiler-frame-document";
-
-    /// <summary>The URL the frame's document was loaded from, so relative references inside it
-    /// resolve against the resource rather than against the containing page.</summary>
-    private const string FrameDocumentBaseAttr = "data-broiler-frame-base";
-
     /// <summary>Each sub-document as its resource parsed — the "before any script touched it"
     /// serialization that says whether the live document has diverged.</summary>
     private readonly Dictionary<DomDocument, string> _subDocumentSourceMarkup = [];
@@ -45,31 +38,6 @@ public sealed partial class DomBridge
         if (SerializeSubDocumentChildren(document) is { } markup)
             _subDocumentSourceMarkup[document] = markup;
         _subDocumentDoctype[document] = HasHtmlDoctype(html) ? "<!DOCTYPE html>" : string.Empty;
-    }
-
-    /// <summary>Whether the resource opens with a doctype, ignoring leading whitespace and any
-    /// comments before it.</summary>
-    private static bool HasHtmlDoctype(string html)
-    {
-        var index = 0;
-        while (index < html.Length)
-        {
-            while (index < html.Length && char.IsWhiteSpace(html[index]))
-                index++;
-
-            if (index >= html.Length)
-                return false;
-
-            if (!html.AsSpan(index).StartsWith("<!--", StringComparison.Ordinal))
-                break;
-
-            var end = html.IndexOf("-->", index, StringComparison.Ordinal);
-            if (end < 0)
-                return false;
-            index = end + 3;
-        }
-
-        return html.AsSpan(index).StartsWith("<!doctype", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

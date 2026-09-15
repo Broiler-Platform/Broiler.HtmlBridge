@@ -37,7 +37,7 @@ internal static class DocumentWriteBinding
             if (fragmentRoot.ChildNodes.Count > 0)
             {
                 // Find the <body> element in the main tree.
-                var mainBody = DomBridge.ChildElements(host.DocumentElement)
+                var mainBody = DomBridgeUtils.ChildElements(host.DocumentElement)
                     .FirstOrDefault(c => string.Equals(c.TagName, "body", StringComparison.OrdinalIgnoreCase));
                 if (mainBody != null)
                 {
@@ -50,19 +50,19 @@ internal static class DocumentWriteBinding
                     {
                         currentScript = documentElements[host.CurrentScriptIndex];
                         // Verify it's a <script> in mainBody.
-                        if (DomBridge.ParentEl(currentScript) != mainBody)
+                        if (DomBridgeUtils.ParentEl(currentScript) != mainBody)
                             currentScript = null;
                     }
 
                     var writtenChildren = fragmentRoot.ChildNodes.ToArray();
                     if (currentScript != null)
                     {
-                        var insertIdx = DomBridge.ChildIndexOf(mainBody, currentScript) + 1;
+                        var insertIdx = DomBridgeUtils.ChildIndexOf(mainBody, currentScript) + 1;
                         for (int ci = 0; ci < writtenChildren.Length; ci++)
                         {
                             // Single canonical move out of the parsed fragment into mainBody at the
                             // insert position (prior SetParent-append + reposition fired spurious records).
-                            DomBridge.InsertChildAt(mainBody, insertIdx + ci, writtenChildren[ci]);
+                            DomBridgeUtils.InsertChildAt(mainBody, insertIdx + ci, writtenChildren[ci]);
                         }
                     }
                     else

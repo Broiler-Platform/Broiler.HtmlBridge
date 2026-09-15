@@ -54,11 +54,11 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         var collections = new SubDocumentCollectionHost(_host, docRoot);
 
         realm.DefineAccessor(doc, "documentElement",
-            (in _) => DomBridge.GetDocumentElement(docRoot) is { } de ? _host.ToJsObject(de) : JsValue.Null,
+            (in _) => DomBridgeUtils.GetDocumentElement(docRoot) is { } de ? _host.ToJsObject(de) : JsValue.Null,
             null);
 
         realm.DefineAccessor(doc, "scrollingElement",
-            (in _) => DomBridge.GetDocumentElement(docRoot) is { } se ? _host.ToJsObject(se) : JsValue.Null,
+            (in _) => DomBridgeUtils.GetDocumentElement(docRoot) is { } se ? _host.ToJsObject(se) : JsValue.Null,
             null);
 
         // body
@@ -84,12 +84,12 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
         // firstChild
         realm.DefineAccessor(doc, "firstChild",
-            (in _) => docRoot.ChildNodes.Count > 0 ? _host.ToJsObject(DomBridge.ChildAt(docRoot, 0)) : JsValue.Null,
+            (in _) => docRoot.ChildNodes.Count > 0 ? _host.ToJsObject(DomBridgeUtils.ChildAt(docRoot, 0)) : JsValue.Null,
             null);
 
         // lastChild
         realm.DefineAccessor(doc, "lastChild",
-            (in _) => docRoot.ChildNodes.Count > 0 ? _host.ToJsObject(DomBridge.ChildAt(docRoot, ^1)) : JsValue.Null,
+            (in _) => docRoot.ChildNodes.Count > 0 ? _host.ToJsObject(DomBridgeUtils.ChildAt(docRoot, ^1)) : JsValue.Null,
             null);
 
         // hasChildNodes()
@@ -309,9 +309,9 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
             (in _) => JsValue.String(DocumentDirection(docRoot)),
             (in call) =>
             {
-                if (DomBridge.GetDocumentElement(docRoot) is { } documentElement)
+                if (DomBridgeUtils.GetDocumentElement(docRoot) is { } documentElement)
                 {
-                    DomBridge.SetAttr(documentElement, "dir",
+                    DomBridgeUtils.SetAttr(documentElement, "dir",
                         call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
                 }
 
@@ -349,8 +349,8 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     /// <summary>The document element's <c>dir</c>, limited to the three keywords HTML defines.</summary>
     private static string DocumentDirection(DomNode docRoot)
     {
-        if (DomBridge.GetDocumentElement(docRoot) is not { } documentElement ||
-            !DomBridge.TryGetAttribute(documentElement, "dir", out var value))
+        if (DomBridgeUtils.GetDocumentElement(docRoot) is not { } documentElement ||
+            !DomBridgeUtils.TryGetAttribute(documentElement, "dir", out var value))
             return string.Empty;
 
         var keyword = value.ToLowerInvariant();
@@ -361,10 +361,10 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
     private JsValue GetBody(DomNode docRoot)
     {
-        var htmlEl = DomBridge.GetDocumentElement(docRoot);
+        var htmlEl = DomBridgeUtils.GetDocumentElement(docRoot);
         if (htmlEl == null)
             return JsValue.Null;
-        foreach (var child in DomBridge.ChildElements(htmlEl))
+        foreach (var child in DomBridgeUtils.ChildElements(htmlEl))
         {
             if (string.Equals(child.TagName, "body", StringComparison.OrdinalIgnoreCase))
                 return _host.ToJsObject(child);
@@ -375,10 +375,10 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
     private JsValue GetHead(DomNode docRoot)
     {
-        var htmlEl = DomBridge.GetDocumentElement(docRoot);
+        var htmlEl = DomBridgeUtils.GetDocumentElement(docRoot);
         if (htmlEl == null)
             return JsValue.Null;
-        foreach (var child in DomBridge.ChildElements(htmlEl))
+        foreach (var child in DomBridgeUtils.ChildElements(htmlEl))
         {
             if (string.Equals(child.TagName, "head", StringComparison.OrdinalIgnoreCase))
                 return _host.ToJsObject(child);
@@ -389,17 +389,17 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
     private static JsValue GetTitle(DomNode docRoot)
     {
-        var htmlEl = DomBridge.GetDocumentElement(docRoot);
+        var htmlEl = DomBridgeUtils.GetDocumentElement(docRoot);
         if (htmlEl == null)
             return JsValue.String(string.Empty);
-        var head = DomBridge.ChildElements(htmlEl).FirstOrDefault(c => string.Equals(c.TagName, "head", StringComparison.OrdinalIgnoreCase));
+        var head = DomBridgeUtils.ChildElements(htmlEl).FirstOrDefault(c => string.Equals(c.TagName, "head", StringComparison.OrdinalIgnoreCase));
         if (head != null)
         {
-            var titleEl = DomBridge.ChildElements(head).FirstOrDefault(c => string.Equals(c.TagName, "title", StringComparison.OrdinalIgnoreCase));
+            var titleEl = DomBridgeUtils.ChildElements(head).FirstOrDefault(c => string.Equals(c.TagName, "title", StringComparison.OrdinalIgnoreCase));
             if (titleEl != null)
             {
                 var sb = new StringBuilder();
-                DomBridge.CollectTextContent(titleEl, sb);
+                DomBridgeUtils.CollectTextContent(titleEl, sb);
                 return JsValue.String(sb.ToString());
             }
         }
@@ -409,13 +409,13 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
     private JsValue SetTitle(DomNode docRoot, in JsCall call)
     {
-        var htmlEl = DomBridge.GetDocumentElement(docRoot);
+        var htmlEl = DomBridgeUtils.GetDocumentElement(docRoot);
         if (htmlEl == null)
             return JsValue.Undefined;
-        var head = DomBridge.ChildElements(htmlEl).FirstOrDefault(c => string.Equals(c.TagName, "head", StringComparison.OrdinalIgnoreCase));
+        var head = DomBridgeUtils.ChildElements(htmlEl).FirstOrDefault(c => string.Equals(c.TagName, "head", StringComparison.OrdinalIgnoreCase));
         if (head != null)
         {
-            var titleEl = DomBridge.ChildElements(head).FirstOrDefault(c => string.Equals(c.TagName, "title", StringComparison.OrdinalIgnoreCase));
+            var titleEl = DomBridgeUtils.ChildElements(head).FirstOrDefault(c => string.Equals(c.TagName, "title", StringComparison.OrdinalIgnoreCase));
             if (titleEl != null)
                 _host.SetElementTextContent(titleEl, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         }
@@ -445,7 +445,7 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     private JsValue GetElementById(DomNode docRoot, in JsCall call)
     {
         var id = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
-        var found = DomBridge.FindInSubTree(docRoot, el => el.Id == id);
+        var found = DomBridgeUtils.FindInSubTree(docRoot, el => el.Id == id);
         return found != null ? _host.ToJsObject(found) : JsValue.Null;
     }
 
@@ -484,7 +484,7 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         return _host.NodeList(
             () => Wrappers(
                 docRoot,
-                el => DomBridge.TryGetAttribute(el, "name", out var value) && string.Equals(value, name, StringComparison.Ordinal)));
+                el => DomBridgeUtils.TryGetAttribute(el, "name", out var value) && string.Equals(value, name, StringComparison.Ordinal)));
     }
 
     private JsValue QuerySelector(DomNode docRoot, in JsCall call)
@@ -494,7 +494,7 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         if (DomApiSyntax.CarriesPseudoElement(selector))
             return JsValue.Null;
 
-        var found = DomBridge.FindInSubTree(docRoot, el => _host.MatchesSelector(el, selector));
+        var found = DomBridgeUtils.FindInSubTree(docRoot, el => _host.MatchesSelector(el, selector));
         return found != null ? _host.ToJsObject(found) : JsValue.Null;
     }
 
@@ -528,8 +528,8 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
                 foreach (var element in Members(docRoot, predicate))
                 {
-                    if ((DomBridge.TryGetAttribute(element, "id", out var id) && id == name) ||
-                        (DomBridge.TryGetAttribute(element, "name", out var named) && named == name))
+                    if ((DomBridgeUtils.TryGetAttribute(element, "id", out var id) && id == name) ||
+                        (DomBridgeUtils.TryGetAttribute(element, "name", out var named) && named == name))
                         return _host.ToJsObject(element);
                 }
 

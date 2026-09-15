@@ -75,7 +75,7 @@ internal static class FormSubmitBinding
                 // would buy nothing and quietly drop all three.
                 foreach (var registration in submitListeners.ToList())
                 {
-                    DomBridge.InvokeEventListener(realm, registration.Listener, submitEvt, "DomBridge.submit");
+                    DomBridgeUtils.InvokeEventListener(realm, registration.Listener, submitEvt, "DomBridge.submit");
                 }
             }
 

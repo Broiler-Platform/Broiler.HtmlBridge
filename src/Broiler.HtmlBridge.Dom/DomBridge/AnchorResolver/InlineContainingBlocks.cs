@@ -1,5 +1,6 @@
 using System.Globalization;
 using Broiler.Dom;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -269,30 +270,6 @@ public sealed partial class DomBridge
         return fontSize;
     }
     /// <summary>
-    /// Determines if an element is an inline element based on its tag name
-    /// and display property.
-    /// </summary>
-    private static bool IsInlineElement(string tagName, string? display)
-    {
-        if (display != null)
-        {
-            var d = display.Trim().ToLowerInvariant();
-            // inline-block establishes a containing block for abspos children
-            // and is treated as block-level for layout purposes, so it is
-            // NOT considered inline here.
-            if (d == "inline") return true;
-            if (d == "block" || d == "flex" || d == "grid" || d == "table" ||
-                d == "list-item" || d == "flow-root" || d == "inline-block" ||
-                d == "inline-flex" || d == "inline-grid")
-                return false;
-        }
-        // Default inline elements.
-        var tag = tagName.ToLowerInvariant();
-        return tag is "span" or "a" or "strong" or "em" or "b" or "i" or
-               "code" or "small" or "big" or "sub" or "sup" or "abbr" or
-               "cite" or "q" or "mark" or "label" or "time";
-    }
-    /// <summary>
     /// Checks whether the given element is an inline-level element that
     /// establishes a containing block (e.g. <c>&lt;span&gt;</c> with
     /// <c>position: relative</c>).  Broiler's renderer cannot correctly
@@ -552,33 +529,6 @@ public sealed partial class DomBridge
             totalHeight += sibHeight + sibMT + sibMB;
         }
         return totalHeight;
-    }
-    /// <summary>
-    /// Resolves the computed line-height from CSS properties.
-    /// Handles unitless values (multipliers of font-size), pixel values,
-    /// and the "normal" keyword (defaults to 1.2 × font-size).
-    /// </summary>
-    private static double ResolveLineHeight(Dictionary<string, string> props, double fontSize)
-    {
-        string? lh = props.GetValueOrDefault("line-height");
-        if (string.IsNullOrWhiteSpace(lh) || lh == "normal")
-            return fontSize * 1.2;
-
-        var v = lh!.Trim();
-
-        // Explicit pixel value.
-        if (v.EndsWith("px", StringComparison.OrdinalIgnoreCase))
-        {
-            double? px = TryParsePx(v);
-            if (px.HasValue) return px.Value;
-        }
-
-        // Unitless: a multiplier of font-size.
-        if (double.TryParse(v, NumberStyles.Float,
-            CultureInfo.InvariantCulture, out var multiplier))
-            return fontSize * multiplier;
-
-        return fontSize * 1.2;
     }
     /// <summary>
     /// Estimates the total width of inline content preceding <paramref name="element"/>

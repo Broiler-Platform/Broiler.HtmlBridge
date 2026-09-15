@@ -55,7 +55,7 @@ internal static class NodeRelationshipsBinding
             return JsValue.Number(documentPositionFollowing | documentPositionContainedBy);
         if (node.IsDescendantOf(other))
             return JsValue.Number(documentPositionPreceding | documentPositionContains);
-        return JsValue.Number(DomBridge.CompareTreeOrder(node, other) < 0 ? documentPositionFollowing : documentPositionPreceding);
+        return JsValue.Number(DomBridgeUtils.CompareTreeOrder(node, other) < 0 ? documentPositionFollowing : documentPositionPreceding);
     }
 
     public static JsValue IsSameNode(INodeRelationshipsHost host, DomNode node, in JsCall call)
@@ -100,7 +100,7 @@ internal static class NodeRelationshipsBinding
 
         if (!composed)
         {
-            var shadowRoot = DomBridge.FindContainingShadowRoot(node);
+            var shadowRoot = DomBridgeUtils.FindContainingShadowRoot(node);
             if (shadowRoot != null)
                 return host.WrapNode(shadowRoot);
         }

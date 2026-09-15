@@ -338,7 +338,7 @@ internal sealed class JSWorker
     {
         // A real DOMException, so a worker catching a NetworkError or DataCloneError finds a .name
         // and .code to branch on rather than the bare string the fallback produces.
-        DomBridge.RegisterDOMException(realm);
+        DomBridgeUtils.RegisterDOMException(realm);
 
         var global = realm.Global;
 

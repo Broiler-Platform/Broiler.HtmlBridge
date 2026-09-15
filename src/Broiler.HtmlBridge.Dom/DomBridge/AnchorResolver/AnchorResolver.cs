@@ -1,6 +1,6 @@
-﻿using System.Globalization;
-using System.Text.RegularExpressions;
+using System.Globalization;
 using Broiler.Dom;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -319,18 +319,6 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Tags whose rendering is already replaced (or which generate no box at all), so CSS
-    /// Content 3 element replacement does not apply to them here.
-    /// </summary>
-    private static readonly HashSet<string> ContentReplacementSkipTags =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            "area", "audio", "base", "br", "canvas", "col", "embed", "head", "hr", "iframe",
-            "img", "input", "link", "meta", "object", "param", "script", "select", "source",
-            "style", "textarea", "title", "track", "video",
-        };
-
-    /// <summary>
     /// CSS Content 3 §"content" element replacement for non-root elements: an element whose
     /// computed <c>content</c> is a replaced value (an image <c>url()</c>) is replaced by that
     /// image, and — critically — <em>its children generate no boxes</em>.
@@ -467,17 +455,6 @@ public sealed partial class DomBridge
             CollectContentReplacedElements(child, ref acc, isRoot: false);
     }
 
-    /// <summary>
-    /// Extracts the target of a CSS <c>url(...)</c> value (used by the root
-    /// element-replacement path).  Returns <c>null</c> for non-<c>url()</c>
-    /// content (strings, counters, <c>normal</c>/<c>none</c>).
-    /// </summary>
-    private static string? ExtractContentImageUrl(string content)
-    {
-        var match = ExtractContentImageUrlRegex().Match(content);
-        return match.Success ? match.Groups["u"].Value.Trim() : null;
-    }
-
     private void ApplyVisualViewportSerializationState()
     {
         if (!HasActiveVisualViewport())
@@ -492,7 +469,4 @@ public sealed partial class DomBridge
         ScrollStateFor(DocumentElement).Left.Set(GetVisualViewportPageOffset(vertical: false));
         ScrollStateFor(DocumentElement).Top.Set(GetVisualViewportPageOffset(vertical: true));
     }
-
-    [GeneratedRegex(@"url\(\s*(['""]?)(?<u>[^'""\)]+)\1\s*\)", RegexOptions.IgnoreCase)]
-    private static partial System.Text.RegularExpressions.Regex ExtractContentImageUrlRegex();
 }

@@ -103,7 +103,7 @@ internal static class CanvasBinding
     }
 
     private static int Dimension(DomElement element, string name, int fallback) =>
-        DomBridge.TryGetAttribute(element, name, out var raw)
+        DomBridgeUtils.TryGetAttribute(element, name, out var raw)
         && int.TryParse(raw, out var parsed)
         && parsed >= 0
             ? parsed
@@ -119,7 +119,7 @@ internal static class CanvasBinding
         int value = ToInt(call.Realm, call[0]);
         if (value < 0)
             value = name == "width" ? DefaultWidth : DefaultHeight;
-        DomBridge.SetAttr(element, name, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        DomBridgeUtils.SetAttr(element, name, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         if (Contexts.TryGetValue(element, out var context))
         {

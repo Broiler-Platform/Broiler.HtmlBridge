@@ -1,5 +1,6 @@
 using System.Linq;
 using Broiler.Dom;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -70,20 +71,6 @@ public sealed partial class DomBridge
             if (resolved is not null)
                 SetAttr(element, "href", resolved);
         }
-    }
-
-    /// <summary>Whether a <c>&lt;link&gt;</c>'s space-separated <c>rel</c> token list includes
-    /// <c>stylesheet</c> (case-insensitive), so only sheet links have their href re-based.</summary>
-    private static bool LinkRelIsStyleSheet(DomElement element)
-    {
-        if (!TryGetAttribute(element, "rel", out var rel) || string.IsNullOrWhiteSpace(rel))
-            return false;
-
-        foreach (var token in rel.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
-            if (token.Equals("stylesheet", StringComparison.OrdinalIgnoreCase))
-                return true;
-
-        return false;
     }
 
     /// <summary>The first <c>&lt;base&gt;</c> in document order with a non-empty

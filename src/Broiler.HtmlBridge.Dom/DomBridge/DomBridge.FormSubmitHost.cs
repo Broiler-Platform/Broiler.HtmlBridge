@@ -5,6 +5,7 @@ using Broiler.Dom;
 using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Logging;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -13,8 +14,6 @@ namespace Broiler.HtmlBridge;
 // submit action never reaches an arbitrary bridge private field and the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
 {
-    private const string FormSubmitLogContext = "DomBridge.submit";
-
     Dictionary<string, List<EventListenerRegistration>> Dom.Features.IFormSubmitHost.GetEventListeners(DomNode node)
         => GetEventListeners(node);
 

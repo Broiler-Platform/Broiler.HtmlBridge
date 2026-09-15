@@ -167,7 +167,7 @@ internal sealed class ScriptInsertionRunner
     /// </summary>
     private void Prepare(DomElement script)
     {
-        if (!IsClassicScriptType(DomBridge.GetAttr(script, "type")))
+        if (!IsClassicScriptType(DomBridgeUtils.GetAttr(script, "type")))
         {
             // A module, or a non-JavaScript type such as text/template or application/json. Per spec
             // neither executes here; marking it started keeps it out of every later sweep.
@@ -175,8 +175,8 @@ internal sealed class ScriptInsertionRunner
             return;
         }
 
-        var nonce = DomBridge.GetAttr(script, "nonce");
-        var src = DomBridge.GetAttr(script, "src");
+        var nonce = DomBridgeUtils.GetAttr(script, "nonce");
+        var src = DomBridgeUtils.GetAttr(script, "src");
         if (!string.IsNullOrWhiteSpace(src))
         {
             MarkStarted(script);

@@ -4,6 +4,7 @@ using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 using Broiler.CSS;
 using System.Globalization;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -136,9 +137,6 @@ public sealed partial class DomBridge
             return 0;
         });
 
-    private static bool ShouldReportZeroOffsetMetrics(DomElement element) =>
-        string.Equals(element.TagName, "map", StringComparison.OrdinalIgnoreCase);
-
     private double GetOffsetTopForDomElement(DomElement element) =>
         WithLayoutGeometryCache(() =>
         {
@@ -214,7 +212,7 @@ public sealed partial class DomBridge
             return null;
 
         var documentElement = GetOwningDocumentElement(element);
-        var fallbackBody = FindBodyElement(documentElement);
+        var fallbackBody = DomBridgeUtils.FindBodyElement(documentElement);
         for (var current = ParentEl(element); current != null; current = ParentEl(current))
         {
             if (string.Equals(current.TagName, "body", StringComparison.OrdinalIgnoreCase))

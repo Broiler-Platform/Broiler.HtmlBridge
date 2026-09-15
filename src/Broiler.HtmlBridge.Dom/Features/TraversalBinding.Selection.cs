@@ -431,7 +431,7 @@ internal sealed partial class TraversalBinding
         if (node.ParentNode is not { } parent)
             return JsValue.True;
 
-        var index = DomBridge.ChildIndexOf(parent, node);
+        var index = DomBridgeUtils.ChildIndexOf(parent, node);
         var contained = allowPartial
             ? DomRange.CompareBoundaryPoints(range.StartContainer, range.StartOffset, parent, index + 1) < 0 &&
               DomRange.CompareBoundaryPoints(parent, index, range.EndContainer, range.EndOffset) < 0

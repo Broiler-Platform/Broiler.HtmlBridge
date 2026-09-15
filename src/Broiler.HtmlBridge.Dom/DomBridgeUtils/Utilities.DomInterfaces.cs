@@ -4,7 +4,7 @@ using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge;
 
-public sealed partial class DomBridge
+public static partial class DomBridgeUtils
 {
     /// <summary>
     /// The per-tag HTML element interfaces (HTML §4, "Element interfaces"), as the pairs
@@ -206,8 +206,8 @@ public sealed partial class DomBridge
     /// chain looking for the constructor's <c>prototype</c> — could never succeed for one, which is
     /// why the long-standing <c>Node</c> global (see <c>RegisterNodeConstructor</c>) reported
     /// <c>document.createElement('div') instanceof Node === false</c>. It is not that shape now: the
-    /// script below chains these prototypes, and <see cref="ApplyInterfacePrototype"/> and
-    /// <see cref="LinkToInterface"/> link each wrapper to its interface's.
+    /// script below chains these prototypes, and <see cref="DomBridge.ApplyInterfacePrototype"/> and
+    /// <see cref="DomBridge.LinkToInterface"/> link each wrapper to its interface's.
     /// </para>
     /// <para>
     /// Each constructor was therefore given an <c>@@hasInstance</c> that answers from the object's
@@ -221,7 +221,7 @@ public sealed partial class DomBridge
     /// The hooks are still installed, and still decide: a constructor carrying <c>@@hasInstance</c> is
     /// asked instead of walked, so <c>node instanceof Text</c> reads <c>nodeType</c> however the wrapper
     /// is linked. What they give that the link does not is an answer without one: for an object whose
-    /// link was tried before its constructor existed (<see cref="LinkToInterface"/> is a no-op then, and
+    /// link was tried before its constructor existed (<see cref="DomBridge.LinkToInterface"/> is a no-op then, and
     /// the registration re-link revisits only the document and node wrappers), and for the
     /// <c>ImageData</c> readback, the view transition and the 2D context, plain objects no link reaches.
     /// <c>HTMLElement</c> is the exception: <c>RegisterCustomElements</c> replaces that global with a
@@ -229,7 +229,7 @@ public sealed partial class DomBridge
     /// walks the chain. (This said per-interface chains would subsume the hooks as a larger change.)
     /// </para>
     /// </remarks>
-    private static void RegisterDomInterfaceConstructors(IJsRealm realm)
+    internal static void RegisterDomInterfaceConstructors(IJsRealm realm)
     {
         realm.EvaluateHostScript(@"
             // Calling one of these directly throws, as it does in a browser: these interfaces are
@@ -457,7 +457,7 @@ public sealed partial class DomBridge
     /// bare name existing is not enough for that: it has to answer, so each one carries the same
     /// <c>@@hasInstance</c> the interfaces above do, reading <c>tagName</c> — the test they were
     /// written with while a bridge DOM object had no prototype chain to walk. An element wrapper is
-    /// linked to its per-tag prototype now (<see cref="ApplyInterfacePrototype"/>), chosen from this
+    /// linked to its per-tag prototype now (<see cref="DomBridge.ApplyInterfacePrototype"/>), chosen from this
     /// same table and chained along the same <see cref="HtmlInterfaceBases"/> edges, so for an element
     /// whose chain still runs through that prototype the tag test and a walk give one answer. The tag
     /// test is what <c>instanceof</c> still asks, because a constructor carrying the hook is not

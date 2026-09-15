@@ -1,6 +1,7 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Broiler.Dom;
 using Broiler.CSS;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 

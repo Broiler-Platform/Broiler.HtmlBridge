@@ -39,7 +39,7 @@ internal static class ChildNodeBinding
 
     public static JsValue Before(IChildNodeHost host, DomNode element, in JsCall call)
     {
-        var parent = DomBridge.ParentEl(element);
+        var parent = DomBridgeUtils.ParentEl(element);
         if (parent == null || call.Length == 0)
             return JsValue.Undefined;
         BeforeCore(host, parent, element, host.BuildChildNodeArgumentNodes(call.Arguments));
@@ -48,7 +48,7 @@ internal static class ChildNodeBinding
 
     public static JsValue After(IChildNodeHost host, DomNode element, in JsCall call)
     {
-        var parent = DomBridge.ParentEl(element);
+        var parent = DomBridgeUtils.ParentEl(element);
         if (parent == null || call.Length == 0)
             return JsValue.Undefined;
         AfterCore(host, parent, element, host.BuildChildNodeArgumentNodes(call.Arguments));
@@ -57,10 +57,10 @@ internal static class ChildNodeBinding
 
     public static JsValue ReplaceWith(IChildNodeHost host, DomNode element, in JsCall call)
     {
-        var parent = DomBridge.ParentEl(element);
+        var parent = DomBridgeUtils.ParentEl(element);
         if (parent == null)
             return JsValue.Undefined;
-        var replacementIndex = DomBridge.ChildIndexOf(parent, element);
+        var replacementIndex = DomBridgeUtils.ChildIndexOf(parent, element);
         if (replacementIndex < 0)
             return JsValue.Undefined;
         ReplaceWithCore(host, parent, element, replacementIndex, host.BuildChildNodeArgumentNodes(call.Arguments));
@@ -88,13 +88,13 @@ internal static class ChildNodeBinding
         if (parent == null)
             return;
 
-        var idx = DomBridge.ChildIndexOf(parent, element);
+        var idx = DomBridgeUtils.ChildIndexOf(parent, element);
         if (idx < 0)
             return;
 
         host.NotifyNodeIteratorPreRemoval(element);
-        DomBridge.RemoveNthChild(parent, idx);
-        DomBridge.SetParent(element, null);
+        DomBridgeUtils.RemoveNthChild(parent, idx);
+        DomBridgeUtils.SetParent(element, null);
         if (parent is DomElement parentElement)
             host.InvalidateStyleScope(parentElement);
         host.NotifyChildRemoved(parent, element, idx);
@@ -102,7 +102,7 @@ internal static class ChildNodeBinding
 
     private static void BeforeCore(IChildNodeHost host, DomElement parent, DomNode element, List<DomNode> nodes)
     {
-        var insertIndex = DomBridge.ChildIndexOf(parent, element);
+        var insertIndex = DomBridgeUtils.ChildIndexOf(parent, element);
         if (insertIndex < 0)
             return;
         foreach (var node in nodes)
@@ -111,7 +111,7 @@ internal static class ChildNodeBinding
 
     private static void AfterCore(IChildNodeHost host, DomElement parent, DomNode element, List<DomNode> nodes)
     {
-        var insertIndex = DomBridge.ChildIndexOf(parent, element);
+        var insertIndex = DomBridgeUtils.ChildIndexOf(parent, element);
         if (insertIndex < 0)
             return;
         insertIndex++;
@@ -123,8 +123,8 @@ internal static class ChildNodeBinding
         IChildNodeHost host, DomElement parent, DomNode element, int replacementIndex, List<DomNode> nodes)
     {
         host.NotifyNodeIteratorPreRemoval(element);
-        DomBridge.RemoveNthChild(parent, replacementIndex);
-        DomBridge.SetParent(element, null);
+        DomBridgeUtils.RemoveNthChild(parent, replacementIndex);
+        DomBridgeUtils.SetParent(element, null);
         host.InvalidateStyleScope(parent);
         host.NotifyChildRemoved(parent, element, replacementIndex);
         foreach (var node in nodes)

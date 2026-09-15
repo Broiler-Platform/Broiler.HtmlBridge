@@ -1,5 +1,6 @@
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Net;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -291,16 +292,6 @@ public sealed partial class DomBridge
 
         realm.DefineValue(window, "history", history);
         realm.SetProperty(realm.Global, "history", history);
-    }
-
-    private static JsValue StoreHistoryState(JsValue history, in JsCall call)
-    {
-        // `history.state` is re-defined rather than assigned, which is what the engine-typed
-        // installer did: the slot keeps the attributes it was created with, and an argument the page
-        // did not pass reads as null rather than undefined.
-        call.Realm.DefineValue(history, "state", call.Length > 0 ? call[0] : JsValue.Null);
-
-        return JsValue.Undefined;
     }
 
     /// <summary>
