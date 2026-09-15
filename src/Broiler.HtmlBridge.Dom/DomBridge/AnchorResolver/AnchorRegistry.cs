@@ -9,12 +9,6 @@ public sealed partial class DomBridge
     // Anchor registry
     // -----------------------------------------------------------------
 
-    internal sealed record AnchorInfo(double Top, double Left, double Width, double Height, DomElement? SourceElement = null)
-    {
-        public double Right => Left + Width;
-        public double Bottom => Top + Height;
-    }
-
     // All anchors, keyed by anchor-name, in document order. The name→single
     // <see cref="AnchorInfo"/> registry keeps only the last element for a name;
     // this keeps every element so a query can bind to the anchor in its own

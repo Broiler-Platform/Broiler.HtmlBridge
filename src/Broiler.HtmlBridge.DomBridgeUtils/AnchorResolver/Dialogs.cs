@@ -70,7 +70,7 @@ public static partial class DomBridgeUtils
     /// Painted (non-geometry) properties an author <c>::backdrop</c> rule can set that change
     /// how the scrim composites rather than where it sits. Only <c>background</c> /
     /// <c>background-color</c> were being carried across — folded into the resolved backdrop
-    /// colour by <see cref="DomBridge.GetBackdropBackground"/> — so everything else in the
+    /// colour by <c>DomBridge.GetBackdropBackground</c> — so everything else in the
     /// <c>::backdrop</c> cascade was silently dropped: <c>opacity: 0.5</c> on a green scrim
     /// painted fully opaque green instead of compositing to <c>rgb(127,191,127)</c> over the
     /// white canvas (WPT <c>the-dialog-element/modal-dialog-backdrop-opacity</c>, 2.2% match).

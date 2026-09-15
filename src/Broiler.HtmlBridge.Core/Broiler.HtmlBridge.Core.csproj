@@ -16,6 +16,9 @@
     <InternalsVisibleTo Include="Broiler.DevConsole" />
     <InternalsVisibleTo Include="Broiler.DevConsole.Tests" />
     <InternalsVisibleTo Include="Broiler.HtmlBridge.Dom" />
+    <!-- The bridge's static helpers moved out of Broiler.HtmlBridge.Dom and still use the same internals
+         (JsEntryTrace, UrlResolver, Origin) that Dom does. -->
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.DomBridgeUtils" />
     <InternalsVisibleTo Include="Broiler.HtmlBridge.Scripting" />
     <!-- For UrlResolver alone. The VM engine resolves a dynamic import()'s specifier, and it has
          to resolve it the same way ScriptExtractionService resolved the keys it is matching

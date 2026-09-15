@@ -16,6 +16,7 @@ using Broiler.HtmlBridge.Jseal;
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
 using static Broiler.HtmlBridge.DomBridgeUtils;
+using static Broiler.HtmlBridge.DomBridgeHostUtils;
 
 namespace Broiler.HtmlBridge;
 

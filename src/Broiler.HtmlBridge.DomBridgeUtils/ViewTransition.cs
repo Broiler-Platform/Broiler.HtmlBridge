@@ -383,7 +383,7 @@ public static partial class DomBridgeUtils
 
     /// <summary>Properties that re-render a snapshot's own pixels, so the live page underneath cannot
     /// stand in for it however visible that page is. Compositing-only knobs (<c>opacity</c>) and
-    /// placement (<c>transform</c>) are not here — see <see cref="DomBridge.RootSnapshotNeedsContent"/>.</summary>
+    /// placement (<c>transform</c>) are not here — see <c>DomBridge.RootSnapshotNeedsContent</c>.</summary>
     private static readonly string[] SnapshotAlteringProperties =
     {
         "filter", "backdrop-filter", "mix-blend-mode", "mask", "mask-image", "clip-path",
@@ -505,7 +505,7 @@ public static partial class DomBridgeUtils
     /// capture, merging the universal (<c>*</c>) and name-specific buckets in cascade order (specific
     /// wins). <paramref name="capture"/> is <c>null</c> for the bare overlay pseudo.</summary>
     internal static Dictionary<string, string> LookupPseudo(
-        Dictionary<string, Dictionary<string, string>> pseudoRules, string kind, DomBridge.ViewTransitionCapture? capture)
+        Dictionary<string, Dictionary<string, string>> pseudoRules, string kind, ViewTransitionCapture? capture)
     {
         var merged = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
 

@@ -6,7 +6,7 @@ namespace Broiler.HtmlBridge;
 
 public static partial class DomBridgeUtils
 {
-    internal static string ResolveAnchorEdge(AnchorFunctionRef reference, Dictionary<string, DomBridge.AnchorInfo> registry,
+    internal static string ResolveAnchorEdge(AnchorFunctionRef reference, Dictionary<string, AnchorInfo> registry,
         string contextProp, double cbWidth, double cbHeight, string? implicitAnchor = null)
     {
         var anchorName = string.IsNullOrEmpty(reference.Name)

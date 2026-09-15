@@ -38,8 +38,6 @@ public sealed partial class DomBridge
     // Keyframe parsing
     // -----------------------------------------------------------------
 
-    internal sealed record KeyframeEntry(float Position, Dictionary<string, string> Properties);
-
     // Instance (not static): reads <style> source through the canonical
     // GetStyleElementSourceText accessor (the single source the cascade also reads) rather than
     // hand-walking child text nodes, keeping @keyframes collection aligned with @position-try and

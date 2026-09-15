@@ -24,7 +24,7 @@ namespace Broiler.HtmlBridge;
 /// than disposing it. Asking the registered provider to wrap what the host handed over preserves
 /// exactly that ownership, and it is why this file references no provider assembly — only
 /// <see cref="JsEngineRegistry"/> and the contracts. <c>ScriptEngine</c>'s document-free entry points
-/// adopt the context they build the same way, through <see cref="DomBridgeUtils.AdoptRealm"/>, because they have no
+/// adopt the context they build the same way, through <see cref="DomBridgeHostUtils.AdoptRealm"/>, because they have no
 /// bridge to do it for them.
 /// </para>
 /// </remarks>

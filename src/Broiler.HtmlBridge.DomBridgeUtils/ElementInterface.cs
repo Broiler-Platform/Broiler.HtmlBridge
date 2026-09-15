@@ -11,7 +11,7 @@ public static partial class DomBridgeUtils
     /// </summary>
     /// <remarks>
     /// The selector and collection members read their argument here rather than inside
-    /// <see cref="Dom.Features.SelectorsBinding"/>, because the module's entry points take the string
+    /// <c>Dom.Features.SelectorsBinding</c>, because the module's entry points take the string
     /// their caller has already produced and this file is their only caller; the sub-document and
     /// <c>DocumentFragment</c> forms read their own (this said they shared them). It is the realm's
     /// <c>ToString</c> and not the handle's rendering, the same read the engine frame performed.

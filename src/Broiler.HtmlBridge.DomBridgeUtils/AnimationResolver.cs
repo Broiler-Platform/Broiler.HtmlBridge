@@ -6,9 +6,9 @@ namespace Broiler.HtmlBridge;
 
 public static partial class DomBridgeUtils
 {
-    internal static List<DomBridge.KeyframeEntry> ParseKeyframeEntries(CssAtRule keyframesRule)
+    internal static List<KeyframeEntry> ParseKeyframeEntries(CssAtRule keyframesRule)
     {
-        var entries = new List<DomBridge.KeyframeEntry>();
+        var entries = new List<KeyframeEntry>();
 
         foreach (var styleRule in keyframesRule.Rules.OfType<CssStyleRule>())
         {
@@ -27,7 +27,7 @@ public static partial class DomBridgeUtils
                 };
 
                 if (pos.HasValue)
-                    entries.Add(new DomBridge.KeyframeEntry(pos.Value, declarations));
+                    entries.Add(new KeyframeEntry(pos.Value, declarations));
             }
         }
 

@@ -1,6 +1,7 @@
 using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 using static Broiler.HtmlBridge.DomBridgeUtils;
+using static Broiler.HtmlBridge.DomBridgeHostUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -195,14 +196,4 @@ public sealed partial class DomBridge
         entries.Sort((x, y) => x.Position.CompareTo(y.Position));
         return entries;
     }
-
-    internal readonly record struct AnimationTiming(
-        double DurationMs, double DelayMs, string Easing, string Fill,
-        double Iterations, double IterationStart);
-
-    // ------------------------------------------------------------------
-    //  Transform interpolation (component-wise between matching lists)
-    // ------------------------------------------------------------------
-
-    internal sealed record TransformFunction(string Name, List<string> Args);
 }

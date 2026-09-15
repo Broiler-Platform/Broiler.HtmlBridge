@@ -4,36 +4,14 @@ namespace Broiler.HtmlBridge;
 
 public static partial class DomBridgeUtils
 {
-    /// <summary>
-    /// CSS Transforms 1 §8: the transform origin, as an offset from the box's own top-left corner.
-    /// </summary>
-    /// <remarks>
-    /// Defers to <see cref="Layout.IR.CssTransformOrigin"/>, the grammar shared with the SVG
-    /// renderer and the paint walker. Reading it here on its own got three things wrong that only
-    /// the shared reading has ever handled: a lone <c>top</c> or <c>bottom</c> names the
-    /// <em>vertical</em> axis and centres the other, so taking the first component as x put it on
-    /// the wrong one; the keyword pair may be written <c>top left</c>, which has to be swapped back;
-    /// and an invalid declaration such as <c>top 100%</c> — a length-percentage may not follow a
-    /// vertical keyword — is dropped whole rather than half-read.
-    /// </remarks>
-    internal static (double X, double Y) ParseTransformOrigin(string? origin, double width, double height)
-    {
-        var point = Layout.IR.CssTransformOrigin.Resolve(
-            origin,
-            new System.Drawing.RectangleF(0, 0, (float)width, (float)height),
-            initialIsBoxCorner: false);
-
-        return (point.X, point.Y);
-    }
-
     /// <summary>Composes a CSS <c>transform</c> function list into a single affine matrix. Functions
     /// apply left-to-right as outermost-to-innermost (CSS Transforms §1), so the list is folded in
     /// reverse. Unrecognised or 3D functions contribute identity — a conservative no-op that leaves
     /// the geometry untransformed rather than wrong.</summary>
-    internal static DomBridge.Affine ParseTransformFunctions(string transform, double boxWidth, double boxHeight)
+    internal static Affine ParseTransformFunctions(string transform, double boxWidth, double boxHeight)
     {
         var functions = SplitTransformFunctions(transform);
-        var matrix = DomBridge.Affine.Identity;
+        var matrix = Affine.Identity;
         // Fold in reverse so the first-listed function ends up outermost (applied last to a point).
         for (var i = functions.Count - 1; i >= 0; i--)
         {
@@ -43,7 +21,7 @@ public static partial class DomBridgeUtils
         return matrix;
     }
 
-    private static DomBridge.Affine ParseTransformFunction(string name, string args, double boxWidth, double boxHeight)
+    private static Affine ParseTransformFunction(string name, string args, double boxWidth, double boxHeight)
     {
         var values = args.Split(',');
 
@@ -75,39 +53,39 @@ public static partial class DomBridgeUtils
         {
             case "matrix":
                 return values.Length >= 6
-                    ? new DomBridge.Affine(Number(0), Number(1), Number(2), Number(3), Number(4), Number(5))
-                    : DomBridge.Affine.Identity;
+                    ? new Affine(Number(0), Number(1), Number(2), Number(3), Number(4), Number(5))
+                    : Affine.Identity;
             case "scale":
             {
                 var sx = Ratio(0);
                 var sy = values.Length >= 2 ? Ratio(1) : sx;
-                return new DomBridge.Affine(sx, 0, 0, sy, 0, 0);
+                return new Affine(sx, 0, 0, sy, 0, 0);
             }
             case "scalex":
-                return new DomBridge.Affine(Ratio(0), 0, 0, 1, 0, 0);
+                return new Affine(Ratio(0), 0, 0, 1, 0, 0);
             case "scaley":
-                return new DomBridge.Affine(1, 0, 0, Ratio(0), 0, 0);
+                return new Affine(1, 0, 0, Ratio(0), 0, 0);
             case "translate":
-                return new DomBridge.Affine(1, 0, 0, 1, Length(0, boxWidth), Length(1, boxHeight));
+                return new Affine(1, 0, 0, 1, Length(0, boxWidth), Length(1, boxHeight));
             case "translatex":
-                return new DomBridge.Affine(1, 0, 0, 1, Length(0, boxWidth), 0);
+                return new Affine(1, 0, 0, 1, Length(0, boxWidth), 0);
             case "translatey":
-                return new DomBridge.Affine(1, 0, 0, 1, 0, Length(0, boxHeight));
+                return new Affine(1, 0, 0, 1, 0, Length(0, boxHeight));
             case "rotate":
             case "rotatez":
             {
                 var radians = ParseAngleRadians(values.Length > 0 ? values[0].Trim() : "0");
                 var cos = Math.Cos(radians);
                 var sin = Math.Sin(radians);
-                return new DomBridge.Affine(cos, sin, -sin, cos, 0, 0);
+                return new Affine(cos, sin, -sin, cos, 0, 0);
             }
             case "skewx":
-                return new DomBridge.Affine(1, 0, Math.Tan(ParseAngleRadians(values.Length > 0 ? values[0].Trim() : "0")), 1, 0, 0);
+                return new Affine(1, 0, Math.Tan(ParseAngleRadians(values.Length > 0 ? values[0].Trim() : "0")), 1, 0, 0);
             case "skewy":
-                return new DomBridge.Affine(1, Math.Tan(ParseAngleRadians(values.Length > 0 ? values[0].Trim() : "0")), 0, 1, 0, 0);
+                return new Affine(1, Math.Tan(ParseAngleRadians(values.Length > 0 ? values[0].Trim() : "0")), 0, 1, 0, 0);
             default:
                 // translate3d/scale3d/matrix3d/perspective/etc. — not modelled here; leave identity.
-                return DomBridge.Affine.Identity;
+                return Affine.Identity;
         }
     }
 

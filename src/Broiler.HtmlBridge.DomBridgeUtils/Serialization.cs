@@ -18,17 +18,6 @@ public static partial class DomBridgeUtils
     internal const string EmptyDocumentHtml = "<!DOCTYPE html>\n";
 
     /// <summary>
-    /// Whether the element-<c>zoom</c> serialization bake (<see cref="DomBridge.ApplyZoomSerializationStyles"/>)
-    /// runs. The bake and the engine used-value model (<c>Broiler.Layout.Engine.NativeZoom</c>,
-    /// increments 1–5) are mutually exclusive: running both double-counts <c>zoom</c>, running neither
-    /// drops it. The engine flag is <c>[ThreadStatic]</c> and set on the layout thread; the bake mutates
-    /// the DOM thread-independently. So the bake is skipped exactly when the engine model is enabled on
-    /// this thread — the increment-6 cutover switch. Default (flag off) the bake runs, byte-identical to
-    /// before this gate.
-    /// </summary>
-    internal static bool ZoomBakeActive => !Broiler.Layout.Engine.NativeZoom.Enabled;
-
-    /// <summary>
     /// The <c>content</c> of the first <c>&lt;meta name="color-scheme"&gt;</c> in tree order whose
     /// <c>content</c> is a valid CSS <c>&lt;'color-scheme'&gt;</c> value, or <c>null</c> when there
     /// is none.
@@ -99,7 +88,7 @@ public static partial class DomBridgeUtils
     /// block) that shifts all following content — a common cause of the WPT
     /// "MissingContent" pixel mismatches in comment-heavy tests. Removing the
     /// comment nodes lets the surrounding text re-parse as a single node so the run
-    /// collapses as the spec requires. Runs only inside <see cref="DomBridge.ApplySerializationTransforms"/>,
+    /// collapses as the spec requires. Runs only inside <c>DomBridge.ApplySerializationTransforms</c>,
     /// so JS-visible <c>innerHTML</c>/<c>outerHTML</c> (which serialize without it)
     /// still expose the comments.
     /// </summary>

@@ -526,7 +526,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// adoption puts a second realm, with its own job queue, over one context.
     /// </para>
     /// <para>
-    /// The adoption and the policy mapping are the bridge's own (<c>DomBridgeUtils.AdoptRealm</c>,
+    /// The adoption and the policy mapping are the bridge's own (<c>DomBridgeHostUtils.AdoptRealm</c>,
     /// <c>DomBridgeUtils.RealmOptionsFor</c>), so the refusal has one definition on every path: a realm built
     /// without guest evaluation subscribes the engine's compile hook, and one built with it subscribes
     /// nothing. An adopted realm never makes its job pump current, entered or not
@@ -572,7 +572,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// </para>
     /// </remarks>
     private void AdoptDocumentFreeRealm(JSContext context) =>
-        _ = DomBridgeUtils.AdoptRealm(context, DomBridgeUtils.RealmOptionsFor(Csp));
+        _ = DomBridgeHostUtils.AdoptRealm(context, DomBridgeUtils.RealmOptionsFor(Csp));
 
     /// <summary>
     /// Register a minimal <c>WeakRef</c> constructor.  Because .NET's GC
