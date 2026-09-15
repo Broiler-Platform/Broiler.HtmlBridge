@@ -1,0 +1,139 @@
+using Broiler.HtmlBridge.Core.Diagnostics;
+using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Logging;
+using Broiler.Dom;
+
+namespace Broiler.HtmlBridge;
+
+public static partial class DomBridgeUtils
+{
+    /// <summary>
+    /// Calls one registered listener -- a function, or an object with a <c>handleEvent</c> -- and
+    /// swallows what it throws into a warning, because a listener that fails must not abort the
+    /// dispatch of the ones after it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The listener is a handle and the call goes through the realm.</b> Five call sites over four
+    /// firing paths reach this: element and document dispatch (<c>Features/EventDispatchBinding.cs</c>),
+    /// window dispatch (<c>DomBridge.WindowLoad.cs</c>), form submit (<c>Features/FormSubmitBinding.cs</c>)
+    /// and messaging (<c>Features/MessagingBinding.cs</c>, once for a registration and once for an
+    /// <c>on…</c> handler). Four hand over an <c>EventListenerRegistration</c>'s listener field, which
+    /// holds a <see cref="JsValue"/> now, and the fifth reads its handler through the realm. Nothing on
+    /// any of those paths converts a listener or an event, and nothing here names an engine type.
+    /// </para>
+    /// <para>
+    /// <b>The receivers are the ones the engine-typed calls passed, including the odd one.</b> A function
+    /// listener is its own <c>this</c>, as the engine argument frame built from the function made it --
+    /// where DOM's inner invoke passes the event's <c>currentTarget</c> -- and an object's
+    /// <c>handleEvent</c> is called with the object. <c>Features/EventDispatchBinding.cs</c> already fires
+    /// the inline <c>on*</c> handler through the realm with itself as receiver; this is that shape.
+    /// </para>
+    /// <para>
+    /// <b>Three things differ from the direct engine call, and all three were read rather than
+    /// assumed.</b> <see cref="IJsCalls.Invoke"/> takes the provider's realm scope for the call, and so
+    /// does the <c>handleEvent</c> lookup, which is <see cref="IJsMembers.GetProperty"/> -- the same
+    /// indexer, so a getter for it still runs once. For the realm this bridge adopts, that scope makes the
+    /// realm's context the engine's current context and restores the previous one after -- and nothing
+    /// else, because the provider installs a job pump only for a context it created; a listener already
+    /// running under that context sees nothing change. An exception the listener throws reaches the catch
+    /// below as the provider's <see cref="JsEngineException"/> rather than the engine's own, constructed
+    /// from the same message, so the warning reads the same. And the event is no longer unwrapped ahead
+    /// of the turn, where a handle carrying no object used to fail out to the dispatch that passed it;
+    /// none can arrive, because every <c>dispatchEvent</c> a page can call refuses a non-object, and every
+    /// event the bridge dispatches itself is an object it minted or tested as one.
+    /// </para>
+    /// </remarks>
+    internal static void InvokeEventListener(
+        IJsRealm realm, JsValue listener, JsValue evt, string logContext)
+    {
+        // Every DOM listener the page runs passes through here, which makes this the one place a
+        // listener turn can be bracketed. Inactive unless a run asked for it; see JsEntryTrace.
+        using var turn = JsEntryTrace.Enter(JsEntryKind.Event, EventTurnLabel(realm, evt, logContext));
+
+        try
+        {
+            if (listener.IsFunction)
+            {
+                realm.Invoke(listener, listener, [evt]);
+                return;
+            }
+
+            if (!listener.IsObject)
+                return;
+
+            var handleEvent = realm.GetProperty(listener, "handleEvent");
+            if (handleEvent.IsFunction)
+                realm.Invoke(handleEvent, listener, [evt]);
+        }
+        catch (Exception ex)
+        {
+            RenderLogger.LogWarning(LogCategory.JavaScript, logContext, $"Event listener error: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Names a listener turn as <c>type@context</c> for the trace. The event type is what makes a line
+    /// actionable — "20 s idle before click@document" says which interaction ended the idle, where the
+    /// call site alone says only that some listener ran.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Reads the property only while the trace is active, and answers with the call site alone if the
+    /// read throws: <c>type</c> is a data property on every event this bridge constructs, but a page
+    /// may dispatch an object of its own through <c>dispatchEvent</c>, and a diagnostic does not get to
+    /// turn that into a failure.
+    /// </para>
+    /// <para>
+    /// <b>Through the realm, and it answers what the engine-typed read answered.</b> The realm's
+    /// property read is the engine's own indexer on the same object, so a page-defined <c>type</c>
+    /// accessor still runs, and the three "no type" answers the former test named — never
+    /// installed, <c>null</c>, <c>undefined</c> — come back as exactly the three kinds
+    /// <see cref="JsValue.IsNullish"/> tests. <see cref="IJsValues.ToJsString"/> rather than the
+    /// handle's own rendering, because the label used to interpolate the engine's value, and that is
+    /// the engine's <c>ToString</c>: the ECMAScript coercion, which may run a <c>toString</c> the page
+    /// wrote. The handle would render an object as <c>[object]</c> and run nothing.
+    /// </para>
+    /// <para>
+    /// <b>The one difference is the realm's scope</b>, which each of the two calls takes: page code
+    /// either of them reaches runs with this document's context installed as the engine's current
+    /// one, rather than with whatever the thread was carrying. That needs the trace to be active and a
+    /// <c>type</c> the page supplied as an accessor or an object — the events this bridge builds carry
+    /// a string, and reading one runs nothing — and on the window and generic event-target paths
+    /// that same accessor and that same coercion have already run inside the realm's scope at the top
+    /// of the same dispatch, to find the listeners.
+    /// </para>
+    /// </remarks>
+    private static string EventTurnLabel(IJsRealm realm, JsValue evt, string logContext)
+    {
+        if (!JsEntryTrace.IsActive)
+            return logContext;
+
+        try
+        {
+            var type = realm.GetProperty(evt, "type");
+            return type.IsNullish ? logContext : $"{realm.ToJsString(type)}@{logContext}";
+        }
+        catch (Exception)
+        {
+            return logContext;
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="element"/> is SVG content — the <c>&lt;svg&gt;</c> element itself or
+    /// anything inside one. Decided by walking ancestors rather than reading a namespace, so it
+    /// holds for a fragment the HTML parser built as well as one script created with
+    /// <c>createElementNS</c>.
+    /// </summary>
+    internal static bool IsInSvgContent(DomElement element)
+    {
+        for (var node = element; node != null; node = ParentEl(node))
+        {
+            if (string.Equals(node.TagName, "svg", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+}

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 

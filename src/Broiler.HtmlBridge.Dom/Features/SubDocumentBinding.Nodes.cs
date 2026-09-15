@@ -21,7 +21,7 @@ internal sealed partial class SubDocumentBinding
 
         var tagName = call.Realm.ToJsString(call[0]);
         _host.ValidateElementName(tagName);
-        tagName = DomBridge.AsciiToLower(tagName);
+        tagName = DomBridgeUtils.AsciiToLower(tagName);
         var el = _host.CreateElement(tagName);
         _host.AdoptDetachedNode(el, docRoot);
         return _host.ToJsObject(el);
@@ -79,7 +79,7 @@ internal sealed partial class SubDocumentBinding
 
     private static JsValue Open(JsValue doc, DomNode docRoot)
     {
-        DomBridge.ClearChildren(docRoot);
+        DomBridgeUtils.ClearChildren(docRoot);
         return doc.IsObject ? doc : JsValue.Null;
     }
 
@@ -90,31 +90,31 @@ internal sealed partial class SubDocumentBinding
         var fragment = call.Realm.ToJsString(call[0]);
         // Parse DOCTYPE if present
         var doctype = _host.ParseDocType(fragment);
-        var (parsedDoc, _, _, _) = DomBridge.BuildDocumentTree(fragment);
+        var (parsedDoc, _, _, _) = DomBridgeUtils.BuildDocumentTree(fragment);
         if (docRoot.ChildNodes.Count == 0)
         {
             if (doctype != null)
             {
-                DomBridge.SetParent(doctype, docRoot);
+                DomBridgeUtils.SetParent(doctype, docRoot);
                 docRoot.AppendChild(doctype);
             }
 
             // parsedDoc is the <html> element from HtmlTreeBuilder.
             // Add it directly to docRoot (not its children).
-            DomBridge.SetParent(parsedDoc, docRoot);
+            DomBridgeUtils.SetParent(parsedDoc, docRoot);
             docRoot.AppendChild(parsedDoc);
         }
         else
         {
-            var bodyEl = DomBridge.FindInSubTree(docRoot, el => string.Equals(el.TagName, "body", StringComparison.OrdinalIgnoreCase));
+            var bodyEl = DomBridgeUtils.FindInSubTree(docRoot, el => string.Equals(el.TagName, "body", StringComparison.OrdinalIgnoreCase));
             if (bodyEl != null)
             {
-                var parsedBody = DomBridge.FindInTree(parsedDoc, el => string.Equals(el.TagName, "body", StringComparison.OrdinalIgnoreCase));
+                var parsedBody = DomBridgeUtils.FindInTree(parsedDoc, el => string.Equals(el.TagName, "body", StringComparison.OrdinalIgnoreCase));
                 if (parsedBody != null)
                 {
                     foreach (var child in parsedBody.ChildNodes.ToArray())
                     {
-                        DomBridge.SetParent(child, bodyEl);
+                        DomBridgeUtils.SetParent(child, bodyEl);
                         bodyEl.AppendChild(child);
                     }
                 }
@@ -131,18 +131,18 @@ internal sealed partial class SubDocumentBinding
         if (!call[0].IsObject)
             return JsValue.Null;
         var childObj = call[0];
-        foreach (var child in DomBridge.ChildElements(docRoot).ToList())
+        foreach (var child in DomBridgeUtils.ChildElements(docRoot).ToList())
         {
             // Wrapper identity, not node identity: two handles compare equal when they carry the same
             // underlying object, which is the same reference test this used to perform directly.
             if (_host.TryGetNodeWrapper(child, out var cached) && cached == childObj)
             {
-                var idx = DomBridge.ChildIndexOf(docRoot, child);
+                var idx = DomBridgeUtils.ChildIndexOf(docRoot, child);
                 if (idx >= 0)
                 {
                     _host.NotifyNodeIteratorPreRemoval(child);
-                    DomBridge.RemoveNthChild(docRoot, idx);
-                    DomBridge.SetParent(child, null);
+                    DomBridgeUtils.RemoveNthChild(docRoot, idx);
+                    DomBridgeUtils.SetParent(child, null);
                     // Phase 4 item 1 (P4.4a): child-list mutation-observer notification is element-only;
                     // a canonical DomDocument browsing-context root (regime-B) has no such observers.
                     if (docRoot is DomElement docRootElement)
@@ -167,9 +167,9 @@ internal sealed partial class SubDocumentBinding
         // appended to a sub-document root (was `is DomElement`, which skipped them).
         if (_host.FindNode(childObj) is { } child)
         {
-            if (DomBridge.ParentEl(child) != null)
+            if (DomBridgeUtils.ParentEl(child) != null)
                 child.Remove();
-            DomBridge.SetParent(child, docRoot);
+            DomBridgeUtils.SetParent(child, docRoot);
             docRoot.AppendChild(child);
             return childObj;
         }

@@ -123,7 +123,7 @@ internal static class TreeMutationBinding
             return call[0];
         if (ReferenceEquals(newEl, refEl))
             return call[0];
-        var idx = DomBridge.ChildIndexOf(element, refEl);
+        var idx = DomBridgeUtils.ChildIndexOf(element, refEl);
         if (idx < 0)
         {
             // DOM §4.2.3 pre-insert: "If child is non-null and its parent is not parent, then throw a
@@ -201,10 +201,10 @@ internal static class TreeMutationBinding
 
         for (var index = element.ChildNodes.Count - 1; index >= 0; index--)
         {
-            var child = DomBridge.ChildAt(element, index);
+            var child = DomBridgeUtils.ChildAt(element, index);
             host.NotifyNodeIteratorPreRemoval(child);
-            DomBridge.RemoveNthChild(element, index);
-            DomBridge.SetParent(child, null);
+            DomBridgeUtils.RemoveNthChild(element, index);
+            DomBridgeUtils.SetParent(child, null);
             host.NotifyChildRemoved(element, child, index, null, null);
         }
 
@@ -226,7 +226,7 @@ internal static class TreeMutationBinding
         var childEl = host.FindNode(call[0]);
         if (childEl == null)
             return call[0];
-        var idx = DomBridge.ChildIndexOf(element, childEl);
+        var idx = DomBridgeUtils.ChildIndexOf(element, childEl);
         if (idx < 0)
         {
             // DOM §4.2.3 pre-remove: "If child's parent is not parent, then throw a NotFoundError
@@ -239,8 +239,8 @@ internal static class TreeMutationBinding
                 "The node to be removed is not a child of this node.");
         }
         host.NotifyNodeIteratorPreRemoval(childEl);
-        DomBridge.RemoveNthChild(element, idx);
-        DomBridge.SetParent(childEl, null);
+        DomBridgeUtils.RemoveNthChild(element, idx);
+        DomBridgeUtils.SetParent(childEl, null);
         host.InvalidateStyleScope(element);
         host.NotifyChildRemoved(element, childEl, idx, null, null);
         return call[0];
@@ -259,7 +259,7 @@ internal static class TreeMutationBinding
         // Prevent circular references (HierarchyRequestError per DOM spec)
         if (ReferenceEquals(newEl, element) || element.IsDescendantOf(newEl))
             throw call.Realm.DomError("HierarchyRequestError", "The new child element contains the parent.");
-        var idx = DomBridge.ChildIndexOf(element, oldEl);
+        var idx = DomBridgeUtils.ChildIndexOf(element, oldEl);
         if (idx < 0)
         {
             // Same rule for replaceChild (DOM §4.2.3 replace: "If child's parent is not parent, then
@@ -271,26 +271,26 @@ internal static class TreeMutationBinding
             throw NotFoundError(call.Realm, "replaceChild",
                 "The node to be replaced is not a child of this node.");
         }
-        var previousSibling = idx > 0 ? DomBridge.ChildAt(element, idx - 1) : null;
-        var nextSibling = idx + 1 < element.ChildNodes.Count ? DomBridge.ChildAt(element, idx + 1) : null;
+        var previousSibling = idx > 0 ? DomBridgeUtils.ChildAt(element, idx - 1) : null;
+        var nextSibling = idx + 1 < element.ChildNodes.Count ? DomBridgeUtils.ChildAt(element, idx + 1) : null;
         // If newChild is already in this parent, remove it first and re-find idx
-        if (ReferenceEquals(DomBridge.ParentEl(newEl), element))
+        if (ReferenceEquals(DomBridgeUtils.ParentEl(newEl), element))
         {
-            DomBridge.RemoveChildFrom(element, newEl);
-            idx = DomBridge.ChildIndexOf(element, oldEl);
+            DomBridgeUtils.RemoveChildFrom(element, newEl);
+            idx = DomBridgeUtils.ChildIndexOf(element, oldEl);
             if (idx < 0)
                 return call[1];
         }
         else
         {
-            if (DomBridge.ParentEl(newEl) != null)
+            if (DomBridgeUtils.ParentEl(newEl) != null)
             {
-                var oldParent = DomBridge.ParentEl(newEl);
-                var oldIndex = DomBridge.ChildIndexOf(oldParent, newEl);
+                var oldParent = DomBridgeUtils.ParentEl(newEl);
+                var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, newEl);
                 if (oldIndex >= 0)
                 {
                     host.NotifyNodeIteratorPreRemoval(newEl);
-                    DomBridge.RemoveNthChild(oldParent, oldIndex);
+                    DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
                     host.NotifyChildRemoved(oldParent, newEl, oldIndex, null, null);
                 }
             }

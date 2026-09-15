@@ -2,7 +2,7 @@ using Broiler.Dom;
 
 namespace Broiler.HtmlBridge;
 
-public sealed partial class DomBridge
+public static partial class DomBridgeUtils
 {
     // The nested-browsing-context `document` object surface (BuildSubDocument + every
     // JsSubDocumentObjects* callback) was extracted into the co-located

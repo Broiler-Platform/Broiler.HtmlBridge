@@ -57,8 +57,8 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         // Build the path from the root to the target
         var path = new List<DomNode>();
         var visited = new HashSet<DomElement>();
-        var node = DomBridge.ParentEl(target);
-        while (node != null && visited.Add(node)) { path.Add(node); node = DomBridge.ParentEl(node); }
+        var node = DomBridgeUtils.ParentEl(target);
+        while (node != null && visited.Add(node)) { path.Add(node); node = DomBridgeUtils.ParentEl(node); }
         path.Reverse();
 
         // Include the document node at the very beginning of the path
@@ -156,7 +156,7 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
                 if (capturePhase.HasValue && registration.Capture != capturePhase.Value) continue;
                 currentListenerPassive = registration.Passive;
                 // Listener, event and invoker are all the realm's; nothing converts here.
-                DomBridge.InvokeEventListener(_host.Realm, registration.Listener, evt, "DomBridge.dispatchEvent");
+                DomBridgeUtils.InvokeEventListener(_host.Realm, registration.Listener, evt, "DomBridge.dispatchEvent");
                 currentListenerPassive = false;
 
                 if (registration.Once)

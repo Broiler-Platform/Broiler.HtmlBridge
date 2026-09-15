@@ -53,22 +53,22 @@ internal static class CharacterDataBinding
 
     public static JsValue GetData(DomNode node, in JsCall call)
     {
-        if (DomBridge.IsText(node) || DomBridge.IsComment(node))
-            return JsValue.String(DomBridge.BridgeText(node));
+        if (DomBridgeUtils.IsText(node) || DomBridgeUtils.IsComment(node))
+            return JsValue.String(DomBridgeUtils.BridgeText(node));
         return JsValue.Undefined;
     }
 
     public static JsValue SetData(ICharacterDataHost host, DomNode node, in JsCall call)
     {
-        if (DomBridge.IsText(node) || DomBridge.IsComment(node))
+        if (DomBridgeUtils.IsText(node) || DomBridgeUtils.IsComment(node))
             host.SetCharacterData(node, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         return JsValue.Undefined;
     }
 
     public static JsValue GetLength(DomNode node, in JsCall call)
     {
-        if (DomBridge.IsText(node) || DomBridge.IsComment(node))
-            return JsValue.Number(DomBridge.BridgeText(node).Length);
+        if (DomBridgeUtils.IsText(node) || DomBridgeUtils.IsComment(node))
+            return JsValue.Number(DomBridgeUtils.BridgeText(node).Length);
         return JsValue.Number(node.ChildNodes.Count);
     }
 
@@ -85,21 +85,21 @@ internal static class CharacterDataBinding
         }
 
         var offset = (int)call.Realm.ToNumber(call[0]);
-        var text = DomBridge.BridgeText(node);
+        var text = DomBridgeUtils.BridgeText(node);
         // §4.11 splitText carries the same rule as the CharacterData methods: an offset past the end
         // is an IndexSizeError DOMException, not a bare error.
         if (offset < 0 || offset > text.Length)
             throw IndexSizeError(call.Realm, "splitText", offset, text.Length);
         var remainingText = text[offset..];
-        DomBridge.SetBridgeText(node, text[..offset]);
+        DomBridgeUtils.SetBridgeText(node, text[..offset]);
         var newNode = host.CreateBridgeTextNode(remainingText);
         // Insert new node as next sibling.
-        if (DomBridge.ParentEl(node) != null)
+        if (DomBridgeUtils.ParentEl(node) != null)
         {
-            var idx = DomBridge.ChildIndexOf(DomBridge.ParentEl(node), node);
+            var idx = DomBridgeUtils.ChildIndexOf(DomBridgeUtils.ParentEl(node), node);
             // Single canonical insert of the fresh split node as next sibling (the prior SetParent
             // appended it at the end first, then InsertChildAt re-moved it — spurious records).
-            DomBridge.InsertChildAt(DomBridge.ParentEl(node), idx + 1, newNode);
+            DomBridgeUtils.InsertChildAt(DomBridgeUtils.ParentEl(node), idx + 1, newNode);
         }
 
         // The split node keeps its wrapper. This used to drop it — "invalidate the cached JS wrapper so
@@ -116,7 +116,7 @@ internal static class CharacterDataBinding
     {
         var offset = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         var count = call.Length > 1 ? Math.Max(0, (int)call.Realm.ToNumber(call[1])) : 0;
-        var text = DomBridge.BridgeText(node);
+        var text = DomBridgeUtils.BridgeText(node);
         if (offset < 0 || offset > text.Length)
             throw IndexSizeError(call.Realm, "substringData", offset, text.Length);
         var end = (int)Math.Min((long)offset + count, text.Length);
@@ -126,7 +126,7 @@ internal static class CharacterDataBinding
     public static JsValue AppendData(ICharacterDataHost host, DomNode node, in JsCall call)
     {
         var data = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
-        host.SetCharacterData(node, DomBridge.BridgeText(node) + data);
+        host.SetCharacterData(node, DomBridgeUtils.BridgeText(node) + data);
         return JsValue.Undefined;
     }
 
@@ -134,7 +134,7 @@ internal static class CharacterDataBinding
     {
         var offset = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         var count = call.Length > 1 ? Math.Max(0, (int)call.Realm.ToNumber(call[1])) : 0;
-        var text = DomBridge.BridgeText(node);
+        var text = DomBridgeUtils.BridgeText(node);
         if (offset < 0 || offset > text.Length)
             throw IndexSizeError(call.Realm, "deleteData", offset, text.Length);
         var end = (int)Math.Min((long)offset + count, text.Length);
@@ -146,7 +146,7 @@ internal static class CharacterDataBinding
     {
         var offset = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         var data = call.Length > 1 ? call.Realm.ToJsString(call[1]) : string.Empty;
-        var text = DomBridge.BridgeText(node);
+        var text = DomBridgeUtils.BridgeText(node);
         if (offset < 0 || offset > text.Length)
             throw IndexSizeError(call.Realm, "insertData", offset, text.Length);
         host.SetCharacterData(node, text.Insert(offset, data));
@@ -158,7 +158,7 @@ internal static class CharacterDataBinding
         var offset = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         var count = call.Length > 1 ? Math.Max(0, (int)call.Realm.ToNumber(call[1])) : 0;
         var data = call.Length > 2 ? call.Realm.ToJsString(call[2]) : string.Empty;
-        var text = DomBridge.BridgeText(node);
+        var text = DomBridgeUtils.BridgeText(node);
         if (offset < 0 || offset > text.Length)
             throw IndexSizeError(call.Realm, "replaceData", offset, text.Length);
         var end = (int)Math.Min((long)offset + count, text.Length);

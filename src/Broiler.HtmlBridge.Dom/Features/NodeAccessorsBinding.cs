@@ -61,7 +61,7 @@ internal static class NodeAccessorsBinding
         if (parent == null)
             return JsValue.Null;
         var siblings = parent.ChildNodes;
-        var idx = DomBridge.ChildIndexOf(parent, node);
+        var idx = DomBridgeUtils.ChildIndexOf(parent, node);
         return idx >= 0 && idx + 1 < siblings.Count ? host.WrapNode(siblings[idx + 1]) : JsValue.Null;
     }
 
@@ -71,7 +71,7 @@ internal static class NodeAccessorsBinding
         if (parent == null)
             return JsValue.Null;
         var siblings = parent.ChildNodes;
-        var idx = DomBridge.ChildIndexOf(parent, node);
+        var idx = DomBridgeUtils.ChildIndexOf(parent, node);
         return idx - 1 >= 0 ? host.WrapNode(siblings[idx - 1]) : JsValue.Null;
     }
 
@@ -82,9 +82,9 @@ internal static class NodeAccessorsBinding
 
     public static JsValue GetNodeName(DomNode node, in JsCall call)
     {
-        if (DomBridge.IsText(node))
+        if (DomBridgeUtils.IsText(node))
             return JsValue.String("#text");
-        if (DomBridge.IsComment(node))
+        if (DomBridgeUtils.IsComment(node))
             return JsValue.String("#comment");
         if (node is DomDocumentType docType)
             return JsValue.String(docType.Name); // doctype nodeName is its (already lowercased) name
@@ -140,8 +140,8 @@ internal static class NodeAccessorsBinding
 
     public static JsValue GetNodeValue(DomNode node, in JsCall call)
     {
-        if (DomBridge.IsText(node) || DomBridge.IsComment(node))
-            return JsValue.String(DomBridge.BridgeText(node));
+        if (DomBridgeUtils.IsText(node) || DomBridgeUtils.IsComment(node))
+            return JsValue.String(DomBridgeUtils.BridgeText(node));
         return JsValue.Null;
     }
 
@@ -149,7 +149,7 @@ internal static class NodeAccessorsBinding
     {
         // ToJsString, not the handle's rendering: assigning an object here must run that object's own
         // toString, which is the coercion a page observes and the engine's own `ToString()` performed.
-        if (DomBridge.IsText(node) || DomBridge.IsComment(node))
+        if (DomBridgeUtils.IsText(node) || DomBridgeUtils.IsComment(node))
             host.SetCharacterData(node, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         return JsValue.Undefined;
     }
@@ -170,7 +170,7 @@ internal static class NodeAccessorsBinding
 
         // Phase 4 item 1 (P4.4c): the owning document is derived from the canonical tree (connected
         // nodes) or the node's canonical OwnerDocument (detached), not a parallel OwnerDocRoot field.
-        var owner = DomBridge.GetOwningDocument(node);
+        var owner = DomBridgeUtils.GetOwningDocument(node);
         // A sub-document maps to its JS document wrapper; the main document maps to the window
         // document object.
         if (!ReferenceEquals(owner, host.DocumentNode) && host.TryGetDocumentWrapper(owner, out var subDoc))
@@ -180,10 +180,10 @@ internal static class NodeAccessorsBinding
 
     public static JsValue GetParentElement(INodeAccessorsHost host, DomNode node, in JsCall call)
     {
-        var parent = DomBridge.ParentEl(node);
+        var parent = DomBridgeUtils.ParentEl(node);
         if (parent == null)
             return JsValue.Null;
-        if (DomBridge.IsText(parent))
+        if (DomBridgeUtils.IsText(parent))
             return JsValue.Null;
         return host.WrapNode(parent);
     }

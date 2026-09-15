@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Broiler.Dom;
 using System.Globalization;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -156,10 +157,6 @@ public sealed partial class DomBridge
         double size = vertical ? GetBorderBoxHeight(props, el) : GetBorderBoxWidth(props, el);
         return size > 0 ? size : 0;
     }
-
-    private static bool HasStickyInset(string? value) =>
-        !string.IsNullOrWhiteSpace(value) &&
-        !string.Equals(value, "auto", StringComparison.OrdinalIgnoreCase);
 
     private double ParseStickyInset(string? value, DomElement el, DomElement scrollContainer, bool vertical)
     {

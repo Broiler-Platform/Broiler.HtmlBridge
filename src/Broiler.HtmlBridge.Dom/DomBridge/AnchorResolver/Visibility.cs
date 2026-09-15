@@ -1,4 +1,5 @@
 using Broiler.Dom;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 

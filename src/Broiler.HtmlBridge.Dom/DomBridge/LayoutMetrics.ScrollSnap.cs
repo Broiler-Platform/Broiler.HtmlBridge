@@ -1,5 +1,6 @@
 using Broiler.Dom;
 using Broiler.CSS;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -146,7 +147,4 @@ public sealed partial class DomBridge
             ResolvePhysicalScrollIntoViewAlignments(scrollContainer, block, inline);
         return vertical ? verticalAlignment : horizontal;
     }
-
-    private static bool IsScrollSnapAlignmentKeyword(string token) =>
-        token is "none" or "start" or "end" or "center";
 }

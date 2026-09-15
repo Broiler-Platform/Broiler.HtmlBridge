@@ -3,7 +3,7 @@ using Broiler.CSS;
 
 namespace Broiler.HtmlBridge;
 
-public sealed partial class DomBridge
+public static partial class DomBridgeUtils
 {
     // -----------------------------------------------------------------
     // Containing block establishment (shared helper)
@@ -27,7 +27,7 @@ public sealed partial class DomBridge
     ///   <item>will-change: transform</item>
     /// </list>
     /// </summary>
-    private static bool EstablishesContainingBlock(Dictionary<string, string> props)
+    internal static bool EstablishesContainingBlock(Dictionary<string, string> props)
     {
         if (props.TryGetValue("position", out var pos) &&
             (pos == "relative" || pos == "absolute" || pos == "fixed" || pos == "sticky"))

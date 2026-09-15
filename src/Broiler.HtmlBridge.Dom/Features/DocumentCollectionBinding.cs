@@ -58,7 +58,7 @@ internal static class DocumentCollectionBinding
     /// </summary>
     public static JsValue Links(IDocumentCollectionHost host) =>
         Collection(host, static element =>
-            (IsTag(element, "a") || IsTag(element, "area")) && DomBridge.HasAttr(element, "href"));
+            (IsTag(element, "a") || IsTag(element, "area")) && DomBridgeUtils.HasAttr(element, "href"));
 
     /// <summary>
     /// Every <c>&lt;a&gt;</c> that has a <c>name</c> — the other half of the historical anchor split,
@@ -67,7 +67,7 @@ internal static class DocumentCollectionBinding
     /// <c>name</c> is the reverse.
     /// </summary>
     public static JsValue Anchors(IDocumentCollectionHost host) =>
-        Collection(host, static element => IsTag(element, "a") && DomBridge.HasAttr(element, "name"));
+        Collection(host, static element => IsTag(element, "a") && DomBridgeUtils.HasAttr(element, "name"));
 
     /// <summary>
     /// <c>document.scripts</c> — every <c>&lt;script&gt;</c> element in tree order.
@@ -182,8 +182,8 @@ internal static class DocumentCollectionBinding
 
         foreach (var member in members)
         {
-            if ((DomBridge.TryGetAttribute(member, "id", out var id) && id == name) ||
-                (DomBridge.TryGetAttribute(member, "name", out var named) && named == name))
+            if ((DomBridgeUtils.TryGetAttribute(member, "id", out var id) && id == name) ||
+                (DomBridgeUtils.TryGetAttribute(member, "name", out var named) && named == name))
             {
                 return host.WrapNode(member);
             }

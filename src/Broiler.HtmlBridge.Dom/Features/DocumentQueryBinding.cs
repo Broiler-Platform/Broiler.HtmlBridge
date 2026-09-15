@@ -28,7 +28,7 @@ internal static class DocumentQueryBinding
     public static JsValue GetElementById(IDocumentQueryHost host, in JsCall call)
     {
         var id = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
-        var found = DomBridge.FindInSubTree(host.DocumentElement, el => el.Id == id);
+        var found = DomBridgeUtils.FindInSubTree(host.DocumentElement, el => el.Id == id);
         return found != null ? host.ToJsObject(found) : JsValue.Null;
     }
 
@@ -107,7 +107,7 @@ internal static class DocumentQueryBinding
             var results = new List<JsValue>();
             foreach (var el in host.Elements)
             {
-                if (DomBridge.TryGetAttribute(el, "name", out var value) && string.Equals(value, name, StringComparison.Ordinal))
+                if (DomBridgeUtils.TryGetAttribute(el, "name", out var value) && string.Equals(value, name, StringComparison.Ordinal))
                     results.Add(host.ToJsObject(el));
             }
 

@@ -13,7 +13,7 @@ namespace Broiler.HtmlBridge.Jseal;
 /// So the realm cannot be one the provider created; it has to wrap that context. (This said half the
 /// bindings still wrote <c>JSObject</c>s directly.) <c>ScriptEngine</c>'s document-free entry points,
 /// <c>Execute(scripts)</c> and <c>ExecuteDetailed(scripts)</c>, adopt the context they build the same
-/// way, through <c>DomBridge.AdoptRealm</c>, so the policy a host sets reaches them. They never call
+/// way, through <c>DomBridgeUtils.AdoptRealm</c>, so the policy a host sets reaches them. They never call
 /// <c>Attach</c>: what keeps them on a context rather than a created realm is <c>ScriptEngine</c>'s own
 /// use of it, which installs its runtime extensions on that context and runs their scripts on it.
 /// </para>
@@ -28,7 +28,7 @@ namespace Broiler.HtmlBridge.Jseal;
 /// A provider that cannot do this — because its engine's realms are not host-constructible, or because
 /// it would have no way to tell one of its own realms from a foreign object — simply does not
 /// implement the interface, and is passed over. Nothing falls back to creating a realm instead: when no
-/// provider adopts, <c>DomBridge.AdoptRealm</c>, the one host that asks, throws.
+/// provider adopts, <c>DomBridgeUtils.AdoptRealm</c>, the one host that asks, throws.
 /// </para>
 /// </remarks>
 public interface IJsRealmAdoption

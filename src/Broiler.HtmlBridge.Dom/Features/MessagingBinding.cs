@@ -224,7 +224,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
                     break;
 
                 currentListenerPassive = registration.Passive;
-                RunInOwnerWindow(target, () => DomBridge.InvokeEventListener(realm, registration.Listener, evt, logContext));
+                RunInOwnerWindow(target, () => DomBridgeUtils.InvokeEventListener(realm, registration.Listener, evt, logContext));
                 currentListenerPassive = false;
 
                 if (registration.Once)
@@ -259,7 +259,7 @@ internal sealed class MessagingBinding(IMessagingHost host, EventTargetRegistry 
         if (handler.IsNullish)
             return;
 
-        RunInOwnerWindow(target, () => DomBridge.InvokeEventListener(realm, handler, evt, logContext));
+        RunInOwnerWindow(target, () => DomBridgeUtils.InvokeEventListener(realm, handler, evt, logContext));
     }
 
     /// <summary>

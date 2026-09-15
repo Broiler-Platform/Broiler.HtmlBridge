@@ -65,7 +65,7 @@ internal static partial class StyleSheetBinding
         {
             var map = block is null
                 ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                : DomBridge.ParseStyle(CssSerializer.Serialize(block));
+                : DomBridgeUtils.ParseStyle(CssSerializer.Serialize(block));
             return StyleDeclarationBinding.BuildRuleDeclaration(realm, map, ruleObj);
         }
 
@@ -133,7 +133,7 @@ internal static partial class StyleSheetBinding
 
             case CssomRuleType.Property:
                 {
-                    var descriptors = DomBridge.ParseStyle(CssSerializer.Serialize(((CssAtRule)rule).Declarations ?? new CssDeclarationBlock([])));
+                    var descriptors = DomBridgeUtils.ParseStyle(CssSerializer.Serialize(((CssAtRule)rule).Declarations ?? new CssDeclarationBlock([])));
                     var propertyName = ((CssAtRule)rule).Prelude;
                     var syntax = descriptors.TryGetValue("syntax", out var syntaxValue)
                         ? CssomRuleMetadata.UnquoteDescriptor(syntaxValue)
@@ -156,7 +156,7 @@ internal static partial class StyleSheetBinding
                 {
                     var atRule = (CssAtRule)rule;
                     var ruleName = atRule.Prelude;
-                    var descriptors = DomBridge.ParseStyle(CssSerializer.Serialize(atRule.Declarations ?? new CssDeclarationBlock([])));
+                    var descriptors = DomBridgeUtils.ParseStyle(CssSerializer.Serialize(atRule.Declarations ?? new CssDeclarationBlock([])));
 
                     realm.DefineValue(ruleObj, "name", JsValue.String(ruleName));
 
@@ -358,7 +358,7 @@ internal static partial class StyleSheetBinding
             if (braceOpen >= 0 && braceClose > braceOpen)
             {
                 var declarations = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var styleMap = DomBridge.ParseStyle(declarations);
+                var styleMap = DomBridgeUtils.ParseStyle(declarations);
                 var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(realm, styleMap, ruleObj);
                 realm.DefineAccessor(ruleObj, "cssText",
                     (in _) => JsStyleSheetsGetCssText019Core(realm, styleObj), null);
@@ -399,7 +399,7 @@ internal static partial class StyleSheetBinding
             {
                 var propertyName = trimmedRuleText[9..braceOpen].Trim();
                 var descriptorsText = trimmedRuleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var descriptors = DomBridge.ParseStyle(descriptorsText);
+                var descriptors = DomBridgeUtils.ParseStyle(descriptorsText);
                 var syntax = descriptors.TryGetValue("syntax", out var syntaxValue)
                     ? CssomRuleMetadata.UnquoteDescriptor(syntaxValue)
                     : "*";
@@ -427,7 +427,7 @@ internal static partial class StyleSheetBinding
             {
                 var ruleName = trimmedRuleText[14..braceOpen].Trim();
                 var descriptorsText = trimmedRuleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var descriptors = DomBridge.ParseStyle(descriptorsText);
+                var descriptors = DomBridgeUtils.ParseStyle(descriptorsText);
 
                 realm.DefineValue(ruleObj, "name", JsValue.String(ruleName));
 
@@ -545,7 +545,7 @@ internal static partial class StyleSheetBinding
             {
                 var selectorText = ruleText[5..braceOpen].Trim();
                 var declarations = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var styleMap = DomBridge.ParseStyle(declarations);
+                var styleMap = DomBridgeUtils.ParseStyle(declarations);
                 var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(realm, styleMap, ruleObj);
 
                 realm.DefineValue(ruleObj, "selectorText", JsValue.String(selectorText));
@@ -572,7 +572,7 @@ internal static partial class StyleSheetBinding
                 if (braceClose > braceOpen)
                 {
                     var declarations = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                    var styleMap = DomBridge.ParseStyle(declarations);
+                    var styleMap = DomBridgeUtils.ParseStyle(declarations);
                     var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(realm, styleMap, ruleObj);
                     realm.DefineValue(ruleObj, "style", styleObj);
                 }

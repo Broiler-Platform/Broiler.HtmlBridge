@@ -1,4 +1,5 @@
 using Broiler.Dom;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -8,7 +9,7 @@ public sealed partial class DomBridge
     // Anchor registry
     // -----------------------------------------------------------------
 
-    private sealed record AnchorInfo(double Top, double Left, double Width, double Height, DomElement? SourceElement = null)
+    internal sealed record AnchorInfo(double Top, double Left, double Width, double Height, DomElement? SourceElement = null)
     {
         public double Right => Left + Width;
         public double Bottom => Top + Height;
@@ -232,7 +233,7 @@ public sealed partial class DomBridge
     /// (inline flow + font metrics), which the estimator cannot model. Returns
     /// <c>false</c> — so the caller falls back to the CSS-property estimator — when
     /// the element produced no usable box, or in the event
-    /// <see cref="UseSharedLayoutGeometry"/> is turned off; it defaults to on, so the
+    /// <see cref="DomBridgeUtils.UseSharedLayoutGeometry"/> is turned off; it defaults to on, so the
     /// real-layout path is what normally answers.
     /// </summary>
     private bool TryGetAnchorLayoutBox(DomElement element, out AnchorInfo box)
@@ -279,31 +280,6 @@ public sealed partial class DomBridge
             if (EstablishesContainingBlock(GetComputedProps(ancestor)))
                 return ancestor;
         return null;
-    }
-    /// <summary>
-    /// Parses the 'margin' shorthand into individual margin values,
-    /// only overwriting values that are still at their defaults (0).
-    /// </summary>
-    private static void ParseMarginShorthand(
-        Dictionary<string, string> props,
-        ref double marginLeft, ref double marginTop, ref double marginRight)
-    {
-        if (marginLeft == 0 && marginTop == 0 && marginRight == 0 &&
-            props.TryGetValue("margin", out var marginShorthand))
-        {
-            var parts = marginShorthand.Trim().Split(null as char[], StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 1)
-                marginTop = TryParsePx(parts[0]) ?? 0;
-            if (parts.Length >= 2)
-            {
-                marginRight = TryParsePx(parts[1]) ?? 0;
-                marginLeft = TryParsePx(parts[1]) ?? 0;
-            }
-            else if (parts.Length == 1)
-                marginLeft = marginRight = marginTop;
-            if (parts.Length >= 4)
-                marginLeft = TryParsePx(parts[3]) ?? 0;
-        }
     }
     /// <summary>
     /// Gets computed CSS properties for an element (CSS rules + inline styles).

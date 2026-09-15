@@ -188,7 +188,7 @@ internal sealed partial class TraversalBinding
                 "InvalidNodeTypeError",
                 $"Failed to execute '{member}' on 'Range': the given Node has no parent.");
 
-        var offset = DomBridge.ChildIndexOf(parent, node) + (after ? 1 : 0);
+        var offset = DomBridgeUtils.ChildIndexOf(parent, node) + (after ? 1 : 0);
         if (start)
             state.SetStart(parent, offset);
         else
@@ -422,7 +422,7 @@ internal sealed partial class TraversalBinding
         if (node.ParentNode is not { } parent)
             return JsValue.True;
 
-        var offset = DomBridge.ChildIndexOf(parent, node);
+        var offset = DomBridgeUtils.ChildIndexOf(parent, node);
         var intersects =
             DomRange.CompareBoundaryPoints(parent, offset, state.EndContainer, state.EndOffset) < 0 &&
             DomRange.CompareBoundaryPoints(parent, offset + 1, state.StartContainer, state.StartOffset) > 0;
@@ -489,9 +489,9 @@ internal sealed partial class TraversalBinding
         // ""), retained for Acid3 Test 11. Every other case delegates to the canonical spec-correct
         // Range stringifier (Broiler.Dom.DomRange.ToString), which the bridge's former CollectRangeText
         // copy shadowed — and shadowed with a bug: it omitted the end-container Text node's head.
-        if (ReferenceEquals(state.StartContainer, state.EndContainer) && DomBridge.IsComment(state.StartContainer))
+        if (ReferenceEquals(state.StartContainer, state.EndContainer) && DomBridgeUtils.IsComment(state.StartContainer))
         {
-            var text = DomBridge.BridgeText(state.StartContainer);
+            var text = DomBridgeUtils.BridgeText(state.StartContainer);
             var s = Math.Max(0, Math.Min(state.StartOffset, text.Length));
             var e = Math.Max(s, Math.Min(state.EndOffset, text.Length));
             return text.Substring(s, e - s);

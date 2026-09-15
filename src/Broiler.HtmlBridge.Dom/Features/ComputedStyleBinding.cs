@@ -55,14 +55,14 @@ internal static class ComputedStyleBinding
             var cssStr = host.Realm.ToJsString(csVal);
             if (!string.IsNullOrEmpty(cssStr))
             {
-                var px = DomBridge.ParseCssLengthToPixels(cssStr);
+                var px = DomBridgeUtils.ParseCssLengthToPixels(cssStr);
                 if (!double.IsNaN(px))
                     return JsValue.Number(px);
             }
         }
 
         // Fallback: HTML attribute
-        if (DomBridge.TryGetAttribute(element, dimName, out var attrVal) && double.TryParse(attrVal, out var attrNum))
+        if (DomBridgeUtils.TryGetAttribute(element, dimName, out var attrVal) && double.TryParse(attrVal, out var attrNum))
             return JsValue.Number(attrNum);
         return JsValue.Number(0);
     }

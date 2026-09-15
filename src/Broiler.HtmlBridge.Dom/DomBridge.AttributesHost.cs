@@ -1,6 +1,7 @@
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Dom.Features;
 using Broiler.Dom;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 

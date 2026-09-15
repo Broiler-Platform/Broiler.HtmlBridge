@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -176,7 +177,7 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// The <c>GlobalEventHandlers</c> reflectors — <c>onclick</c>, <c>onload</c> and the rest of
-    /// <see cref="InlineEventNames"/>.
+    /// <see cref="DomBridgeUtils.InlineEventNames"/>.
     /// </summary>
     private void InstallInlineEventHandlerMembers(JsValue target, Dom.Features.JsElementSource element)
     {

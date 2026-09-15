@@ -131,7 +131,7 @@ internal static class FormAssociationBinding
     {
         // The `form` content attribute wins over ancestry, and names a form by id anywhere in the
         // document — which is the whole point of it: a control rendered outside the form it submits.
-        if (DomBridge.TryGetAttribute(element, "form", out var formId) && !string.IsNullOrEmpty(formId))
+        if (DomBridgeUtils.TryGetAttribute(element, "form", out var formId) && !string.IsNullOrEmpty(formId))
         {
             var named = host.GetElementById(formId);
             return named is not null && string.Equals(named.TagName, "form", StringComparison.OrdinalIgnoreCase)
@@ -139,7 +139,7 @@ internal static class FormAssociationBinding
                 : null;
         }
 
-        for (var ancestor = DomBridge.ParentEl(element); ancestor is not null; ancestor = DomBridge.ParentEl(ancestor))
+        for (var ancestor = DomBridgeUtils.ParentEl(element); ancestor is not null; ancestor = DomBridgeUtils.ParentEl(ancestor))
         {
             if (string.Equals(ancestor.TagName, "form", StringComparison.OrdinalIgnoreCase))
                 return ancestor;
@@ -157,7 +157,7 @@ internal static class FormAssociationBinding
         // An input whose type is hidden is not labelable, and the specified answer is null rather
         // than an empty list — a page can tell "this cannot be labelled" from "this is unlabelled".
         if (string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase) &&
-            DomBridge.TryGetAttribute(element, "type", out var type) &&
+            DomBridgeUtils.TryGetAttribute(element, "type", out var type) &&
             string.Equals(type, "hidden", StringComparison.OrdinalIgnoreCase))
             return JsValue.Null;
 
@@ -176,7 +176,7 @@ internal static class FormAssociationBinding
     /// </remarks>
     private static DomElement? LabeledControl(IFormAssociationHost host, DomElement label)
     {
-        if (DomBridge.TryGetAttribute(label, "for", out var forId))
+        if (DomBridgeUtils.TryGetAttribute(label, "for", out var forId))
         {
             if (string.IsNullOrEmpty(forId))
                 return null;
@@ -205,7 +205,7 @@ internal static class FormAssociationBinding
             return false;
 
         return !string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase) ||
-               !DomBridge.TryGetAttribute(element, "type", out var type) ||
+               !DomBridgeUtils.TryGetAttribute(element, "type", out var type) ||
                !string.Equals(type, "hidden", StringComparison.OrdinalIgnoreCase);
     }
 }

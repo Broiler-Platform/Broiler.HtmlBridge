@@ -1,4 +1,5 @@
 using Broiler.HtmlBridge.Jseal;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 

@@ -92,22 +92,22 @@ internal static class EventTargetBinding
         // Toggle checked state for checkboxes/radio buttons (per HTML spec)
         if (string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase))
         {
-            var inputType = DomBridge.TryGetAttribute(element, "type", out var t) ? t.ToLowerInvariant() : "text";
+            var inputType = DomBridgeUtils.TryGetAttribute(element, "type", out var t) ? t.ToLowerInvariant() : "text";
             if (inputType == "checkbox")
             {
                 var checkedState = host.FormControlStateFor(element).Checked;
-                bool wasChecked = checkedState.TryGet(out var cv) && cv is true || (!checkedState.IsSet && DomBridge.HasAttr(element, "checked"));
+                bool wasChecked = checkedState.TryGet(out var cv) && cv is true || (!checkedState.IsSet && DomBridgeUtils.HasAttr(element, "checked"));
                 checkedState.Set(!wasChecked);
             }
             else if (inputType == "radio")
             {
                 host.FormControlStateFor(element).Checked.Set(true);
                 // Radio mutual exclusion
-                if (DomBridge.TryGetAttribute(element, "name", out var radioName) && !string.IsNullOrEmpty(radioName))
+                if (DomBridgeUtils.TryGetAttribute(element, "name", out var radioName) && !string.IsNullOrEmpty(radioName))
                 {
                     var scope = element;
-                    while (DomBridge.ParentEl(scope) != null)
-                        scope = DomBridge.ParentEl(scope);
+                    while (DomBridgeUtils.ParentEl(scope) != null)
+                        scope = DomBridgeUtils.ParentEl(scope);
                     host.UncheckRadioSiblings(scope, element, radioName);
                 }
             }
@@ -131,16 +131,16 @@ internal static class EventTargetBinding
         if (string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase) || string.Equals(element.TagName, "button", StringComparison.OrdinalIgnoreCase))
         {
             var btnType = "text";
-            if (DomBridge.TryGetAttribute(element, "type", out var bt))
+            if (DomBridgeUtils.TryGetAttribute(element, "type", out var bt))
                 btnType = bt.ToLowerInvariant();
             else if (string.Equals(element.TagName, "button", StringComparison.OrdinalIgnoreCase))
                 btnType = "submit"; // <button> defaults to type="submit" per HTML spec
             if (btnType == "submit")
             {
                 // Walk up the DOM tree to find the parent <form>
-                var form = DomBridge.ParentEl(element);
+                var form = DomBridgeUtils.ParentEl(element);
                 while (form != null && !string.Equals(form.TagName, "form", StringComparison.OrdinalIgnoreCase))
-                    form = DomBridge.ParentEl(form);
+                    form = DomBridgeUtils.ParentEl(form);
                 if (form != null)
                 {
                     // Dispatch a submit event on the form

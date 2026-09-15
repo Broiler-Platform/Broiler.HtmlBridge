@@ -34,7 +34,7 @@ internal static partial class StyleDeclarationBinding
         host.ClearInlineStylePropsSetByJs(element);
         if (call.Length > 0)
         {
-            foreach (var kv in DomBridge.ParseStyle(call.Realm.ToJsString(call[0]), reportDrops: true))
+            foreach (var kv in DomBridgeUtils.ParseStyle(call.Realm.ToJsString(call[0]), reportDrops: true))
             {
                 host.InlineStyle(element)[kv.Key] = kv.Value;
                 host.MarkInlineStylePropSetByJs(element, kv.Key);
@@ -57,7 +57,7 @@ internal static partial class StyleDeclarationBinding
     {
         host.InlineStyle(element).Clear();
         host.ClearInlineStylePropsSetByJs(element);
-        foreach (var kv in DomBridge.ParseStyle(cssText, reportDrops: true))
+        foreach (var kv in DomBridgeUtils.ParseStyle(cssText, reportDrops: true))
         {
             host.InlineStyle(element)[kv.Key] = kv.Value;
             host.MarkInlineStylePropSetByJs(element, kv.Key);
@@ -79,7 +79,7 @@ internal static partial class StyleDeclarationBinding
                 host.InlineStyle(element).Remove(prop);
                 host.UnmarkInlineStylePropSetByJs(element, prop);
             }
-            else if (DomBridge.IsAcceptableInlineValue(prop, value))
+            else if (DomBridgeUtils.IsAcceptableInlineValue(prop, value))
             {
                 host.InlineStyle(element)[prop] = value;
                 host.MarkInlineStylePropSetByJs(element, prop);
@@ -159,7 +159,7 @@ internal static partial class StyleDeclarationBinding
         if (call.Length > 0)
         {
             var val = call.Realm.ToJsString(call[0]);
-            if (string.IsNullOrEmpty(val) || DomBridge.IsAcceptableInlineValue("float", val))
+            if (string.IsNullOrEmpty(val) || DomBridgeUtils.IsAcceptableInlineValue("float", val))
                 host.InlineStyle(element)["float"] = val;
         }
         onMutation?.Invoke();
@@ -203,7 +203,7 @@ internal static partial class StyleDeclarationBinding
         styleMap.Clear();
         if (call.Length > 0)
         {
-            foreach (var kv in DomBridge.ParseStyle(call.Realm.ToJsString(call[0])))
+            foreach (var kv in DomBridgeUtils.ParseStyle(call.Realm.ToJsString(call[0])))
                 styleMap[kv.Key] = kv.Value;
         }
 
@@ -220,7 +220,7 @@ internal static partial class StyleDeclarationBinding
                 call.Length >= 3 ? call.Realm.ToJsString(call[2]) : string.Empty);
             if (string.IsNullOrEmpty(value))
                 styleMap.Remove(prop);
-            else if (DomBridge.IsAcceptableInlineValue(prop, value))
+            else if (DomBridgeUtils.IsAcceptableInlineValue(prop, value))
                 styleMap[prop] = value;
             // setProperty with an invalid value is a no-op per CSSOM.
         }
@@ -272,7 +272,7 @@ internal static partial class StyleDeclarationBinding
         if (call.Length > 0)
         {
             var val = call.Realm.ToJsString(call[0]);
-            if (string.IsNullOrEmpty(val) || DomBridge.IsAcceptableInlineValue("float", val))
+            if (string.IsNullOrEmpty(val) || DomBridgeUtils.IsAcceptableInlineValue("float", val))
                 styleMap["float"] = val;
         }
         return JsValue.Undefined;

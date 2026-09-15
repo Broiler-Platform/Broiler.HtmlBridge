@@ -72,20 +72,20 @@ internal sealed partial class SubDocumentBinding
         var subHtml = _host.CreateElement("html");
         subDocRoot.AppendChild(subHtml);
         var subHead = _host.CreateElement("head");
-        DomBridge.SetParent(subHead, subHtml);
+        DomBridgeUtils.SetParent(subHead, subHtml);
         subHtml.AppendChild(subHead);
         if (subTitle != null)
         {
             var subTitleEl = _host.CreateElement("title");
-            DomBridge.SetParent(subTitleEl, subHead);
+            DomBridgeUtils.SetParent(subTitleEl, subHead);
             subHead.AppendChild(subTitleEl);
             var subTitleText = _host.CreateTextNode(subTitle);
-            DomBridge.SetParent(subTitleText, subTitleEl);
+            DomBridgeUtils.SetParent(subTitleText, subTitleEl);
             subTitleEl.AppendChild(subTitleText);
         }
 
         var subBody = _host.CreateElement("body");
-        DomBridge.SetParent(subBody, subHtml);
+        DomBridgeUtils.SetParent(subBody, subHtml);
         subHtml.AppendChild(subBody);
         return Build(subDocRoot);
     }

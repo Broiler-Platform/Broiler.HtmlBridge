@@ -3,13 +3,13 @@ using Broiler.CSS;
 
 namespace Broiler.HtmlBridge;
 
-public sealed partial class DomBridge
+public static partial class DomBridgeUtils
 {
     // -----------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------
 
-    private static double? TryParsePx(string? value)
+    internal static double? TryParsePx(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
         var v = value!.Trim();
@@ -25,7 +25,7 @@ public sealed partial class DomBridge
     /// Tries to parse a CSS percentage value (e.g. "50%") and returns
     /// the numeric value (e.g. 50.0).
     /// </summary>
-    private static double? TryParsePercent(string? value)
+    internal static double? TryParsePercent(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
         var v = value!.Trim();
@@ -41,7 +41,7 @@ public sealed partial class DomBridge
     /// Percentages are resolved against <paramref name="reference"/>.
     /// Returns 0 for values that cannot be parsed.
     /// </summary>
-    private static double ResolvePctOrPx(string value, double reference)
+    internal static double ResolvePctOrPx(string value, double reference)
     {
         var pct = TryParsePercent(value);
         if (pct.HasValue)
@@ -52,6 +52,6 @@ public sealed partial class DomBridge
     /// <summary>
     /// Returns true if the value contains a CSS percentage token.
     /// </summary>
-    private static bool HasPercent(string? value) => value != null && value.Contains('%');
+    internal static bool HasPercent(string? value) => value != null && value.Contains('%');
 
 }

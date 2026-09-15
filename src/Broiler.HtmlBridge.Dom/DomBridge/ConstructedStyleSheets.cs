@@ -8,6 +8,7 @@ using Broiler.HtmlBridge.Jseal;
 // GetArrayElements does — holes included, byte for byte. See the adapter at the foot of this file.
 using Broiler.JavaScript.BuiltIns.Array;
 using Broiler.JavaScript.Runtime;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 

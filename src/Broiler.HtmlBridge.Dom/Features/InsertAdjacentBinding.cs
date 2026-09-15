@@ -86,9 +86,9 @@ internal static class InsertAdjacentBinding
         {
             case "beforebegin":
             case "afterend":
-                if (DomBridge.ParentEl(element) == null)
+                if (DomBridgeUtils.ParentEl(element) == null)
                     throw realm.DomError("NoModificationAllowedError", "Cannot insert adjacent HTML without a parent node.");
-                parsingContext = DomBridge.ParentEl(element)!;
+                parsingContext = DomBridgeUtils.ParentEl(element)!;
                 break;
             default:
                 parsingContext = element;
@@ -122,17 +122,17 @@ internal static class InsertAdjacentBinding
         switch (position)
         {
             case "beforebegin":
-                if (DomBridge.ParentEl(element) == null)
+                if (DomBridgeUtils.ParentEl(element) == null)
                     throw realm.DomError("NoModificationAllowedError", "Cannot insert adjacent content without a parent node.");
-                return (DomBridge.ParentEl(element)!, DomBridge.ChildIndexOf(DomBridge.ParentEl(element)!, element));
+                return (DomBridgeUtils.ParentEl(element)!, DomBridgeUtils.ChildIndexOf(DomBridgeUtils.ParentEl(element)!, element));
             case "afterbegin":
                 return (element, 0);
             case "beforeend":
                 return (element, element.ChildNodes.Count);
             case "afterend":
-                if (DomBridge.ParentEl(element) == null)
+                if (DomBridgeUtils.ParentEl(element) == null)
                     throw realm.DomError("NoModificationAllowedError", "Cannot insert adjacent content without a parent node.");
-                return (DomBridge.ParentEl(element)!, DomBridge.ChildIndexOf(DomBridge.ParentEl(element)!, element) + 1);
+                return (DomBridgeUtils.ParentEl(element)!, DomBridgeUtils.ChildIndexOf(DomBridgeUtils.ParentEl(element)!, element) + 1);
             default:
                 throw realm.DomError("SyntaxError", $"'{position}' is not a valid insertion position.");
         }

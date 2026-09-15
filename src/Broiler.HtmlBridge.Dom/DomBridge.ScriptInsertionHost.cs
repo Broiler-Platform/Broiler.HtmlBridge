@@ -3,6 +3,7 @@ using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 

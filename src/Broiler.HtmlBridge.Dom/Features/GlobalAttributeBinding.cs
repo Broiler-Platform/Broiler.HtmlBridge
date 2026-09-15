@@ -79,7 +79,7 @@ internal static class GlobalAttributeBinding
     {
         var val = StringArgument(in call);
         element.Id = val;
-        DomBridge.SetAttr(element, "id", val);
+        DomBridgeUtils.SetAttr(element, "id", val);
         host.InvalidateStyleScope(element);
         return JsValue.Undefined;
     }
@@ -89,7 +89,7 @@ internal static class GlobalAttributeBinding
         // Prefer Attributes['class'] (synced by setAttribute and className setter).
         // Fall back to element.ClassName for elements created with a class in the constructor
         // but not yet synced to Attributes (e.g. parsed HTML elements).
-        if (DomBridge.TryGetAttribute(element, "class", out var cls))
+        if (DomBridgeUtils.TryGetAttribute(element, "class", out var cls))
             return JsValue.String(cls);
         return element.ClassName != null ? JsValue.String(element.ClassName) : JsValue.String(string.Empty);
     }
@@ -98,39 +98,39 @@ internal static class GlobalAttributeBinding
     {
         var val = StringArgument(in call);
         element.ClassName = val;
-        DomBridge.SetAttr(element, "class", val);
+        DomBridgeUtils.SetAttr(element, "class", val);
         host.InvalidateStyleScope(element);
         return JsValue.Undefined;
     }
 
     private static JsValue SetDir(IGlobalAttributeHost host, DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "dir", StringArgument(in call));
+        DomBridgeUtils.SetAttr(element, "dir", StringArgument(in call));
         host.InvalidateStyleScope(element);
         return JsValue.Undefined;
     }
 
     private static JsValue GetDraggable(DomElement element)
     {
-        if (DomBridge.TryGetAttribute(element, "draggable", out var draggable))
+        if (DomBridgeUtils.TryGetAttribute(element, "draggable", out var draggable))
             return JsValue.Boolean(string.Equals(draggable, "true", StringComparison.OrdinalIgnoreCase));
         return JsValue.False;
     }
 
     private static JsValue SetDraggable(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "draggable", call.Length > 0 && call[0].AsBoolean ? "true" : "false");
+        DomBridgeUtils.SetAttr(element, "draggable", call.Length > 0 && call[0].AsBoolean ? "true" : "false");
         return JsValue.Undefined;
     }
 
     // Plain reflected string getter (default empty), shared by title/lang/accessKey.
     private static JsValue ReflectedGet(DomElement element, string attribute)
-        => DomBridge.TryGetAttribute(element, attribute, out var v) ? JsValue.String(v) : JsValue.String(string.Empty);
+        => DomBridgeUtils.TryGetAttribute(element, attribute, out var v) ? JsValue.String(v) : JsValue.String(string.Empty);
 
     // Plain reflected string setter (default empty), shared by title/lang/accessKey.
     private static JsValue ReflectedSet(DomElement element, string attribute, in JsCall call)
     {
-        DomBridge.SetAttr(element, attribute, StringArgument(in call));
+        DomBridgeUtils.SetAttr(element, attribute, StringArgument(in call));
         return JsValue.Undefined;
     }
 

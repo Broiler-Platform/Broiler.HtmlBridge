@@ -47,16 +47,16 @@ internal static class IframeElementBinding
 
         // src property (read/write) — for iframe elements
         realm.DefineAccessor(obj, "src",
-            (in _) => JsValue.String(DomBridge.TryGetAttribute(element, "src", out var s) ? s : string.Empty),
+            (in _) => JsValue.String(DomBridgeUtils.TryGetAttribute(element, "src", out var s) ? s : string.Empty),
             (in call) => SetFrameAttribute(host, element, "src", in call));
 
         realm.DefineAccessor(obj, "srcdoc",
-            (in _) => JsValue.String(DomBridge.TryGetAttribute(element, "srcdoc", out var s) ? s : string.Empty),
+            (in _) => JsValue.String(DomBridgeUtils.TryGetAttribute(element, "srcdoc", out var s) ? s : string.Empty),
             (in call) => SetFrameAttribute(host, element, "srcdoc", in call));
 
         // sandbox attribute access
         realm.DefineAccessor(obj, "sandbox",
-            (in _) => JsValue.String(DomBridge.TryGetAttribute(element, "sandbox", out var sandbox) ? sandbox : string.Empty),
+            (in _) => JsValue.String(DomBridgeUtils.TryGetAttribute(element, "sandbox", out var sandbox) ? sandbox : string.Empty),
             null);
     }
 
@@ -83,7 +83,7 @@ internal static class IframeElementBinding
     {
         // The realm's ToString, not the handle's: `frame.src = url` is the observable ECMAScript
         // coercion, and a page assigning a URL object or a template literal wrapper depends on it.
-        DomBridge.SetAttr(element, attribute, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+        DomBridgeUtils.SetAttr(element, attribute, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         // Invalidate cached sub-document when the frame source changes
         host.InvalidateCachedSubDocument(element);
         host.ClearOnloadFired(element);

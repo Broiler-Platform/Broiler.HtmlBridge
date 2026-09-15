@@ -155,7 +155,7 @@ internal static class SvgElementBinding
     private static JsValue BuildAnimatedLength(IJsRealm realm, string attrName, DomElement element)
     {
         var animLength = realm.NewObject();
-        var valueStr = DomBridge.TryGetAttribute(element, attrName, out var v) ? v : "0";
+        var valueStr = DomBridgeUtils.TryGetAttribute(element, attrName, out var v) ? v : "0";
         double.TryParse(valueStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var numVal);
         var baseVal = CreateSvgLengthValue(realm, numVal);
         var animVal = CreateSvgLengthValue(realm, numVal);
@@ -170,7 +170,7 @@ internal static class SvgElementBinding
         var animRect = realm.NewObject();
         var baseRect = realm.NewObject();
         double vbX = 0, vbY = 0, vbW = 0, vbH = 0;
-        if (DomBridge.TryGetAttribute(element, "viewBox", out var vb) && !string.IsNullOrWhiteSpace(vb))
+        if (DomBridgeUtils.TryGetAttribute(element, "viewBox", out var vb) && !string.IsNullOrWhiteSpace(vb))
         {
             var parts = vb.Split([' ', ','], StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length >= 4)
@@ -194,14 +194,14 @@ internal static class SvgElementBinding
     private static JsValue GetNumberOfChars(DomElement element)
     {
         var sb = new StringBuilder();
-        DomBridge.CollectTextContent(element, sb);
+        DomBridgeUtils.CollectTextContent(element, sb);
         return JsValue.Number(sb.Length);
     }
 
     private static JsValue GetComputedTextLength(DomElement element)
     {
         var sb = new StringBuilder();
-        DomBridge.CollectTextContent(element, sb);
+        DomBridgeUtils.CollectTextContent(element, sb);
         // Stub: estimate using font-size * character count * 0.6 average advance ratio
         var fontSize = ReadFontSize(element);
         return JsValue.Number(sb.Length * fontSize * 0.6);
@@ -210,7 +210,7 @@ internal static class SvgElementBinding
     private static JsValue GetSubStringLength(DomElement element, in JsCall call)
     {
         var sb = new StringBuilder();
-        DomBridge.CollectTextContent(element, sb);
+        DomBridgeUtils.CollectTextContent(element, sb);
         // The realm's ToNumber, not the handle's: the engine's DoubleValue on an argument *was* the
         // ECMAScript coercion, so `getSubStringLength("1", "2")` has always counted from character 1,
         // and an argument object's valueOf has always been allowed to run here.
@@ -227,7 +227,7 @@ internal static class SvgElementBinding
     private static JsValue GetStartPositionOfChar(DomElement element, in JsCall call)
     {
         var sb = new StringBuilder();
-        DomBridge.CollectTextContent(element, sb);
+        DomBridgeUtils.CollectTextContent(element, sb);
         var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         if (charnum < 0 || charnum >= sb.Length)
             throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
@@ -242,7 +242,7 @@ internal static class SvgElementBinding
     private static JsValue GetEndPositionOfChar(DomElement element, in JsCall call)
     {
         var sb = new StringBuilder();
-        DomBridge.CollectTextContent(element, sb);
+        DomBridgeUtils.CollectTextContent(element, sb);
         var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         if (charnum < 0 || charnum >= sb.Length)
             throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
@@ -257,7 +257,7 @@ internal static class SvgElementBinding
     private static JsValue GetRotationOfChar(DomElement element, in JsCall call)
     {
         var sb = new StringBuilder();
-        DomBridge.CollectTextContent(element, sb);
+        DomBridgeUtils.CollectTextContent(element, sb);
         var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         if (charnum < 0 || charnum >= sb.Length)
             throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
@@ -276,7 +276,7 @@ internal static class SvgElementBinding
     private static double ReadFontSize(DomElement element)
     {
         double fontSize = 16;
-        if (DomBridge.TryGetAttribute(element, "font-size", out var fs))
+        if (DomBridgeUtils.TryGetAttribute(element, "font-size", out var fs))
         {
             var fsClean = fs.Replace("px", "").Replace("pt", "").Trim();
             double.TryParse(fsClean, NumberStyles.Any, CultureInfo.InvariantCulture, out fontSize);

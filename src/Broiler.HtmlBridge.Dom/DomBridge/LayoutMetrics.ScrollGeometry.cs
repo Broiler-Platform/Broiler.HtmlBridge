@@ -4,6 +4,7 @@ using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 using Broiler.CSS;
 using System.Globalization;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -125,18 +126,11 @@ public sealed partial class DomBridge
         return false;
     }
 
-    private static bool IsDocumentElement(DomElement element) =>
-        string.Equals(element.TagName, "html", StringComparison.OrdinalIgnoreCase);
-
     private bool IsViewportElementForMetrics(DomElement element)
     {
         var documentElement = GetOwningDocumentElement(element);
         return IsDocumentElement(element) || IsViewportBodyElement(element, documentElement);
     }
-
-    private static bool IsViewportBodyElement(DomElement element, DomElement documentElement) =>
-        string.Equals(element.TagName, "body", StringComparison.OrdinalIgnoreCase) &&
-        ReferenceEquals(ParentEl(element), documentElement);
 
     private DomElement GetOwningDocumentElement(DomElement element)
     {
@@ -264,16 +258,6 @@ public sealed partial class DomBridge
                 return current;
         }
         return null;
-    }
-
-    private static bool IsDomDescendantOrSelf(DomElement node, DomElement potentialAncestor)
-    {
-        for (var current = node; current != null; current = ParentEl(current))
-        {
-            if (ReferenceEquals(current, potentialAncestor))
-                return true;
-        }
-        return false;
     }
 
     /// <summary>
@@ -466,37 +450,6 @@ public sealed partial class DomBridge
             value = ResolveScrollInsetFromShorthand(props, propertyName);
 
         return (ParseCssLengthToPixelsWithViewport(value, element, percentageBasis: percentageBasis), element);
-    }
-
-    /// <summary>
-    /// Picks the side named by <paramref name="longhandName"/> out of the matching
-    /// <c>scroll-margin</c>/<c>scroll-padding</c> box shorthand in <paramref name="props"/>,
-    /// or null when the shorthand is absent. Logical (<c>-block</c>/<c>-inline</c>) shorthands
-    /// are not consulted — only the physical four-side form.
-    /// </summary>
-    private static string? ResolveScrollInsetFromShorthand(
-        Dictionary<string, string> props, string longhandName)
-    {
-        var lastDash = longhandName.LastIndexOf('-');
-        if (lastDash <= 0)
-            return null;
-
-        var shorthandName = longhandName[..lastDash];
-        var side = longhandName[(lastDash + 1)..];
-        var shorthand = props.GetValueOrDefault(shorthandName);
-        if (string.IsNullOrWhiteSpace(shorthand))
-            return null;
-
-        var parts = shorthand.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        var (top, right, bottom, left) = CssBoxShorthand.SelectTrbl(parts);
-        return side switch
-        {
-            "top" => top,
-            "right" => right,
-            "bottom" => bottom,
-            "left" => left,
-            _ => null,
-        };
     }
 
     private double ConvertInsetToScrollContainerCoordinates(double inset, DomElement insetOwner, DomElement scrollContainer)

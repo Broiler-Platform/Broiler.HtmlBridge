@@ -1,9 +1,8 @@
-using System.Text;
-using System.Text.RegularExpressions;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 using Broiler.CSS;
 using System.Globalization;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -15,29 +14,6 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 public sealed partial class DomBridge
 {
-    private static bool IsSvgShapeElement(DomElement element)
-    {
-        var tag = element.TagName;
-        return string.Equals(tag, "rect", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:rect", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "image", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:image", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "foreignobject", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:foreignobject", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsSvgViewportElement(DomElement element)
-    {
-        var tag = element.TagName;
-        return string.Equals(tag, "svg", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:svg", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsSvgElement(DomElement element) =>
-        string.Equals(element.NamespaceUri, "http://www.w3.org/2000/svg", StringComparison.OrdinalIgnoreCase) ||
-        IsSvgViewportElement(element) ||
-        IsSvgShapeElement(element);
-
     private double GetUsedZoomForElement(DomElement element)
     {
         var props = GetComputedProps(element);
@@ -71,24 +47,6 @@ public sealed partial class DomBridge
         return TryGetAttribute(element, "transform", out var attributeTransform)
             ? attributeTransform
             : null;
-    }
-
-    private static bool IsSvgGroupElement(DomElement element)
-    {
-        var tag = element.TagName;
-        return string.Equals(tag, "g", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:g", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsSvgTextContentElement(DomElement element)
-    {
-        var tag = element.TagName;
-        return string.Equals(tag, "text", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:text", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "tspan", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:tspan", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "textpath", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:textpath", StringComparison.OrdinalIgnoreCase);
     }
 
     private bool TryGetSvgChildrenUnionRect(DomElement element,
@@ -181,19 +139,6 @@ public sealed partial class DomBridge
         return true;
     }
 
-    private static string GetDirectTextContent(DomElement element)
-    {
-        // RF-BRIDGE-1c Phase F (F3c part 2d): a node's direct text is its text-node children.
-        var sb = new StringBuilder();
-        foreach (var child in element.ChildNodes)
-        {
-            if (IsText(child) && !string.IsNullOrWhiteSpace(BridgeText(child)))
-                sb.Append(BridgeText(child));
-        }
-
-        return sb.ToString();
-    }
-
     private double ResolveSvgTextCoordinate(DomElement element, string attributeName)
     {
         for (var current = element; current != null; current = ParentEl(current))
@@ -235,10 +180,6 @@ public sealed partial class DomBridge
         return 0;
     }
 
-    private static bool HasOwnSvgCoordinate(DomElement element, string attributeName) =>
-        TryGetAttribute(element, attributeName, out var rawValue) &&
-        !string.IsNullOrWhiteSpace(rawValue);
-
     private bool TryResolveSvgTextPathStart(DomElement element, out (double X, double Y) point)
     {
         point = default;
@@ -277,24 +218,6 @@ public sealed partial class DomBridge
         return true;
     }
 
-    private static bool IsSvgTextPathElement(DomElement element)
-    {
-        var tag = element.TagName;
-        return string.Equals(tag, "textpath", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:textpath", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static DomElement? FindNearestSvgViewportAncestor(DomElement element)
-    {
-        for (var current = ParentEl(element); current != null; current = ParentEl(current))
-        {
-            if (IsSvgViewportElement(current))
-                return current;
-        }
-
-        return null;
-    }
-
     private double GetBorderBoxWidth(Dictionary<string, string> props, DomElement? element = null)
     {
         var containingBlockWidth = element != null ? ResolveContainingBlockReferenceLength(element, vertical: false) : (double?)null;
@@ -316,10 +239,6 @@ public sealed partial class DomBridge
              + ParseCssLengthToPixelsWithViewport(props.GetValueOrDefault("border-bottom-width"), element);
     }
 
-
     // CreateSvgLengthValue moved to the SvgElementBinding feature module (Phase 3 P3.50) — its only
     // consumer (the SVGAnimatedLength stub) moved there too.
-
-    [GeneratedRegex(@"[Mm]\s*(?<x>[-+]?[0-9]*\.?[0-9]+)(?:[\s,]+(?<y>[-+]?[0-9]*\.?[0-9]+))", RegexOptions.CultureInvariant)]
-    private static partial System.Text.RegularExpressions.Regex TryResolveSvgTextPathStartRegex();
 }

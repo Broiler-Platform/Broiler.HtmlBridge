@@ -1,6 +1,7 @@
 using Broiler.HtmlBridge.Logging;
 using Broiler.Dom;
 using Broiler.Dom.Html;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 

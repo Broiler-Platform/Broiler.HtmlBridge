@@ -82,11 +82,11 @@ internal sealed class AttributesBinding(IAttributesHost host)
             () =>
             {
                 var attributes = new List<JsValue>();
-                foreach (var name in DomBridge.AttributeNames(element))
+                foreach (var name in DomBridgeUtils.AttributeNames(element))
                     attributes.Add(AttrNodeFor(element, name, owner));
                 return attributes;
             },
-            name => DomBridge.HasAttr(element, name) ? AttrNodeFor(element, name, owner) : null,
+            name => DomBridgeUtils.HasAttr(element, name) ? AttrNodeFor(element, name, owner) : null,
             new DomCollectionBinding.NamedNodeMapOperations
             {
                 GetNamedItem = (in call) => GetNamedItem(element, owner, in call),
@@ -156,7 +156,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
             return;
 
         byName.Remove(name);
-        DomBridge.TryGetAttribute(element, name, out var lastValue);
+        DomBridgeUtils.TryGetAttribute(element, name, out var lastValue);
         var realm = _host.Realm;
         realm.DefineValue(attr, "ownerElement", JsValue.Null);
         realm.DefineValue(attr, "value", JsValue.String(lastValue ?? string.Empty));
@@ -183,7 +183,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
     /// </remarks>
     private JsValue ReplacedAttrNode(DomElement element, string name, JsValue incoming, JsValue ownerObj)
     {
-        if (!DomBridge.TryGetAttribute(element, name, out _))
+        if (!DomBridgeUtils.TryGetAttribute(element, name, out _))
             return JsValue.Null;
 
         var existing = AttrNodeFor(element, name, ownerObj);
@@ -205,7 +205,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length == 0)
             return JsValue.Null;
         var name = call.Realm.ToJsString(call[0]);
-        if (!DomBridge.TryGetAttribute(element, name, out var val))
+        if (!DomBridgeUtils.TryGetAttribute(element, name, out var val))
             return JsValue.Null;
         return BuildAttrNode(name, val, element, ownerObj);
     }
@@ -216,7 +216,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
             return JsValue.Null;
         var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
         var localName = call.Realm.ToJsString(call[1]);
-        if (!DomBridge.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
+        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
             return JsValue.Null;
         return BuildAttrNode(qName, val, element, ownerObj);
     }
@@ -255,7 +255,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
             return JsValue.Null;
         var ns = GetAttrNodeNamespace(incoming);
         var value = AttrNodeValue(incoming);
-        var old = DomBridge.TryGetNsAttribute(element, ns, localName, out var oldQName, out _)
+        var old = DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var oldQName, out _)
             ? ReplacedAttrNode(element, oldQName, incoming, ownerObj)
             : JsValue.Null;
         SetAttributeLikeSetAttributeNS(element, ns, name, localName, value);
@@ -267,7 +267,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length == 0)
             return JsValue.Null;
         var name = call.Realm.ToJsString(call[0]);
-        if (!DomBridge.TryGetAttribute(element, name, out var val))
+        if (!DomBridgeUtils.TryGetAttribute(element, name, out var val))
             return JsValue.Null;
         var removed = BuildAttrNode(name, val, element, ownerObj);
         RemoveAttributeLikeRemoveAttribute(element, name);
@@ -280,7 +280,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
             return JsValue.Null;
         var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
         var localName = call.Realm.ToJsString(call[1]);
-        if (!DomBridge.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
+        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
             return JsValue.Null;
         var removed = BuildAttrNode(qName, val, element, ownerObj);
         RemoveAttributeLikeRemoveAttributeNS(element, ns, localName);
@@ -324,7 +324,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
             : null;
 
         JsValue ReadValue() =>
-            JsValue.String(DomBridge.TryGetAttribute(element, name, out var current) ? current : string.Empty);
+            JsValue.String(DomBridgeUtils.TryGetAttribute(element, name, out var current) ? current : string.Empty);
 
         JsValue WriteValue(in JsCall call)
         {
@@ -460,8 +460,8 @@ internal sealed class AttributesBinding(IAttributesHost host)
 
     internal void SetAttributeLikeSetAttribute(DomElement element, string attrName, string attrVal)
     {
-        DomBridge.TryGetAttribute(element, attrName, out var previousAttrVal);
-        DomBridge.SetAttr(element, attrName, attrVal);
+        DomBridgeUtils.TryGetAttribute(element, attrName, out var previousAttrVal);
+        DomBridgeUtils.SetAttr(element, attrName, attrVal);
         if (string.Equals(attrName, "id", StringComparison.OrdinalIgnoreCase))
             element.Id = attrVal;
         else if (string.Equals(attrName, "class", StringComparison.OrdinalIgnoreCase))
@@ -484,10 +484,10 @@ internal sealed class AttributesBinding(IAttributesHost host)
 
     internal void RemoveAttributeLikeRemoveAttribute(DomElement element, string attrName)
     {
-        DomBridge.TryGetAttribute(element, attrName, out var previousAttrVal);
+        DomBridgeUtils.TryGetAttribute(element, attrName, out var previousAttrVal);
         // Before the removal, so the wrapper can keep the value it had.
         DetachAttrNode(element, attrName);
-        var removed = DomBridge.RemoveAttr(element, attrName);
+        var removed = DomBridgeUtils.RemoveAttr(element, attrName);
         if (string.Equals(attrName, "id", StringComparison.OrdinalIgnoreCase))
             element.Id = null;
         else if (string.Equals(attrName, "class", StringComparison.OrdinalIgnoreCase))
@@ -501,18 +501,18 @@ internal sealed class AttributesBinding(IAttributesHost host)
     internal void SetAttributeLikeSetAttributeNS(DomElement element, string? namespaceUri, string attrName, string localName, string attrVal)
     {
         string? previousAttrVal = null;
-        if (DomBridge.TryGetNsAttribute(element, namespaceUri, localName, out var previousQualifiedName, out var existingAttrVal))
+        if (DomBridgeUtils.TryGetNsAttribute(element, namespaceUri, localName, out var previousQualifiedName, out var existingAttrVal))
         {
             previousAttrVal = existingAttrVal;
             // A prefix change keeps the same (namespace, localName) canonical key, so the
             // SetAttributeNS below replaces the old-prefix attribute in place. The explicit
             // remove keeps the canonical mutation-record sequence identical to the shadow-map era.
             if (!string.Equals(previousQualifiedName, attrName, StringComparison.OrdinalIgnoreCase))
-                DomBridge.RemoveAttr(element, previousQualifiedName);
+                DomBridgeUtils.RemoveAttr(element, previousQualifiedName);
         }
         else
         {
-            DomBridge.TryGetAttribute(element, attrName, out previousAttrVal);
+            DomBridgeUtils.TryGetAttribute(element, attrName, out previousAttrVal);
         }
 
         element.SetAttributeNS(namespaceUri, attrName, attrVal);
@@ -538,11 +538,11 @@ internal sealed class AttributesBinding(IAttributesHost host)
 
     internal void RemoveAttributeLikeRemoveAttributeNS(DomElement element, string? namespaceUri, string localName)
     {
-        if (!DomBridge.TryGetNsAttribute(element, namespaceUri, localName, out var attrName, out var previousAttrVal))
+        if (!DomBridgeUtils.TryGetNsAttribute(element, namespaceUri, localName, out var attrName, out var previousAttrVal))
             return;
 
         DetachAttrNode(element, attrName);
-        var removed = DomBridge.RemoveAttr(element, attrName);
+        var removed = DomBridgeUtils.RemoveAttr(element, attrName);
         if (string.Equals(attrName, "id", StringComparison.OrdinalIgnoreCase))
             element.Id = null;
         else if (string.Equals(attrName, "class", StringComparison.OrdinalIgnoreCase))
@@ -566,7 +566,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length == 0)
             return JsValue.Null;
         var name = call.Realm.ToJsString(call[0]);
-        return DomBridge.TryGetAttribute(element, name, out var val) ? JsValue.String(val) : JsValue.Null;
+        return DomBridgeUtils.TryGetAttribute(element, name, out var val) ? JsValue.String(val) : JsValue.Null;
     }
 
     /// <summary>
@@ -585,7 +585,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length >= 2)
         {
             var name = call.Realm.ToJsString(call[0]);
-            DomBridge.ValidateAttributeName(name, call.Realm);
+            DomBridgeUtils.ValidateAttributeName(name, call.Realm);
             SetAttributeLikeSetAttribute(element, name, call.Realm.ToJsString(call[1]));
         }
 
@@ -597,7 +597,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length == 0)
             return JsValue.Null;
         var name = call.Realm.ToJsString(call[0]);
-        return DomBridge.TryGetAttribute(element, name, out var val)
+        return DomBridgeUtils.TryGetAttribute(element, name, out var val)
             ? BuildAttrNode(name, val, element, ownerObj)
             : JsValue.Null;
     }
@@ -608,7 +608,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
             return JsValue.Null;
         var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
         var localName = call.Realm.ToJsString(call[1]);
-        if (!DomBridge.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
+        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
             return JsValue.Null;
         return BuildAttrNode(qName, val, element, ownerObj);
     }
@@ -617,7 +617,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
     {
         if (call.Length == 0)
             return JsValue.False;
-        return JsValue.Boolean(DomBridge.HasAttr(element, call.Realm.ToJsString(call[0])));
+        return JsValue.Boolean(DomBridgeUtils.HasAttr(element, call.Realm.ToJsString(call[0])));
     }
 
     internal JsValue RemoveAttribute(DomElement element, in JsCall call)
@@ -639,8 +639,8 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length == 0)
             return JsValue.False;
         var attrName = call.Realm.ToJsString(call[0]);
-        DomBridge.ValidateAttributeName(attrName, call.Realm);
-        var hasAttribute = DomBridge.HasAttr(element, attrName);
+        DomBridgeUtils.ValidateAttributeName(attrName, call.Realm);
+        var hasAttribute = DomBridgeUtils.HasAttr(element, attrName);
         var forceSpecified = call.Length > 1 && !call[1].IsUndefined;
         var shouldHaveAttribute = forceSpecified ? call[1].AsBoolean : !hasAttribute;
         if (shouldHaveAttribute)
@@ -685,7 +685,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(localName))
             return JsValue.Null;
         var ns = GetAttrNodeNamespace(incoming);
-        var old = DomBridge.TryGetNsAttribute(element, ns, localName, out var oldQName, out _)
+        var old = DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var oldQName, out _)
             ? ReplacedAttrNode(element, oldQName, incoming, ownerObj)
             : JsValue.Null;
         SetAttributeLikeSetAttributeNS(element, ns, name, localName, AttrNodeValue(incoming));
@@ -697,7 +697,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (call.Length == 0 || !call[0].IsObject)
             return JsValue.Null;
         var name = GetAttrNodeName(call[0]);
-        if (string.IsNullOrEmpty(name) || !DomBridge.TryGetAttribute(element, name, out var val))
+        if (string.IsNullOrEmpty(name) || !DomBridgeUtils.TryGetAttribute(element, name, out var val))
             return JsValue.Null;
         var removed = BuildAttrNode(name, val, element, ownerObj);
         RemoveAttributeLikeRemoveAttribute(element, name);
@@ -723,7 +723,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
         if (string.IsNullOrEmpty(localName))
             return JsValue.Null;
         var ns = GetAttrNodeNamespace(incoming);
-        if (!DomBridge.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
+        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
             return JsValue.Null;
         var removed = BuildAttrNode(qName, val, element, ownerObj);
         RemoveAttributeLikeRemoveAttributeNS(element, ns, localName);
@@ -748,7 +748,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
             // guard this went with it: a JsCall exists only because guest code is running, so the
             // realm it carries cannot be absent. What the old guard tolerated was a null script
             // CONTEXT on an unattached bridge, which this path could never reach.
-            DomBridge.ValidateQualifiedName(qName, ns, call.Realm);
+            DomBridgeUtils.ValidateQualifiedName(qName, ns, call.Realm);
             var localName = qName.Contains(':') ? qName[(qName.IndexOf(':') + 1)..] : qName;
             SetAttributeLikeSetAttributeNS(element, ns, qName, localName, val);
         }

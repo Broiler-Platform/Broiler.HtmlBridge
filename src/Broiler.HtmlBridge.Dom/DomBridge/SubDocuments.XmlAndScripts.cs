@@ -1,8 +1,8 @@
-using System.Text;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.Dom;
 using System.Xml.Linq;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
@@ -167,33 +167,5 @@ public sealed partial class DomBridge
                     $"Sub-document script error: {ex.Message}", ex);
             }
         }
-    }
-
-    /// <summary>
-    /// Recursively collects text content from script elements.
-    /// </summary>
-    private static void CollectScriptContent(DomElement element, List<string> scripts)
-    {
-        if (string.Equals(element.TagName, "script", StringComparison.OrdinalIgnoreCase))
-        {
-            var text = GetTextContentRecursive(element);
-            if (!string.IsNullOrWhiteSpace(text))
-                scripts.Add(text);
-            return;
-        }
-
-        foreach (var child in ChildElements(element))
-            CollectScriptContent(child, scripts);
-    }
-
-    /// <summary>
-    /// Gets the concatenated text content of an element and all its descendants.
-    /// </summary>
-    private static string GetTextContentRecursive(DomElement element)
-    {
-        // RF-BRIDGE-1c Phase F (F3c part 2d): aggregate descendant text over raw ChildNodes.
-        var sb = new StringBuilder();
-        CollectTextContent(element, sb);
-        return sb.ToString();
     }
 }

@@ -4,6 +4,7 @@ using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.Dom;
 using Broiler.CSS;
+using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 

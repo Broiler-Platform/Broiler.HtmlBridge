@@ -42,19 +42,19 @@ internal static class ElementReflectionBinding
 {
     public static JsValue SetHtmlFor(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "for", StringArgument(in call));
+        DomBridgeUtils.SetAttr(element, "for", StringArgument(in call));
         return JsValue.Undefined;
     }
 
     public static JsValue SetHttpEquiv(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "http-equiv", StringArgument(in call));
+        DomBridgeUtils.SetAttr(element, "http-equiv", StringArgument(in call));
         return JsValue.Undefined;
     }
 
     public static JsValue SetType(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "type", StringArgument(in call));
+        DomBridgeUtils.SetAttr(element, "type", StringArgument(in call));
         return JsValue.Undefined;
     }
 
@@ -77,33 +77,33 @@ internal static class ElementReflectionBinding
     // and no src at all as the empty string: the two answers `img.currentSrc || img.src` is written
     // against. Never the bare page URL, which is what resolving an absent (or empty) src would give.
     public static JsValue GetCurrentSrc(IElementReflectionHost host, DomElement element)
-        => DomBridge.TryGetAttribute(element, "src", out var value) && value.Length > 0
+        => DomBridgeUtils.TryGetAttribute(element, "src", out var value) && value.Length > 0
             ? GetSrc(host, element)
             : JsValue.String(string.Empty);
 
     public static JsValue SetSrc(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "src", StringArgument(in call));
+        DomBridgeUtils.SetAttr(element, "src", StringArgument(in call));
         return JsValue.Undefined;
     }
 
     public static JsValue SetHref(DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, "href", StringArgument(in call));
+        DomBridgeUtils.SetAttr(element, "href", StringArgument(in call));
         return JsValue.Undefined;
     }
 
     // Generic reflected-string setter (default empty), used for various named IDL attributes.
     public static JsValue SetReflectedAttribute(string? name, DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, name, StringArgument(in call));
+        DomBridgeUtils.SetAttr(element, name, StringArgument(in call));
         return JsValue.Undefined;
     }
 
     // Generic reflected-dimension setter (default "0"), used for numeric presentation attributes.
     public static JsValue SetReflectedDimension(string? name, DomElement element, in JsCall call)
     {
-        DomBridge.SetAttr(element, name, StringArgument(in call, missing: "0"));
+        DomBridgeUtils.SetAttr(element, name, StringArgument(in call, missing: "0"));
         return JsValue.Undefined;
     }
 
@@ -112,9 +112,9 @@ internal static class ElementReflectionBinding
     public static JsValue SetReflectedBoolean(string? name, DomElement element, in JsCall call)
     {
         if (call.Length > 0 && call[0].AsBoolean)
-            DomBridge.SetAttr(element, name, string.Empty);
+            DomBridgeUtils.SetAttr(element, name, string.Empty);
         else
-            DomBridge.RemoveAttr(element, name!);
+            DomBridgeUtils.RemoveAttr(element, name!);
         return JsValue.Undefined;
     }
 
@@ -132,7 +132,7 @@ internal static class ElementReflectionBinding
 
     private static string ResolveReflectedUrl(string pageUrl, DomElement element, string attribute)
     {
-        if (!DomBridge.TryGetAttribute(element, attribute, out var value))
+        if (!DomBridgeUtils.TryGetAttribute(element, attribute, out var value))
             return string.Empty;
         // Resolve the relative content attribute against the page URL, mirroring the browser IDL getter.
         if (Uri.TryCreate(pageUrl, UriKind.Absolute, out var baseUri) && Uri.TryCreate(baseUri, value, out var resolved))
