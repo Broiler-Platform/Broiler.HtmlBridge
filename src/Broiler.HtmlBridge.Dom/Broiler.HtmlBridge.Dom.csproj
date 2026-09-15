@@ -36,10 +36,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Broiler.CSS\Broiler.CSS.Dom\Broiler.CSS.Dom.csproj" />
-    <ProjectReference Include="..\..\Broiler.CSS\Broiler.CSS\Broiler.CSS.csproj" />
-    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom.Html\Broiler.Dom.Html.csproj" />
-    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom\Broiler.Dom.csproj" />
     <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />
     <!--
       JSEAL: the contracts a migrated binding builds its JavaScript objects through. Contracts only —
@@ -50,13 +46,10 @@
       DomBridge.Realm.cs.
     -->
     <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
-    <ProjectReference Include="..\..\Broiler.HTML\Source\Broiler.HTML.Dom\Broiler.HTML.Dom.csproj" />
     <!-- The canvas 2D context rasterises into a Broiler.Graphics BBitmap and encodes it through the
          media image abstraction, which is what makes getImageData/toDataURL report real pixels. Both
          are dependency leaves here: Broiler.Graphics references only Broiler.Media.Image, and neither
          references this assembly, so there is no cycle. -->
-    <ProjectReference Include="..\..\Broiler.Graphics\src\Broiler.Graphics\Broiler.Graphics.csproj" />
-    <ProjectReference Include="..\..\Broiler.Media\src\Broiler.Media.Image\Broiler.Media.Image.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
     <!--

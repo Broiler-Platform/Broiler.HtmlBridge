@@ -26,8 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom\Broiler.Dom.csproj" />
-    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom.Html\Broiler.Dom.Html.csproj" />
+    <PackageReference Include="Broiler.Dom.Html" Version="0.1.0-preview.2" />
+    <PackageReference Include="Broiler.Layout" Version="0.1.0-preview.2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
     <!-- For Broiler.Layout.Net.BroilerUserAgent alone: the external-script fetcher here is one of
          the loaders that has to identify itself, and the engine gets to say what it is called in
@@ -36,7 +39,6 @@
          buys this reference back somewhere worse. Nothing in Broiler.Layout's own closure references
          HtmlBridge, so it cannot cycle, and every consumer of this project already had Broiler.Layout
          in its closure. -->
-    <ProjectReference Include="..\..\Broiler.Layout\Broiler.Layout\Broiler.Layout.csproj" />
   </ItemGroup>
 
 </Project>
