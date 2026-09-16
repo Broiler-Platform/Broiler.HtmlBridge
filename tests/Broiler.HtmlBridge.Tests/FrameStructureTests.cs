@@ -11,7 +11,7 @@ namespace Broiler.HtmlBridge.Tests;
 /// element has one window object for the life of a document, minted by
 /// <c>Features/SubWindowBinding.cs</c> and cached in <c>Runtime/BrowsingContextManager.cs</c>;
 /// <c>iframe.contentWindow</c> and <c>window.frames[i]</c> are two unrelated call paths
-/// (<c>Features/IframeElementBinding.cs</c>, and the frames array in <c>DomBridge.WindowLoad.cs</c>)
+/// (<c>Features/IframeElementBinding.cs</c>, and the frames array in <c>DomBridge/Lifecycle.cs</c>)
 /// into that one cache. A cache that stops holding does not throw — it hands back a second window that
 /// answers every question the same way and is <c>!==</c> the first, so the two paths go quietly out of
 /// step and every listener, Map key and message target the page holds addresses a window nothing else
@@ -195,7 +195,7 @@ public class FrameStructureTests
     }
 
     [Fact(Skip = "window.frames is a fresh array built on every read (BuildWindowFramesArray, " +
-                 "src/Broiler.HtmlBridge.Dom/DomBridge.WindowLoad.cs:489, installed as the accessor at " +
+                 "src/Broiler.HtmlBridge.Dom/DomBridge/Lifecycle.cs, installed as the accessor at " +
                  "src/Broiler.HtmlBridge.Dom/DomBridge/Registration/Window.cs:479), where HTML's Window " +
                  "interface has window, self and frames all answer with the Window itself — so " +
                  "`window.frames === window` is false and two reads hand back two objects, which is " +

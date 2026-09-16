@@ -43,7 +43,7 @@ public class OwnerWindowRoutingTests
     /// <c>about:srcdoc</c> — which is also the second observable below, since <c>location</c> is
     /// swapped alongside <c>document</c>. The frame's script is an IIFE on purpose: a top-level
     /// <c>var</c> in a sub-document's script is diffed out of the global object and republished on
-    /// the frame's window (<c>DomBridge.SubDocumentGlobals.cs</c>), and this fixture has no reason
+    /// the frame's window (<c>DomBridge/SubDocuments.Loading.cs</c>), and this fixture has no reason
     /// to exercise that. Its inner attributes are single-quoted so the double-quoted <c>srcdoc</c>
     /// value survives, and the script contains no double quote for the same reason.
     /// </summary>
@@ -81,7 +81,7 @@ public class OwnerWindowRoutingTests
     /// <c>contentDocument</c>, which is what builds the sub-document and runs the frame's scripts
     /// (<c>DomBridge/SubDocuments.cs:238-243</c>) — entering there rather than letting the load
     /// event's <c>window.frames</c> enumeration do it, because that entry order mints a throwaway
-    /// window the outer call then replaces (<c>DomBridge.SubDocumentGlobals.cs</c>) and this test
+    /// window the outer call then replaces (<c>DomBridge/SubDocuments.Loading.cs</c>) and this test
     /// should not depend on which of the two the port got filed against.
     /// </para>
     /// <para>

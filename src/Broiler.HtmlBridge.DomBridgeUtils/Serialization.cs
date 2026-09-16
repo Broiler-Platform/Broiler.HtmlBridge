@@ -1,5 +1,6 @@
-using Broiler.Dom.Html;
+using System.Text.RegularExpressions;
 using Broiler.Dom;
+using Broiler.Dom.Html;
 
 namespace Broiler.HtmlBridge;
 
@@ -180,4 +181,98 @@ public static partial class DomBridgeUtils
     internal static bool IsRawTextSerializationParent(DomNode node) =>
         node.ParentNode is DomElement parent &&
         HtmlSerializer.IsRawTextElement(parent.TagName);
+}
+
+public static partial class DomBridgeUtils
+{
+    internal static string ScaleSvgNumericMatch(Match match, double factor)
+    {
+        if (!double.TryParse(match.Value, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var number))
+        {
+            return match.Value;
+        }
+
+        return (number * factor).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    internal static double GetSvgFontRelativeUnitRatio(string unit) => unit.ToLowerInvariant() switch
+    {
+        // Broiler's SVG length resolution currently uses the same deterministic
+        // Ahem-like 0.8em approximation that the existing font-relative zoom
+        // coverage already assumes for ex/cap units.
+        "ex" or "rex" or "cap" or "rcap" => 0.8,
+        _ => 1.0
+    };
+
+    internal static readonly string[] SvgZoomScaledUnits =
+    [
+        "rcap", "rch", "ric", "rex", "rlh", "rem",
+        "vmin", "vmax",
+        "cap",
+        "em", "ex", "ch", "ic", "lh",
+        "vw", "vh",
+        "px", "pt", "pc", "cm", "mm", "in", "q"
+    ];
+
+    internal static readonly HashSet<string> SvgAbsoluteOrViewportUnits = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "vw", "vh", "vmin", "vmax",
+        "px", "pt", "pc", "cm", "mm", "in", "q"
+    };
+
+    internal static readonly HashSet<string> SvgFontRelativeUnits = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "em", "ex", "cap", "ch", "ic", "lh"
+    };
+
+    internal static readonly HashSet<string> SvgRootFontRelativeUnits = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "rem", "rex", "rcap", "rch", "ric", "rlh"
+    };
+
+    [GeneratedRegex(@"-?\d*\.?\d+(?:[eE][+-]?\d+)?")]
+    internal static partial System.Text.RegularExpressions.Regex ScaleSvgPointRegex();
+
+    [GeneratedRegex(@"-?\d*\.?\d+(?:[eE][+-]?\d+)?")]
+    internal static partial System.Text.RegularExpressions.Regex ScaleSvgPathRegex();
+
+    [GeneratedRegex(@"(?<![\w.-])(-?\d*\.?\d+)px(?:\s*/|(?=\s|$))", RegexOptions.IgnoreCase)]
+    internal static partial System.Text.RegularExpressions.Regex FontShortHandRegex();
+}
+
+public static partial class DomBridgeUtils
+{
+    /// <summary>The render-time carrier for a <c>src</c> frame's live document — the counterpart of
+    /// <c>srcdoc</c>, read by <c>FragmentTreeBuilder.TryLoadEmbeddedDocument</c>.</summary>
+    internal const string FrameDocumentAttr = "data-broiler-frame-document";
+
+    /// <summary>The URL the frame's document was loaded from, so relative references inside it
+    /// resolve against the resource rather than against the containing page.</summary>
+    internal const string FrameDocumentBaseAttr = "data-broiler-frame-base";
+
+    /// <summary>Whether the resource opens with a doctype, ignoring leading whitespace and any
+    /// comments before it.</summary>
+    internal static bool HasHtmlDoctype(string html)
+    {
+        var index = 0;
+        while (index < html.Length)
+        {
+            while (index < html.Length && char.IsWhiteSpace(html[index]))
+                index++;
+
+            if (index >= html.Length)
+                return false;
+
+            if (!html.AsSpan(index).StartsWith("<!--", StringComparison.Ordinal))
+                break;
+
+            var end = html.IndexOf("-->", index, StringComparison.Ordinal);
+            if (end < 0)
+                return false;
+            index = end + 3;
+        }
+
+        return html.AsSpan(index).StartsWith("<!doctype", StringComparison.OrdinalIgnoreCase);
+    }
 }

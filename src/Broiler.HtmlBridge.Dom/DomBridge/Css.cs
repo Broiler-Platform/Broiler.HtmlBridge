@@ -200,7 +200,7 @@ public sealed partial class DomBridge
     private Dictionary<string, string> BuildComputedStyleMap(DomElement? element, string? pseudoElement = null)
     {
         // getComputedStyle() resolves through the shared Broiler.CSS.Dom.CssStyleEngine
-        // (BuildComputedStyleMapViaEngine, see DomBridge.ComputedStyleEngine.cs). The legacy
+        // (BuildComputedStyleMapViaEngine, see DomBridge/ComputedStyle.cs). The legacy
         // bridge computed-style cascade was retired in Phase 7 cleanup (RF-CSS-1); the engine
         // has been the sole getComputedStyle authority since the 2026-06-26 cutover, after it
         // gained the bridge's per-declaration value validation / error recovery and

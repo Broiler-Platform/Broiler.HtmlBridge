@@ -154,7 +154,7 @@ public class DomEnumerationAndArityTests
         "EventTarget methods unguarded, declaring 3, 3 and 1 arguments — where the document's " +
         "(Registration/Document.cs:234) and every element's (JsObjects.cs:275) are guarded by " +
         "_eventTargetRoutingReady and so come from the routed EventTarget.prototype methods, minted " +
-        "with Web IDL's 2, 2, 1 at DomBridge/EventTargetInterface.cs:96-106. So " +
+        "with Web IDL's 2, 2, 1 at DomBridge/Events.cs. So " +
         "window.addEventListener.length is 3 where a browser says 2, and it is a different function " +
         "object from EventTarget.prototype.addEventListener — which the defensive " +
         "`EventTarget.prototype.addEventListener.call(window, ...)` idiom needs it to be.")]
@@ -174,7 +174,7 @@ public class DomEnumerationAndArityTests
     [Fact(Skip =
         "getRootNode is minted with a declared length of 1 at DomBridge/JsObjects.cs:440, " +
         "DomBridge/JsObjects.NonElementNodes.cs:209, :325 and :581, and on the character-data " +
-        "prototype at DomBridge/CharacterDataInterface.cs:248. DOM §4.4 declares " +
+        "prototype at DomBridge/NodeInterfaces.cs. DOM §4.4 declares " +
         "`Node getRootNode(optional GetRootNodeOptions options = {})`, so its only argument is " +
         "optional and a browser reports 0 — a page feature-detecting composed-tree support by " +
         "reading el.getRootNode.length gets the wrong answer.")]
@@ -307,7 +307,7 @@ public class DomEnumerationAndArityTests
     /// <b>This pins a deviation rather than a correctness, and it is written down because the next
     /// commit would otherwise change it by accident.</b> Every node reaches
     /// <c>addEventListener</c> through <c>EventTarget.prototype</c>, where
-    /// <c>DomBridge/EventTargetInterface.cs</c> installs it with Web IDL's arity — 2, 2, 1,
+    /// <c>DomBridge/Events.cs</c> installs it with Web IDL's arity — 2, 2, 1,
     /// "measured against Chromium", as that file says. A fragment's wrapper installs its OWN copies
     /// instead, and those advertise 3, 3, 1.
     /// <para>

@@ -14,7 +14,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// made one. The record holds a <see cref="JsValue"/> now, so they are deleted and
 /// <see cref="WindowEventTargetBinding"/> calls <see cref="EventListenerBinding"/> itself. The window
 /// listener lists live in <c>EventTargetRegistry</c>, and <c>DispatchWindowEvent</c> is implemented in
-/// <c>DomBridge.WindowLoad.cs</c>.
+/// <c>DomBridge/Lifecycle.cs</c>.
 /// </remarks>
 internal interface IWindowEventTargetHost
 {

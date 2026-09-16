@@ -1,4 +1,12 @@
+using System.IO;
+using System.Text;
 using Broiler.HtmlBridge.Jseal;
+using Broiler.JavaScript.Engine;
+using Broiler.JavaScript.Runtime;
+using static Broiler.HtmlBridge.DomBridgeHostUtils;
+using static Broiler.HtmlBridge.DomBridgeUtils;
+
+namespace Broiler.HtmlBridge;
 
 // Engine-typed for two reasons, and only two:
 //
@@ -6,19 +14,13 @@ using Broiler.HtmlBridge.Jseal;
 //     process-shared one, and SyncWindowMembersOntoGlobal repeats the swap on the same context.
 //     That is a Broiler.JS optimisation with no JSEAL vocabulary — there is no "compile once per
 //     process" member on the realm contract — so this is the floor rather than a step not yet taken.
-//   * AdoptRealm (DomBridge.Realm.cs) takes that same context to produce the realm, so the context
+//   * AdoptRealm (DomBridge/Lifecycle.cs) takes that same context to produce the realm, so the context
 //     has to reach it.
 //
 // The adapters that used to be a further reason are gone; see the note at the foot of this file.
 // Everything the hubs install is built through the realm, and every module they register is handed
 // that realm rather than the context — which is not only tidier: a module handed the context adopted
 // it, and a second realm over one context has a job queue of its own that no event loop drains.
-using Broiler.JavaScript.Engine;
-using Broiler.JavaScript.Runtime;
-using static Broiler.HtmlBridge.DomBridgeUtils;
-using static Broiler.HtmlBridge.DomBridgeHostUtils;
-
-namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// JavaScript bridge registration — wires up the <c>document</c>,
@@ -125,7 +127,7 @@ public sealed partial class DomBridge
             RealmOptionsFor(Csp));
 
         // EventTarget.prototype's three methods, routed by receiver
-        // (DomBridge/EventTargetInterface.cs). First, because every wrapper registration below asks
+        // (DomBridge/Events.cs). First, because every wrapper registration below asks
         // whether the routing is in place before installing its own copies — the document's included.
         // It depends only on the realm's own EventTarget, which the context already carries.
         RegisterEventTargetRouting();
@@ -311,7 +313,7 @@ public sealed partial class DomBridge
     // ── inert members, in the realm's vocabulary ───────────────────────────────────────────────
 
     /// <summary>
-    /// The retired <c>UndefinedFunction</c> and <c>TrueFunction</c> (see DomBridge/JsNative.cs) as the
+    /// The retired <c>UndefinedFunction</c> and <c>TrueFunction</c> (see DomBridge/JsObjects.cs) as the
     /// realm mints them — an inert member that answers <c>undefined</c>, or one that answers <c>true</c>.
     /// </summary>
     /// <remarks>
@@ -335,4 +337,350 @@ public sealed partial class DomBridge
     // of those modules reads a JsCall now, and every member the hubs install is minted by
     // realm.NewMethod / realm.NewConstructor / realm.DefineAccessor — which is where the shape each
     // adapter was careful to reproduce came from in the first place.
+}
+
+public sealed partial class DomBridge
+{
+    // Phase 3: the DOM traversal surface (NodeFilter, TreeWalker, NodeIterator, Range and
+    // createComment) is installed by the co-located TraversalBinding feature module. This thin
+    // entry point keeps the historical registration call site source-compatible.
+    //
+    // Both sides speak JSEAL now, so the document wrapper crosses as a handle over the same object
+    // and nothing else crosses at all: the module reaches this realm through ITraversalHost.Realm
+    // rather than being handed a script context. The two parameters this had — a context it did not
+    // pass on and an engine object it converted — were the shape of the half-migrated seam, and the
+    // seam is gone.
+    private void RegisterDocumentTraversalApis(JsValue document) =>
+        _traversal.RegisterDocumentApis(document);
+}
+
+public sealed partial class DomBridge
+{
+    /// <summary>
+    /// Installs the typed-event constructor shims and the <c>MutationObserver</c> feature.
+    /// </summary>
+    /// <remarks>
+    /// This took a script context it never used: both halves speak JSEAL — the shims are host script
+    /// run through <c>Realm.EvaluateHostScript</c>, and the observer module asks the realm for
+    /// itself — and the parameter survived only because the registration hub that calls it was not
+    /// owned by the round that migrated this file. The hub has moved, so the adapter is gone.
+    /// </remarks>
+    private void RegisterDocumentEventsAndMutationObservers()
+    {
+        // Event / typed event constructors — DOM Level 4
+        Realm.EvaluateHostScript(@"
+                function Event(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('Event');
+                    evt.initEvent(type, options.bubbles === true, options.cancelable === true);
+                    return evt;
+                }
+
+                function CustomEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('CustomEvent');
+                    evt.initCustomEvent(
+                        type,
+                        options.bubbles === true,
+                        options.cancelable === true,
+                        options.detail !== undefined ? options.detail : null);
+                    return evt;
+                }
+
+                function MouseEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('MouseEvents');
+                    evt.initMouseEvent(
+                        type,
+                        options.bubbles === true,
+                        options.cancelable === true,
+                        options.view !== undefined ? options.view : null,
+                        options.detail !== undefined ? options.detail : 0,
+                        options.screenX !== undefined ? options.screenX : 0,
+                        options.screenY !== undefined ? options.screenY : 0,
+                        options.clientX !== undefined ? options.clientX : 0,
+                        options.clientY !== undefined ? options.clientY : 0,
+                        options.ctrlKey === true,
+                        options.altKey === true,
+                        options.shiftKey === true,
+                        options.metaKey === true,
+                        options.button !== undefined ? options.button : 0,
+                        options.relatedTarget !== undefined ? options.relatedTarget : null);
+                    return evt;
+                }
+
+                function FocusEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('FocusEvents');
+                    evt.initFocusEvent(
+                        type,
+                        options.bubbles === true,
+                        options.cancelable === true,
+                        options.view !== undefined ? options.view : null,
+                        options.detail !== undefined ? options.detail : 0,
+                        options.relatedTarget !== undefined ? options.relatedTarget : null);
+                    return evt;
+                }
+
+                function KeyboardEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('KeyboardEvents');
+                    evt.initKeyboardEvent(
+                        type,
+                        options.bubbles === true,
+                        options.cancelable === true,
+                        options.view !== undefined ? options.view : null,
+                        options.key !== undefined ? options.key : '',
+                        options.location !== undefined ? options.location : 0,
+                        options.ctrlKey === true,
+                        options.altKey === true,
+                        options.shiftKey === true,
+                        options.metaKey === true,
+                        options.repeat === true,
+                        options.keyCode !== undefined ? options.keyCode : 0,
+                        options.charCode !== undefined ? options.charCode : 0);
+                    return evt;
+                }
+
+                function WheelEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('WheelEvents');
+                    var modifiers = [];
+                    if (options.ctrlKey === true) modifiers.push('Control');
+                    if (options.altKey === true) modifiers.push('Alt');
+                    if (options.shiftKey === true) modifiers.push('Shift');
+                    if (options.metaKey === true) modifiers.push('Meta');
+                    evt.initWheelEvent(
+                        type,
+                        options.bubbles === true,
+                        options.cancelable === true,
+                        options.view !== undefined ? options.view : null,
+                        options.detail !== undefined ? options.detail : 0,
+                        options.screenX !== undefined ? options.screenX : 0,
+                        options.screenY !== undefined ? options.screenY : 0,
+                        options.clientX !== undefined ? options.clientX : 0,
+                        options.clientY !== undefined ? options.clientY : 0,
+                        options.button !== undefined ? options.button : 0,
+                        options.relatedTarget !== undefined ? options.relatedTarget : null,
+                        modifiers.join(' '),
+                        options.deltaX !== undefined ? options.deltaX : 0,
+                        options.deltaY !== undefined ? options.deltaY : 0,
+                        options.deltaZ !== undefined ? options.deltaZ : 0,
+                        options.deltaMode !== undefined ? options.deltaMode : 0);
+                    return evt;
+                }
+
+                function UIEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('UIEvents');
+                    evt.initUIEvent(
+                        type,
+                        options.bubbles === true,
+                        options.cancelable === true,
+                        options.view !== undefined ? options.view : null,
+                        options.detail !== undefined ? options.detail : 0);
+                    return evt;
+                }
+
+                function InputEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('InputEvent');
+                    evt.initInputEvent(
+                        type,
+                        options.bubbles === true,
+                        options.cancelable === true,
+                        options.view !== undefined ? options.view : null,
+                        options.data !== undefined ? options.data : null,
+                        options.inputType !== undefined ? options.inputType : '',
+                        options.isComposing === true);
+                    return evt;
+                }
+            ", "polyfill:event-constructors");
+        // MutationObserver (constructor/prototype + host bridge functions) is installed by the
+        // Phase 3 MutationObserverBinding feature module.
+        _mutations.RegisterDocumentApis();
+    }
+
+}
+
+public sealed partial class DomBridge
+{
+    private void RegisterContentRenderingPolyfills(JsValue document)
+    {
+        // Google Search Compliance content-rendering / fidelity polyfills — Image, IntersectionObserver,
+        // ResizeObserver, TextEncoder/TextDecoder, URL/URLSearchParams and AbortController — are a versioned
+        // embedded .js asset (Phase 3 work item 6, externalized from inline C# string literals) evaluated
+        // once here. See Polyfills/content-rendering-polyfills.js.
+        //
+        // Host script: this repository authored it, it ships in this assembly, and it is not subject
+        // to the page's content policy — which is what IJsSource.EvaluateHostScript promises, and the
+        // reason a realm built without GuestEval still runs it.
+        Realm.EvaluateHostScript(PolyfillAssets.ContentRendering, "polyfill:content-rendering");
+
+        // document.cookie — get/set stub (in-memory, non-persistent). Host-driven (not pure JS), so it stays
+        // here rather than in the JS asset. Order-independent of the pure-JS polyfills above.
+        //
+        // The store is a local the pair closes over — SetCookie takes it by reference — and the
+        // assignment coerces through the realm, because `document.cookie = obj` is entitled to run
+        // that object's toString exactly as the engine's own ToString() did here.
+        var cookieStore = "";
+        Realm.DefineAccessor(
+            document,
+            "cookie",
+            (in _) => JsValue.String(cookieStore),
+            (in c) => Dom.Features.WindowDocumentMiscBinding.SetCookie(ref cookieStore, in c));
+    }
+
+    private void RegisterSecurityAndConstructorPolyfills(JsValue window)
+    {
+        var realm = Realm;
+
+        // window.crypto — the getRandomValues/randomUUID subset (Phase 3: co-located CryptoBinding module)
+        var cryptoObj = Dom.Features.CryptoBinding.Build(realm);
+        realm.DefineValue(window, "crypto", cryptoObj);
+        realm.SetProperty(realm.Global, "crypto", cryptoObj);
+
+        // window.CSS — the CSSOM namespace object (supports/escape). Host-driven rather than a
+        // pure-JS polyfill because supports() has to answer from the CSS engine's own @supports
+        // evaluator; answering from the CSSOM instead would claim support for everything, since
+        // Broiler's CSSOM stores declarations without validating them.
+        var cssObj = Dom.Features.CssBinding.Build(realm);
+        realm.DefineValue(window, "CSS", cssObj);
+        realm.SetProperty(realm.Global, "CSS", cssObj);
+
+        // DOMException constructor
+        RegisterDOMException(realm);
+
+        // Node constructor with type constants
+        RegisterNodeConstructor(realm);
+
+        // Element/HTMLElement/HTMLUnknownElement/… interface globals. After Node, whose
+        // @@hasInstance it installs.
+        RegisterDomInterfaceConstructors(realm);
+
+        // The Node/CharacterData/Text members a text or comment node exposes, onto those interface
+        // prototypes. After the constructors above, which is what there is a prototype to install on,
+        // and before the first wrapper is minted, which is what lets one inherit them instead of
+        // carrying its own copies.
+        RegisterCharacterDataInterface();
+
+        // Element's own interface, onto Element.prototype. After the constructors for the same reason,
+        // and after the character-data pass because that one puts Element's three name accessors
+        // (localName/prefix/namespaceURI) on the same prototype.
+        RegisterElementInterface();
+
+        // HTMLElement's, onto HTMLElement.prototype. The custom-elements pass replaces the
+        // HTMLElement *constructor* later with a constructible one, deliberately keeping this same
+        // prototype object — so installing here rather than after it is what every element wrapper
+        // already linked to that object needs.
+        RegisterHtmlElementInterface();
+
+        // SVGLength interface constants
+        RegisterSVGLength(realm);
+
+        // AbstractRange/Range — the one DOM interface here whose members really live on its
+        // prototype, so it has to be registered before the first document.createRange() can link a
+        // range to it.
+        _traversal.RegisterRangeInterface();
+
+        // Blob/File, and the URL.createObjectURL pair they need. After the content-rendering
+        // polyfills, which is where the URL constructor these attach to comes from.
+        _blobs.RegisterInterfaces(realm);
+
+        // ReadableStream (with its default reader and controller), ProgressEvent and FileReader,
+        // plus blob.stream(). After blobs, because the stream reads a blob's bytes and the stream
+        // member goes onto Blob.prototype.
+        _streams.Register(_blobs);
+
+        // ElementInternals/ValidityState/CustomStateSet — the objects a form-associated custom
+        // element's attachInternals() hands back. Registered here rather than with the custom-element
+        // pass because they are ordinary interface globals a page can name and feature-detect.
+        ElementInternals.RegisterInterfaces();
+
+        // Storage interface global — the name a page tests before it touches an area.
+        RegisterStorageConstructor();
+
+        // Notification — the interface, with its permission already settled at "denied" because
+        // there is no surface to show one on (NotificationBinding).
+        var notification = Dom.Features.NotificationBinding.Build(realm);
+        realm.DefineValue(window, "Notification", notification);
+
+        // MediaSource — the Media Source Extensions entry point, whose isTypeSupported answers for
+        // the playback pipeline the HTML layer does not yet have (MediaCapabilityBinding, which also
+        // installs canPlayType on the media elements themselves).
+        var mediaSource = Dom.Features.MediaCapabilityBinding.BuildMediaSource(realm);
+        realm.DefineValue(window, "MediaSource", mediaSource);
+    }
+
+    /// <summary>
+    /// The <c>Storage</c> interface global (HTML §12.2.2), as the name a feature test asks for
+    /// rather than as a constructible class: the two areas come from <c>localStorage</c> and
+    /// <c>sessionStorage</c>, never from <c>new Storage()</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>typeof Storage !== 'undefined'</c> is the canonical Web Storage feature test — MDN
+    /// documents it as such — so an absent global makes a page conclude it has no storage at all
+    /// and take its no-storage path, however complete the two area objects are. Like the DOM
+    /// interface globals (see <c>RegisterDomInterfaceConstructors</c>) it answers
+    /// <c>instanceof</c> from the object's shape, because a bridge storage object carries its
+    /// members directly instead of inheriting them from this constructor's prototype.
+    /// </remarks>
+    private void RegisterStorageConstructor() =>
+        Realm.EvaluateHostScript(@"
+            function Storage() { throw new TypeError('Illegal constructor'); }
+
+            Object.defineProperty(Storage, Symbol.hasInstance, {
+                value: function (o) {
+                    return !!o && typeof o === 'object'
+                        && typeof o.getItem === 'function'
+                        && typeof o.setItem === 'function'
+                        && typeof o.removeItem === 'function'
+                        && typeof o.key === 'function'
+                        && typeof o.length === 'number';
+                },
+                writable: false, enumerable: false, configurable: true
+            });
+        ", "polyfill:storage-interface");
+}
+
+/// <summary>
+/// Loads the embedded polyfill JavaScript assets (Phase 3 work item 6 — the content-rendering polyfills are
+/// versioned <c>.js</c> resources embedded in <c>Broiler.HtmlBridge.Dom</c> rather than inline C# string
+/// literals). Each asset is read from the assembly manifest once and cached for the process.
+/// </summary>
+internal static class PolyfillAssets
+{
+    private const string ContentRenderingResource =
+        "Broiler.HtmlBridge.Polyfills.content-rendering-polyfills.js";
+
+    private const string StreamsResource =
+        "Broiler.HtmlBridge.Polyfills.streams-and-file-reader.js";
+
+    private static string? _contentRendering;
+
+    private static string? _streams;
+
+    /// <summary>
+    /// The content-rendering polyfill bundle: <c>Image</c>, <c>IntersectionObserver</c>,
+    /// <c>ResizeObserver</c>, <c>TextEncoder</c>/<c>TextDecoder</c>, <c>URL</c>/<c>URLSearchParams</c> and
+    /// <c>AbortController</c>. Evaluated once per document into the browsing-context global.
+    /// </summary>
+    public static string ContentRendering => _contentRendering ??= Load(ContentRenderingResource);
+
+    /// <summary>
+    /// <c>ReadableStream</c> (with its default reader and controller), <c>ProgressEvent</c> and
+    /// <c>FileReader</c>. JavaScript rather than host functions for the same reason the
+    /// specification is written that way — the queue, the pending read requests and the pull
+    /// back-pressure are a state machine over promises.
+    /// </summary>
+    public static string Streams => _streams ??= Load(StreamsResource);
+
+    private static string Load(string resourceName)
+    {
+        var assembly = typeof(PolyfillAssets).Assembly;
+        using var stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new FileNotFoundException($"Embedded polyfill asset not found: {resourceName}");
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
+    }
 }

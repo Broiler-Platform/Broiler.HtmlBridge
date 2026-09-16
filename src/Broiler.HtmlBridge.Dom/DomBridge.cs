@@ -21,7 +21,7 @@ namespace Broiler.HtmlBridge;
 /// <remarks>
 /// That parameter is what <c>IDomBridgeRuntime.Attach</c> hands over, and the interface lives in
 /// <c>Broiler.HtmlBridge.Core</c>. It is not the last thing holding the bridge to one engine (this
-/// said it was): <c>DomBridge.Realm.cs</c>, <c>Runtime/JsInterop.cs</c> and <c>BridgeModuleContext.cs</c>
+/// said it was): <c>DomBridge/Lifecycle.cs</c>, <c>Runtime/JsInterop.cs</c> and <c>BridgeModuleContext.cs</c>
 /// say what else still does.
 /// </remarks>
 public sealed partial class DomBridge : IDomBridgeRuntime
@@ -34,36 +34,36 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     // Phase 3 (P3.2): the whole MutationObserver feature — the observer registry (P2.5
     // MutationObserverHub), the observe()/disconnect() registration and childList/attribute/
     // characterData record delivery — lives in the MutationObserverBinding module, reached through
-    // the narrow IMutationObserverHost contract (see DomBridge.MutationObserverHost.cs).
+    // the narrow IMutationObserverHost contract (see DomBridge/Hosts.Window.cs).
     private readonly Dom.Features.MutationObserverBinding _mutations;
     // Phase 3 (P3.3): the DOM event dispatch engine — capture/target/bubble propagation, the event
     // object's propagation-control methods and composedPath() — lives in EventDispatchBinding,
-    // reached through the narrow IEventDispatchHost contract (see DomBridge.EventDispatchHost.cs).
+    // reached through the narrow IEventDispatchHost contract (see DomBridge/Hosts.Window.cs).
     private readonly Dom.Features.EventDispatchBinding _eventDispatch;
     // Phase 3 (P3.5): the HTML table DOM interfaces (HTMLTableElement / HTMLTableSectionElement /
     // HTMLTableRowElement) live in TableBinding, reached through the narrow ITableHost contract
-    // (see DomBridge.TableHost.cs).
+    // (see DomBridge/Hosts.Elements.cs).
     private readonly Dom.Features.TableBinding _tables;
     // Phase 3 (P3.7): the dialog / popover / details JS API (showModal/show/close/showPopover/
     // hidePopover/open/returnValue) lives in DialogBinding, reached through the narrow IDialogHost
-    // contract (see DomBridge.DialogHost.cs); backdrop/top-layer rendering stays in the bridge.
+    // contract (see DomBridge/Hosts.Elements.cs); backdrop/top-layer rendering stays in the bridge.
     private readonly Dom.Features.DialogBinding _dialogs;
     // Phase 3 (P3.8): HTMLSelectElement / HTMLOptionElement (add/options/selectedIndex/size/value +
     // option.defaultSelected) live in SelectBinding, reached through the narrow ISelectHost contract
-    // (see DomBridge.SelectHost.cs); the shared value property delegates its select branch to it.
+    // (see DomBridge/Hosts.Elements.cs); the shared value property delegates its select branch to it.
     private readonly Dom.Features.SelectBinding _select;
     // Phase 3 (P3.9): HTMLFormElement (elements/length/action) and constraint validation
     // (checkValidity/reportValidity) live in FormBinding, reached through the narrow IFormHost
-    // contract (see DomBridge.FormHost.cs).
+    // contract (see DomBridge/Hosts.Elements.cs).
     private readonly Dom.Features.FormBinding _forms;
     // Phase 3 (P3.60): the form-control IDL reflectors (value/checked/type/name/disabled/hidden/
     // tabIndex/required) live in FormControlBinding, reached through the narrow IFormControlHost
-    // contract (see DomBridge.FormControlHost.cs).
+    // contract (see DomBridge/Hosts.Elements.cs).
     private readonly Dom.Features.FormControlBinding _formControl;
     // Phase 3 (first feature-module slice): TreeWalker/NodeIterator/Range construction, every Range
     // callback and the traversal-scoped active-range / active-node-iterator registries live in the
     // co-located TraversalBinding module. The bridge holds the module through the narrow
-    // ITraversalHost contract it implements (see DomBridge.TraversalHost.cs).
+    // ITraversalHost contract it implements (see DomBridge/Hosts.Nodes.cs).
     private readonly Dom.Features.TraversalBinding _traversal;
     private readonly DomDocument _document;
     // Per-element inline-style runtime state (the last concern de-globalized off the former process-static
@@ -157,33 +157,33 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     // JS-object identity, location/base-URL caches, object-load-failure and onload-fired marks, the
     // reverse sub-window→container map, the current-window override, and the P4.4b content-document
     // maps — is owned by the single BrowsingContextManager (was ten fields scattered across
-    // SubDocuments.cs / DomBridge.WindowContext.cs / DomBridge.cs). The bridge keeps the algorithms.
+    // SubDocuments.cs / DomBridge/Lifecycle.cs / DomBridge.cs). The bridge keeps the algorithms.
     private readonly Dom.Runtime.BrowsingContextManager _browsingContexts = new();
     // Phase 3 (P3.18): the browsing-context window-resolution behaviour (canonicalise/resolve a window,
     // and the RunWithWindowContext global switch) is owned by WindowContextManager, reached through the
-    // narrow IWindowContextHost contract (see DomBridge.WindowContextHost.cs); DomBridge.WindowContext.cs
+    // narrow IWindowContextHost contract (see DomBridge/Hosts.Window.cs); DomBridge/Lifecycle.cs
     // keeps thin delegators. It reads the sub-window state from _browsingContexts and _eventTargets.
     private readonly Dom.Runtime.WindowContextManager _windowContext;
     // Phase 3 (P3.10): the whole web-messaging feature — window.postMessage, MessageChannel/
     // MessagePort (which own the P2.6 MessagePortRegistry state) and the generic EventTarget dispatch
     // shared with sub-windows — lives in MessagingBinding, reached through the narrow IMessagingHost
-    // contract (see DomBridge.MessagingHost.cs). The module holds a reference to the shared
+    // contract (see DomBridge/Hosts.Window.cs). The module holds a reference to the shared
     // _eventTargets registry (generic-target listeners it does not own).
     private readonly Dom.Features.MessagingBinding _messaging;
     // Phase 3 (P3.11): the fetch / XMLHttpRequest networking surface (fetch + Headers/Request/Response/
     // FormData/Blob/AbortController + the XHR polyfill) lives in FetchBinding, backed by the injected
     // P2.6 ResourceLoader; the only bridge coupling (page URL for redirect resolution) is reached
-    // through the narrow IFetchHost contract (see DomBridge.FetchHost.cs).
+    // through the narrow IFetchHost contract (see DomBridge/Hosts.Window.cs).
     private readonly Dom.Features.FetchBinding _fetch;
     // Phase 3 (P3.12): the DOM attribute object model — the element.attributes NamedNodeMap and its
     // Attr nodes — plus the setAttribute/removeAttribute write path live in AttributesBinding, reached
-    // through the narrow IAttributesHost contract (see DomBridge.AttributesHost.cs) for the write
+    // through the narrow IAttributesHost contract (see DomBridge/Hosts.Nodes.cs) for the write
     // path's cross-cutting side effects (inline style, inline event handlers, style invalidation,
     // mutation records). The low-level attribute scans stay shared static helpers on DomBridge.
     private readonly Dom.Features.AttributesBinding _attributes;
     // Phase 3 (P3.13): the nested-browsing-context `document` object surface (BuildDocument + every
     // getElementById/createElement/querySelector/… callback + document.implementation) lives in
-    // SubDocumentBinding, reached through the ISubDocumentHost contract (see DomBridge.SubDocumentHost.cs).
+    // SubDocumentBinding, reached through the ISubDocumentHost contract (see DomBridge/Hosts.Documents.cs).
     // Unblocked by P4.4b's #subdoc-root sever — a sub-document root is now a canonical DomNode. The
     // browsing-context state (sub-document/-window caches, content-document maps, current-window
     // override) is owned by BrowsingContextManager (P3.16); the builders / resource loading / onload
@@ -205,7 +205,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     private readonly Dom.Features.SubDocumentBinding _subDocuments;
     // Phase 3 (P3.17): the nested-browsing-context `window` (sub-window) object — its
     // document/location/scroll/getComputedStyle surface and the sub-window-scoped helpers — lives in
-    // SubWindowBinding, reached through the narrow ISubWindowHost contract (see DomBridge.SubWindowHost.cs);
+    // SubWindowBinding, reached through the narrow ISubWindowHost contract (see DomBridge/Hosts.Documents.cs);
     // it holds the P3.16 BrowsingContextManager + the shared EventTargetRegistry/MessagingBinding it installs.
     private readonly Dom.Features.SubWindowBinding _subWindows;
     private double _visualViewportScale = 1.0;

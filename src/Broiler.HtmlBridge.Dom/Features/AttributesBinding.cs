@@ -28,7 +28,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// <b>No engine reference remains, and the last two went one commit apart.</b>
 /// <see cref="BuildStandaloneAttrNode"/> answered an engine object for
-/// <c>DomBridge/DomBridge.DocumentFactoryHost.cs</c>, which reaches it for
+/// <c>DomBridge/Hosts.Documents.cs</c>, which reaches it for
 /// <c>document.createAttribute</c> and converted it straight back — the shell is a handle either
 /// way, so the conversion named one <c>Attr</c> twice.
 /// <para>
@@ -299,7 +299,7 @@ internal sealed class AttributesBinding(IAttributesHost host)
     /// </summary>
     /// <remarks>
     /// It answered an engine object until its caller stopped asking for one. The shell it builds is
-    /// a handle either way — <c>DomBridge.DocumentFactoryHost.cs</c> converted it back on receipt —
+    /// a handle either way — <c>DomBridge/Hosts.Documents.cs</c> converted it back on receipt —
     /// so the conversion named one <c>Attr</c> twice and is gone.
     /// </remarks>
     internal JsValue BuildStandaloneAttrNode(string qualifiedName, string? namespaceUri) =>

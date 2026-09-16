@@ -38,7 +38,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// type at all. Both adapters that made it name one are gone: <c>LabelsNodeList</c> with the
 /// migration of <see cref="IElementInternalsHost"/>, whose <c>LabelsFor</c> takes a
 /// <see cref="JsValue"/> back and reads <see cref="LabelsList"/> directly, and the engine-typed
-/// <c>Install</c> with the one line in <c>DomBridge/ElementInterfaces.cs</c> that used to convert a
+/// <c>Install</c> with the one line in <c>DomBridge/NodeInterfaces.cs</c> that used to convert a
 /// handle into an engine object for the sole purpose of letting this file convert it back.
 /// </para>
 /// </remarks>

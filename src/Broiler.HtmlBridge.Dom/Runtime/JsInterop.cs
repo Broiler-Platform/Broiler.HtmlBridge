@@ -14,7 +14,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <para>
 /// <b>This type is scaffolding, and it is meant to be deleted.</b> Two methods in this project use
 /// it, and each calls itself a gap in the JSEAL contract rather than an unmigrated caller:
-/// <c>SetAdoptedStyleSheets</c> in <c>DomBridge/ConstructedStyleSheets.cs</c> copies an assigned
+/// <c>SetAdoptedStyleSheets</c> in <c>DomBridge/ComputedStyle.cs</c> copies an assigned
 /// array with the engine's own hole treatment, which <see cref="IJsRealm"/> cannot read back, and
 /// <c>RetireIndex</c> in <c>Features/StyleSheetBinding.cs</c> deletes an index, which
 /// <see cref="IJsMembers"/> has no member for. The only other caller is <c>JsInteropSeamTests</c>.
@@ -25,7 +25,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <b>The budget's number is NOT the count of those crossings, and reading it that way has misled
 /// two pieces of work.</b> <c>eng/jseal-budget.json</c> counts occurrences of the engine's own
 /// namespace as TEXT, and a crossing need not contain one: the file holding <c>RetireIndex</c> names
-/// no engine type, while <c>ConstructedStyleSheets.cs</c> has two usings for its copy. (Spelled
+/// no engine type, while <c>ComputedStyle.cs</c> has two usings for its copy. (Spelled
 /// around rather than out, because the metric would count this sentence too.) The commit that
 /// deleted four unreachable members removed six crossings and moved the budget by eleven — the two
 /// measure different things, and neither alone says how much is left. Count crossings with a grep

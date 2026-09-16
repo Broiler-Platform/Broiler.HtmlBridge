@@ -22,7 +22,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// The file carried one engine-typed adapter until 5282d02, and it was pinned by its caller rather
-/// than by anything here: <c>DomBridge/ElementInterfaces.cs</c> installed these members onto an engine
+/// than by anything here: <c>DomBridge/NodeInterfaces.cs</c> installed these members onto an engine
 /// wrapper it held, so <c>Install</c> took that wrapper and handed it on through
 /// <see cref="Runtime.JsInterop"/>. That file passes the handle it already has, so there is one
 /// installer again.

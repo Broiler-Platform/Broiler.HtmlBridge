@@ -25,7 +25,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// because a member installed by <c>FastAddProperty</c> saw the engine's argument frame while one
 /// minted through <see cref="IJsRealm"/> sees a <see cref="JsCall"/>, and the element-interface
 /// installer had to hand each feature module the frame its own signature named. Both hubs
-/// (<c>DomBridge/ElementInterface.cs</c>, <c>DomBridge/HtmlElementInterface.cs</c>) and every module
+/// (<c>DomBridge/ElementInterface.cs</c>, <c>DomBridge/ElementInterface.cs</c>) and every module
 /// they installed against now speak JSEAL, so the twin is gone and this is the only declaration.
 /// <c>animate()</c> and <c>click</c>/<c>focus</c>/<c>blur</c> included, every member the two hubs install
 /// asks this source with the call frame it was invoked with, so those members share exactly one rule

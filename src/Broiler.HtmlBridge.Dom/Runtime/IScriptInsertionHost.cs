@@ -9,7 +9,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// candidate is authorised against, the realm it evaluates in, the event-loop queue it defers
 /// an external script's fetch to, and the element event it fires when that fetch settles.
 /// Implemented by <c>DomBridge</c> via explicit interface members (see
-/// <c>DomBridge.ScriptInsertionHost.cs</c>).
+/// <c>DomBridge/Hosts.Window.cs</c>).
 /// </summary>
 internal interface IScriptInsertionHost
 {

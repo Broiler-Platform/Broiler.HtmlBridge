@@ -7,7 +7,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The DOM <c>CharacterData</c> interface — <c>data</c> get/set, <c>length</c>, <c>splitText</c>
 /// (Text), and the mutation methods <c>substringData</c>/<c>appendData</c>/<c>deleteData</c>/
 /// <c>insertData</c>/<c>replaceData</c> — shared by Text and Comment nodes, co-located as an HtmlBridge
-/// feature module (Phase 3, first slice off the 1599-line JsFunctionCallbacks/JsObjects.cs member file).
+/// feature module (Phase 3, first slice off the 1599-line DomBridge/JsObjects.cs member file).
 /// Read-side text access (<c>BridgeText</c>), node-type tests and the neutral tree helpers are the
 /// bridge's <c>internal static</c> helpers; the notifying setter, text-node factory and wrapper factory
 /// are reached through the narrow <see cref="ICharacterDataHost"/> contract. Previously the bridge's

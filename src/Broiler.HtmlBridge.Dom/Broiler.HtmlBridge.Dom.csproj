@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <!-- Phase 3 work item 6: content-rendering polyfill JavaScript as a versioned embedded asset
-         (externalized from inline C# string literals in Registration/Polyfills.cs). -->
+         (externalized from inline C# string literals in DomBridge/Registration/Registration.cs). -->
     <EmbeddedResource Include="Polyfills\content-rendering-polyfills.js">
       <LogicalName>Broiler.HtmlBridge.Polyfills.content-rendering-polyfills.js</LogicalName>
     </EmbeddedResource>
@@ -50,7 +50,7 @@
       exists to count down (eng/jseal-budget.json), and it would be a poor trade to remove a
       Broiler.JS reference from a file and add a reference to the assembly that has one. The realm is
       obtained from whichever provider the host linked, through JsEngineRegistry; see
-      DomBridge.Realm.cs.
+      DomBridge/Lifecycle.cs.
     -->
     <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
     <!-- The canvas 2D context rasterises into a Broiler.Graphics BBitmap and encodes it through the

@@ -1,13 +1,15 @@
 using System.Text.RegularExpressions;
-// No engine namespace at all. The two wrapper-cache reverse lookups below take a JSEAL handle, which
-// is what all fifteen of their callers already held; they stopped unwrapping it at their own seams in
-// the same commit that re-typed these, and the using that comment described went with them.
-using Broiler.HtmlBridge.Jseal;
-using Broiler.Dom;
 using Broiler.CSS;
+using Broiler.Dom;
+using Broiler.Dom.Html;
+using Broiler.HtmlBridge.Jseal;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
+
+// No engine namespace at all. The two wrapper-cache reverse lookups below take a JSEAL handle, which
+// is what all fifteen of their callers already held; they stopped unwrapping it at their own seams in
+// the same commit that re-typed these, and the using that comment described went with them.
 
 /// <summary>
 /// Internal helper methods — string conversions, DOM tree utilities,
@@ -152,7 +154,7 @@ public sealed partial class DomBridge
         AnimationStateFor(source).CopyTo(AnimationStateFor(clone));
 
         // Memoized position-area resolution (was ElementRuntimeState.Layout, now the bridge-level
-        // PositionAreaResolutions cache — see PositionAreaQueries.cs).
+        // PositionAreaResolutions cache — see AnchorResolver/PositionArea.cs).
         CopyPositionAreaResolution(source, clone);
 
         // Baked-style overlay (Phase 4 item 2 increment 3): serialize-time bakes now live off the
@@ -199,4 +201,357 @@ public sealed partial class DomBridge
     // module (Broiler.HtmlBridge.Dom.Features), unblocked once Phase 6/P8.9 dissolved
     // Broiler.HtmlBridge.Rendering into Dom.
 
+}
+
+// NO ENGINE NAMESPACE. This part, once a file of its own, used to open with four of them, all for ThrowDOMException and the
+// validators that forward to it, and a note saying the parameter type could not change until the
+// five files handing it a context asked with a realm instead. They now do, so the four usings are
+// gone and this part is the realm's throughout.
+//
+// What made it a single commit rather than five is that the parameter is load-bearing in one
+// direction only: nothing here reads the context except to reach the page's DOMException
+// constructor, and IJsCalls.DomError reaches the same global on the same realm with the same
+// fallback. See the remarks on ThrowDOMException for why that is a rename and not a behaviour
+// change.
+
+/// <summary>
+/// The DOM element/qualified-name validation cluster, together
+/// with the JS-side constructor globals it validates against — the <c>DOMException</c> constructor
+/// (and the C# helper that throws it), plus the <c>Node</c> and <c>SVGLength</c> constant carriers.
+/// The spec name-validation algorithm itself now lives in the canonical
+/// <see cref="DomNameValidation"/> (Broiler.Dom); the bridge only marshals the thrown
+/// <see cref="DomException"/> into a JavaScript <c>DOMException</c>.
+/// </summary>
+public sealed partial class DomBridge
+{
+    // ------------------------------------------------------------------
+    //  Element name validation
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Validates a selector argument (DOM §4.2.6), throwing <c>SyntaxError</c> when it does not parse
+    /// as a selector list.
+    /// </summary>
+    /// <remarks>
+    /// Shared by all five scripted entry points that take one — <c>querySelector</c>,
+    /// <c>querySelectorAll</c>, <c>matches</c> and <c>closest</c> on an element, the two document
+    /// forms, the sub-document forms, and the <c>DocumentFragment</c> forms — because a browser throws
+    /// from all of them identically, which was measured rather than assumed. The CSS cascade does not
+    /// come through here and stays lenient, as CSS error handling requires.
+    /// <para>
+    /// <b>This one takes no parameter at all, where its three neighbours above take a realm.</b> It
+    /// went first, when every one of its callers was already in the migrating group and the three
+    /// above still had callers holding a context — and the argument it made then is the one that
+    /// moved them since: the nullable parameter was only ever forwarded to
+    /// <see cref="DomBridgeUtils.ThrowDOMException"/>, and <c>IJsCalls.DomError</c> constructs through the same
+    /// <c>DOMException</c> global against the same realm, so what a page catches is unchanged. The
+    /// null-tolerance survives as the realm's: before <c>Attach</c> there is no realm and the check
+    /// is skipped, which is what a <see langword="null"/> context meant and is the state the
+    /// bridge's own pre-attach selector work runs in.
+    /// </para>
+    /// </remarks>
+    internal void ValidateSelector(string selector)
+    {
+        if (_realm is { } realm && !Dom.Features.DomApiSyntax.IsValidSelectorList(selector))
+        {
+            throw realm.DomError(
+                "SyntaxError",
+                $"Failed to execute 'querySelector' on 'Document': '{selector}' is not a valid selector.");
+        }
+    }
+}
+
+/// <summary>
+/// A form's controls and its entry list (HTML §4.10.21.4) — the two questions that have to be
+/// answered together once a form-associated custom element can be one of the controls.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The canonical <c>HtmlElementQueries.CollectFormControls</c> matches on the four control tags,
+/// which is right for the DOM it was written against and cannot answer for a custom element: its tag
+/// is whatever the page named it, and only the custom-element registry knows whether its definition
+/// declared <c>formAssociated</c>. So the collection is re-walked here, in the bridge, where that
+/// registry is.
+/// </para>
+/// <para>
+/// <b>The entry list existed nowhere.</b> <c>new FormData(form)</c> enumerated the <em>wrapper's</em>
+/// own string properties, so it produced the element object's members — <c>tagName</c>,
+/// <c>innerHTML</c> and the rest — instead of the form's fields. That made it useless for its only
+/// idiom, and it is also the place a browser reads a form-associated custom element's submission
+/// value, so <c>ElementInternals.setFormValue</c> would have had nowhere to be observed. Building the
+/// list properly is what keeps that from being a shape-only stub.
+/// </para>
+/// </remarks>
+public sealed partial class DomBridge
+{
+    /// <summary>
+    /// <paramref name="form"/>'s controls in tree order, including its form-associated custom
+    /// elements — what <c>form.elements</c> lists.
+    /// </summary>
+    internal List<DomElement> CollectFormControlsIncludingCustom(DomElement form)
+    {
+        var controls = new List<DomElement>();
+        Collect(form);
+        return controls;
+
+        void Collect(DomElement parent)
+        {
+            foreach (var child in ChildElements(parent))
+            {
+                if (ControlTags.Contains(AsciiToLower(child.TagName)) ||
+                    (_customElements?.IsFormAssociated(child) ?? false))
+                    controls.Add(child);
+
+                Collect(child);
+            }
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="form"/>'s entry list: each submittable control's name and current value, in
+    /// tree order.
+    /// </summary>
+    /// <remarks>
+    /// The exclusions are the specified ones and each is observable: a disabled control submits
+    /// nothing, a control with no <c>name</c> submits nothing, an unchecked checkbox or radio submits
+    /// nothing (and a checked one with no <c>value</c> submits <c>"on"</c>), and a button — including
+    /// an <c>&lt;input type=submit&gt;</c> — submits only as the submitter, which a
+    /// <c>new FormData(form)</c> has none of. A file input submits nothing because this engine has no
+    /// file selection.
+    /// </remarks>
+    internal List<KeyValuePair<string, string>> BuildFormEntryList(DomElement form)
+    {
+        var entries = new List<KeyValuePair<string, string>>();
+        foreach (var control in CollectFormControlsIncludingCustom(form))
+        {
+            if (IsFormControlDisabled(control))
+                continue;
+
+            var name = TryGetAttribute(control, "name", out var declaredName) ? declaredName : string.Empty;
+
+            // A form-associated custom element's value is the one it set through its internals, and a
+            // FormData submission value carries its own names — so it is asked before the name test.
+            if (_customElements?.IsFormAssociated(control) == true)
+            {
+                if (_elementInternals?.SubmissionEntriesFor(control, name) is { } custom)
+                    entries.AddRange(custom);
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(name))
+                continue;
+
+            var tag = AsciiToLower(control.TagName);
+            switch (tag)
+            {
+                case "button":
+                    continue;
+
+                case "select":
+                    entries.Add(new(name, _select.GetValue(control)));
+                    continue;
+
+                case "textarea":
+                    entries.Add(new(name, CurrentControlValue(control, GetElementTextContent(control))));
+                    continue;
+
+                case "input":
+                    AppendInputEntry(entries, control, name);
+                    continue;
+            }
+        }
+
+        return entries;
+    }
+
+    private void AppendInputEntry(List<KeyValuePair<string, string>> entries, DomElement input, string name)
+    {
+        var type = TryGetAttribute(input, "type", out var declaredType)
+            ? AsciiToLower(declaredType)
+            : "text";
+
+        switch (type)
+        {
+            case "submit" or "reset" or "button" or "image" or "file":
+                return;
+
+            case "checkbox" or "radio":
+                if (!IsControlChecked(input))
+                    return;
+                entries.Add(new(name, TryGetAttribute(input, "value", out var boxValue) ? boxValue : "on"));
+                return;
+
+            default:
+                entries.Add(new(name, CurrentControlValue(input,
+                    TryGetAttribute(input, "value", out var attributeValue) ? attributeValue : string.Empty)));
+                return;
+        }
+    }
+
+    /// <summary>The control's current value: its dirty IDL value when it has one, and
+    /// <paramref name="fallback"/> — the markup's default — when it does not.</summary>
+    private string CurrentControlValue(DomElement control, string fallback) =>
+        FormControlStateFor(control).Value.TryGet(out var stored) && stored is string value
+            ? value
+            : fallback;
+
+    private bool IsControlChecked(DomElement control) =>
+        FormControlStateFor(control).Checked.TryGet(out var stored)
+            ? stored is true
+            : HasAttr(control, "checked");
+}
+
+/// <summary>
+/// The form-reset algorithm (HTML §4.10.21.4) and the radio-button group invariant it depends on.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A reset is defined entirely in terms of the <em>dirty flags</em> a control carries: resetting an
+/// <c>&lt;input&gt;</c> means clearing its dirty value and dirty checkedness flags, after which the
+/// value and checkedness track the <c>value</c> and <c>checked</c> content attributes again. The
+/// bridge already keeps exactly those flags — the per-element <c>FormControl</c> runtime slots, whose
+/// unset state is what the IDL getters fall back through — so the algorithm is a matter of removing
+/// them rather than of computing replacement values. That is why this can be a small amount of code
+/// for a specified operation: the state model was already right, and only the operation on it was
+/// missing.
+/// </para>
+/// <para>
+/// The radio invariant is not part of resetting as such, but a reset is one of the moments that can
+/// break it: a group whose markup carries <c>checked</c> on more than one member has every one of
+/// them restored, and "at most one member of a radio button group is checked" has to be re-imposed
+/// afterwards. The same invariant is broken by <em>insertion</em> — appending an already-checked
+/// radio into a group that has one — which is why <see cref="EnforceRadioGroupExclusivity"/> is
+/// shared with the insertion path rather than kept private here.
+/// </para>
+/// </remarks>
+public sealed partial class DomBridge
+{
+    /// <summary>
+    /// Resets <paramref name="form"/>'s controls (HTML §4.10.21.4). Each resettable control's dirty
+    /// flags are cleared so its state tracks its markup again, then the radio invariant is
+    /// re-imposed and the style scope invalidated — <c>:checked</c> and the value-dependent
+    /// selectors are cascade inputs.
+    /// </summary>
+    internal void ResetFormControls(DomElement form)
+    {
+        var controls = HtmlElementQueries.CollectFormControls(form);
+        foreach (var control in controls)
+            ResetFormControl(control);
+
+        EnforceRadioGroupExclusivity(form);
+        InvalidateStyleScope(form);
+
+        // A form-associated custom element has no dirty flags to clear — its value is whatever it
+        // chose to submit — so a reset reaches it as a reaction instead, which is where a component
+        // restores its own default.
+        _customElements?.OnFormReset(CollectFormControlsIncludingCustom(form));
+    }
+
+    /// <summary>
+    /// One control's reset algorithm. Every case is a dirty-flag removal, because the flag being
+    /// unset <em>is</em> "tracks the markup" everywhere the IDL getters read it.
+    /// </summary>
+    private void ResetFormControl(DomElement control)
+    {
+        var state = FormControlStateFor(control);
+        switch (control.TagName?.ToLowerInvariant())
+        {
+            case "input":
+                // Dirty value flag and dirty checkedness flag, both cleared: value falls back to the
+                // `value` attribute and checkedness to the presence of `checked`.
+                state.Value.Remove();
+                state.Checked.Remove();
+                break;
+
+            case "textarea":
+                // A textarea has no `value` attribute — its default is the child text content, which
+                // is where the value getter falls back to once this flag is gone.
+                state.Value.Remove();
+                break;
+
+            case "select":
+                // "Set the selectedness of each option to its selectedness content attribute" — the
+                // select's own dirty index is what overrides that, so removing it restores the
+                // markup's selection. An option's dirty selectedness (set through
+                // `option.selected`/`defaultSelected`) is cleared with it, so a script-selected
+                // option does not survive the reset that a markup-selected one must.
+                state.SelectedIndex.Remove();
+                foreach (var option in HtmlElementQueries.CollectFormControls(control))
+                {
+                    if (string.Equals(option.TagName, "option", StringComparison.OrdinalIgnoreCase))
+                        FormControlStateFor(option).DefaultSelected.Remove();
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Re-imposes "at most one member of a radio button group is checked" over every group under
+    /// <paramref name="scope"/>, keeping the <b>last</b> checked member in tree order.
+    /// </summary>
+    /// <remarks>
+    /// Last rather than first, because that is what the specification's own ordering produces and
+    /// what a browser answers. The rule fires whenever a radio's checkedness becomes true, so
+    /// restoring or inserting a run of checked radios one at a time leaves each one unchecking the
+    /// ones before it — the final state is the last one processed. Reference-checked against
+    /// Chromium for both the reset case (two <c>checked</c> radios in the markup) and the insertion
+    /// case (appending a checked radio into a group that already has one).
+    /// </remarks>
+    private void EnforceRadioGroupExclusivity(DomElement scope)
+    {
+        // Group name -> the last checked radio seen for it. Radios with no name are not in a group
+        // (HTML: the group is the elements sharing a non-empty name), so they are left alone.
+        Dictionary<string, DomElement>? lastChecked = null;
+
+        foreach (var element in scope.InclusiveDescendants().OfType<DomElement>())
+        {
+            if (!IsRadioInput(element) ||
+                !TryGetAttribute(element, "name", out var name) ||
+                string.IsNullOrEmpty(name) ||
+                !IsCheckedNow(element))
+                continue;
+
+            lastChecked ??= [];
+            if (lastChecked.TryGetValue(name, out var previous))
+                FormControlStateFor(previous).Checked.Set(false);
+            lastChecked[name] = element;
+        }
+    }
+
+    /// <summary>The checkedness a radio reports right now: its dirty flag when set, else the
+    /// presence of the <c>checked</c> content attribute — the same fallback the IDL getter uses.</summary>
+    private bool IsCheckedNow(DomElement element) =>
+        FormControlStateFor(element).Checked.TryGet(out var dirty)
+            ? dirty is true
+            : HasAttr(element, "checked");
+
+    /// <summary>
+    /// Restores the radio invariant after <paramref name="inserted"/> (or a descendant of it) joins
+    /// the tree. An already-checked radio that is appended into a group with a checked member left
+    /// two checked, which is a state a browser never shows and a state no user interaction can
+    /// produce — a form serialized in it submits two values for one field.
+    /// </summary>
+    /// <remarks>
+    /// This runs on every element insertion, so its cost matters. It is a walk of the inserted
+    /// subtree with a tag comparison per element, and it is the <em>third</em> such walk on this
+    /// line — <c>FireDescendantOnloads</c> and <c>FireDescendantStylesheetLinkLoads</c> already
+    /// traverse the same subtree with per-element predicates of the same order. So it is a constant
+    /// factor on a path that is already O(subtree), not a new order of growth. A subtree carrying no
+    /// checked radio does the walk and nothing else; there is no cheaper signal, because whether a
+    /// radio is checked is exactly what has to be looked at.
+    /// </remarks>
+    private void EnforceRadioGroupExclusivityForInsertion(DomElement inserted)
+    {
+        foreach (var element in inserted.InclusiveDescendants().OfType<DomElement>())
+        {
+            if (IsRadioInput(element) && IsCheckedNow(element) &&
+                TryGetAttribute(element, "name", out var name) && !string.IsNullOrEmpty(name))
+            {
+                // The newcomer wins, which is what "checkedness set to true" gives it: it is the
+                // last member of the group to have been made checked.
+                UncheckRadioSiblings(RadioGroupScope(element), element, name);
+            }
+        }
+    }
 }

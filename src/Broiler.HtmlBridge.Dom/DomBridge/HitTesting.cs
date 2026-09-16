@@ -125,7 +125,7 @@ public sealed partial class DomBridge
             return listItemRect;
 
         // An SVG shape's rect comes from its own geometry attributes, not from the CSS box tree it
-        // is not in — see LayoutMetrics.SvgGeometry.cs. Without this every shape measured 0×0, the
+        // is not in — see LayoutMetrics.Svg.cs. Without this every shape measured 0×0, the
         // empty-rect guard in IsElementHitTestCandidate dropped it, and a group's union-of-children
         // had nothing to union, so hit testing stopped at the <svg> root.
         if (TryGetSvgClientRect(element, out var svgRect))

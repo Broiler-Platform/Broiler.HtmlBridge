@@ -20,7 +20,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// It carried two engine-typed adapters until 5282d02, and both were pinned by their caller rather
 /// than by anything here. <see cref="Install(JsValue, DomElement, string, bool)"/> took the wrapper as
-/// an engine object because <c>DomBridge/ElementInterfaces.cs</c> held it as one; it takes the handle
+/// an engine object because <c>DomBridge/NodeInterfaces.cs</c> held it as one; it takes the handle
 /// that file already has. <see cref="InstallElementMembers"/> minted its two members with the engine's
 /// argument frame because the <c>ElementSource</c> it was handed read that frame; that delegate is one
 /// JSEAL declaration now (<see cref="JsElementSource"/>), so the two fullscreen methods are the

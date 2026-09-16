@@ -127,7 +127,7 @@ internal sealed class BlobBinding
     /// <see cref="IJsRealm"/> over the one context, with a job queue of its own that nothing drained.
     /// The objects were the right ones (a handle carries the engine's own value), but a promise
     /// settled through the second realm reported to a queue no event loop pumped. The call site in
-    /// <c>DomBridge/Registration/Polyfills.cs</c> passes the bridge's realm now, so there is one
+    /// <c>DomBridge/Registration/Registration.cs</c> passes the bridge's realm now, so there is one
     /// realm and one queue.
     /// </remarks>
     internal void RegisterInterfaces(IJsRealm realm)

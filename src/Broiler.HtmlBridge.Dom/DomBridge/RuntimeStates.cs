@@ -52,8 +52,8 @@ internal sealed class InlineStyleRuntimeState
     //
     // The handlers are JSEAL handles. Every read and write of this map goes through
     // DomBridge.GetInlineEventHandlers, and every caller of that is in three files: DomBridge/Events.cs
-    // compiles an on* attribute into it, DomBridge.EventDispatchHost.cs fires from it, and
-    // DomBridge/DomBridge.EventHandlerReflectorHost.cs reflects it as element.onclick. All three already
+    // compiles an on* attribute into it, DomBridge/Hosts.Window.cs fires from it, and
+    // DomBridge/Hosts.Window.cs reflects it as element.onclick. All three already
     // held a handle on their own side and converted only at this map. EventListenerRegistration, above,
     // is a different declaration in the same file; this map's type never depended on it.
     public Dictionary<string, JsValue> InlineEventHandlers { get; } = new(StringComparer.OrdinalIgnoreCase);

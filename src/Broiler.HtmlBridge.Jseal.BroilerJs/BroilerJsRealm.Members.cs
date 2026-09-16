@@ -211,7 +211,7 @@ internal sealed partial class BroilerJsRealm
     /// Points <paramref name="target"/>'s prototype chain at <paramref name="prototype"/>.
     /// </summary>
     /// <remarks>
-    /// A plain assignment to <c>BasePrototypeObject</c>, as <c>DomBridge/WrapperPrototypes.cs</c> does
+    /// A plain assignment to <c>BasePrototypeObject</c>, as <c>DomBridge/ElementInterface.cs</c> does
     /// — the engine's setter is the [[SetPrototypeOf]] path, and it is what publishes the
     /// prototype-chain mutation that retires the caches keyed on the old chain. Reaching past it to
     /// the <c>prototypeChain</c> field would link the object and leave every one of those caches

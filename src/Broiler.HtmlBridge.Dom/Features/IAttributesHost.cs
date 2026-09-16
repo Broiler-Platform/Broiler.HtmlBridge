@@ -26,7 +26,7 @@ internal interface IAttributesHost
     //
     // It read: "One consumer keeps it: the InvalidCharacterError an invalid setAttribute,
     // setAttributeNS or toggleAttribute name must throw (DOM 4.9.1). The bridge's name validators
-    // -- DomBridge/Utilities.NameValidation.cs, which this group does not own -- mint that
+    // -- DomBridge/Utilities.cs, which this group does not own -- mint that
     // DOMException from a context rather than from a realm, so a caller has to hold one. It goes
     // when they take an IJsRealm and reach IJsCalls.DomError instead."
     //

@@ -2,7 +2,7 @@ using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
 // No engine namespace. This said one adapter at the foot of this file stayed engine-typed for
-// DomBridge/ElementInterfaces.cs's <img>.width/.height; that file mints the pair through the realm
+// DomBridge/NodeInterfaces.cs's <img>.width/.height; that file mints the pair through the realm
 // and its getter calls GetUsedDimension, and the member at the foot takes a JsCall.
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -23,7 +23,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// reads its own call frame — its installer mints it through the realm — and the coercion of the
 /// pseudo-element argument is the realm's <c>ToJsString</c>, which is the same observable ECMAScript
 /// <c>ToString</c> the engine's <c>ToString()</c> ran there. <c>&lt;img&gt;.width</c>/<c>.height</c>
-/// need no frame: <c>DomBridge/ElementInterfaces.cs</c> mints that accessor pair through the realm and
+/// need no frame: <c>DomBridge/NodeInterfaces.cs</c> mints that accessor pair through the realm and
 /// its getter calls <c>GetUsedDimension</c> with the element and dimension name. (This said that file
 /// still handed over an engine argument frame, which an adapter at the foot of this file unwrapped.)
 /// </remarks>

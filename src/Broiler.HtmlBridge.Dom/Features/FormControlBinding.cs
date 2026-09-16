@@ -26,7 +26,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the receiver on each call — through a delegate whose parameter used to be the engine's own argument
 /// frame, which is what kept <see cref="InstallHtmlElementMembers"/> engine-typed. That delegate is
 /// one JSEAL declaration now (<see cref="JsElementSource"/>) and
-/// <c>DomBridge/HtmlElementInterface.cs</c> installs against it, so the pair is minted by the realm
+/// <c>DomBridge/ElementInterface.cs</c> installs against it, so the pair is minted by the realm
 /// with the same attributes and in the same position. Each body still does nothing but read its
 /// argument and call the shared CLR-typed operation, so the two spellings cannot drift apart.
 /// </para>

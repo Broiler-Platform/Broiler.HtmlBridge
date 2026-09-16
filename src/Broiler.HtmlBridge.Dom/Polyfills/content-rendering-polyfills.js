@@ -6,7 +6,7 @@
 // (Phase 3 work item 6 — externalized from inline C# string literals, byte-for-byte at the time). Each
 // stub is fixed forward here as a real page finds its edges, so this is the definition, not a copy of
 // one; the C#-interop polyfills (document.cookie, crypto, DOMException, Node, SVGLength constructors)
-// remain in Polyfills.cs because they are host-driven, not pure JS.
+// remain in DomBridge/Registration/Registration.cs because they are host-driven, not pure JS.
 
 // Image() constructor — returns stub object with src property
 function Image(width, height) {

@@ -13,7 +13,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the module depends on the bridge through the deliberately wide <see cref="IElementGeometryHost"/>
 /// contract (the Phase 3 "wide-explicit-host" template) rather than a one-member seam — the point is that
 /// the exact geometry surface is now named instead of the callbacks reaching into arbitrary bridge
-/// internals. Was the bridge's box-model block in <c>DomBridge/ElementInterfaces.cs</c> and the
+/// internals. Was the bridge's box-model block in <c>DomBridge/NodeInterfaces.cs</c> and the
 /// <c>JsElementInterfacesGetScrollTop072Core</c>..<c>ScrollParent085Core</c> callbacks.
 /// </summary>
 /// <remarks>

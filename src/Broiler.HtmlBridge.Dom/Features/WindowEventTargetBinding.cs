@@ -15,7 +15,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The call frame is JSEAL's -- <c>DomBridge/Registration/Window.cs</c> and
-/// <c>DomBridge/EventTargetInterface.cs</c> both mint these through the realm -- and nothing on the
+/// <c>DomBridge/Events.cs</c> both mint these through the realm -- and nothing on the
 /// registration side is behind the contract any more: the listener record holds a
 /// <see cref="JsValue"/>, and <see cref="EventListenerBinding"/> is called directly with the realm the
 /// frame carries. The event-type coercion is the realm's <c>ToJsString</c>, the same observable

@@ -375,11 +375,11 @@ new host-surface member.
 
 | What | Why it stays |
 |---|---|
-| `DomBridge.Realm.cs`, `RegisterDocument(JSContext)` in `DomBridge/Registration/Registration.cs` | The floor. One *adopts* a context; the other swaps the code cache, a Broiler.JS optimisation with no JSEAL vocabulary |
+| `DomBridge/Lifecycle.cs`, `RegisterDocument(JSContext)` in `DomBridge/Registration/Registration.cs` | The floor. One *adopts* a context; the other swaps the code cache, a Broiler.JS optimisation with no JSEAL vocabulary |
 | `IDomBridgeRuntime.Attach(JSContext, …)`, implemented in `DomBridge.cs` | Declared in `Broiler.HtmlBridge.Core`, and consumed by `Broiler.Cli`/`Broiler.Wpt`/`Broiler.DevConsole`, which are not in this checkout |
 | `BridgeModuleContext`, and the sub-document module roots in `DomBridge/SubDocuments.cs` | It derives from the engine's module context to inject specifier resolution and CSP-gated fetch, and a frame's module roots run on that context. JSEAL has no module-graph contract; the one it would need is written out in `BridgeModuleContext`'s remarks |
-| `DomBridge/ConstructedStyleSheets.cs` | Assigning `document.adoptedStyleSheets` copies the array in engine terms: the realm can mint an array but cannot read one back with the engine's hole treatment. A gap in the contract rather than an unmigrated caller |
-| `Runtime/JsInterop.cs` | The cast between a JSEAL handle and the engine's own object. Two files cross it: `ConstructedStyleSheets.cs` above, and `Features/StyleSheetBinding.cs`, whose `RetireIndex` names no engine type and so is not in the count |
+| `DomBridge/ComputedStyle.cs` | Assigning `document.adoptedStyleSheets` copies the array in engine terms: the realm can mint an array but cannot read one back with the engine's hole treatment. A gap in the contract rather than an unmigrated caller |
+| `Runtime/JsInterop.cs` | The cast between a JSEAL handle and the engine's own object. Two files cross it: `ComputedStyle.cs` above, and `Features/StyleSheetBinding.cs`, whose `RetireIndex` names no engine type and so is not in the count |
 
 Two are contract gaps — the module graph, with a written specification waiting, and reading an array
 back with the engine's hole treatment; the rest is the floor, a signature consumed outside this

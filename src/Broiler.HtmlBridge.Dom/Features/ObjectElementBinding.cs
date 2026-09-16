@@ -24,7 +24,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// <b>The call frame has moved too.</b> All three members are registered from
-/// <c>DomBridge/ElementInterfaces.cs</c>, which minted them as engine functions until 5282d02; the
+/// <c>DomBridge/NodeInterfaces.cs</c>, which minted them as engine functions until 5282d02; the
 /// three one-line adapters that took the engine's argument frame and handed back an engine value are
 /// deleted, and that file calls the operations above directly. The one difference the deletion makes
 /// is where the <c>data</c> setter's <c>ToString</c> comes from — the engine's own coercion before,

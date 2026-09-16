@@ -12,7 +12,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// a listener by <see cref="JsValue"/> equality, which compares kind and then the reference the handle
 /// carries; every listener that reaches it is kind <c>Function</c>, so what is left is the reference
 /// comparison <c>removeEventListener</c> depends on. (This said that turning the handle back into what
-/// the registry held was the bridge's job, and that <c>DomBridge.VisualViewportEventTargetHost.cs</c> was
+/// the registry held was the bridge's job, and that <c>DomBridge/Hosts.Window.cs</c> was
 /// where "the remaining engine reference" lived until the registry migrated. There were three, one of
 /// them in the registry, and they went together because each end was the other's reason.)
 /// </remarks>
