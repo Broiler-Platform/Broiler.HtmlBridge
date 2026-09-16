@@ -1,6 +1,7 @@
 using Broiler.CSS.Dom;
 using Broiler.Dom;
 using Broiler.Dom.Html;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 using static Broiler.HtmlBridge.DomBridgeUtils;
@@ -435,4 +436,111 @@ public sealed partial class DomBridge
         return true;
     }
 
+}
+
+/// <summary>
+/// Custom element reactions from the canonical mutation stream: every document this bridge owns is
+/// subscribed, and each child-list, attribute and adoption record is handed to the registry.
+/// </summary>
+public sealed partial class DomBridge
+{
+    /// <summary>
+    /// Turns the canonical mutation stream into reaction callbacks.
+    /// </summary>
+    /// <remarks>
+    /// <c>DomDocument.Mutated</c> is raised synchronously at mutation time, which is what this needs:
+    /// a browser runs <c>connectedCallback</c> before the statement after the <c>appendChild</c> that
+    /// caused it. Building reactions on <c>MutationObserver</c> instead — the obvious reuse, since it
+    /// already subscribes here — would have delivered every one of them a microtask late, and a
+    /// component that reads its own DOM straight after inserting itself would have seen nothing.
+    /// </remarks>
+    private void SubscribeCustomElementReactions()
+    {
+        if (_customElementReactionsSubscribed)
+            return;
+
+        _customElementReactionsSubscribed = true;
+        _document.Mutated += OnCustomElementRelevantMutation;
+        foreach (var other in _browsingContextDocuments)
+            other.Mutated += OnCustomElementRelevantMutation;
+    }
+
+    /// <summary>
+    /// Subscribes a document this bridge minted for a detached browsing context, so a node adopted
+    /// <em>into</em> it is heard.
+    /// </summary>
+    /// <remarks>
+    /// Adoption publishes its record on the document the node is moving to, not the one it is leaving
+    /// — so listening to the main document alone hears an adoption into the page and misses the
+    /// symmetric one out of it. There is one registry across every document this bridge owns, so the
+    /// same handler serves them all.
+    /// </remarks>
+    private void SubscribeBrowsingContextDocument(DomDocument document)
+    {
+        if (!_browsingContextDocuments.Add(document) || !_customElementReactionsSubscribed)
+            return;
+
+        document.Mutated += OnCustomElementRelevantMutation;
+    }
+
+    private readonly HashSet<DomDocument> _browsingContextDocuments = [];
+
+    private bool _customElementReactionsSubscribed;
+
+    private void OnCustomElementRelevantMutation(DomMutationRecord record)
+    {
+        if (_customElements is not { } registry)
+            return;
+
+        if (record.Type == DomMutationType.Adoption)
+        {
+            registry.OnAdoption(record.Target, DocumentValue(record.OldDocument), DocumentValue(record.NewDocument));
+            return;
+        }
+
+        if (record.Type == DomMutationType.ChildList)
+        {
+            // Both lists are optional on the record, and a childList record normally carries only
+            // one of them.
+            registry.OnChildListMutation(
+                record.AddedNodes ?? [],
+                record.RemovedNodes ?? []);
+            // A move changes a form-associated custom element's owner and can change its disabled
+            // state (an ancestor fieldset), and both are computed from the tree rather than stored.
+            registry.SyncFormState();
+            return;
+        }
+
+        if (record.Type == DomMutationType.Attributes && record.Target is DomElement element &&
+            record.AttributeName is { } attributeName)
+        {
+            registry.OnAttributeMutation(element, attributeName, record.OldValue);
+            // `disabled`, `form` and `id` each move a form-associated custom element between states;
+            // the sweep costs one pass over the elements a page actually upgraded.
+            registry.SyncFormState();
+        }
+    }
+
+    /// <summary>The JS object for a document node — the window's <c>document</c> for the page, its own
+    /// wrapper for a document this bridge minted, and <c>null</c> for one that has neither.</summary>
+    /// <remarks>
+    /// Nothing here converts: the page's document is the bridge's document root and a minted
+    /// document's wrapper is the registry's entry, both handles already held, so
+    /// <c>evt.oldDocument === frameDoc</c> is the question it always was. (This used to say the wrapper
+    /// caches were engine-typed and each answer crossed through a cast; the registry had not been
+    /// engine-typed for some time, and the root is not now.) The <c>null</c> for the page's own
+    /// document before one is registered is kept deliberately: the root holds
+    /// <see cref="JsValue.Missing"/> then, and this member answers a document or <c>null</c>, which is
+    /// what a page can read.
+    /// </remarks>
+    private JsValue DocumentValue(DomDocument? document)
+    {
+        if (document is null)
+            return JsValue.Null;
+
+        if (ReferenceEquals(document, _document))
+            return DocumentHandle.IsMissing ? JsValue.Null : DocumentHandle;
+
+        return _jsObjects.TryGetDocument(document, out var wrapper) ? wrapper : JsValue.Null;
+    }
 }

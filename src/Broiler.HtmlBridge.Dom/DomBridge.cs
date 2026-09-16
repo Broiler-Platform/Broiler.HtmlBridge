@@ -161,8 +161,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     private readonly Dom.Runtime.BrowsingContextManager _browsingContexts = new();
     // Phase 3 (P3.18): the browsing-context window-resolution behaviour (canonicalise/resolve a window,
     // and the RunWithWindowContext global switch) is owned by WindowContextManager, reached through the
-    // narrow IWindowContextHost contract (see DomBridge/Hosts.Window.cs); DomBridge/Lifecycle.cs
-    // keeps thin delegators. It reads the sub-window state from _browsingContexts and _eventTargets.
+    // narrow IWindowContextHost contract (see DomBridge/Hosts.Window.cs), which also
+    // keeps the thin delegators. It reads the sub-window state from _browsingContexts and _eventTargets.
     private readonly Dom.Runtime.WindowContextManager _windowContext;
     // Phase 3 (P3.10): the whole web-messaging feature — window.postMessage, MessageChannel/
     // MessagePort (which own the P2.6 MessagePortRegistry state) and the generic EventTarget dispatch

@@ -11,7 +11,7 @@ namespace Broiler.HtmlBridge.Tests;
 /// until it did.</b> Retyping <c>SubWindowBinding.GetOrCreate</c> to answer a handle rebound
 /// <c>DomBridge/SubDocuments.cs:407</c>'s <c>RunWithWindowContext(subWindow, …)</c> from the
 /// engine-typed overload to the handle one with no textual change to that line; that overload has
-/// since been deleted, and <c>DomBridge/Lifecycle.cs</c> declares only the handle one. Pointing
+/// since been deleted, and <c>DomBridge/Hosts.Window.cs</c> declares only the handle one. Pointing
 /// the frame's Location at the realm-framed builder moved a live path onto a builder that had never
 /// executed; it is now <c>LocationBinding</c>'s only builder, though the top-level Location is
 /// still assembled apart from it, in <c>Registration/Window.cs</c>, over the same navigation
