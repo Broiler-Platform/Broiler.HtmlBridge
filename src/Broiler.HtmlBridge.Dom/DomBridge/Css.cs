@@ -556,4 +556,38 @@ public sealed partial class DomBridge
     /// <summary>The frames whose viewport is being resolved right now — see
     /// <see cref="CascadedFrameViewport"/>.</summary>
     private readonly HashSet<DomElement> _frameViewportResolutions = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Author style rules (selector text + declarations) across every <c>&lt;style&gt;</c>
+    /// and external-stylesheet <c>&lt;link rel="stylesheet"&gt;</c> in the tree, in document order.
+    /// External links are included because the <c>::view-transition-*</c> pseudo rules and the
+    /// <c>view-transition-group</c> values — which are read from the raw author rules here rather than
+    /// through computed style — routinely live in a linked stylesheet (the WPT
+    /// <c>css-view-transitions-2 nested</c> tests keep the entire pseudo tree styling in
+    /// <c>resources/*.css</c>). A disabled sheet contributes nothing (CSSOM §2.3).</summary>
+    private IEnumerable<(string SelectorText, CssDeclarationBlock Declarations)> EnumerateAuthorStyleRules(DomElement root)
+    {
+        foreach (var styleEl in root.Descendants().OfType<DomElement>())
+        {
+            if (!(styleEl.TagName.Equals("style", System.StringComparison.OrdinalIgnoreCase)
+                    || IsExternalStylesheet(styleEl))
+                || IsStyleSheetDisabled(styleEl))
+                continue;
+
+            var source = GetStyleElementSourceText(styleEl);
+            if (string.IsNullOrEmpty(source))
+                continue;
+
+            CssStyleSheet sheet;
+            try { sheet = new CssParser().ParseStyleSheet(source); }
+            catch { continue; }
+
+            foreach (var rule in sheet.Rules)
+            {
+                if (rule is not CssStyleRule styleRule)
+                    continue;
+                foreach (var selector in styleRule.Selectors.Selectors)
+                    yield return (selector.Text, styleRule.Declarations);
+            }
+        }
+    }
 }
