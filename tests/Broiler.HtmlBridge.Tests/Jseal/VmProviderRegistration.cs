@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// Names the Broiler.VM JSEAL provider so this build's conformance run includes it.

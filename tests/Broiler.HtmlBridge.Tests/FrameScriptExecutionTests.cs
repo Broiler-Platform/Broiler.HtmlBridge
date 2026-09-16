@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// A nested browsing context, asserted from the containing page's script: the frame's window,

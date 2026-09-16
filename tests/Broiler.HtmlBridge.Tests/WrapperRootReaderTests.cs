@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// The bridge's three wrapper roots — the <c>document</c>, <c>window</c> and <c>window.visualViewport</c>

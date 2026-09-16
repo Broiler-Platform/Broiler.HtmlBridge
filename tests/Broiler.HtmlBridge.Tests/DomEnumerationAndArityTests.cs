@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// The two properties of the DOM binding nothing else in this suite reads: the ORDER an object's keys

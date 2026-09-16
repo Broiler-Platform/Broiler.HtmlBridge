@@ -5,7 +5,7 @@ using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.VM.Profile.JavaScript.Compiler;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// What the <c>Debug-VM</c> and <c>Release-VM</c> configurations actually buy: script running on

@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// <c>window.visualViewport</c>'s <c>scroll</c> dispatch, asserted from page script.

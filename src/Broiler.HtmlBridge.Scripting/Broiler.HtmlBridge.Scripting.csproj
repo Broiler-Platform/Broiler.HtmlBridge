@@ -31,9 +31,9 @@
       a provider to adopt a realm from without referencing one itself.
     -->
     <ProjectReference Include="..\Broiler.HtmlBridge.Jseal.BroilerJs\Broiler.HtmlBridge.Jseal.BroilerJs.csproj" />
-    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
-    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
-    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Modules\Broiler.JavaScript.Modules.csproj" />
+    <ProjectReference Include="$(BroilerJsRoot)\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
+    <ProjectReference Include="$(BroilerJsRoot)\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
+    <ProjectReference Include="$(BroilerJsRoot)\Broiler.JS\Broiler.JavaScript.Modules\Broiler.JavaScript.Modules.csproj" />
   </ItemGroup>
 
 </Project>

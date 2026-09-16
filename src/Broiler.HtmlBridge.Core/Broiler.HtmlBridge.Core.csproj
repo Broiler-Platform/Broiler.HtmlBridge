@@ -11,6 +11,10 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Broiler" />
     <InternalsVisibleTo Include="Broiler.Browser.Core.Tests" />
+    <!-- This component's own suite, which is where the bridge tests moved when the bridge
+         left Broiler.Browser. The grant above stays: the browser keeps the tests that need
+         its own host (page loading, the UI form controls, the render list). -->
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Tests" />
     <InternalsVisibleTo Include="Broiler.Cli" />
     <InternalsVisibleTo Include="Broiler.Cli.Tests" />
     <InternalsVisibleTo Include="Broiler.DevConsole" />
@@ -34,7 +38,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Broiler.JS\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
+    <ProjectReference Include="$(BroilerJsRoot)\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
     <!-- For Broiler.Layout.Net.BroilerUserAgent alone: the external-script fetcher here is one of
          the loaders that has to identify itself, and the engine gets to say what it is called in
          exactly one place. Broiler.Layout is the assembly every other loader — including the ones

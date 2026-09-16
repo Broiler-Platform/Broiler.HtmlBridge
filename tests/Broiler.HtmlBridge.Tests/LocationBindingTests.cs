@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// <c>window.location</c>'s navigation surface: which requests move the document's URL and which

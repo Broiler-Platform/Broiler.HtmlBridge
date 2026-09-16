@@ -69,47 +69,13 @@
     "",
     "This is an object rather than the array eng/solutions.json uses, so that a directory cannot be",
     "budgeted twice -- two entries for one project would let the check read whichever came first.",
-    "A project marked \"role\": \"provider\" is the one kind whose engine references are SUPPOSED to grow -- naming the engine is what a provider assembly is for. For those, engineReferences and guestEvalSites are recorded and reported when they drift, but not enforced; engineProjectRefs stays enforced, because which engine assemblies a provider links is a real boundary and a Broiler.JS provider quietly acquiring a Broiler.VM reference should have to argue for it in a diff."
+    "A project marked \"role\": \"provider\" is the one kind whose engine references are SUPPOSED to grow -- naming the engine is what a provider assembly is for. For those, engineReferences and guestEvalSites are recorded and reported when they drift, but not enforced; engineProjectRefs stays enforced, because which engine assemblies a provider links is a real boundary and a Broiler.JS provider quietly acquiring a Broiler.VM reference should have to argue for it in a diff.",
+    "",
+    "MOVED OUT OF Broiler.Browser ON 2026-09-16, WITH THE CODE IT BUDGETS. Seven entries went away in that move and none of them was a project this ratchet was ever about: Broiler.App, Broiler.App.Android, Broiler.Browser.Android, Broiler.Browser.Core, Broiler.Browser.Core.Tests, Broiler.Browser.Linux and Broiler.Browser.Windows. Six of the seven were at 0/0/0 and stayed in the browser; the seventh, Broiler.Browser.Core, carries one unconditional Broiler.JavaScript.All reference because BrowserApp.NewScriptEngine() still picks an engine with an #if rather than through JsEngineRegistry. That is now a fact about an EMBEDDER rather than about the bridge, which is the right place for it to be argued, and it is no longer measured here because this check deliberately does not look outside its own src/.",
+    "",
+    "The engine ProjectReferences these numbers count are spelled $(BroilerJsRoot)/... and $(BroilerVmRoot)/... since the same move. The check knows both spellings and the relative one; scripts/check-engine-neutrality.sh says what it cost to find that out."
   ],
   "projects": {
-    "Broiler.App": {
-      "engineReferences": 0,
-      "engineProjectRefs": 0,
-      "guestEvalSites": 0,
-      "note": "Shared sources with no project file of their own; linked into the Core, Linux and Windows heads. Nothing here has ever touched the engine, and being at 0 without a csproj means it cannot acquire a reference except in source."
-    },
-    "Broiler.App.Android": {
-      "engineReferences": 0,
-      "engineProjectRefs": 0,
-      "guestEvalSites": 0
-    },
-    "Broiler.Browser.Android": {
-      "engineReferences": 0,
-      "engineProjectRefs": 0,
-      "guestEvalSites": 0
-    },
-    "Broiler.Browser.Core": {
-      "engineReferences": 0,
-      "engineProjectRefs": 1,
-      "guestEvalSites": 0,
-      "note": "The one reference is Broiler.JavaScript.All, unconditional. No source here names the engine, so this is a link the head does not use directly -- it is here because BrowserApp.NewScriptEngine() still picks an engine with an #if rather than through JsEngineRegistry. It drops to 0 when it does; see the remarks on JsEngineRegistry. The sibling reference to Broiler.HtmlBridge.Scripting.Vm is conditional on the -VM build types and is not counted, because it points inside src/."
-    },
-    "Broiler.Browser.Core.Tests": {
-      "engineReferences": 1,
-      "engineProjectRefs": 0,
-      "guestEvalSites": 0,
-      "note": "ONE, AND THE ARGUMENT THIS ENTRY ASKED FOR IS BELOW. It used to read: 'if a test ever needs to name one directly, that is a real budget increase and this file is where the argument for it belongs.' JsInteropSeamTests is that test. JsInterop is the seam between an engine object and a JSEAL handle, and its defect was that a function crossing it came back kind Object while the same function from the provider came back kind Function -- so two handles over one object compared unequal, which a handle-keyed map cannot survive. A test that could not name JSObject could not assert the correspondence; it could only assert that JSEAL agrees with itself. The increase is one using line and it buys the only check that would catch the defect returning. It falls back to 0 when JsInterop is deleted, which is the whole point of the programme this test serves. VmScriptEngineTests still compiles only under the -VM build types and gets the engine transitively."
-    },
-    "Broiler.Browser.Linux": {
-      "engineReferences": 0,
-      "engineProjectRefs": 0,
-      "guestEvalSites": 0
-    },
-    "Broiler.Browser.Windows": {
-      "engineReferences": 0,
-      "engineProjectRefs": 0,
-      "guestEvalSites": 0
-    },
     "Broiler.HtmlBridge.Core": {
       "engineReferences": 1,
       "engineProjectRefs": 1,

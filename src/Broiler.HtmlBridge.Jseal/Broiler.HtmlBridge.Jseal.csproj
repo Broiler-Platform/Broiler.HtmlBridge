@@ -12,6 +12,10 @@
     <InternalsVisibleTo Include="Broiler.HtmlBridge.Jseal.BroilerJs" />
     <InternalsVisibleTo Include="Broiler.HtmlBridge.Jseal.Tests" />
     <InternalsVisibleTo Include="Broiler.Browser.Core.Tests" />
+    <!-- This component's own suite, which is where the bridge tests moved when the bridge
+         left Broiler.Browser. The grant above stays: the browser keeps the tests that need
+         its own host (page loading, the UI form controls, the render list). -->
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Tests" />
   </ItemGroup>
 
   <!--

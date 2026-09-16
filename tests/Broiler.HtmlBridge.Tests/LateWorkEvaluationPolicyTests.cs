@@ -1,7 +1,7 @@
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Scripting;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// What work a script leaves behind on <c>ScriptEngine</c>'s document-free entry points,

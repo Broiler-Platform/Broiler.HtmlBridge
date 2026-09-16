@@ -3,7 +3,7 @@ using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// The sub-window maps' key contract: a frame's window is filed under a handle that is an object,

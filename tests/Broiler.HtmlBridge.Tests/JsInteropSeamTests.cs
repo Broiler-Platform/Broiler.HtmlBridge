@@ -4,7 +4,7 @@ using Broiler.HtmlBridge.Jseal.Providers;
 using Broiler.JavaScript.Runtime;
 using Xunit;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// <c>JsInterop</c> is the cast between an engine object and a JSEAL handle that the DOM bridge still

@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge.Core.Diagnostics;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// The <c>BROILER_TRACE_JS_ENTRY</c> contract: what a reader types, and what they get.

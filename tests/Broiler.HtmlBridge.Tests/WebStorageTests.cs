@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// The two Web Storage areas (HTML §12.2) — <c>localStorage</c> and <c>sessionStorage</c> — asserted

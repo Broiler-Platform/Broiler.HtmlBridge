@@ -4,7 +4,7 @@ using System.Reflection;
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Jseal;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// What "a correct JSEAL provider" means, asserted against the contracts and nothing else.

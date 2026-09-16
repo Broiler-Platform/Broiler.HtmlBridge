@@ -1,7 +1,7 @@
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Jseal;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// <see cref="JsEngineRegistry"/>: how a process finds out which JavaScript engines it has, and

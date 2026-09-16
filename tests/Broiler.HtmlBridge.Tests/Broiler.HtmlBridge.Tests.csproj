@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Broiler.HtmlBridge.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <!--
+    Scripting is the top of the Broiler.JS side of this component and reaches Dom, Core,
+    DomBridgeUtils, Jseal and Jseal.BroilerJs transitively, so one reference is the whole
+    default closure. The suite tests internals of several of those; each grants
+    InternalsVisibleTo to this assembly by name.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Broiler.HtmlBridge.Scripting\Broiler.HtmlBridge.Scripting.csproj" />
+  </ItemGroup>
+
+  <!--
+    THE VM SIDE IS CONDITIONAL, AND THE CONDITION IS THE POINT.
+
+    VmScriptEngineTests names the VM script engine, so an unconditional reference would drag
+    the five Broiler.VM projects into every build of this suite — precisely the coupling the
+    two configurations exist to keep optional. That file guards ITSELF with
+    `#if BROILER_VM_JS`, the constant eng/Broiler.Configurations.props defines from
+    $(BroilerJavaScriptEngine), so it needs no item here.
+
+    Jseal/VmProviderRegistration.cs cannot use that trick: it exists to NAME the provider
+    assembly so the CLR loads it and its module initializer runs, and a file emptied by a
+    preprocessor guard would still leave a reference-less build trying to resolve the item.
+    It is conditioned as an item instead.
+
+    The conformance suite itself names no engine type — that is what makes it a conformance
+    suite — so it cannot be the thing that registers a provider. Registration happens here,
+    in the assembly that already knows which configuration it is.
+  -->
+  <ItemGroup Condition="'$(BroilerJavaScriptEngine)' == 'Vm'">
+    <ProjectReference Include="..\..\src\Broiler.HtmlBridge.Scripting.Vm\Broiler.HtmlBridge.Scripting.Vm.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Jseal\VmProviderRegistration.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(BroilerJavaScriptEngine)' == 'Vm'">
+    <Compile Include="Jseal\VmProviderRegistration.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

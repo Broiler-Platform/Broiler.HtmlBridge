@@ -1,7 +1,7 @@
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Scripting;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// What a module reports as its own <c>import.meta.url</c>, and what its relative specifiers resolve

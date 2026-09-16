@@ -1,7 +1,7 @@
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Dom;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// The host side of <c>window.location</c>: what a script's navigation request looks like by the

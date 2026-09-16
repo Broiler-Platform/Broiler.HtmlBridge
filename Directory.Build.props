@@ -1,0 +1,147 @@
+<Project>
+
+  <!-- Chain to a parent Directory.Build.props when one exists (in-tree build, e.g.
+       Broiler.Browser, which checks this component out as a submodule). Skipped for
+       standalone builds. The path is captured in a property first so the inner quotes
+       don't collide with the Condition. -->
+  <PropertyGroup>
+    <BroilerParentBuildProps>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))</BroilerParentBuildProps>
+  </PropertyGroup>
+  <Import Project="$(BroilerParentBuildProps)" Condition="'$(BroilerParentBuildProps)' != ''" />
+
+  <!--
+    THE CONFIGURATION MAPPING, VENDORED.
+
+    Debug-VM/Release-VM are this component's own build types: they select
+    Broiler.HtmlBridge.Scripting.Vm and Broiler.HtmlBridge.Jseal.Vm over the Broiler.JS
+    pair, so the names have to decompose here whether or not a parent repository is
+    above us. The imported file carries its own guards — $(BroilerConfigurationMappingApplied)
+    for the whole mapping and '$(BroilerBaseConfiguration)' == '' for the decomposition —
+    so when a parent has already applied it (an in-tree Broiler.Browser build, which
+    imports the identical file from its own eng/), this import does nothing.
+
+    Vendored rather than reached through the parent because a standalone
+    `dotnet build Broiler.HtmlBridge.slnx -c Release-VM` must compile OPTIMISED. Without
+    the mapping the SDK keys Optimize off `Configuration == 'Release'`, so that build
+    succeeds and is wrong with nothing to say so.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)eng\Broiler.Configurations.props" />
+
+  <!-- Broiler NuGet packaging metadata (vendored; do not edit by hand). -->
+  <Import Project="$(MSBuildThisFileDirectory)eng\Broiler.Packaging.props" />
+
+  <!-- Repository-owned packaging overrides. -->
+  <PropertyGroup>
+    <PackageProjectUrl>https://github.com/Broiler-Platform/Broiler.HtmlBridge</PackageProjectUrl>
+    <PackageTags>broiler;html;control;webview;dom;javascript;embedding</PackageTags>
+  </PropertyGroup>
+
+  <!--
+    ════════════════════════════════════════════════════════════════════
+    WHERE THE TWO JAVASCRIPT ENGINES ARE, and why it is a property.
+
+    This component is the only one that references BOTH engines: Broiler.JS backs the
+    JSEAL provider in Broiler.HtmlBridge.Jseal.BroilerJs, and Broiler.VM backs the one
+    in Broiler.HtmlBridge.Jseal.Vm and the IScriptEngine in
+    Broiler.HtmlBridge.Scripting.Vm. Standalone it reaches them through its own
+    submodules, which is what the two defaults below say.
+
+    IN AN IN-TREE BUILD THE PARENT MUST WIN, and that is the whole reason these are
+    properties rather than the literal `..\..\Broiler.JS\...` paths the .csproj files
+    used to carry. Broiler.Browser checks out Broiler.JS and Broiler.VM at its OWN root
+    as well, and it reaches them directly from src/Broiler.Browser.Core. If this
+    component resolved its own nested checkouts there, one build graph would carry two
+    Broiler.JavaScript.Engine assemblies and two Broiler.VM.Runtime assemblies — the
+    duplicate-assembly failure Broiler.Browser's scripts/check-component-graph.sh exists
+    to catch, and which has already shipped once in this platform as a
+    TypeLoadException naming PngImageCodec.DecodeAsync.
+
+    So the parent sets $(BroilerJsRoot) and $(BroilerVmRoot) unconditionally to its own
+    checkouts, and the Condition here yields to it. The nested checkouts then simply go
+    uncompiled: their sources are built from the parent's copy instead, and whether they
+    still compile is something the build says out loud.
+    ════════════════════════════════════════════════════════════════════
+  -->
+  <PropertyGroup>
+    <BroilerJsRoot Condition="'$(BroilerJsRoot)' == ''">$(MSBuildThisFileDirectory)Broiler.JS</BroilerJsRoot>
+    <BroilerVmRoot Condition="'$(BroilerVmRoot)' == ''">$(MSBuildThisFileDirectory)Broiler.VM</BroilerVmRoot>
+  </PropertyGroup>
+
+  <!--
+    ════════════════════════════════════════════════════════════════════
+    THE TWO DIAGNOSTICS THIS COMPONENT PROMOTES TO ERRORS.
+
+    Both are one defect seen from two sides, and both are about JsValue — the JSEAL
+    handle in src/Broiler.HtmlBridge.Jseal/Values/JsValue.cs. It is a STRUCT, and the
+    engine-typed storage it replaced (JSObject, JSValue) was a class. What each reader
+    of a retyped field would do on the day it happened, measured rather than assumed:
+
+        f is null              error CS0037    loud
+        f is not { }           error CS8518    loud
+        f == null              warning CS8073  ALWAYS FALSE
+        f != null              warning CS8073  ALWAYS TRUE
+        ReferenceEquals(f, g)  warning CA2013  boxes; false forever
+        f is { } x             nothing at all  always true, silently
+
+    The bottom three are why this block exists, and being warnings is no safety net:
+    a warning is a line of green log in every workflow here.
+
+    CS8073 is the worse of the two promoted, because BOTH its spellings fail open.
+    `f == null` is a bail-out guard that stops bailing out; `f != null` is a
+    proceed-only-if-present guard that always proceeds. An absent handle is
+    JsValue.Missing, never null, so a test that used to mean "absent" comes to mean
+    nothing and the code runs on with an empty handle.
+
+    THE SHAPE NEITHER OF THEM SEES: `f is { } x` on a struct is legal, always true, and
+    carries no diagnostic at all. There is nothing to promote. Ten sites in
+    Broiler.HtmlBridge.Dom read an engine-typed root that way before the roots were
+    retyped, and four of them would have changed which value they answered — Undefined
+    or Null rather than the Missing a retyped root carries, and the bridge reads
+    argument presence on exactly that distinction. Each tests IsMissing and coalesces
+    explicitly now.
+
+    Nor does CA2013 see JsValue.ObjectIdentity, which is declared `object?`: passing it
+    to ReferenceEquals compares two REFERENCE types, so the rule is blind by
+    construction, and it answers TRUE for any two non-object handles because
+    ObjectIdentity is null for every one of them. No site writes it today; the reads
+    that exist all null-guard first.
+
+    This promotion used to live in Broiler.Browser's root Directory.Build.props, where
+    it reached this code by chaining. It moved here with the code, because this is the
+    component the rules are about and a standalone build has to carry them too. It is
+    still declared there as well, for the rest of that tree — Broiler.Graphics declares
+    seven `readonly struct` types with an `operator ==`, which is the CS8073-capable
+    shape. Appending an id twice is harmless.
+
+    CS0472 is the same diagnostic for a BUILT-IN value type (`i == null` on an int). No
+    handle is a built-in, so it guards nothing here and is deliberately not promoted.
+    ════════════════════════════════════════════════════════════════════
+  -->
+  <PropertyGroup>
+    <WarningsAsErrors>$(WarningsAsErrors);CA2013;CS8073</WarningsAsErrors>
+  </PropertyGroup>
+
+  <!--
+    Inherited noise, kept only so that a STANDALONE build is readable. Every id here was
+    already suppressed for this code by Broiler.Browser's root Directory.Build.props;
+    listing them means the two builds report the same thing rather than the standalone one
+    burying a real diagnostic under warnings the in-tree build never showed.
+
+    CS8600-CS8767 are the nullable family — this code mixes projects with and without
+    <Nullable>enable</Nullable> and several APIs pass null by design. CS9113 covers
+    primary-constructor parameters kept for API shape. CA1416 is the Windows-only surface
+    the canvas rasteriser reaches through Broiler.Graphics. CA2255 is the ModuleInitializer
+    advisory: a JSEAL provider registers itself from one, which is the advanced scenario the
+    rule's own documentation points at, and a provider nothing has named must register before
+    anything asks the registry. SYSLIB0013 is
+    Uri.EscapeUriString, which implements JavaScript's encodeURI() and matches its
+    semantics more closely than Uri.EscapeDataString does.
+
+    Each is a candidate to remove per project as that project is cleaned; none of them may
+    grow, because that is what the promotion above is for.
+  -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8619;CS8620;CS8622;CS8625;CS8631;CS8632;CS8765;CS8767;CS9113;CA1416;CA2255;SYSLIB0013</NoWarn>
+  </PropertyGroup>
+
+</Project>

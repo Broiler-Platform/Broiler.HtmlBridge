@@ -30,11 +30,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Abstractions\Broiler.VM.Abstractions.csproj" />
-    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Binary\Broiler.VM.Binary.csproj" />
-    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Runtime\Broiler.VM.Runtime.csproj" />
-    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Profile.JavaScript\Broiler.VM.Profile.JavaScript.csproj" />
-    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Profile.JavaScript.Compiler\Broiler.VM.Profile.JavaScript.Compiler.csproj" />
+    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Abstractions\Broiler.VM.Abstractions.csproj" />
+    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Binary\Broiler.VM.Binary.csproj" />
+    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Runtime\Broiler.VM.Runtime.csproj" />
+    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Profile.JavaScript\Broiler.VM.Profile.JavaScript.csproj" />
+    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Profile.JavaScript.Compiler\Broiler.VM.Profile.JavaScript.Compiler.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// Constructable style sheets — <c>new CSSStyleSheet()</c>, <c>replaceSync</c> and

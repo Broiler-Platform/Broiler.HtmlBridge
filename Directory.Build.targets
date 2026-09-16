@@ -1,0 +1,42 @@
+<Project>
+
+  <!--
+    ════════════════════════════════════════════════════════════════════
+    Directory.Build.targets, and why this component needs one at all
+    ════════════════════════════════════════════════════════════════════
+
+    MSBuild looks Directory.Build.targets up SEPARATELY from Directory.Build.props and
+    stops at the first one it finds walking up. So the moment this file exists, a project
+    under src/ or tests/ stops seeing Broiler.Browser's — including the configuration-name
+    DECLARATION that file is the only carrier of. Chaining explicitly is what keeps the
+    in-tree build answering exactly as it did before this component was extracted; the
+    parent's own contents are two ItemGroups conditioned on Broiler.HTML project paths,
+    which cannot match anything here.
+
+    Broiler.JS learned this the expensive way. It is the one submodule that had a
+    Directory.Build.targets of its own, it stopped the lookup dead, and its twenty-two
+    projects compiled UNOPTIMISED under Release-VM until it was made to chain.
+  -->
+  <PropertyGroup>
+    <BroilerParentBuildTargets>$([MSBuild]::GetPathOfFileAbove('Directory.Build.targets', '$(MSBuildThisFileDirectory)../'))</BroilerParentBuildTargets>
+  </PropertyGroup>
+  <Import Project="$(BroilerParentBuildTargets)" Condition="'$(BroilerParentBuildTargets)' != ''" />
+
+  <!--
+    Making the names BEHAVE is Directory.Build.props; making them EXIST is here, and the
+    two cannot share an import. This one has to be unconditional and has to be last: a
+    project that spells out its own <Configurations> in the csproj body overwrites
+    anything the props side set, and this is the first point that sees the result.
+
+    `dotnet build -c Debug-VM` is content to hand a project a configuration it never
+    declared, so no command line notices this missing. Visual Studio resolves a solution
+    build type onto a project configuration OF THE SAME NAME and refuses when there is
+    none — `Invalid project mappings. See log file`, against every project whose
+    $(Configurations) is still the SDK default.
+
+    The imported file's append is idempotent, so running after the parent's copy (which
+    the chain above may already have run) adds nothing a second time.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)eng\Broiler.ConfigurationNames.targets" />
+
+</Project>

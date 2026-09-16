@@ -3,7 +3,7 @@ using System.Net;
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Scripting;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// What a dedicated worker a page starts may compile at run time: the page's own decision about

@@ -26,8 +26,11 @@ enough for a page, because the moment a document is involved the engine reappear
 So `RenderingPipeline` can be handed any `IScriptEngine` it likes and a page still runs on Broiler.JS,
 because the only method it calls — `ExecuteInteractive` — has to attach a bridge, and
 `IDomBridgeRuntime.Attach` takes a `JSContext`.
-[`docs/vm-javascript-profile.md`](vm-javascript-profile.md) states this plainly and lists it as the
-reason no page load runs on the VM.
+Broiler.Browser's
+[`docs/vm-javascript-profile.md`](https://github.com/Broiler-Platform/Broiler.Browser/blob/main/docs/vm-javascript-profile.md)
+states this plainly and lists it as the reason no page load runs on the VM. That document stayed
+with the browser when this component was extracted, because what it describes is an *embedder*
+choosing an engine; the seam it names is here.
 
 **A realm is the right altitude.** A realm is what a document has. JSEAL's central type is therefore
 `IJsRealm`, and the end state of the migration is `Attach(IJsRealm, …)`.
@@ -285,8 +288,9 @@ overrides the default for a run.
 
 **What is still a build-time decision, and should be:** whether an engine's assemblies are *linked at
 all*. That remains a `ProjectReference` under a configuration condition, which is what keeps `Debug`
-free of Broiler.VM and keeps `scripts/check-component-graph.sh`'s second run meaningful. The build
-decides which providers are present; the registry decides among the ones that are.
+free of Broiler.VM and keeps meaningful the duplicate-assembly pass Broiler.Browser runs over its
+own graph (`scripts/check-component-graph.sh`, in that repository). The build decides which
+providers are present; the registry decides among the ones that are.
 
 Two things want more than one engine in a process, and a `#if` cannot give either: a conformance suite
 that runs the same assertions against every registered provider, and a bisect asking whether a page

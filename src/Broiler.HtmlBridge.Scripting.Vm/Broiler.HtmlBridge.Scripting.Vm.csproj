@@ -11,6 +11,10 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Broiler.Browser.Core" />
     <InternalsVisibleTo Include="Broiler.Browser.Core.Tests" />
+    <!-- This component's own suite, which is where the bridge tests moved when the bridge
+         left Broiler.Browser. The grant above stays: the browser keeps the tests that need
+         its own host (page loading, the UI form controls, the render list). -->
+    <InternalsVisibleTo Include="Broiler.HtmlBridge.Tests" />
   </ItemGroup>
 
   <!--
@@ -32,11 +36,11 @@
     platform heads anyway, and it has no business in a JavaScript engine's closure.
   -->
   <ItemGroup>
-    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Abstractions\Broiler.VM.Abstractions.csproj" />
-    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Binary\Broiler.VM.Binary.csproj" />
-    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Runtime\Broiler.VM.Runtime.csproj" />
-    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Profile.JavaScript\Broiler.VM.Profile.JavaScript.csproj" />
-    <ProjectReference Include="..\..\Broiler.VM\src\Broiler.VM.Profile.JavaScript.Compiler\Broiler.VM.Profile.JavaScript.Compiler.csproj" />
+    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Abstractions\Broiler.VM.Abstractions.csproj" />
+    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Binary\Broiler.VM.Binary.csproj" />
+    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Runtime\Broiler.VM.Runtime.csproj" />
+    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Profile.JavaScript\Broiler.VM.Profile.JavaScript.csproj" />
+    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Profile.JavaScript.Compiler\Broiler.VM.Profile.JavaScript.Compiler.csproj" />
   </ItemGroup>
 
   <!--
@@ -45,7 +49,7 @@
     this project's own source — but both are in its transitive closure, because
     Broiler.HtmlBridge.Scripting is the assembly that declares the interface this implements and it
     is itself a Broiler.JS consumer. That is a fact about the seam, not about this project, and
-    docs/vm-javascript-profile.md says why it cannot be otherwise yet.
+    Broiler.Browser's docs/vm-javascript-profile.md says why it cannot be otherwise yet.
   -->
   <ItemGroup>
     <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />

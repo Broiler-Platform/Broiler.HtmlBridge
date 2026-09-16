@@ -1,0 +1,8 @@
+[submodule "Broiler.JS"]
+	path = Broiler.JS
+	url = https://github.com/Broiler-Platform/Broiler.JS.git
+	branch = main
+[submodule "Broiler.VM"]
+	path = Broiler.VM
+	url = https://github.com/Broiler-Platform/Broiler.VM.git
+	branch = main

@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// <c>globalCompositeOperation</c> is held as <c>BCanvas.BlendMode</c>, an enum whose member names cannot

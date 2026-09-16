@@ -1,0 +1,24 @@
+<Solution>
+  <!--
+    This component's OWN projects, and deliberately not its dependencies. The Broiler.JS and
+    Broiler.VM projects reached through $(BroilerJsRoot)/$(BroilerVmRoot) are built
+    transitively by every ProjectReference that names them; listing them here as well would
+    make eng/pack.ps1 — which packs every <Project Path> in the single solution it finds —
+    try to publish another component's assemblies under this component's version.
+  -->
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <BuildType Name="Debug-VM" />
+    <BuildType Name="Release-VM" />
+  </Configurations>
+  <Project Path="src/Broiler.HtmlBridge.Core/Broiler.HtmlBridge.Core.csproj" />
+  <Project Path="src/Broiler.HtmlBridge.Dom/Broiler.HtmlBridge.Dom.csproj" />
+  <Project Path="src/Broiler.HtmlBridge.DomBridgeUtils/Broiler.HtmlBridge.DomBridgeUtils.csproj" />
+  <Project Path="src/Broiler.HtmlBridge.Jseal/Broiler.HtmlBridge.Jseal.csproj" />
+  <Project Path="src/Broiler.HtmlBridge.Jseal.BroilerJs/Broiler.HtmlBridge.Jseal.BroilerJs.csproj" />
+  <Project Path="src/Broiler.HtmlBridge.Jseal.Vm/Broiler.HtmlBridge.Jseal.Vm.csproj" />
+  <Project Path="src/Broiler.HtmlBridge.Scripting/Broiler.HtmlBridge.Scripting.csproj" />
+  <Project Path="src/Broiler.HtmlBridge.Scripting.Vm/Broiler.HtmlBridge.Scripting.Vm.csproj" />
+  <Project Path="tests/Broiler.HtmlBridge.Tests/Broiler.HtmlBridge.Tests.csproj" />
+</Solution>

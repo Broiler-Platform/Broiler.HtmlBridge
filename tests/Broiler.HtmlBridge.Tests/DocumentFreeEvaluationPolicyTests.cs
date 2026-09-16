@@ -3,7 +3,7 @@ using System.Net;
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Scripting;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// What a script may compile at run time on the two entry points that build no document,

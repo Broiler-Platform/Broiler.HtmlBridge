@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// An <c>&lt;iframe&gt;</c>'s <c>contentDocument</c> as a DOM of its own — what it finds, what the

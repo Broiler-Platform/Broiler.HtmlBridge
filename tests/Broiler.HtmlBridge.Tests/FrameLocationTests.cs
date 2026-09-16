@@ -1,6 +1,6 @@
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// A frame's <c>location</c> — the object an <c>&lt;iframe&gt;</c>'s <c>contentWindow</c> and

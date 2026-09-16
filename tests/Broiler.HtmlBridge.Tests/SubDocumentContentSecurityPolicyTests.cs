@@ -4,7 +4,7 @@ using System.Text;
 
 using Broiler.HtmlBridge;
 
-namespace Broiler.Browser.Core.Tests;
+namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
 /// Which Content-Security-Policy governs a nested browsing context's scripts, and whether one is
