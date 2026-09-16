@@ -154,7 +154,7 @@ public sealed partial class DomBridge
         AnimationStateFor(source).CopyTo(AnimationStateFor(clone));
 
         // Memoized position-area resolution (was ElementRuntimeState.Layout, now the bridge-level
-        // PositionAreaResolutions cache — see AnchorResolver/PositionArea.cs).
+        // PositionAreaResolutions cache — see AnchorResolver/ScrollPositioning.cs).
         CopyPositionAreaResolution(source, clone);
 
         // Baked-style overlay (Phase 4 item 2 increment 3): serialize-time bakes now live off the

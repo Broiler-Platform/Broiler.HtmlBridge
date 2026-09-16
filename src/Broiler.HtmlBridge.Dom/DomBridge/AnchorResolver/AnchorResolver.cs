@@ -215,7 +215,7 @@ public sealed partial class DomBridge
 
         // 4b. The same top-layer passes for every nested browsing context: a frame's document is
         //     severed from this tree, so a modal <dialog> inside one is reached only by walking it
-        //     separately. See Dialogs.cs.
+        //     separately. See SubDocuments.Loading.cs.
         ApplySubDocumentTopLayer(anchorRegistry, positionTryRules);
 
         // 5. Fixed-position sizing from opposing insets (e.g. top:0;bottom:0) is resolved
