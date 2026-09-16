@@ -143,7 +143,7 @@ public enum JsCapabilities : uint
     /// </para>
     /// <para>
     /// <b>It is in <see cref="Document"/> because the bridge's own polyfills cannot install without
-    /// it.</b> <c>Polyfills/streams-and-file-reader.js</c> names <c>Uint8Array</c>, and on an engine
+    /// it.</b> <c>Polyfills/streams.js</c> and <c>file-reader.js</c> name <c>Uint8Array</c>, and on an engine
     /// whose binary surface is optional an artifact naming a global of a declined surface is refused
     /// at verification rather than at the line that reads it. So a realm without this cannot carry
     /// the streams asset, and without that asset there is no <c>ReadableStream</c>, no

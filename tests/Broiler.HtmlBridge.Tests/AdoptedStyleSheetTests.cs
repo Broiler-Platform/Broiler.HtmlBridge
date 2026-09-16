@@ -139,7 +139,7 @@ public class AdoptedStyleSheetTests
     }
 
     [Fact(Skip = "A hole is dropped instead of rejected: the assignment copies the array with the " +
-                 "engine's own hole-skipping reader (DomBridge/ConstructedStyleSheets.cs:230-238, " +
+                 "engine's own hole-skipping reader (DomBridge/ComputedStyle.cs, " +
                  "GetArrayElements(withHoles: false)), so [a, , b] silently becomes a two-member list " +
                  "where WebIDL converts the value to sequence<CSSStyleSheet> and throws on the " +
                  "undefined the hole yields.")]
@@ -164,10 +164,10 @@ public class AdoptedStyleSheetTests
     }
 
     [Fact(Skip = "An adopted sheet never reaches the live cascade: the style scope is built only from " +
-                 "the <style>/<link> elements found in the tree (DomBridge.ComputedStyleEngine.cs:83-95 " +
+                 "the <style>/<link> elements found in the tree (DomBridge/ComputedStyle.cs " +
                  "via DomBridge/Css.cs:150-167), and the adopted sheets are emitted as synthetic " +
                  "<style> elements in the serialization pass instead " +
-                 "(DomBridge/ConstructedStyleSheets.cs:180-211), which getComputedStyle never runs.")]
+                 "(DomBridge/ComputedStyle.cs), which getComputedStyle never runs.")]
     public void AnAdoptedSheetsRuleAppliesForExactlyAsLongAsItIsAdopted()
     {
         // The point of a constructed sheet is that it styles the document, and only while it is in

@@ -12,7 +12,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// live layout — every value comes from the bridge's layout cache — so unlike the stateless feature modules
 /// this contract is deliberately wide: it names the exact geometry surface the module depends on, so the
 /// callbacks no longer reach into arbitrary bridge internals (the Phase 3 "wide-explicit-host" template).
-/// The bridge implements it explicitly in <c>DomBridge.ElementGeometryHost.cs</c>, forwarding to the
+/// The bridge implements it explicitly in <c>DomBridge/Hosts.Elements.cs</c>, forwarding to the
 /// existing private <c>LayoutMetrics.*</c> methods.
 /// </summary>
 /// <remarks>

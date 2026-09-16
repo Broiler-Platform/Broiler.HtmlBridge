@@ -200,7 +200,7 @@ public sealed partial class DomBridge
     private Dictionary<string, string> BuildComputedStyleMap(DomElement? element, string? pseudoElement = null)
     {
         // getComputedStyle() resolves through the shared Broiler.CSS.Dom.CssStyleEngine
-        // (BuildComputedStyleMapViaEngine, see DomBridge.ComputedStyleEngine.cs). The legacy
+        // (BuildComputedStyleMapViaEngine, see DomBridge/ComputedStyle.cs). The legacy
         // bridge computed-style cascade was retired in Phase 7 cleanup (RF-CSS-1); the engine
         // has been the sole getComputedStyle authority since the 2026-06-26 cutover, after it
         // gained the bridge's per-declaration value validation / error recovery and
@@ -557,157 +557,37 @@ public sealed partial class DomBridge
     /// <see cref="CascadedFrameViewport"/>.</summary>
     private readonly HashSet<DomElement> _frameViewportResolutions = new(ReferenceEqualityComparer.Instance);
 
-    /// <summary>
-    /// Whether the document's Content Security Policy permits fetching and applying an external stylesheet
-    /// from <paramref name="href"/> (a <c>&lt;link rel="stylesheet"&gt;</c>). When no policy is configured
-    /// every stylesheet is allowed. Mirrors the script-side <see cref="ContentSecurityPolicy.AllowsExternalScript"/>
-    /// gate so DOM/CSS never fetch or apply a <c>style-src</c>-blocked external stylesheet (Phase 7 item 5:
-    /// CSP stays in the host layer; DOM and CSS receive already-authorised content).
-    /// </summary>
-    private bool IsExternalStyleAllowedByCsp(DomElement linkEl, string href)
+    /// <summary>Author style rules (selector text + declarations) across every <c>&lt;style&gt;</c>
+    /// and external-stylesheet <c>&lt;link rel="stylesheet"&gt;</c> in the tree, in document order.
+    /// External links are included because the <c>::view-transition-*</c> pseudo rules and the
+    /// <c>view-transition-group</c> values — which are read from the raw author rules here rather than
+    /// through computed style — routinely live in a linked stylesheet (the WPT
+    /// <c>css-view-transitions-2 nested</c> tests keep the entire pseudo tree styling in
+    /// <c>resources/*.css</c>). A disabled sheet contributes nothing (CSSOM §2.3).</summary>
+    private IEnumerable<(string SelectorText, CssDeclarationBlock Declarations)> EnumerateAuthorStyleRules(DomElement root)
     {
-        if (Csp == null)
-            return true;
-
-        var nonce = TryGetAttribute(linkEl, "nonce", out var nonceValue) ? nonceValue : null;
-        return Csp.AllowsExternalStyle(href, _pageUrl, nonce);
-    }
-
-    /// <summary>
-    /// Fires the <c>load</c> — or <c>error</c> — event on a <c>&lt;link rel="stylesheet"&gt;</c> whose
-    /// sheet has been fetched, per HTML §4.2.4 "link type stylesheet". Nothing dispatched these at
-    /// all, so a page that waits for <c>link.onload</c> before declaring itself ready never got the
-    /// callback (WPT issue #1497 problem 26,
-    /// <c>uievents/…/UIEvent.load.stylesheet</c>).
-    /// <para>
-    /// Only a link that is <em>in the document</em> fetches, so a detached one stays silent until it
-    /// is inserted. The event fires once per <c>href</c>: re-pointing the link at a different sheet
-    /// is a new fetch and fires again, while re-inserting it, or writing the same href twice, does
-    /// not. Whether the fetch succeeded is decided the same way the cascade decides it — the CSP
-    /// gate, then the resource loader — so the event never disagrees with whether the sheet applied.
-    /// </para>
-    /// </summary>
-    private void FireStylesheetLinkLoad(DomElement element)
-    {
-        if (_realm is null || !IsExternalStylesheet(element))
-            return;
-        if (!ReferenceEquals(GetTreeRoot(element), _document))
-            return;
-        if (!TryGetAttribute(element, "href", out var href) || string.IsNullOrWhiteSpace(href))
-            return;
-
-        var state = StyleSheetStateFor(element);
-        if (string.Equals(state.LoadEventFiredForHref, href, StringComparison.Ordinal))
-            return;
-        state.LoadEventFiredForHref = href;
-
-        // The resource loader only takes absolute URLs, so the content attribute is resolved against
-        // the page URL first — the same rebasing the renderer does for a linked sheet. Skipping it
-        // made every relative href look like a failed fetch and dispatched `error` for a sheet that
-        // then applied perfectly well. A data: href is already its own absolute URL and carries the
-        // sheet in it, so it is read through the same seam the cascade uses rather than rebased and
-        // handed to the loader, which knows no data: scheme and reported the sheet as failed.
-        var loaded = IsExternalStyleAllowedByCsp(element, href) &&
-                     !string.IsNullOrEmpty(FetchStyleSheetText(ResolveStyleSheetLinkUrl(href)));
-
-        try
+        foreach (var styleEl in root.Descendants().OfType<DomElement>())
         {
-            // The event object is built through the realm (JSEAL); the two members keep the
-            // enumerable/configurable data-property attributes they had, which is what
-            // JsPropertyFlags.Default spells. The dispatcher takes that handle as it is. (This said
-            // dispatch was still engine-typed and unwrapped the handle through the JsInterop seam.)
-            var evt = Realm.NewObject();
-            Realm.DefineValue(evt, "type", JsValue.String(loaded ? "load" : "error"));
-            Realm.DefineValue(evt, "bubbles", JsValue.False);
-            _eventDispatch.DispatchEventOnElement(element, evt);
-        }
-        catch (Exception ex)
-        {
-            RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.FireStylesheetLinkLoad",
-                $"stylesheet load handler error for '{href}': {ex.Message}", ex);
-        }
-    }
-
-    /// <summary>Fires the stylesheet <c>load</c> event for <paramref name="element"/> and every
-    /// <c>&lt;link rel="stylesheet"&gt;</c> beneath it — the subtree counterpart used when a whole
-    /// fragment is inserted or the document finishes loading.</summary>
-    private void FireDescendantStylesheetLinkLoads(DomElement element)
-    {
-        FireStylesheetLinkLoad(element);
-        // Snapshot before iterating: a load handler can structurally mutate the tree mid-walk, the
-        // same hazard FireDescendantOnloads documents.
-        foreach (var child in SnapshotChildren(element))
-        {
-            if (child is DomElement childElement)
-                FireDescendantStylesheetLinkLoads(childElement);
-        }
-    }
-
-    /// <summary>
-    /// Asks the loader to start fetching every external stylesheet in <paramref name="styleElements"/>
-    /// that this document has not already fetched. Multithreading roadmap item #2.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The URL handed over is the same string <see cref="GetStyleElementSourceText"/> will pass to
-    /// <see cref="FetchExternalStylesheet"/> — the href resolved through
-    /// <see cref="ResolveStyleSheetLinkUrl"/> — because a prefetch keyed on a differently-normalized
-    /// URL would simply never be consumed, silently doubling the requests instead of overlapping
-    /// them. The two must be changed together; they were the raw <c>href</c> on both sides until the
-    /// consuming path started resolving it.
-    /// </para>
-    /// <para>
-    /// The CSP check is applied here too: a sheet the policy blocks must not have a request put on
-    /// the wire on its behalf, and the consuming path already refuses it.
-    /// </para>
-    /// </remarks>
-    private void PrefetchExternalStylesheets(List<DomElement> styleElements)
-    {
-        List<string>? urls = null;
-
-        foreach (var styleEl in styleElements)
-        {
-            if (!string.Equals(styleEl.TagName, "link", StringComparison.OrdinalIgnoreCase))
+            if (!(styleEl.TagName.Equals("style", System.StringComparison.OrdinalIgnoreCase)
+                    || IsExternalStylesheet(styleEl))
+                || IsStyleSheetDisabled(styleEl))
                 continue;
 
-            if (!TryGetAttribute(styleEl, "href", out var href) || string.IsNullOrEmpty(href))
+            var source = GetStyleElementSourceText(styleEl);
+            if (string.IsNullOrEmpty(source))
                 continue;
 
-            // A data: sheet is decoded in-process by the consuming path and never reaches the
-            // loader, so prefetching one buys nothing and would leave an unconsumed entry behind.
-            if (href.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                continue;
+            CssStyleSheet sheet;
+            try { sheet = new CssParser().ParseStyleSheet(source); }
+            catch { continue; }
 
-            // Already fetched for this document — the consuming path reads the cached text and
-            // never calls the loader, so a request here would be pure waste.
-            if (StyleSheetStateFor(styleEl).FetchedCss.TryGet(out _))
-                continue;
-
-            if (!IsExternalStyleAllowedByCsp(styleEl, href))
-                continue;
-
-            (urls ??= []).Add(ResolveStyleSheetLinkUrl(href));
-        }
-
-        if (urls is not null)
-            _resources.Prefetch(urls);
-    }
-
-    /// <summary>
-    /// Fetches an external CSS stylesheet from an HTTP/HTTPS URL.
-    /// Returns the CSS text content, or <c>null</c> on failure.
-    /// </summary>
-    private string? FetchExternalStylesheet(string url)
-    {
-        try
-        {
-            // The file/http dispatch policy lives in the loader (Phase 7 item 4), not here.
-            return _resources.LoadText(url);
-        }
-        catch (Exception ex)
-        {
-            RenderLogger.LogError(LogCategory.HtmlRenderer, "DomBridge.FetchExternalStylesheet", $"Failed to fetch stylesheet '{url}': {ex.Message}", ex);
-            return null;
+            foreach (var rule in sheet.Rules)
+            {
+                if (rule is not CssStyleRule styleRule)
+                    continue;
+                foreach (var selector in styleRule.Selectors.Selectors)
+                    yield return (selector.Text, styleRule.Declarations);
+            }
         }
     }
 }

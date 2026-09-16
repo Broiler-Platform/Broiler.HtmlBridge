@@ -1,9 +1,9 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
-using Broiler.HtmlBridge.Logging;
-using Broiler.Dom;
 using Broiler.CSS;
-using System.Globalization;
+using Broiler.Dom;
+using Broiler.HtmlBridge.Logging;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
@@ -581,7 +581,7 @@ public sealed partial class DomBridge
 
             // An SVG shape is not in the CSS box tree, so the layout rect below is 0×0 for it. Its
             // geometry comes from its own attributes instead — the same resolution hit testing uses,
-            // so the two cannot disagree about where a shape is (see LayoutMetrics.SvgGeometry.cs).
+            // so the two cannot disagree about where a shape is (see LayoutMetrics.Svg.cs).
             if (TryGetSvgClientRect(element, out var svgRect))
                 return svgRect;
 

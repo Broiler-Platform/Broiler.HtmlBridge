@@ -35,7 +35,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// Both halves take the realm their members are minted in — <see cref="Install"/> from the
 /// element-interface hub, <see cref="BuildMediaSource"/> from
-/// <c>DomBridge/Registration/Polyfills.cs</c> — so this file names no engine type. The
+/// <c>DomBridge/Registration/Registration.cs</c> — so this file names no engine type. The
 /// <c>NotSupportedError</c> that <c>addSourceBuffer</c> raises goes through the call's own realm,
 /// which builds it against the same <c>DOMException</c> global the script context did.
 /// </para>

@@ -15,7 +15,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// <para>
 /// <b>One entry point per operation again, now that all three installers share a call frame.</b> The
-/// mixin is installed on <c>Node</c>'s side of the tree by <c>DomBridge/CharacterDataInterface.cs</c>
+/// mixin is installed on <c>Node</c>'s side of the tree by <c>DomBridge/NodeInterfaces.cs</c>
 /// and <c>DomBridge/JsObjects.NonElementNodes.cs</c>, and on <c>Element.prototype</c> by
 /// <c>DomBridge/ElementInterface.cs</c>; all three mint through the realm, so every one of them
 /// arrives on a <see cref="JsCall"/>. The <c>…Core</c> helpers below stay the only place the DOM steps

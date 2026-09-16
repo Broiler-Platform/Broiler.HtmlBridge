@@ -144,7 +144,7 @@ internal sealed class SubWindowBinding(
     /// <summary>Gets or builds the sub-window for a nested-browsing-context container.</summary>
     /// <remarks>
     /// It answered an engine object until its callers stopped wanting one, and the last of the
-    /// three was <c>DomBridge.WindowLoad.cs</c>: it collected windows into the list
+    /// three was <c>DomBridge/Lifecycle.cs</c>: it collected windows into the list
     /// <c>window.frames</c> was built from, and that list held engine values for exactly as long as
     /// the array did. The array is minted through the realm now, so all three callers take the
     /// handle as it stands and nothing converts what this returns.

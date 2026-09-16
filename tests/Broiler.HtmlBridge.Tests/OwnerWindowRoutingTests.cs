@@ -9,7 +9,7 @@ namespace Broiler.HtmlBridge.Tests;
 /// <para>
 /// <b>Nothing has ever asserted this, and the map that implements it can be deleted without a
 /// single existing test noticing.</b> <c>EventTargetRegistry</c> files a port's owner at creation
-/// (<c>Features/MessagingBinding.cs:674</c>) and <c>WindowContextManager.ResolveOwnerWindow</c>
+/// (<c>CreateMessagePort</c> in <c>Features/MessagingBinding.cs</c>) and <c>WindowContextManager.ResolveOwnerWindow</c>
 /// reads it back — but on a miss that method falls through to <c>ResolveCurrentWindow()</c>, so on
 /// a one-window page the fallback and the map answer the same object. Every routing test that can
 /// be written against a single window therefore passes with the map gone.
@@ -17,10 +17,10 @@ namespace Broiler.HtmlBridge.Tests;
 /// <para>
 /// <b>Which is also why this is not a <c>frameWindow.postMessage</c> test.</b> That path's caller
 /// already wraps its own delivery in the window switch
-/// (<c>Features/MessagingBinding.cs:373-388</c>), so by the time the owner map is consulted the
+/// (<c>WindowPostMessage</c> in <c>Features/MessagingBinding.cs</c>), so by the time the owner map is consulted the
 /// current window IS the target window and the fallback is again indistinguishable. The port path
 /// is the one that queues its delivery as a bare frame action
-/// (<c>Features/MessagingBinding.cs:746-755</c>) and reaches
+/// (<c>PortPostMessage</c> in <c>Features/MessagingBinding.cs</c>) and reaches
 /// <c>RunInOwnerWindow</c> with nothing having switched: the channel is built inside the frame's
 /// script, where the current window is the sub-window, and the message is delivered from the
 /// post-load drain, where it is the page's. Owner and current differ, and the map is the only
@@ -43,7 +43,7 @@ public class OwnerWindowRoutingTests
     /// <c>about:srcdoc</c> — which is also the second observable below, since <c>location</c> is
     /// swapped alongside <c>document</c>. The frame's script is an IIFE on purpose: a top-level
     /// <c>var</c> in a sub-document's script is diffed out of the global object and republished on
-    /// the frame's window (<c>DomBridge.SubDocumentGlobals.cs</c>), and this fixture has no reason
+    /// the frame's window (<c>DomBridge/SubDocuments.Loading.cs</c>), and this fixture has no reason
     /// to exercise that. Its inner attributes are single-quoted so the double-quoted <c>srcdoc</c>
     /// value survives, and the script contains no double quote for the same reason.
     /// </summary>
@@ -81,7 +81,7 @@ public class OwnerWindowRoutingTests
     /// <c>contentDocument</c>, which is what builds the sub-document and runs the frame's scripts
     /// (<c>DomBridge/SubDocuments.cs:238-243</c>) — entering there rather than letting the load
     /// event's <c>window.frames</c> enumeration do it, because that entry order mints a throwaway
-    /// window the outer call then replaces (<c>DomBridge.SubDocumentGlobals.cs</c>) and this test
+    /// window the outer call then replaces (<c>DomBridge/SubDocuments.Loading.cs</c>) and this test
     /// should not depend on which of the two the port got filed against.
     /// </para>
     /// <para>

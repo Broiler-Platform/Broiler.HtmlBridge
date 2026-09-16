@@ -11,7 +11,7 @@ namespace Broiler.HtmlBridge.Tests;
 /// until it did.</b> Retyping <c>SubWindowBinding.GetOrCreate</c> to answer a handle rebound
 /// <c>DomBridge/SubDocuments.cs:407</c>'s <c>RunWithWindowContext(subWindow, …)</c> from the
 /// engine-typed overload to the handle one with no textual change to that line; that overload has
-/// since been deleted, and <c>DomBridge.WindowContext.cs</c> declares only the handle one. Pointing
+/// since been deleted, and <c>DomBridge/Hosts.Window.cs</c> declares only the handle one. Pointing
 /// the frame's Location at the realm-framed builder moved a live path onto a builder that had never
 /// executed; it is now <c>LocationBinding</c>'s only builder, though the top-level Location is
 /// still assembled apart from it, in <c>Registration/Window.cs</c>, over the same navigation
@@ -207,7 +207,7 @@ public class FrameScriptExecutionTests
                  "asking for the sub-document has cached one, so the scripts run against a " +
                  "throwaway window the outer build then replaces in the cache. Only names landing " +
                  "on the global object survive, recovered by the diff in " +
-                 "DomBridge.SubDocumentGlobals.cs, so `window.x = …` inside a frame is written to " +
+                 "DomBridge/SubDocuments.Loading.cs, so `window.x = …` inside a frame is written to " +
                  "an object nothing keeps: frames[0].marked is undefined while the frame's own echo " +
                  "proves the assignment happened. Which of the two windows survives also depends on " +
                  "whether the page reads contentDocument or contentWindow first. " +

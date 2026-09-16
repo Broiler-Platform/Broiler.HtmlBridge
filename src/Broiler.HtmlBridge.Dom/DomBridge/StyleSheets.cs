@@ -1,6 +1,14 @@
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text;
 using Broiler.CSS;
+using Broiler.CSS.Dom;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Logging;
+using Broiler.HtmlBridge.Scripting;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
@@ -180,4 +188,483 @@ public sealed partial class DomBridge
         return sheet;
     }
 
+}
+
+/// <summary>
+/// Render-time <c>&lt;base href&gt;</c> resolution for stylesheet <c>url()</c> references.
+/// The renderer resolves a relative CSS <c>url()</c> against a single document base URL and
+/// never consults the <c>&lt;base&gt;</c> element, so a page that sets
+/// <c>&lt;base href="/images/"&gt;</c> and then references <c>url(green.png)</c> resolved the
+/// image against the document's own directory instead of the base — the resource was not
+/// found and the fallback colour showed through (the WPT <c>css/…/*base-uri*</c> family, e.g.
+/// <c>css-values/inline-cache-base-uri-cssom</c>).
+/// <para>
+/// This transform rewrites relative <c>url()</c> references in every <c>&lt;style&gt;</c>
+/// against the document's first <c>&lt;base href&gt;</c> so they reach the renderer already
+/// resolved. A root-relative base (<c>/images/</c>) keeps the resolved URL root-relative, so a
+/// host-relative resource mapper (the WPT <c>wptRoot</c> handler, which serves <c>/x</c> from
+/// the test root) still recognises it; an absolute base resolves to an absolute URL.
+/// </para>
+/// <para>
+/// Runs inside <see cref="ApplySerializationTransforms"/> after
+/// <see cref="InlineStyleSheetImports(DomElement)"/> (so inlined <c>@import</c> content — already rebased
+/// onto the imported sheet's own URL — carries absolute <c>url()</c>s this pass leaves alone).
+/// Only the render-bound serialization is affected; the live CSSOM rule model and JS-visible
+/// serialization are untouched. <c>&lt;style&gt;</c> <c>url()</c>s and
+/// <c>&lt;link rel="stylesheet"&gt;</c> <c>href</c>s are rebased against <c>&lt;base&gt;</c>;
+/// other element <c>src</c>/<c>href</c> attributes still resolve without <c>&lt;base&gt;</c>.
+/// </para>
+/// </summary>
+public sealed partial class DomBridge
+{
+    /// <summary>
+    /// Rewrites relative <c>url()</c> references in every <c>&lt;style&gt;</c> in the tree
+    /// against the document's first <c>&lt;base href&gt;</c>, and likewise resolves each
+    /// <c>&lt;link rel="stylesheet"&gt;</c>'s relative <c>href</c> so the linked sheet is
+    /// fetched from the base-relative location rather than the document's own directory. A
+    /// no-op (byte-identical output) when the document declares no usable <c>&lt;base href&gt;</c>.
+    /// </summary>
+    private void ApplyBaseHrefToStyleUrls(DomElement root)
+    {
+        if (!TryFindDocumentBaseHref(root, out var baseHref))
+            return;
+
+        RewriteStyleElementUrls(root, baseHref);
+        RewriteLinkStyleSheetHrefs(root, baseHref);
+    }
+
+    /// <summary>
+    /// Resolves the relative <c>href</c> of every <c>&lt;link rel="stylesheet"&gt;</c> against
+    /// the document's first <c>&lt;base href&gt;</c>. The renderer resolves a linked sheet's
+    /// <c>href</c> against the document URL and never consults <c>&lt;base&gt;</c>, so
+    /// <c>&lt;base href="resources/"&gt;</c> before <c>&lt;link href="stylesheet.css"&gt;</c>
+    /// fetched the sheet from the document's own directory instead of <c>resources/</c> — it
+    /// was not found and the unstyled fallback showed through (WPT
+    /// <c>html/semantics/document-metadata/the-link-element/stylesheet-with-base</c>). Absolute,
+    /// <c>data:</c>, root-relative, and fragment hrefs are left untouched.
+    /// </summary>
+    private void RewriteLinkStyleSheetHrefs(DomElement root, string baseHref)
+    {
+        foreach (var element in root.Descendants().OfType<DomElement>())
+        {
+            if (!element.TagName.Equals("link", StringComparison.OrdinalIgnoreCase) ||
+                !LinkRelIsStyleSheet(element) ||
+                !TryGetAttribute(element, "href", out var href) ||
+                string.IsNullOrWhiteSpace(href))
+                continue;
+
+            var resolved = ResolveUrlAgainstBaseHref(href, baseHref);
+            if (resolved is not null)
+                SetAttr(element, "href", resolved);
+        }
+    }
+
+    /// <summary>The first <c>&lt;base&gt;</c> in document order with a non-empty
+    /// <c>href</c> — the element that sets the document base URL (HTML §4.2.3).</summary>
+    private bool TryFindDocumentBaseHref(DomElement root, out string baseHref)
+    {
+        baseHref = string.Empty;
+        foreach (var element in root.Descendants().OfType<DomElement>())
+        {
+            if (element.TagName.Equals("base", StringComparison.OrdinalIgnoreCase) &&
+                TryGetAttribute(element, "href", out var href) &&
+                !string.IsNullOrWhiteSpace(href))
+            {
+                baseHref = href.Trim();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void RewriteStyleElementUrls(DomElement element, string baseHref)
+    {
+        if (!IsText(element) &&
+            element.TagName.Equals("style", StringComparison.OrdinalIgnoreCase))
+        {
+            var original = GetStyleElementCssText(element);
+            var rewritten = RewriteCssUrlsAgainstBaseHref(original, baseHref);
+            if (!string.Equals(rewritten, original, StringComparison.Ordinal))
+                SetElementTextContent(element, rewritten);
+        }
+
+        foreach (var child in ChildElements(element))
+            RewriteStyleElementUrls(child, baseHref);
+    }
+
+    /// <summary>Rewrites each relative <c>url(...)</c> in <paramref name="css"/> to its
+    /// resolution against <paramref name="baseHref"/>; absolute, <c>data:</c>, and fragment
+    /// references are left byte-identical.</summary>
+    private string RewriteCssUrlsAgainstBaseHref(string css, string baseHref)
+        => UrlFunctionPattern.Replace(css, match =>
+        {
+            var resolved = ResolveUrlAgainstBaseHref(match.Groups[2].Value, baseHref);
+            return resolved is null ? match.Value : $"url(\"{resolved}\")";
+        });
+
+    /// <summary>
+    /// Resolves a CSS <c>url()</c> value or a <c>&lt;link&gt;</c> href against a
+    /// <c>&lt;base href&gt;</c>. Delegates to <see cref="HtmlBaseHref.Resolve"/>, the shared
+    /// seam this and the WPT runner's stylesheet inliner both go through — see that type for
+    /// the resolution rules and why there is only one implementation.
+    /// </summary>
+    private string? ResolveUrlAgainstBaseHref(string rawUrl, string baseHref) =>
+        HtmlBaseHref.Resolve(rawUrl, baseHref, _pageUrl);
+
+    /// <summary>
+    /// The URL a <c>&lt;link rel="stylesheet"&gt;</c>'s sheet is read from: a <c>data:</c> href
+    /// verbatim, anything else resolved against the <em>document base URL</em>. The verbatim case
+    /// matters — round tripping a data: URL through <see cref="Uri"/> normalizes the percent-escapes
+    /// its payload is made of, and the payload is the stylesheet.
+    /// <para>
+    /// The base is the document's, not the page's: a <c>&lt;base href&gt;</c> relocates a linked
+    /// sheet (HTML §4.2.3), which is what the render-bound
+    /// <see cref="RewriteLinkStyleSheetHrefs"/> pass already honours on the serialization
+    /// projection. Resolving against the page URL here instead would read a *different* sheet than
+    /// the one that paints whenever the document declares a base.
+    /// </para>
+    /// </summary>
+    private string ResolveStyleSheetLinkUrl(string href) =>
+        href.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+            ? href
+            : ResolveAgainstDocumentBaseUrl(href);
+
+    /// <summary>
+    /// Resolves a content-attribute URL against the document base URL — the document's first
+    /// <c>&lt;base href&gt;</c> resolved against the page URL when it declares one, the page URL
+    /// otherwise. Leaves the value untouched when neither is usable as a base.
+    /// </summary>
+    private string ResolveAgainstDocumentBaseUrl(string url) =>
+        Uri.TryCreate(DocumentBaseUrl(), UriKind.Absolute, out var baseUri) &&
+        Uri.TryCreate(baseUri, url, out var resolved)
+            ? resolved.AbsoluteUri
+            : url;
+
+    private ulong _documentBaseUrlVersion;
+    private string? _documentBaseUrlCache;
+
+    /// <summary>
+    /// The document base URL, cached against <see cref="DomDocument.Version"/>.
+    /// </summary>
+    /// <remarks>
+    /// Finding the <c>&lt;base href&gt;</c> means walking every descendant, and the overwhelming
+    /// majority of documents declare none — the same reason
+    /// <see cref="InlineStyleSheetImports(DomElement)"/> resolves its base lazily and at most once.
+    /// Here the callers are per-<c>&lt;link&gt;</c> rather than per-document, so without a cache a
+    /// page with many sheets pays that walk once for each of them. The version counter is bumped by
+    /// every tree edit and attribute write, so adding, removing or re-pointing a <c>&lt;base&gt;</c>
+    /// invalidates this on the next call.
+    /// </remarks>
+    private string DocumentBaseUrl()
+    {
+        var version = _document.Version;
+        if (_documentBaseUrlCache is null || _documentBaseUrlVersion != version)
+        {
+            _documentBaseUrlCache = HtmlBaseHref.ResolveDocumentBaseUrl(
+                _pageUrl, TryFindDocumentBaseHref(DocumentElement, out var baseHref) ? baseHref : null);
+            _documentBaseUrlVersion = version;
+        }
+
+        return _documentBaseUrlCache;
+    }
+}
+
+/// <summary>
+/// Render-time <c>@import</c> resolution. The renderer re-parses the serialized HTML and
+/// applies each <c>&lt;style&gt;</c>/<c>&lt;link&gt;</c> sheet, but it does not fetch a
+/// sheet's <c>@import</c> rules — an <c>@import</c> statement is parsed and then ignored,
+/// so the imported rules never reach the cascade (the WPT <c>css/cssom</c> import family,
+/// e.g. <c>cssimportrule-parent</c>, rendered blank where the import set a background).
+/// This transform inlines the imported CSS text into the importing <c>&lt;style&gt;</c>
+/// during the render-bound serialization, so the renderer sees the imported rules.
+/// <para>
+/// Runs inside <see cref="ApplySerializationTransforms"/>, so it only affects the
+/// render-bound document — JS-visible <c>innerHTML</c>/<c>outerHTML</c> (which serialize
+/// without the transforms) still expose the author <c>@import</c> statement, and the
+/// live CSSOM rule model (<c>cssRules</c>) is untouched. Only <c>&lt;style&gt;</c>
+/// elements are inlined: a linked sheet's imports would need their relative <c>url()</c>s
+/// re-based onto the link (not the document), the same limitation
+/// <see cref="ApplyCssomStyleSheetMutations"/> notes for baking linked sheets.
+/// </para>
+/// </summary>
+public sealed partial class DomBridge
+{
+    /// <summary>
+    /// Inlines the leading <c>@import</c> rules of every <c>&lt;style&gt;</c> in the tree,
+    /// replacing each with the (recursively import-expanded) text of the imported sheet.
+    /// </summary>
+    private void InlineStyleSheetImports(DomElement root)
+    {
+        // HTML §4.2.3: <base href> replaces the document URL that a relative
+        // @import resolves against, so the base has to be folded in rather than
+        // resolving each import against the page URL. (This transform runs before
+        // ApplyBaseHrefToStyleUrls, so it cannot rely on that pass.)
+        //
+        // Resolved LAZILY, and at most once: finding the base means walking every
+        // descendant, and the overwhelming majority of documents have no @import
+        // at all — they must not pay for a second full-tree scan. A document with
+        // thousands of nodes and no imports is the case that makes this matter.
+        string? documentBaseUrl = null;
+        string ResolveBaseOnce() =>
+            documentBaseUrl ??= HtmlBaseHref.ResolveDocumentBaseUrl(
+                _pageUrl,
+                TryFindDocumentBaseHref(root, out var baseHref) ? baseHref : null);
+
+        InlineStyleSheetImports(root, ResolveBaseOnce);
+    }
+
+    private void InlineStyleSheetImports(DomElement element, Func<string> documentBaseUrl)
+    {
+        if (!IsText(element) &&
+            element.TagName.Equals("style", StringComparison.OrdinalIgnoreCase))
+        {
+            var original = GetStyleElementCssText(element);
+            if (HasLeadingImport(original))
+            {
+                var expanded = ExpandCssImports(
+                    original, documentBaseUrl(), new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0);
+                if (!string.Equals(expanded, original, StringComparison.Ordinal))
+                    SetElementTextContent(element, expanded);
+            }
+        }
+
+        foreach (var child in ChildElements(element))
+            InlineStyleSheetImports(child, documentBaseUrl);
+    }
+
+    /// <summary>
+    /// Replaces the leading run of <c>@import</c> statements in <paramref name="css"/> with
+    /// the fetched (and recursively expanded) text of each imported sheet, resolved against
+    /// <paramref name="baseUrl"/>. <paramref name="chain"/> tracks the current import chain
+    /// so a cycle (A→B→A) resolves to nothing instead of recursing forever; it is a
+    /// per-chain set (an already-resolved URL is removed after its subtree expands) so a
+    /// diamond import still inlines the shared sheet on each independent path.
+    /// </summary>
+    private string ExpandCssImports(string css, string baseUrl, HashSet<string> chain, int depth)
+    {
+        var (endOffset, imports) = ScanLeadingImports(css);
+        if (imports.Count == 0 || depth >= MaxImportDepth)
+            return css;
+
+        var sb = new StringBuilder();
+        foreach (var (href, media) in imports)
+        {
+            if (string.IsNullOrEmpty(href))
+                continue;
+
+            var absolute = ResolveStyleSheetUrl(href, baseUrl);
+            if (absolute is null || !chain.Add(absolute))
+                continue; // unresolvable, or already on the current chain (cycle)
+
+            try
+            {
+                var imported = FetchStyleSheetText(absolute);
+                if (!string.IsNullOrEmpty(imported))
+                {
+                    var rebased = RebaseRelativeUrls(imported, absolute);
+                    var nested = ExpandCssImports(rebased, absolute, chain, depth + 1);
+                    if (!string.IsNullOrWhiteSpace(media))
+                        sb.Append("@media ").Append(media).Append(" {\n").Append(nested).Append("\n}\n");
+                    else
+                        sb.Append(nested).Append('\n');
+                }
+            }
+            finally
+            {
+                chain.Remove(absolute);
+            }
+        }
+
+        sb.Append(css, endOffset, css.Length - endOffset);
+        return sb.ToString();
+    }
+
+    /// <summary>Resolves a stylesheet href against a base URL. A <c>data:</c> href is its
+    /// own absolute URL; everything else goes through the shared URL resolver.</summary>
+    private string? ResolveStyleSheetUrl(string href, string baseUrl)
+    {
+        if (href.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            return href;
+        return UrlResolver.Resolve(href, string.IsNullOrEmpty(baseUrl) ? _pageUrl : baseUrl)?.AbsoluteUri;
+    }
+
+    /// <summary>
+    /// Fetches the CSS text for a stylesheet URL — decoding a <c>data:</c> URI in-process, or
+    /// loading <c>file</c>/<c>http(s)</c> via the loader. The seam every stylesheet read goes
+    /// through, <c>@import</c> and <c>&lt;link rel="stylesheet"&gt;</c> alike, so a <c>data:</c>
+    /// sheet is decoded wherever it is named rather than only where someone remembered to.
+    /// Anything but a <c>data:</c> URI is passed to the loader as given, which for a
+    /// <c>&lt;link&gt;</c> href means the caller resolves it first if it needs to be absolute.
+    /// </summary>
+    private string? FetchStyleSheetText(string url)
+    {
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            var (_, body) = DecodeDataUriParts(url);
+            return body;
+        }
+        return FetchExternalStylesheet(url);
+    }
+}
+
+/// <summary>
+/// External stylesheets: the <c>style-src</c> gate a <c>&lt;link rel="stylesheet"&gt;</c> passes before it is
+/// fetched, the prefetch and fetch themselves, and the link's <c>load</c> event.
+/// </summary>
+public sealed partial class DomBridge
+{
+    /// <summary>
+    /// Whether the document's Content Security Policy permits fetching and applying an external stylesheet
+    /// from <paramref name="href"/> (a <c>&lt;link rel="stylesheet"&gt;</c>). When no policy is configured
+    /// every stylesheet is allowed. Mirrors the script-side <see cref="ContentSecurityPolicy.AllowsExternalScript"/>
+    /// gate so DOM/CSS never fetch or apply a <c>style-src</c>-blocked external stylesheet (Phase 7 item 5:
+    /// CSP stays in the host layer; DOM and CSS receive already-authorised content).
+    /// </summary>
+    private bool IsExternalStyleAllowedByCsp(DomElement linkEl, string href)
+    {
+        if (Csp == null)
+            return true;
+
+        var nonce = TryGetAttribute(linkEl, "nonce", out var nonceValue) ? nonceValue : null;
+        return Csp.AllowsExternalStyle(href, _pageUrl, nonce);
+    }
+
+    /// <summary>
+    /// Fires the <c>load</c> — or <c>error</c> — event on a <c>&lt;link rel="stylesheet"&gt;</c> whose
+    /// sheet has been fetched, per HTML §4.2.4 "link type stylesheet". Nothing dispatched these at
+    /// all, so a page that waits for <c>link.onload</c> before declaring itself ready never got the
+    /// callback (WPT issue #1497 problem 26,
+    /// <c>uievents/…/UIEvent.load.stylesheet</c>).
+    /// <para>
+    /// Only a link that is <em>in the document</em> fetches, so a detached one stays silent until it
+    /// is inserted. The event fires once per <c>href</c>: re-pointing the link at a different sheet
+    /// is a new fetch and fires again, while re-inserting it, or writing the same href twice, does
+    /// not. Whether the fetch succeeded is decided the same way the cascade decides it — the CSP
+    /// gate, then the resource loader — so the event never disagrees with whether the sheet applied.
+    /// </para>
+    /// </summary>
+    private void FireStylesheetLinkLoad(DomElement element)
+    {
+        if (_realm is null || !IsExternalStylesheet(element))
+            return;
+        if (!ReferenceEquals(GetTreeRoot(element), _document))
+            return;
+        if (!TryGetAttribute(element, "href", out var href) || string.IsNullOrWhiteSpace(href))
+            return;
+
+        var state = StyleSheetStateFor(element);
+        if (string.Equals(state.LoadEventFiredForHref, href, StringComparison.Ordinal))
+            return;
+        state.LoadEventFiredForHref = href;
+
+        // The resource loader only takes absolute URLs, so the content attribute is resolved against
+        // the page URL first — the same rebasing the renderer does for a linked sheet. Skipping it
+        // made every relative href look like a failed fetch and dispatched `error` for a sheet that
+        // then applied perfectly well. A data: href is already its own absolute URL and carries the
+        // sheet in it, so it is read through the same seam the cascade uses rather than rebased and
+        // handed to the loader, which knows no data: scheme and reported the sheet as failed.
+        var loaded = IsExternalStyleAllowedByCsp(element, href) &&
+                     !string.IsNullOrEmpty(FetchStyleSheetText(ResolveStyleSheetLinkUrl(href)));
+
+        try
+        {
+            // The event object is built through the realm (JSEAL); the two members keep the
+            // enumerable/configurable data-property attributes they had, which is what
+            // JsPropertyFlags.Default spells. The dispatcher takes that handle as it is. (This said
+            // dispatch was still engine-typed and unwrapped the handle through the JsInterop seam.)
+            var evt = Realm.NewObject();
+            Realm.DefineValue(evt, "type", JsValue.String(loaded ? "load" : "error"));
+            Realm.DefineValue(evt, "bubbles", JsValue.False);
+            _eventDispatch.DispatchEventOnElement(element, evt);
+        }
+        catch (Exception ex)
+        {
+            RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.FireStylesheetLinkLoad",
+                $"stylesheet load handler error for '{href}': {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>Fires the stylesheet <c>load</c> event for <paramref name="element"/> and every
+    /// <c>&lt;link rel="stylesheet"&gt;</c> beneath it — the subtree counterpart used when a whole
+    /// fragment is inserted or the document finishes loading.</summary>
+    private void FireDescendantStylesheetLinkLoads(DomElement element)
+    {
+        FireStylesheetLinkLoad(element);
+        // Snapshot before iterating: a load handler can structurally mutate the tree mid-walk, the
+        // same hazard FireDescendantOnloads documents.
+        foreach (var child in SnapshotChildren(element))
+        {
+            if (child is DomElement childElement)
+                FireDescendantStylesheetLinkLoads(childElement);
+        }
+    }
+
+    /// <summary>
+    /// Asks the loader to start fetching every external stylesheet in <paramref name="styleElements"/>
+    /// that this document has not already fetched. Multithreading roadmap item #2.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The URL handed over is the same string <see cref="GetStyleElementSourceText"/> will pass to
+    /// <see cref="FetchExternalStylesheet"/> — the href resolved through
+    /// <see cref="ResolveStyleSheetLinkUrl"/> — because a prefetch keyed on a differently-normalized
+    /// URL would simply never be consumed, silently doubling the requests instead of overlapping
+    /// them. The two must be changed together; they were the raw <c>href</c> on both sides until the
+    /// consuming path started resolving it.
+    /// </para>
+    /// <para>
+    /// The CSP check is applied here too: a sheet the policy blocks must not have a request put on
+    /// the wire on its behalf, and the consuming path already refuses it.
+    /// </para>
+    /// </remarks>
+    private void PrefetchExternalStylesheets(List<DomElement> styleElements)
+    {
+        List<string>? urls = null;
+
+        foreach (var styleEl in styleElements)
+        {
+            if (!string.Equals(styleEl.TagName, "link", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!TryGetAttribute(styleEl, "href", out var href) || string.IsNullOrEmpty(href))
+                continue;
+
+            // A data: sheet is decoded in-process by the consuming path and never reaches the
+            // loader, so prefetching one buys nothing and would leave an unconsumed entry behind.
+            if (href.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Already fetched for this document — the consuming path reads the cached text and
+            // never calls the loader, so a request here would be pure waste.
+            if (StyleSheetStateFor(styleEl).FetchedCss.TryGet(out _))
+                continue;
+
+            if (!IsExternalStyleAllowedByCsp(styleEl, href))
+                continue;
+
+            (urls ??= []).Add(ResolveStyleSheetLinkUrl(href));
+        }
+
+        if (urls is not null)
+            _resources.Prefetch(urls);
+    }
+
+    /// <summary>
+    /// Fetches an external CSS stylesheet from an HTTP/HTTPS URL.
+    /// Returns the CSS text content, or <c>null</c> on failure.
+    /// </summary>
+    private string? FetchExternalStylesheet(string url)
+    {
+        try
+        {
+            // The file/http dispatch policy lives in the loader (Phase 7 item 4), not here.
+            return _resources.LoadText(url);
+        }
+        catch (Exception ex)
+        {
+            RenderLogger.LogError(LogCategory.HtmlRenderer, "DomBridge.FetchExternalStylesheet", $"Failed to fetch stylesheet '{url}': {ex.Message}", ex);
+            return null;
+        }
+    }
 }

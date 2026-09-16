@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.Layout;
@@ -650,6 +651,6 @@ public sealed partial class DomBridge
     }
 
     // Scroll-container geometry helpers (FindScrollContentWidth/Height, ComputeAnchorRelativeToContainer,
-    // FindNearestScrollContainer, IsDescendantOfElement) live in the sibling partial
-    // PositionArea.ScrollGeometry.cs to keep each file under the Phase 3 750-line ratchet.
+    // FindNearestScrollContainer, IsDescendantOfElement) and the resolution cache JS offset queries read
+    // live in ScrollPositioning.cs.
 }

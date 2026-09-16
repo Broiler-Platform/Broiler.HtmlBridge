@@ -1,5 +1,8 @@
+using System.Text;
+using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
+using Broiler.HtmlBridge.Logging;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
@@ -96,7 +99,7 @@ public sealed partial class DomBridge
 
         // Point the wrapper at its interface prototype before any member is installed, so
         // constructor.name and Object.getPrototypeOf answer the interface rather than Object.
-        // Every node kind InterfaceNameFor names, elements included — WrapperPrototypes.cs says how
+        // Every node kind InterfaceNameFor names, elements included — ElementInterface.cs says how
         // an element's interface is chosen from its tag.
         ApplyInterfacePrototype(handle, node);
 
@@ -141,7 +144,7 @@ public sealed partial class DomBridge
 
         // HTMLElement's — the global reflectors, style, dataset, innerText/outerText, click/focus/blur,
         // attachInternals, the on* handlers and the offset* metrics — the same way, on
-        // HTMLElement.prototype (DomBridge/HtmlElementInterface.cs). An SVG element installs them on
+        // HTMLElement.prototype (DomBridge/ElementInterface.cs). An SVG element installs them on
         // itself: SVGElement derives straight from Element, so it inherits none of them, and keeping
         // its own copies is what preserves the surface it has today.
         if (!_htmlElementInterfacePrototypeReady || !IsHtmlNamespace(element))
@@ -155,7 +158,7 @@ public sealed partial class DomBridge
         // -- DOM tree navigation --
 
         // The Node members are on Node.prototype and this wrapper inherits them
-        // (DomBridge/CharacterDataInterface.cs). Each was a byte-identical copy of what lives
+        // (DomBridge/NodeInterfaces.cs). Each was a byte-identical copy of what lives
         // there, so nothing about them changes; only their location does. A wrapper minted before
         // the realm carried the interfaces inherits nothing and still installs its own.
         if (!_nodeInterfacePrototypesReady)
@@ -259,7 +262,7 @@ public sealed partial class DomBridge
         // -- DOM events --
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
-        // routed by receiver (DomBridge/EventTargetInterface.cs) — one function for every target, as
+        // routed by receiver (DomBridge/Events.cs) — one function for every target, as
         // in a browser. A wrapper minted before the realm carried it installs its own, through the
         // realm and with a JSEAL frame, exactly as the routed path does. (This said the three were the
         // engine's and read the engine's argument frame; neither was so.)
@@ -279,7 +282,7 @@ public sealed partial class DomBridge
         }
 
         // click/focus/blur and the on* handlers are HTMLElement's and are on its prototype
-        // (DomBridge/HtmlElementInterface.cs). Compiling the on* HTML attributes into handlers is not
+        // (DomBridge/ElementInterface.cs). Compiling the on* HTML attributes into handlers is not
         // a member and still belongs to each element.
         CompileInlineEventAttributes(element);
 
@@ -287,7 +290,7 @@ public sealed partial class DomBridge
 
         // Form-control IDL reflectors (value/checked/type/name/disabled/required/files) — Phase 3
         // P3.60: extracted into the co-located FormControlBinding feature module, reached through the
-        // IFormControlHost contract (DomBridge.FormControlHost.cs). Installed on every element, where
+        // IFormControlHost contract (DomBridge/Hosts.Elements.cs). Installed on every element, where
         // a browser gives them only to the interfaces that declare them; the two that are genuinely
         // HTMLElement's, hidden and tabIndex, are on its prototype.
         _formControl.Install(handle, element);
@@ -302,7 +305,7 @@ public sealed partial class DomBridge
             Realm.NewMethod("reportValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element))));
 
         // submit() — for form elements (Phase 3 P3.61: co-located FormSubmitBinding feature module,
-        // reached through IFormSubmitHost; DomBridge.FormSubmitHost.cs).
+        // reached through IFormSubmitHost; DomBridge/Hosts.Elements.cs).
         // FormSubmitBinding is migrated: the method is minted by the realm — which is what gives its
         // body a call frame to build the synthetic event in — and it is handed this wrapper's handle,
         // which becomes the event's target. (This said a seam unwrapped it for an engine-typed wrapper.)
@@ -319,7 +322,7 @@ public sealed partial class DomBridge
         // <iframe> browsing-context accessors (contentDocument/contentWindow/getSVGDocument, src/srcdoc
         // read/write, sandbox reflection) — Phase 3 P3.55: extracted into the co-located IframeElementBinding
         // feature module, sibling of the P3.52 <object> ObjectElementBinding. Reaches the frames machinery
-        // through the IIframeElementHost contract (DomBridge.IframeElementHost.cs).
+        // through the IIframeElementHost contract (DomBridge/Hosts.Documents.cs).
         Dom.Features.IframeElementBinding.Install(this, handle, element);
 
         AddElementSpecificMembers(handle, element);
@@ -444,4 +447,201 @@ public sealed partial class DomBridge
             Realm.NewMethod("cloneNode",
                 (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, element, in call), 1));
     }
+}
+
+// The two constant-answer native function factories — UndefinedFunction and NullFunction — are gone
+// from here, and so are the TrueFunction and ZeroFunction that stood beside them.
+//
+// WHY THEY WERE HERE, AND WHY THEY ARE NOT. A DOM member that answers a constant and reads nothing
+// still needs a function object, and before the realm could mint one these four built it as the
+// engine's own. They were constructable engine functions rather than the bridge's non-constructable
+// DOM callable, which is
+// observable — navigator.plugins.item.prototype was an object and `new navigator.plugins.item()` did
+// not throw — and each module that migrated recorded at its own call site that it was deliberately
+// keeping or deliberately correcting that difference: see Features/NavigatorCapabilityBinding.cs,
+// Features/ScreenOrientationBinding.cs, Features/SubDocumentBinding.cs, Features/SvgElementBinding.cs
+// and Features/TableBinding.cs, each of which says which it chose and why.
+//
+// The last of those call sites went with the last of those modules, and the factories they left
+// uncalled were deleted: TrueFunction and ZeroFunction in b045101, UndefinedFunction and NullFunction
+// in 5282d02. No code names one, a page had no name to reach and Object.getOwnPropertyNames no member
+// to see, so removing them changed no observable behaviour. The file stays as this note:
+// DomBridge/Registration/Registration.cs and Features/IFormSubmitHost.cs cite it, and the five
+// above, EventTargetBinding.cs and FormSubmitBinding.cs name its factories, as do comments in
+// DomBridge/JsObjects.NonElementNodes.cs and BroilerJsRealm.Members.cs.
+// (This said dead private code was still left here, and that five modules pointed at it.)
+public sealed partial class DomBridge
+{
+}
+
+// The five propagation-control callbacks of the synthetic window event — stopPropagation,
+// stopImmediatePropagation, preventDefault and the legacy cancelBubble/returnValue setters — are gone
+// from here.
+//
+// WHY THEY WERE HERE, AND WHY THEY ARE NOT. They took an engine argument frame because their only
+// caller, DispatchWindowEvent in DomBridge/Lifecycle.cs, installed each of them as an engine function
+// over `ref` locals it owned: the installer minted an engine function because the body took the
+// engine frame, and the body took the engine frame because the installer minted an engine function.
+// That cycle only breaks when both change together, and both are in one file — so when DomBridge/Lifecycle.cs
+// migrated, the five became local functions closing on the same four locals the `ref` parameters used
+// to carry, in the shape Features/LegacyEventBinding.cs already had for the same five operations on a
+// createEvent object. See the remarks on DispatchWindowEvent for that reasoning in full.
+//
+// Nothing called these afterwards: they were five private methods with a single call site, and the
+// call site took its bodies with it. Removing dead private code changes no observable behaviour —
+// there is no name for a page to reach and no member for Object.getOwnPropertyNames to see.
+public sealed partial class DomBridge
+{
+}
+
+public sealed partial class DomBridge
+{
+    /// <summary>
+    /// A node's <c>textContent</c>, or <see langword="null"/> for the two node kinds DOM §4.4 gives no
+    /// text at all.
+    /// </summary>
+    /// <remarks>
+    /// The algorithm is engine-neutral and always was — it walks the tree and concatenates strings —
+    /// so it is stated here in CLR terms, and every getter that wants a JavaScript value makes one
+    /// from it — directly, or through <c>IElementContentHost.NodeTextValue</c>.
+    /// <see cref="JsValue.String(string?)"/> turns the <see langword="null"/> into
+    /// JavaScript <c>null</c>, which is exactly the distinction the next paragraph is about.
+    /// </remarks>
+    private string? NodeTextOrNull(DomNode node)
+    {
+        // RF-BRIDGE-1c Phase F (F3c part 2d): character-data nodes expose their data as textContent;
+        // an element's textContent is the concatenation of its descendant text.
+        if (node is DomCharacterData characterData)
+            return characterData.Data;
+
+        // DOM §4.4: `textContent` is *null* for a document and for a doctype — they are the two node
+        // kinds the algorithm has no text for, rather than kinds whose text happens to be empty.
+        // Both answered the empty string, so `document.textContent` was `""` where Chromium says
+        // null, and a page distinguishing the two with `=== null` read the wrong branch.
+        if (node is DomDocument or DomDocumentType)
+            return null;
+
+        if (node is not DomElement element)
+            return string.Empty;
+
+        if (element.ChildNodes.Count > 0)
+        {
+            var sb = new StringBuilder();
+            CollectTextContent(element, sb);
+            return sb.ToString();
+        }
+
+        // A childless element has empty textContent (its content, if any, is canonical DomText
+        // children handled above — Phase 4 item 3 removed the parallel InnerHtml fallback).
+        return string.Empty;
+    }
+
+    private bool IsCurrentIframeCrossOrigin(DomElement element)
+    {
+        if (HasAttr(element, "srcdoc"))
+            return false;
+
+        var iframeSrcValue = TryGetAttribute(element, "src", out var srcVal) ? srcVal : string.Empty;
+        return IsCrossOrigin(iframeSrcValue, _pageUrl);
+    }
+
+    // MutationObserver option parsing and observe()/disconnect() registration moved to the Phase 3
+    // MutationObserverBinding feature module (Broiler.HtmlBridge.Dom.Features).
+
+    private bool IsPositionAfter(DomNode docRoot, DomNode containerA, int offsetA, DomNode containerB, int offsetB)
+    {
+        // Phase 4 item 4/5: for boundary points in the SAME tree this is exactly canonical
+        // Broiler.Dom.DomRange.CompareBoundaryPoints(...) > 0 (verified branch-for-branch: same-container,
+        // either-descendant, and common-ancestor ordering all agree), so delegate to it instead of
+        // re-implementing the walk. The bridge deliberately keeps a LENIENT cross-tree path — canonical
+        // throws WrongDocument, but the bridge's compareBoundaryPoints returns an order rather than
+        // throwing — so the cross-tree branch (different roots) is preserved verbatim below.
+        if (ReferenceEquals(containerA.GetRootNode(), containerB.GetRootNode()))
+            return DomRange.CompareBoundaryPoints(containerA, offsetA, containerB, offsetB) > 0;
+
+        var allNodes = docRoot.InclusiveDescendants().ToList();
+        var idxA = allNodes.IndexOf(containerA);
+        var idxB = allNodes.IndexOf(containerB);
+        if (idxA < 0 || idxB < 0)
+            return false;
+
+        return idxA > idxB || (idxA == idxB && offsetA > offsetB);
+    }
+
+
+    private int CompareBoundaryPosition(DomNode docRoot, DomNode containerA, int offsetA, DomNode containerB, int offsetB)
+    {
+        if (ReferenceEquals(containerA, containerB) && offsetA == offsetB)
+            return 0;
+
+        if (IsPositionAfter(docRoot, containerA, offsetA, containerB, offsetB))
+            return 1;
+
+        if (IsPositionAfter(docRoot, containerB, offsetB, containerA, offsetA))
+            return -1;
+
+        return 0;
+    }
+}
+
+public sealed partial class DomBridge
+{
+
+    // HTMLElement global content-attribute reflectors (id, className, title, lang, accessKey, dir,
+    // draggable) moved to the GlobalAttributeBinding feature module (Phase 3 P3.54).
+
+    // innerHTML / outerHTML / textContent get+set moved to the ElementContentBinding feature module
+    // (Phase 3 P3.57).
+
+    // element.shadowRoot getter moved to the ShadowDomBinding feature module (Phase 3 P3.62).
+
+    // element.style = "..." cssText assignment setter moved to StyleDeclarationBinding (Phase 3 P3.63).
+
+    // insertBefore(newChild, refChild) moved to the TreeMutationBinding feature module (Phase 3 P3.58).
+
+    // attachShadow(init) moved to the ShadowDomBinding feature module (Phase 3 P3.62).
+
+    // appendChild / append / prepend / removeChild / replaceChild moved to the TreeMutationBinding
+    // feature module (Phase 3 P3.58).
+
+    // get/set on<event> inline event-handler reflectors moved to the EventHandlerReflectorBinding
+    // feature module (Phase 3 P3.59).
+
+    // Form-control IDL reflectors (value/checked/type/name/disabled/hidden/tabIndex/required) moved to
+    // the FormControlBinding feature module (Phase 3 P3.60).
+
+    // form.submit() moved to the FormSubmitBinding feature module (Phase 3 P3.61).
+
+    // insertAdjacentElement / insertAdjacentText / insertAdjacentHTML (and their
+    // NormalizeInsertAdjacentPosition / GetInsertAdjacentTarget helpers) moved to the
+    // InsertAdjacentBinding feature module (Phase 3 P3.56).
+
+    // canvas.getContext("2d") (and its BuildCanvas2DContext + JsUtilities…034…058Core drawing callbacks)
+    // moved to the CanvasBinding feature module (Phase 3 P3.64) — the last element-member callback in the
+    // mixed JsObjects.cs file, unblocked once Phase 6/P8.9 dissolved Broiler.HtmlBridge.Rendering into Dom.
+
+    // <iframe> browsing-context accessors (contentDocument/contentWindow/getSVGDocument, src/srcdoc
+    // setters) moved to the IframeElementBinding feature module (Phase 3 P3.55).
+
+}
+
+public sealed partial class DomBridge
+{
+
+    // form.elements.length moved to the Phase 3 FormBinding feature module
+    // (Broiler.HtmlBridge.Dom.Features).
+
+
+    // classList operations delegate to the canonical Broiler.Dom.DomTokenList
+    // ordered-set algorithm (parse/serialize on ASCII whitespace, unique-ordered,
+    // attribute-synchronized). The bridge keeps only the JavaScript argument
+    // marshaling, the lenient empty-token skip these methods have always applied,
+    // and the style-scope invalidation callback.
+    // classList / DOMTokenList callbacks (contains/add/remove/toggle/replace) moved to the Phase 3
+    // ClassListBinding feature module (Broiler.HtmlBridge.Dom.Features).
+
+    // Canvas 2D context callbacks (setFillStyle/…/measureText, formerly JsUtilities…034…058Core) moved to
+    // the Phase 3 (P3.64) CanvasBinding feature module (Broiler.HtmlBridge.Dom.Features), unblocked once
+    // Phase 6/P8.9 dissolved Broiler.HtmlBridge.Rendering into Dom.
+
 }

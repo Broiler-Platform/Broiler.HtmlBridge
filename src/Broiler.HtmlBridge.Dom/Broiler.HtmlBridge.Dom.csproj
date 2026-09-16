@@ -10,14 +10,12 @@
 
   <ItemGroup>
     <!-- Phase 3 work item 6: content-rendering polyfill JavaScript as a versioned embedded asset
-         (externalized from inline C# string literals in Registration/Polyfills.cs). -->
-    <EmbeddedResource Include="Polyfills\content-rendering-polyfills.js">
-      <LogicalName>Broiler.HtmlBridge.Polyfills.content-rendering-polyfills.js</LogicalName>
-    </EmbeddedResource>
-    <!-- ReadableStream, ProgressEvent and FileReader. JavaScript for the same reason the
-         specification is: the stream is a state machine over promises. -->
-    <EmbeddedResource Include="Polyfills\streams-and-file-reader.js">
-      <LogicalName>Broiler.HtmlBridge.Polyfills.streams-and-file-reader.js</LogicalName>
+         (externalized from inline C# string literals in DomBridge/Registration/Registration.cs). -->
+    <!-- And ReadableStream, ProgressEvent and FileReader, JavaScript for the same reason the
+         specification is: the stream is a state machine over promises. Each script is split across
+         several files that PolyfillAssets joins back into one; the logical names are the file names. -->
+    <EmbeddedResource Include="Polyfills\*.js">
+      <LogicalName>Broiler.HtmlBridge.Polyfills.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
@@ -50,7 +48,7 @@
       exists to count down (eng/jseal-budget.json), and it would be a poor trade to remove a
       Broiler.JS reference from a file and add a reference to the assembly that has one. The realm is
       obtained from whichever provider the host linked, through JsEngineRegistry; see
-      DomBridge.Realm.cs.
+      DomBridge/Lifecycle.cs.
     -->
     <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
     <!-- The canvas 2D context rasterises into a Broiler.Graphics BBitmap and encodes it through the

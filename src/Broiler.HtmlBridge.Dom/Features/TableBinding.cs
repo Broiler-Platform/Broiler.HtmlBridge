@@ -20,7 +20,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// It named one until its caller stopped handing it an engine object. The remark here used to say
-/// <c>DomBridge/ElementInterfaces.cs</c> "installs these members onto an engine wrapper it holds and
+/// <c>DomBridge/NodeInterfaces.cs</c> "installs these members onto an engine wrapper it holds and
 /// is not migrated"; it holds a handle, and the engine object it used to pass was derived from that
 /// handle one line earlier only so that the adapter could derive the handle back. Both halves are
 /// gone and the caller passes what it has.

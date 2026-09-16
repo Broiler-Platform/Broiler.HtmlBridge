@@ -13,7 +13,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The contract names no engine type. The argument parser takes the call's own argument span rather
 /// than an engine frame, which is what lets the bridge answer it with the one reading it already
 /// gives the sub-window contract instead of a second copy — see
-/// <c>DomBridge.WindowScrollHost.cs</c>.
+/// <c>DomBridge/Hosts.Window.cs</c>.
 /// </remarks>
 internal interface IWindowScrollHost
 {

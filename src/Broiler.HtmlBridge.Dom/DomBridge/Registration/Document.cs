@@ -1,3 +1,5 @@
+using Broiler.Dom;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Jseal;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
@@ -108,7 +110,7 @@ public sealed partial class DomBridge
         realm.DefineValue(document, "createEvent", realm.NewConstructor("createEvent", Dom.Features.LegacyEventBinding.Create, 1));
 
         // document.startViewTransition(updateCallback | { update, types }) — CSS View Transitions
-        // (see DomBridge.ViewTransition.cs). Runs the callback and returns a resolved ViewTransition;
+        // (see DomBridge/ViewTransition.cs). Runs the callback and returns a resolved ViewTransition;
         // the pseudo tree is baked at serialize time. The operation reads one argument — the update
         // callback, or the dictionary carrying it — and a handle over it is the whole of that.
         realm.DefineValue(document, "startViewTransition", realm.NewConstructor("startViewTransition", (in c) => StartViewTransition(c[0]), 1));
@@ -231,7 +233,7 @@ public sealed partial class DomBridge
         // DocumentEventTargetBinding feature module (Phase 3).
         // On EventTarget.prototype now, routed by receiver — the document's wrapper is registered
         // as its node's and its listener store is the same per-node one, so the routed method
-        // reaches exactly what these did (DomBridge/EventTargetInterface.cs).
+        // reaches exactly what these did (DomBridge/Events.cs).
         if (!_eventTargetRoutingReady)
         {
             realm.DefineValue(document, "addEventListener", realm.NewConstructor("addEventListener", (in c) => Dom.Features.DocumentEventTargetBinding.AddEventListener(this, in c), 3));
@@ -309,5 +311,298 @@ public sealed partial class DomBridge
         // Visibility API is available at all — answering false sent them to legacy focus/blur polling
         // even though `visibilityState` above answers correctly.
         realm.DefineValue(document, "onvisibilitychange", JsValue.Null);
+    }
+}
+
+/// <summary>
+/// The <c>document</c> surface that is neither a node operation nor a factory: its eight live
+/// collections, and the three metadata accessors that were simply absent — <c>doctype</c>,
+/// <c>dir</c> and <c>designMode</c>.
+/// </summary>
+public sealed partial class DomBridge
+{
+    /// <summary>
+    /// Registers <c>forms</c>, <c>images</c>, <c>links</c>, <c>anchors</c>, <c>scripts</c>,
+    /// <c>embeds</c>, <c>plugins</c> and <c>styleSheets</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Each collection object is built <em>once</em> and closed over, so the getter hands back the
+    /// same object on every read. That is the identity a browser guarantees
+    /// (<c>document.forms === document.forms</c>), and for <c>plugins</c> it is the specification's
+    /// literal requirement rather than a nicety: HTML §3.1.5 says <c>plugins</c> must return the same
+    /// object <c>embeds</c> does, which one shared local expresses exactly.
+    /// </para>
+    /// <para>
+    /// Built lazily on first read rather than here, because the interface constructors these
+    /// collections take their prototypes from are registered later in the attach sequence (the
+    /// polyfill pass, after the document object is populated). Constructing eagerly would leave every
+    /// collection prototype-less and <c>document.forms instanceof HTMLCollection</c> false. A context
+    /// is single-threaded by construction, so the null check needs no guard.
+    /// </para>
+    /// <para>
+    /// The cached local is a <see cref="JsValue"/> and the accessor is the realm's: the module's
+    /// collection builders are JSEAL's, and a handle is what "built once and closed over" now holds.
+    /// <see cref="JsValue.Missing"/> is the not-yet-built state rather than a nullable, because a
+    /// built collection is always an object and Missing is a kind no builder can answer with.
+    /// </para>
+    /// </remarks>
+    private void RegisterDocumentCollections(JsValue document)
+    {
+        var realm = Realm;
+
+        Live("forms", Dom.Features.DocumentCollectionBinding.Forms);
+        Live("images", Dom.Features.DocumentCollectionBinding.Images);
+        Live("links", Dom.Features.DocumentCollectionBinding.Links);
+        Live("anchors", Dom.Features.DocumentCollectionBinding.Anchors);
+        Live("scripts", Dom.Features.DocumentCollectionBinding.Scripts);
+        Live("styleSheets", Dom.Features.DocumentCollectionBinding.StyleSheets);
+
+        // embeds and plugins are one collection under two names, not two collections that agree.
+        var embeds = JsValue.Missing;
+        JsValue Embeds()
+        {
+            if (embeds.IsMissing)
+                embeds = Dom.Features.DocumentCollectionBinding.Embeds(this);
+            return embeds;
+        }
+
+        Getter("embeds", Embeds);
+        Getter("plugins", Embeds);
+
+        void Live(string name, Func<Dom.Features.IDocumentCollectionHost, JsValue> build)
+        {
+            var collection = JsValue.Missing;
+            Getter(name, () =>
+            {
+                if (collection.IsMissing)
+                    collection = build(this);
+                return collection;
+            });
+        }
+
+        void Getter(string name, Func<JsValue> read) =>
+            realm.DefineAccessor(document, name, (in _) => read(), null);
+    }
+
+    /// <summary>
+    /// <c>document.doctype</c>, <c>document.dir</c> and <c>document.designMode</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>doctype</c> is the one of the three that was not merely unimplemented but <em>invisible</em>:
+    /// the parser has produced a canonical <see cref="DomDocumentType"/> and appended it as the
+    /// document's first child for some time, and <c>document.firstChild</c> already returned it — only
+    /// the accessor DOM §4.5 names for it was missing, so the node was reachable by position and not
+    /// by name.
+    /// </para>
+    /// </remarks>
+    private void RegisterDocumentMetadata(JsValue document)
+    {
+        var realm = Realm;
+
+        realm.DefineAccessor(
+            document,
+            "doctype",
+            (in _) => DocumentTypeNode() is { } doctype ? WrapNode(doctype) : JsValue.Null,
+            null);
+
+        // HTML §3.2.6: `dir` reflects the document element's dir attribute *limited to only known
+        // values* — the getter answers the canonical lower-case keyword or the empty string, while
+        // the setter writes through unchanged. So `document.dir = 'LTR'` reads back as "ltr" with
+        // the attribute still spelled "LTR", and an unknown value reads back as "" with the
+        // attribute set to whatever was assigned.
+        //
+        // The setter's coercion is the realm's ToJsString, not the handle's diagnostic rendering:
+        // `document.dir = {toString(){return 'rtl'}}` is entitled to run that toString, which is what
+        // the engine's own value-to-string did here before.
+        realm.DefineAccessor(
+            document,
+            "dir",
+            (in _) => JsValue.String(DocumentDirection()),
+            (in c) =>
+            {
+                SetAttr(DocumentElement, "dir", c.Length > 0 ? c.Realm.ToJsString(c[0]) : string.Empty);
+                return JsValue.Undefined;
+            });
+
+        // HTML §3.2.7: an enumerated document state, not an attribute, so it lives on the bridge.
+        // Assigning anything but "on"/"off" (ASCII case-insensitively) is ignored rather than
+        // stored — `document.designMode = 'zzz'` leaves the previous value in place.
+        realm.DefineAccessor(
+            document,
+            "designMode",
+            (in _) => JsValue.String(_designMode),
+            (in c) =>
+            {
+                var requested = c.Length > 0 ? c.Realm.ToJsString(c[0]) : string.Empty;
+                if (string.Equals(requested, "on", StringComparison.OrdinalIgnoreCase))
+                    _designMode = "on";
+                else if (string.Equals(requested, "off", StringComparison.OrdinalIgnoreCase))
+                    _designMode = "off";
+                return JsValue.Undefined;
+            });
+    }
+
+    private string _designMode = "off";
+
+    /// <summary>The document's <see cref="DomDocumentType"/> child, or <see langword="null"/>.</summary>
+    private DomDocumentType? DocumentTypeNode()
+    {
+        foreach (var child in _document.ChildNodes)
+        {
+            if (child is DomDocumentType doctype)
+                return doctype;
+        }
+
+        return null;
+    }
+
+    /// <summary>The document element's <c>dir</c>, limited to the three keywords HTML defines.</summary>
+    private string DocumentDirection()
+    {
+        if (!TryGetAttribute(DocumentElement, "dir", out var value))
+            return string.Empty;
+
+        var keyword = value.ToLowerInvariant();
+        return keyword is "ltr" or "rtl" or "auto" ? keyword : string.Empty;
+    }
+}
+
+/// <summary>
+/// Registers the Custom Elements surface: the <c>CustomElementRegistry</c> interface, the
+/// <c>customElements</c> instance, the constructible <c>HTMLElement</c> base, and the subscription
+/// that turns canonical DOM mutations into reaction callbacks.
+/// </summary>
+public sealed partial class DomBridge
+{
+    private Dom.Features.CustomElementsBinding? _customElements;
+
+    internal Dom.Features.CustomElementsBinding CustomElements =>
+        _customElements ??= new Dom.Features.CustomElementsBinding(this);
+
+    /// <summary>
+    /// Replaces the non-constructible <c>HTMLElement</c> with the base a custom element extends, and
+    /// installs the registry.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The base is JavaScript for one reason: it needs <c>new.target</c>. <c>new X()</c> runs
+    /// <c>X</c>'s constructor, which calls <c>super()</c>, and only <c>new.target</c> says which
+    /// subclass is being constructed — so which prototype the element must get and, through the
+    /// registry, which tag name it has. The base reads it there and calls the host for the element
+    /// itself.
+    /// </para>
+    /// <para>
+    /// <b>The base stays JavaScript even though <see cref="JsCall.NewTarget"/> now exists.</b> A host
+    /// constructor built with <c>NewConstructor</c> does receive <c>new.target</c>, so this one shim
+    /// could move — but it is not the only caller of the host hook below. Every per-tag interface
+    /// constructor calls it too, and those are generated by <c>DomBridgeUtils/DomInterfaces.cs</c>
+    /// in exactly this <c>(new.target, interfaceName)</c> shape. The hook is one function serving both,
+    /// so the argument convention is one decision; moving half of it would leave the host reading a
+    /// call frame that belongs to the ordinary call the shim makes rather than to the <c>new</c> that
+    /// began it, which is a different value. It moves when that file does.
+    /// </para>
+    /// <para>
+    /// Returning an object from a base constructor is what makes this work: <c>super()</c>'s result
+    /// becomes <c>this</c>, so the subclass constructor goes on to run against a real DOM element.
+    /// Re-pointing its prototype at <c>new.target.prototype</c> keeps what it inherits from
+    /// <c>EventTarget</c>, <c>Node</c>, <c>Element</c> and <c>HTMLElement</c> reachable: the class chain
+    /// reaches <c>HTMLElement.prototype</c>, which its hyphenated tag linked it to, and what it still
+    /// owns stays put. (This said all its members were its own.)
+    /// </para>
+    /// <para>
+    /// <b>The JavaScript below is host script</b> — authored in this repository and shipped with it —
+    /// so it runs through <see cref="IJsSource.EvaluateHostScript"/>, the member the page's
+    /// Content-Security-Policy has no say over.
+    /// </para>
+    /// </remarks>
+    /// <param name="window">
+    /// The window object <c>customElements</c> is installed on, as a handle. Under this engine it
+    /// is the global itself, but it is taken rather than derived so this pass installs on the same
+    /// object the registration hub built everything else on — and a handle carries that object
+    /// rather than wrapping it, so the property defined below lands on the very window every other
+    /// registration pass wrote to, not on a second view of it.
+    /// </param>
+    private void RegisterCustomElements(JsValue window)
+    {
+        var realm = Realm;
+
+        var registry = realm.NewObject();
+        realm.DefineValue(registry, "define",
+            realm.NewMethod("define", (in call) => CustomElements.Define(in call), 2));
+        realm.DefineValue(registry, "get",
+            realm.NewMethod("get", (in call) => CustomElements.Get(in call), 1));
+        realm.DefineValue(registry, "getName",
+            realm.NewMethod("getName", (in call) => CustomElements.GetName(in call), 1));
+        realm.DefineValue(registry, "whenDefined",
+            realm.NewMethod("whenDefined", (in call) => CustomElements.WhenDefined(in call), 1));
+        realm.DefineValue(registry, "upgrade",
+            realm.NewMethod("upgrade", (in call) => CustomElements.Upgrade(in call), 1));
+
+        // The host half of the base, reached only from the JavaScript below and from the per-tag
+        // interface constructors. Named with the bridge's reserved prefix and deleted from the global
+        // once the base has closed over it, so a page cannot call it and mint an element out of band.
+        realm.SetProperty(realm.Global, "__broilerConstructCustomElement",
+            realm.NewMethod("constructCustomElement", (in call) => CustomElements.ConstructForNewTarget(in call), 2));
+        realm.SetProperty(realm.Global, "__broilerCustomElementRegistry", registry);
+
+        realm.EvaluateHostScript("""
+            (function () {
+                var construct = __broilerConstructCustomElement;
+                var registry = __broilerCustomElementRegistry;
+
+                // The per-tag interface globals were registered before this pass and left their
+                // construction hook unbound, because constructing is this registry's job: a
+                // customized built-in reaches HTMLButtonElement (or whichever) through super(), and
+                // the element it must produce is one of ours. Binding it here, once, is what makes
+                // `class Fancy extends HTMLButtonElement` work; the setter deletes itself.
+                if (typeof __broilerBindInterfaceConstructor === 'function')
+                    __broilerBindInterfaceConstructor(construct);
+
+                // The custom element base. Replaces the illegal-constructor HTMLElement, which is
+                // still what a bare `new HTMLElement()` gets: without a new.target there is no
+                // subclass to build, and the host answers that with a TypeError.
+                function HTMLElement() {
+                    var target = new.target;
+                    if (!target) throw new TypeError('Illegal constructor');
+                    // The host answers null for a new.target with no definition — a bare
+                    // `new HTMLElement()`, whose new.target is HTMLElement itself, and any subclass
+                    // that was never registered — and a string when the definition exists but names
+                    // a different interface, which is a customized built-in reached through
+                    // HTMLElement. Throwing here rather than there is what makes either a real
+                    // TypeError with a name and a message: a host throw would surface as a bare
+                    // string with neither.
+                    var element = construct(target, 'HTMLElement');
+                    if (typeof element === 'string') throw new TypeError(element);
+                    if (!element) throw new TypeError('Illegal constructor');
+                    // The element carries its DOM members as own properties, so re-pointing the
+                    // prototype adds the class without taking anything away.
+                    Object.setPrototypeOf(element, target.prototype);
+                    return element;
+                }
+
+                // Keep the prototype the interface linking already built, so the element's chain
+                // still reaches Element, Node and EventTarget through it and every wrapper linked to
+                // HTMLElement.prototype keeps the object it was linked to.
+                HTMLElement.prototype = __broilerHTMLElementPrototype;
+                Object.defineProperty(HTMLElement.prototype, 'constructor', {
+                    value: HTMLElement, writable: true, enumerable: false, configurable: true
+                });
+                globalThis.HTMLElement = HTMLElement;
+
+                function CustomElementRegistry() { throw new TypeError('Illegal constructor'); }
+                globalThis.CustomElementRegistry = CustomElementRegistry;
+                Object.setPrototypeOf(registry, CustomElementRegistry.prototype);
+                globalThis.customElements = registry;
+
+                delete globalThis.__broilerConstructCustomElement;
+                delete globalThis.__broilerCustomElementRegistry;
+            })();
+            """,
+            "broiler:custom-elements");
+
+        realm.DefineValue(window, "customElements", registry);
+        SubscribeCustomElementReactions();
     }
 }

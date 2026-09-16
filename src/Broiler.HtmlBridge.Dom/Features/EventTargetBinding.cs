@@ -20,7 +20,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// <para>
 /// <b>Each <c>EventTarget</c> operation has one body, and five installers mint it through the
-/// realm.</b> <c>DomBridge/EventTargetInterface.cs</c> routes <c>EventTarget.prototype</c>'s three by
+/// realm.</b> <c>DomBridge/Events.cs</c> routes <c>EventTarget.prototype</c>'s three by
 /// receiver; <c>DomBridge/JsObjects.cs</c> once and <c>DomBridge/JsObjects.NonElementNodes.cs</c> three
 /// times install per-wrapper copies. All five hand the body a JSEAL call frame. This remark used to say
 /// there were four installers, that the per-wrapper ones used the engine's own function type and
@@ -41,7 +41,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// triggers, and the <c>focus</c>/<c>blur</c> UIEvents -- is a <see cref="JsValue"/> assembled on
 /// <see cref="IEventTargetHost.Realm"/>, with the property attributes each member always had.
 /// <c>click</c>, <c>focus</c> and <c>blur</c> were said to keep an engine frame because
-/// <c>DomBridge/HtmlElementInterface.cs</c> had not migrated; it installs all three with
+/// <c>DomBridge/ElementInterface.cs</c> had not migrated; it installs all three with
 /// <c>AddInterfaceMethod</c> over a JSEAL call frame, and their signatures below say so.
 /// </para>
 /// </remarks>

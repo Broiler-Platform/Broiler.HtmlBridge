@@ -277,84 +277,6 @@ public sealed partial class DomBridge
         return UrlResolver.Resolve(resourceUrl, effectiveBaseUrl)?.AbsoluteUri ?? string.Empty;
     }
 
-    private bool TryGetWptRootDirectory(out string wptRoot)
-    {
-        static string? FindWptRoot(string? path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                return null;
-
-            DirectoryInfo? current;
-            if (File.Exists(path))
-                current = new FileInfo(path).Directory;
-            else if (Directory.Exists(path))
-                current = new DirectoryInfo(path);
-            else
-                current = new FileInfo(path).Directory;
-
-            while (current != null)
-            {
-                if (string.Equals(current.Name, "wpt", StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(current.Parent?.Name, "tests", StringComparison.OrdinalIgnoreCase))
-                {
-                    return current.FullName;
-                }
-
-                current = current.Parent;
-            }
-
-            return null;
-        }
-
-        wptRoot = string.Empty;
-
-        var candidates = new List<string>();
-        if (!string.IsNullOrWhiteSpace(_resources.LocalBasePath))
-            candidates.Add(_resources.LocalBasePath);
-
-        if (Uri.TryCreate(_pageUrl, UriKind.Absolute, out var pageUri) &&
-            string.Equals(pageUri.Scheme, Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase))
-        {
-            candidates.Add(pageUri.LocalPath);
-        }
-
-        foreach (var candidate in candidates)
-        {
-            var root = FindWptRoot(candidate);
-            if (!string.IsNullOrWhiteSpace(root))
-            {
-                wptRoot = root;
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private string? TryMapLocalWptHttpResource(string absoluteUrl)
-    {
-        if (!TryGetWptRootDirectory(out var wptRoot) ||
-            !Uri.TryCreate(absoluteUrl, UriKind.Absolute, out var resourceUri) ||
-            !(string.Equals(resourceUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-              string.Equals(resourceUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
-        {
-            return null;
-        }
-
-        if (!string.Equals(resourceUri.Host, "web-platform.test", StringComparison.OrdinalIgnoreCase) &&
-            !resourceUri.Host.EndsWith(".web-platform.test", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        var relativePath = resourceUri.AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-        if (string.IsNullOrWhiteSpace(relativePath))
-            return null;
-
-        var localPath = Path.Combine(wptRoot, relativePath);
-        return File.Exists(localPath) ? localPath : null;
-    }
-
     /// <param name="deliveredPolicy">
     /// A Content-Security-Policy this frame is bound by that its own markup did not declare: the
     /// embedder's, when the frame has a local scheme and inherits it, or the one its response
@@ -393,7 +315,7 @@ public sealed partial class DomBridge
         // What the frame's scripts declare has to end up on the frame's own window, so a parent page
         // can reach it as frames[0].window.foo. They are evaluated in the shared context, so the
         // globals they add are identified by diffing against this snapshot.
-        // See DomBridge.SubDocumentGlobals.cs.
+        // See DomBridge/SubDocuments.Loading.cs.
         var globalsBefore = GlobalOwnPropertyNames();
 
         // Non-null: the early return above established it, and the loops below run inside a lambda
@@ -498,7 +420,7 @@ public sealed partial class DomBridge
             }
 
             // Recorded, not published: the window these scripts ran against is a re-entrant
-            // throwaway that the outer GetOrCreate replaces. See DomBridge.SubDocumentGlobals.cs.
+            // throwaway that the outer GetOrCreate replaces. See DomBridge/SubDocuments.Loading.cs.
             RecordSubDocumentGlobals(containerElement, globalsBefore);
         });
     }
@@ -763,7 +685,7 @@ public sealed partial class DomBridge
 
         // The pristine, pre-script shape of the frame — what its resource says. A `src` frame is
         // rendered from that file unless it moves away from this. See
-        // DomBridge.FrameDocumentProjection.cs.
+        // DomBridge/Serialization.Rendering.cs.
         RecordSubDocumentSourceMarkup(document, html);
 
         return document;

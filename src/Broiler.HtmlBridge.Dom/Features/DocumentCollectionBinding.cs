@@ -38,7 +38,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// It was there for one thing — being handed straight back to the collection builder so it could
 /// find the interface prototypes — and the builder now asks the host's realm for those. The seven
 /// engine-typed adapters that stood at the foot of this file went with it: their one caller, the
-/// frame projection in <c>DomBridge.SubDocumentHost.cs</c>, asks for the same seven collections in
+/// frame projection in <c>DomBridge/Hosts.Documents.cs</c>, asks for the same seven collections in
 /// handles now, so the file names no engine type at all.
 /// </para>
 /// </remarks>

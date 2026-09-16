@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.Dom;
+using Broiler.HtmlBridge.Dom.Runtime;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
@@ -37,7 +37,7 @@ public sealed partial class DomBridge
     /// function values are resolved with the correct positioning context.
     /// <para><paramref name="elements"/> is the document to apply it to: the main document's
     /// <see cref="Elements"/>, or a nested browsing context's — a frame is severed from the main
-    /// tree, so it has to be walked separately (see <c>Dialogs.SubDocuments.cs</c>).</para>
+    /// tree, so it has to be walked separately (see <c>ApplySubDocumentTopLayer</c> in <c>SubDocuments.Loading.cs</c>).</para>
     /// </summary>
     private void ApplyDialogUAPositioning(IEnumerable<DomElement> elements)
     {

@@ -6,9 +6,9 @@ using Broiler.HtmlBridge.Jseal;
 
 // NO ENGINE TYPE IS LEFT IN THIS FILE, NOT EVEN AS A WEAK TABLE'S KEY. All five collection adapters
 // that took a script context have gone with their callers — the interface-registration hub
-// (DomBridgeUtils/Utilities.DomInterfaces.cs), the query/selector/form-association/node-accessor hosts,
-// DomBridge/Utilities.cs, the frame projection in DomBridge.SubDocumentHost.cs, and last
-// DomBridge/DomBridge.FormControlHost.cs, whose file-input `files` was the call this file's previous
+// (DomBridgeUtils/DomInterfaces.cs), the query/selector/form-association/node-accessor hosts,
+// DomBridge/Utilities.cs, the frame projection in DomBridge/Hosts.Documents.cs, and last
+// DomBridge/Hosts.Elements.cs, whose file-input `files` was the call this file's previous
 // header said everything below it existed to serve. It did, and it went with it: 104 lines of
 // adapter, contents-marshalling and per-context realm adoption, none of it reachable once that caller
 // passed a realm.

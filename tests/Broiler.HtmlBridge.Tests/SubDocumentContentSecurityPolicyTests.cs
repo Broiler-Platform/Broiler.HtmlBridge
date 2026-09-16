@@ -188,7 +188,7 @@ public class SubDocumentContentSecurityPolicyTests
     // ---------------------------------------------------------------------
 
     /// <summary>
-    /// An XHTML sub-document's scripts are run by <c>SubDocuments.XmlAndScripts.cs</c>, which — unlike
+    /// An XHTML sub-document's scripts are run by <c>DomBridge/SubDocuments.Loading.cs</c>, which — unlike
     /// the HTML path — evaluates them without a window context, so <c>document</c> inside one of them
     /// is the PAGE's document and not the frame's. The marker is therefore a global on the page's
     /// window: writing into the frame's own DOM, as the HTML frames above do, would throw inside the

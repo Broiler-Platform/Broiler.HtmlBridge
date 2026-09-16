@@ -27,7 +27,7 @@ namespace Broiler.HtmlBridge;
 /// an engine argument frame, so the <c>addEventListener</c>/<c>removeEventListener</c>/
 /// <c>dispatchEvent</c> members were minted by the engine and each populator unwrapped the handle for
 /// them alone. Each populator mints the three through the realm over a <see cref="JsCall"/>, the same
-/// bodies <c>EventTarget.prototype</c>'s routed methods call (<c>DomBridge/EventTargetInterface.cs</c>),
+/// bodies <c>EventTarget.prototype</c>'s routed methods call (<c>DomBridge/Events.cs</c>),
 /// and unwraps nothing.
 /// </para>
 /// <para>
@@ -53,7 +53,7 @@ public sealed partial class DomBridge
     private void PopulateCharacterDataWrapper(JsValue handle, DomNode node)
     {
         // The Node, CharacterData and Text members live on the interface prototypes
-        // (DomBridge/CharacterDataInterface.cs), which this wrapper inherits — so there is nothing
+        // (DomBridge/NodeInterfaces.cs), which this wrapper inherits — so there is nothing
         // to install here and Object.getOwnPropertyNames(textNode) is the [] a browser gives.
         //
         // Unless the realm was not up when this wrapper was minted, in which case
@@ -64,7 +64,7 @@ public sealed partial class DomBridge
             PopulateCharacterDataMembersOnInstance(handle, node);
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
-        // routed by receiver (DomBridge/EventTargetInterface.cs) — one function for every target, as
+        // routed by receiver (DomBridge/Events.cs) — one function for every target, as
         // in a browser. A wrapper minted before the realm carried it installs its own.
         if (!_eventTargetRoutingReady)
         {
@@ -218,7 +218,7 @@ public sealed partial class DomBridge
 
         // -- ChildNode mixin --
         // The realm's: ChildNodeBinding reads a JsCall frame at one entry point per operation, which
-        // this file, CharacterDataInterface.cs and ElementInterface.cs all share. (This named two.)
+        // this file, NodeInterfaces.cs and ElementInterface.cs all share. (This named two.)
         Realm.DefineValue(handle, "remove",
             Realm.NewMethod("remove",
                 (in call) => Dom.Features.ChildNodeBinding.Remove(this, node, in call)));
@@ -347,7 +347,7 @@ public sealed partial class DomBridge
                 (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, node, in call)));
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
-        // routed by receiver (DomBridge/EventTargetInterface.cs) — one function for every target, as
+        // routed by receiver (DomBridge/Events.cs) — one function for every target, as
         // in a browser. A wrapper minted before the realm carried it installs its own, through the
         // realm, exactly as the routed path does. (This said the three were "the engine's, because
         // EventTargetBinding reads the engine's argument frame". It does not: that binding's

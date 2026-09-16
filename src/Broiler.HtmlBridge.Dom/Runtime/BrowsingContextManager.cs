@@ -10,7 +10,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// identity, their location/base-URL caches, the object load-failure and onload-fired marks, the
 /// reverse sub-window→container map, the current-window override for the window-context switch, and the
 /// P4.4b severed content-document maps. It replaces the ten fields that were scattered across
-/// <c>SubDocuments.cs</c>, <c>DomBridge.WindowContext.cs</c> and <c>DomBridge.cs</c>.
+/// <c>SubDocuments.cs</c>, <c>DomBridge/Lifecycle.cs</c> and <c>DomBridge.cs</c>.
 /// </summary>
 /// <remarks>
 /// <para>The bridge keeps the browsing-context <em>algorithms</em> (sub-document/sub-window builders,

@@ -15,7 +15,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The bridge's <c>DomBridge.WindowContext.cs</c> methods are now thin delegators to this owner (the same
+/// The bridge's window-context methods in <c>DomBridge/Hosts.Window.cs</c> are now thin delegators to this owner (the same
 /// P2.4/P2.5/P2.6 "state/behaviour owner, bridge forwards" shape), so the callers — <c>MessagingBinding</c>
 /// via <c>IMessagingHost</c> and the sub-document script runner — are unchanged.
 /// </para>

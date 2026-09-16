@@ -8,7 +8,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// from the bridge: the realm, the top-level window object, the sub-document builder it wraps (mutual
 /// recursion), the browsing-context tree/link queries, sub-resource URL resolution, the scroll-geometry
 /// read/write helpers, computed-style construction, and the parent realm's globals. Implemented by
-/// <c>DomBridge</c> via explicit interface members (see <c>DomBridge.SubWindowHost.cs</c>), so the module
+/// <c>DomBridge</c> via explicit interface members (see <c>DomBridge/Hosts.Documents.cs</c>), so the module
 /// reaches no arbitrary bridge private field. The module holds direct references to the shared owners it
 /// uses (<c>BrowsingContextManager</c>, <c>EventTargetRegistry</c>, <c>MessagingBinding</c>); those are
 /// not part of this contract.
@@ -77,6 +77,6 @@ internal interface ISubWindowHost
 
     /// <summary>Publishes on <paramref name="subWindow"/> whatever this frame's own scripts declared
     /// while it was being built, so a parent page can reach them as <c>frames[0].window.foo</c>.
-    /// See <c>DomBridge.SubDocumentGlobals.cs</c>.</summary>
+    /// See <c>DomBridge/SubDocuments.Loading.cs</c>.</summary>
     void PublishPendingSubDocumentGlobals(DomElement containerElement, JsValue subWindow);
 }

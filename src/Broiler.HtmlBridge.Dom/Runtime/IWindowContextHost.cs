@@ -7,7 +7,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// The narrow surface <see cref="WindowContextManager"/> needs from the bridge: the realm the context
 /// switch reads and writes its globals in, the top-level window and document objects, and the
 /// sub-document builder a target window resolves its document through. Implemented by <c>DomBridge</c>
-/// via explicit interface members (see <c>DomBridge.WindowContextHost.cs</c>). The sub-window identity
+/// via explicit interface members (see <c>DomBridge/Hosts.Window.cs</c>). The sub-window identity
 /// and owner-window state are not part of this contract — the manager reads them from the
 /// <see cref="BrowsingContextManager"/> and <see cref="EventTargetRegistry"/> it holds directly.
 /// </summary>
