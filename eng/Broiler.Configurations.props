@@ -2,6 +2,26 @@
 
   <!--
     ════════════════════════════════════════════════════════════════════
+    VENDORED COPY. The canonical file is Broiler.Browser's eng/Broiler.Configurations.props,
+    and this is one of the copies its own comments call "a vendored copy": a component that
+    must decompose Debug-VM/Release-VM with no parent repository above it.
+
+    Broiler.HtmlBridge is unusual in vendoring it AND chaining to the parent when there is
+    one, because the -VM pair is this component's own pair rather than something a parent
+    imposes. Both guards below are what keep the two runs to a single decomposition; read
+    them before editing either copy.
+
+    A few passages below describe the BROWSER's tree - which submodules chain, and
+    src/Broiler.Browser.Core being the one site that reads $(BroilerJavaScriptEngine). They
+    are left as written because they explain why the mechanism is shaped this way. What is
+    true here: the property selects Broiler.HtmlBridge.Scripting.Vm and
+    Broiler.HtmlBridge.Jseal.Vm, and it defines BROILER_VM_JS, which the VM-only test cases
+    are guarded on.
+    ════════════════════════════════════════════════════════════════════
+  -->
+
+  <!--
+    ════════════════════════════════════════════════════════════════════
     Broiler build configurations
     ════════════════════════════════════════════════════════════════════
 
