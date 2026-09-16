@@ -510,7 +510,7 @@ public sealed partial class DomBridge
         // Google Search Compliance content-rendering / fidelity polyfills — Image, IntersectionObserver,
         // ResizeObserver, TextEncoder/TextDecoder, URL/URLSearchParams and AbortController — are a versioned
         // embedded .js asset (Phase 3 work item 6, externalized from inline C# string literals) evaluated
-        // once here. See Polyfills/content-rendering-polyfills.js.
+        // once here. See Polyfills/content-rendering-polyfills*.js.
         //
         // Host script: this repository authored it, it ships in this assembly, and it is not subject
         // to the page's content policy — which is what IJsSource.EvaluateHostScript promises, and the
@@ -650,11 +650,18 @@ public sealed partial class DomBridge
 /// </summary>
 internal static class PolyfillAssets
 {
-    private const string ContentRenderingResource =
-        "Broiler.HtmlBridge.Polyfills.content-rendering-polyfills.js";
+    private const string ResourcePrefix = "Broiler.HtmlBridge.Polyfills.";
 
-    private const string StreamsResource =
-        "Broiler.HtmlBridge.Polyfills.streams-and-file-reader.js";
+    // Each script is kept in files of a readable size and evaluated as one: the parts are joined with a
+    // newline, in this order, so a declaration in one part is in scope for the parts after it.
+    private static readonly string[] ContentRenderingParts =
+    [
+        "content-rendering-polyfills.js",
+        "content-rendering-polyfills.url.js",
+        "content-rendering-polyfills.abort-and-fonts.js",
+    ];
+
+    private static readonly string[] StreamsParts = ["streams.js", "file-reader.js"];
 
     private static string? _contentRendering;
 
@@ -662,10 +669,11 @@ internal static class PolyfillAssets
 
     /// <summary>
     /// The content-rendering polyfill bundle: <c>Image</c>, <c>IntersectionObserver</c>,
-    /// <c>ResizeObserver</c>, <c>TextEncoder</c>/<c>TextDecoder</c>, <c>URL</c>/<c>URLSearchParams</c> and
-    /// <c>AbortController</c>. Evaluated once per document into the browsing-context global.
+    /// <c>ResizeObserver</c>, <c>TextEncoder</c>/<c>TextDecoder</c>, <c>URL</c>/<c>URLSearchParams</c>,
+    /// <c>AbortController</c> and the CSS Font Loading API. Evaluated once per document into the
+    /// browsing-context global.
     /// </summary>
-    public static string ContentRendering => _contentRendering ??= Load(ContentRenderingResource);
+    public static string ContentRendering => _contentRendering ??= Load(ContentRenderingParts);
 
     /// <summary>
     /// <c>ReadableStream</c> (with its default reader and controller), <c>ProgressEvent</c> and
@@ -673,10 +681,13 @@ internal static class PolyfillAssets
     /// specification is written that way — the queue, the pending read requests and the pull
     /// back-pressure are a state machine over promises.
     /// </summary>
-    public static string Streams => _streams ??= Load(StreamsResource);
+    public static string Streams => _streams ??= Load(StreamsParts);
 
-    private static string Load(string resourceName)
+    private static string Load(string[] parts) => string.Join("\n", parts.Select(LoadPart));
+
+    private static string LoadPart(string fileName)
     {
+        var resourceName = ResourcePrefix + fileName;
         var assembly = typeof(PolyfillAssets).Assembly;
         using var stream = assembly.GetManifestResourceStream(resourceName)
             ?? throw new FileNotFoundException($"Embedded polyfill asset not found: {resourceName}");

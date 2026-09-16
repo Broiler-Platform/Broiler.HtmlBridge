@@ -11,13 +11,11 @@
   <ItemGroup>
     <!-- Phase 3 work item 6: content-rendering polyfill JavaScript as a versioned embedded asset
          (externalized from inline C# string literals in DomBridge/Registration/Registration.cs). -->
-    <EmbeddedResource Include="Polyfills\content-rendering-polyfills.js">
-      <LogicalName>Broiler.HtmlBridge.Polyfills.content-rendering-polyfills.js</LogicalName>
-    </EmbeddedResource>
-    <!-- ReadableStream, ProgressEvent and FileReader. JavaScript for the same reason the
-         specification is: the stream is a state machine over promises. -->
-    <EmbeddedResource Include="Polyfills\streams-and-file-reader.js">
-      <LogicalName>Broiler.HtmlBridge.Polyfills.streams-and-file-reader.js</LogicalName>
+    <!-- And ReadableStream, ProgressEvent and FileReader, JavaScript for the same reason the
+         specification is: the stream is a state machine over promises. Each script is split across
+         several files that PolyfillAssets joins back into one; the logical names are the file names. -->
+    <EmbeddedResource Include="Polyfills\*.js">
+      <LogicalName>Broiler.HtmlBridge.Polyfills.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
