@@ -8,8 +8,8 @@ namespace Broiler.HtmlBridge;
 public static partial class DomBridgeUtils
 {
     internal static DomElement? FindBodyElement(DomElement documentElement) =>
-        ChildElements(documentElement).FirstOrDefault(c =>
-            !IsText(c) &&
+        documentElement.OwnerDocument?.Body ??
+        documentElement.ChildElements.FirstOrDefault(c =>
             string.Equals(c.TagName, "body", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>

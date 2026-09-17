@@ -52,7 +52,7 @@ public static partial class DomBridgeUtils
     /// <c>DomBridge.CreateBridgeTextNode</c>). Callers that need text/comment children walk raw
     /// <c>ChildNodes</c> instead.</summary>
     internal static IEnumerable<DomElement> ChildElements(DomNode element) =>
-        element.ChildNodes.OfType<DomElement>();
+        element.ChildElements;
 
     /// <summary>The child node at <paramref name="index"/> (old <c>Children[index]</c>). RF-BRIDGE-1c
     /// Phase F (F3c part 2c): returns canonical <see cref="DomNode"/> — a child may be a
@@ -141,7 +141,7 @@ public static partial class DomBridgeUtils
     /// replaces the facade <c>ParentEl(Broiler.Dom.DomElement)</c> getter — <c>ParentNode as Broiler.Dom.DomElement</c>).
     /// A node's parent is always an element, so this is stable when text/comment nodes become
     /// canonical <c>DomText</c>/<c>DomComment</c> in Phase D.</summary>
-    internal static DomElement? ParentEl(DomNode node) => node.ParentNode as DomElement;
+    internal static DomElement? ParentEl(DomNode node) => node.ParentElement;
 
     /// <summary>Reparents <paramref name="child"/> under <paramref name="parent"/> (RF-BRIDGE-1c
     /// Phase E: replaces the facade <c>ParentEl(Broiler.Dom.DomElement)</c> setter). A null parent detaches;

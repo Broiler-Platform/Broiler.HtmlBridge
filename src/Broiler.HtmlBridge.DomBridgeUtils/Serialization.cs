@@ -267,14 +267,6 @@ public static partial class DomBridgeUtils
     /// document-mode output. The tokenizer is lazy, so this stops at the first token that decides.
     /// </para>
     /// <para>
-    /// One gap in that tokenizer is repaired first. <c>&lt;!---&gt;</c> is an abruptly closed empty comment
-    /// (HTML §13.2.5.44), but the tokenizer stays in the comment there, so it would swallow the DOCTYPE
-    /// after it and answer quirks — where the hand scanner this replaced, like the specification, answered
-    /// standards. Every <c>&lt;!---&gt;</c> is read as <c>&lt;!----&gt;</c>, the empty comment the tokenizer
-    /// does close. That changes no token that decides: inside a comment both spellings end it, and inside
-    /// a start tag or raw text the answer was already given by that tag.
-    /// </para>
-    /// <para>
     /// A frame nobody scripted is not stamped, and its mode comes from Layout's
     /// <c>DocumentModeContext.IsQuirksHtml</c> instead, which takes the first <c>&lt;!doctype</c> anywhere in
     /// the source. So the two disagree for a frame with content before its DOCTYPE: it renders in
@@ -285,7 +277,7 @@ public static partial class DomBridgeUtils
     /// </remarks>
     internal static bool HasHtmlDoctype(string html)
     {
-        foreach (var token in new HtmlTokenizer().Tokenize(html.Replace("<!--->", "<!---->", StringComparison.Ordinal)))
+        foreach (var token in new HtmlTokenizer().Tokenize(html))
         {
             if (token.Type == TokenType.Comment ||
                 (token.Type == TokenType.Character && token.Data.AsSpan().Trim(AsciiWhitespace).IsEmpty))

@@ -138,24 +138,12 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
     // -------- TreeWalker / NodeIterator / Range builders --------
 
     /// <summary>
-    /// Returns <c>1</c> (ACCEPT), <c>2</c> (REJECT) or <c>3</c> (SKIP) for <paramref name="el"/>
-    /// against the <paramref name="whatToShow"/> bitmask and the optional
-    /// <paramref name="filterFn"/>.
+    /// Invokes the optional <paramref name="filterFn"/> callback on <paramref name="el"/>.
+    /// The <c>whatToShow</c> filtering is already performed natively by <see cref="DomTreeWalker"/>
+    /// and <see cref="DomNodeIterator"/>.
     /// </summary>
-    private int ApplyFilter(DomNode el, int whatToShow, JsValue filterFn)
+    private DomFilterResult ApplyFilter(DomNode el, JsValue filterFn)
     {
-        var nodeType = (int)el.NodeType;
-        var showBit = nodeType switch
-        {
-            1 => 0x1,    // SHOW_ELEMENT
-            3 => 0x4,    // SHOW_TEXT
-            8 => 0x80,   // SHOW_COMMENT
-            9 => 0x100,  // SHOW_DOCUMENT
-            11 => 0x400, // SHOW_DOCUMENT_FRAGMENT
-            _ => 0x0
-        };
-        if ((whatToShow & showBit) == 0) return 3; // FILTER_SKIP
-
         if (filterFn.IsFunction)
         {
             // Per DOM Level 2 Traversal spec, exceptions thrown by NodeFilter
@@ -165,10 +153,10 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
             var result = realm.Invoke(filterFn, filterFn, [_host.WrapNode(el)]);
             // Handle boolean return: true → 1 (ACCEPT), false → 2 (REJECT)
             if (result.IsBoolean)
-                return result.AsBoolean ? 1 : 2;
-            return (int)realm.ToNumber(result);
+                return result.AsBoolean ? DomFilterResult.Accept : DomFilterResult.Reject;
+            return (DomFilterResult)(int)realm.ToNumber(result);
         }
-        return 1; // FILTER_ACCEPT
+        return DomFilterResult.Accept;
     }
 
     /// <summary>Builds a DOM <c>TreeWalker</c> object.</summary>
@@ -178,7 +166,7 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
         var tw = realm.NewObject();
         var walker = new DomTreeWalker(root,
             (DomWhatToShow)(uint)whatToShow,
-            node => (DomFilterResult)ApplyFilter(node, whatToShow, filterFn));
+            filterFn.IsFunction ? node => ApplyFilter(node, filterFn) : null);
 
         realm.DefineValue(tw, "root", _host.WrapNode(root));
 
@@ -230,7 +218,7 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
         // §6.1 pre-removal reference-node adjustment itself, so the bridge keeps no registry.
         var iterator = new DomNodeIterator(root,
             (DomWhatToShow)(uint)whatToShow,
-            node => (DomFilterResult)ApplyFilter(node, whatToShow, filterFn));
+            filterFn.IsFunction ? node => ApplyFilter(node, filterFn) : null);
 
         realm.DefineValue(iter, "root", _host.WrapNode(root));
 

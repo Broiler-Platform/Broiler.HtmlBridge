@@ -57,4 +57,49 @@ internal static class CspSourceMatching
                string.Equals(path, "/", StringComparison.Ordinal) ||
                candidate.AbsolutePath.StartsWith(path, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Whether <paramref name="candidate"/> matches the CSP wildcard (<c>*</c>) source expression
+    /// for a protected resource at <paramref name="pageUrl"/>, per CSP3 §6.7.2.8 ("Does url match expression
+    /// in origin with redirect count?").
+    /// <para>
+    /// A wildcard matches any HTTP(S) URL, a WebSocket URL on an HTTP(S) page, or a non-local scheme
+    /// matching the page's own scheme. It does not match local schemes (<c>data:</c>, <c>blob:</c>,
+    /// <c>filesystem:</c>, <c>javascript:</c>, <c>about:</c>) or cross-scheme non-network loads (such as
+    /// a <c>file:</c> URL on an <c>http(s)</c> page), which require an explicit scheme or host source.
+    /// </para>
+    /// </summary>
+    public static bool MatchesWildcard(Uri candidate, string? pageUrl)
+    {
+        var candidateScheme = candidate.Scheme;
+        if (string.Equals(candidateScheme, "http", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(candidateScheme, "https", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(pageUrl) || !Uri.TryCreate(pageUrl, UriKind.Absolute, out var pageUri))
+            return false;
+
+        var pageScheme = pageUri.Scheme;
+        if ((string.Equals(candidateScheme, "ws", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(candidateScheme, "wss", StringComparison.OrdinalIgnoreCase)) &&
+            (string.Equals(pageScheme, "http", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(pageScheme, "https", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        if (IsLocalScheme(candidateScheme))
+            return false;
+
+        return string.Equals(candidateScheme, pageScheme, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsLocalScheme(string scheme) =>
+        string.Equals(scheme, "data", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(scheme, "blob", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(scheme, "filesystem", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(scheme, "javascript", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(scheme, "about", StringComparison.OrdinalIgnoreCase);
 }

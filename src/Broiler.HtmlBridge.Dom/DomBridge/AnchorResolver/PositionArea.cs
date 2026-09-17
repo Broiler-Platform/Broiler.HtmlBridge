@@ -457,7 +457,7 @@ public sealed partial class DomBridge
         // AnchorRegistry keeps every candidate and binds a query to the one in its own
         // containing-block scope (matching the bridge's ResolveAnchorForElement), so a
         // duplicate name no longer forces the bridge path.
-        if (_anchorCandidates == null || !_anchorCandidates.ContainsKey(anchorName))
+        if (_layoutAnchors == null || !_layoutAnchors.Contains(anchorName))
             return false;
 
         // An inline containing block — whether relatively or absolutely/fixed positioned —

@@ -93,9 +93,7 @@ public class HtmlSourceReaderTests
         Assert.Equal("right/", baseHref);
     }
 
-    [Fact(Skip = "HtmlTokenizer (Broiler.Dom.Html 0.1.0-preview.2) reads only script, style and noscript as raw " +
-                 "text, so a <base> in iframe, xmp, noembed or noframes text (or in title or textarea RCDATA) is a " +
-                 "start tag, here as in the DOM built from it. The regex this replaced found \"wrong/\" too.")]
+    [Fact]
     public void TryFindBaseHref_IgnoresABaseInsideAnIframesText()
     {
         // HTML §13.2.6.4.7 switches the tokenizer to RAWTEXT for an iframe's content, so it holds no element.
@@ -142,10 +140,7 @@ public class HtmlSourceReaderTests
     public void TryFindBaseHref_ToleratesWhitespaceAroundEquals(string html)
     {
         // HTML §13.2.5.34 (after attribute name state): whitespace before '=' is skipped and the value that
-        // follows belongs to the attribute. Unchanged by the swap: the regex read "x/", and so does this.
-        // HtmlTokenizer (Broiler.Dom.Html 0.1.0-preview.2, BeforeAttributeName) would commit href with an
-        // empty value there, as the DOM built from this markup still does, so the reader closes the
-        // whitespace up before tokenizing (HtmlSourceAttributes.CloseSpaceBeforeEquals).
+        // follows belongs to the attribute. Handled natively by HtmlTokenizer (Broiler.Dom.Html 0.1.0-preview.3).
         Assert.True(HtmlBaseHref.TryFindBaseHref(html, out var baseHref));
         Assert.Equal("x/", baseHref);
     }
@@ -222,10 +217,8 @@ public class HtmlSourceReaderTests
     [InlineData("nonce\t=\t'abc' src=\"a.js\"")]
     public void ExtractNonce_ToleratesWhitespaceAroundEquals(string attributes)
     {
-        // HTML §13.2.5.34: whitespace before '=' is skipped and the value belongs to the attribute. Unchanged
-        // by the swap: the regex read "abc", and so does this, because the reader closes the whitespace up
-        // before tokenizing. HtmlTokenizer (Broiler.Dom.Html 0.1.0-preview.2, BeforeAttributeName) would
-        // otherwise commit nonce with an empty value, which every policy check treats as no nonce.
+        // HTML §13.2.5.34: whitespace before '=' is skipped and the value belongs to the attribute. Handled
+        // natively by HtmlTokenizer (Broiler.Dom.Html 0.1.0-preview.3).
         Assert.Equal("abc", ContentSecurityPolicy.ExtractNonceFromAttributes(attributes));
     }
 }

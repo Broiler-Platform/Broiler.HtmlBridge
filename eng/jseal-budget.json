@@ -117,7 +117,7 @@
     "Broiler.HtmlBridge.Scripting": {
       "engineReferences": 9,
       "engineProjectRefs": 3,
-      "guestEvalSites": 6,
+      "guestEvalSites": 4,
       "note": "Five files now: the Broiler.JS ScriptEngine and what it needs to build a realm. InteractiveSession left the count when its constructor stopped taking a JSContext -- it read the context once, to dispose it, so the parameter is typed IDisposable and the class names no engine type at all. That reference was load-bearing for a reason unrelated to what it did: VmScriptEngine named the constructor as half of why the document-bearing overloads are forwarded. This is where the Broiler.JS provider will live once it is one, and the counts here move to a Jseal.BroilerJs assembly rather than to zero -- a provider naming its own engine is what a provider is for."
     },
     "Broiler.HtmlBridge.Scripting.Vm": {

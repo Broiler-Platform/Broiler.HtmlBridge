@@ -211,11 +211,7 @@ public partial class ParsedMarkupCanonicalTests
         Assert.StartsWith("<!DOCTYPE html>", html);
     }
 
-    [Fact(Skip = "A DOCTYPE after content is kept: HtmlDocumentParser.ParseDocument (Broiler.Dom.Html " +
-                 "0.1.0-preview.2, HtmlDocumentParser.cs:96-102) inserts the first DOCTYPE token before <html> " +
-                 "wherever the token appears, and dropping it bridge-side would also have to move " +
-                 "Layout.DocumentModeContext.IsQuirksHtml (DomBridge/HtmlParsing.cs, ParseHtml) in step " +
-                 "with serialization.")]
+    [Fact]
     public void ALateDoctypeIsNotTheDocumentsDoctype()
     {
         // HTML §13.2.6.4.7: a DOCTYPE token in "in body" is a parse error and is ignored, so a page that
@@ -285,14 +281,8 @@ public partial class ParsedMarkupCanonicalTests
     public void AnAbruptlyClosedCommentBeforeAFramesDoctypeKeepsStandardsMode(string frameMarkup)
     {
         // HTML §13.2.5.44/45: `<!--->` is an abrupt-closing-of-empty-comment and closes the comment, so the
-        // DOCTYPE after it is still the first token that counts. Unchanged by the reader swap, which is
-        // why it takes a repair: HtmlTokenizer (Broiler.Dom.Html 0.1.0-preview.2, CommentEndDash) stays in
-        // the comment at `<!--->` and would swallow the DOCTYPE, so HasHtmlDoctype reads it as `<!---->`,
-        // which the tokenizer closes. The hand scanner closed it at the first `-->`.
-        //
-        // The frame's own DOM still has the gap: its comment runs to the next `-->`, so without the empty
-        // comment after the DOCTYPE the frame would have no #x for the probe to change (and Chromium's frame
-        // has a doctype node where this one has none). Only the render mode is asserted.
+        // DOCTYPE after it is still the first token that counts. Handled natively by HtmlTokenizer
+        // (Broiler.Dom.Html 0.1.0-preview.3).
         Assert.StartsWith("<!DOCTYPE html>", StampedFrameDocument(frameMarkup));
     }
 }

@@ -286,7 +286,7 @@ public sealed partial class DomBridge
                 ["overlay"] = ComputeOverlayValue(element),
             };
 
-            ApplyUserAgentDisplayToComputedStyle(element, map);
+            ApplyUserAgentDefaultsToComputedStyle(element, map);
         }
 
         return Dom.Features.StyleDeclarationBinding.BuildComputedDeclaration(Realm, map);
@@ -415,107 +415,6 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Enforces the Content Security Policy <c>style-src</c> family on the parsed
-    /// DOM so blocked inline styles do not render: an inline <c>style="…"</c>
-    /// attribute blocked by <c>style-src-attr</c> (→ <c>style-src</c> →
-    /// <c>default-src</c>) is stripped, and a <c>&lt;style&gt;</c> element blocked
-    /// by <c>style-src-elem</c> (same fallback chain) is removed. Only the style
-    /// directives are consulted — script/event-handler enforcement is intentionally
-    /// left to the script pipeline — so this is safe to call on any parsed document.
-    /// </summary>
-    public void ApplyStyleContentSecurityPolicy(ContentSecurityPolicy? csp)
-    {
-        if (csp == null || DocumentElement == null)
-            return;
-
-        // CSP §"Processing a `meta` element": a policy delivered by
-        // <meta http-equiv="Content-Security-Policy"> is enforced from the point the parser reaches
-        // the meta — markup already parsed is *not* retroactively blocked. Enforcing document-wide
-        // stripped a style attribute that precedes the meta, including on the ancestors that
-        // *contain* it: WPT content-security-policy/style-src/inline-style-attribute-on-html has
-        // <html style="background-color: blue"> before a `style-src 'none'` meta, and rendered white
-        // instead of blue.
-        //
-        // A pre-order walk visits an element's start tag in parse order, and visits ancestors before
-        // descendants, so "not yet reached the meta" is exactly "this start tag was parsed first".
-        // A policy with no meta in the document came from a header and applies document-wide.
-        var policyMeta = FindCspMetaElement(DocumentElement);
-        ApplyStyleCsp(
-            DocumentElement, csp,
-            blockStyleAttribute: !csp.AllowsInlineStyleAttribute(),
-            policyMeta,
-            enforcing: policyMeta == null);
-    }
-
-    /// <summary>
-    /// The <c>&lt;meta http-equiv="Content-Security-Policy"&gt;</c> element that delivered the
-    /// document's policy, in document order, or <c>null</c> when none is present (a header-delivered
-    /// policy). Mirrors the acceptance rules of <c>CspMetaDiscovery.FindPolicyContent</c>, which
-    /// parses the same meta out of the source text.
-    /// </summary>
-    private DomElement? FindCspMetaElement(DomElement element)
-    {
-        if (!IsText(element) &&
-            element.TagName.Equals("meta", StringComparison.OrdinalIgnoreCase) &&
-            TryGetAttribute(element, "http-equiv", out var httpEquiv) &&
-            string.Equals(httpEquiv?.Trim(), "Content-Security-Policy", StringComparison.OrdinalIgnoreCase) &&
-            TryGetAttribute(element, "content", out var content) &&
-            !string.IsNullOrWhiteSpace(content))
-        {
-            return element;
-        }
-
-        foreach (var child in ChildElements(element))
-        {
-            var found = FindCspMetaElement(child);
-            if (found != null)
-                return found;
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Walks the document in parse order applying the style-src family. <paramref name="enforcing"/>
-    /// starts <c>false</c> for a meta-delivered policy and flips to <c>true</c> at
-    /// <paramref name="policyMeta"/>; it is threaded through the walk (rather than being recomputed
-    /// per element) so the flip is observed by every subsequent element in document order.
-    /// </summary>
-    private bool ApplyStyleCsp(
-        DomElement element, ContentSecurityPolicy csp, bool blockStyleAttribute,
-        DomElement? policyMeta, bool enforcing)
-    {
-        if (ReferenceEquals(element, policyMeta))
-            enforcing = true;
-
-        if (enforcing && !IsText(element))
-        {
-            if (element.TagName.Equals("style", StringComparison.OrdinalIgnoreCase))
-            {
-                var nonce = TryGetAttribute(element, "nonce", out var n) ? n : null;
-                if (!csp.AllowsInlineStyleElement(nonce, GetStyleElementCssText(element)))
-                {
-                    element.Remove();
-                    return enforcing;
-                }
-            }
-
-            if (blockStyleAttribute && HasAttr(element, "style"))
-            {
-                RemoveAttr(element, "style");
-                InlineStyle(element).Clear();
-                InvalidateStyleScope(element);
-            }
-        }
-
-        // Snapshot: a blocked <style> child removes itself from this collection.
-        foreach (var child in ChildElements(element).ToArray())
-            enforcing = ApplyStyleCsp(child, csp, blockStyleAttribute, policyMeta, enforcing);
-
-        return enforcing;
-    }
-
-    /// <summary>
     /// The effective CSS text for a style element, as seen by the renderer/legacy
     /// cascade and the <c>getComputedStyle</c> engine. Returns the raw author source
     /// byte-for-byte while unmutated (so unchanged stylesheets are identical to
@@ -555,12 +454,25 @@ public sealed partial class DomBridge
     /// the two paths cannot answer differently about what an element's display is.
     /// </para>
     /// </remarks>
-    private void ApplyUserAgentDisplayToComputedStyle(DomElement element, Dictionary<string, string> map)
+    private void ApplyUserAgentDefaultsToComputedStyle(DomElement element, Dictionary<string, string> map)
     {
-        if (GetComputedProps(element).TryGetValue("display", out var display)
+        var computedProps = GetComputedProps(element);
+        if (computedProps.TryGetValue("display", out var display)
             && !string.IsNullOrWhiteSpace(display))
         {
             map["display"] = display;
+        }
+
+        if (CssUserAgentDefaults.PropertyValues.TryGetValue(element.TagName, out var defaults))
+        {
+            foreach (var (prop, _) in defaults)
+            {
+                if (computedProps.TryGetValue(prop, out var defaultVal) &&
+                    !string.IsNullOrWhiteSpace(defaultVal))
+                {
+                    map[prop] = defaultVal;
+                }
+            }
         }
     }
 

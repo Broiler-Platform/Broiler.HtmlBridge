@@ -214,15 +214,20 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
 
     // -------- Record delivery --------
 
-    /// <summary>Delivers a <c>childList</c> mutation record to every matching registered observer.</summary>
-    internal void DeliverChildListMutation(DomNode target,
-        DomNode? addedChild, DomNode? removedChild, DomNode? previousSibling, DomNode? nextSibling)
+    private JsValue CreateRecord(IJsRealm realm, string type, DomNode target)
+    {
+        var record = realm.NewObject();
+        realm.SetProperty(record, "type", JsValue.String(type));
+        realm.SetProperty(record, "target", _host.WrapNode(target));
+        return record;
+    }
+
+    private void DeliverToObservers(DomMutationRecord mutation, Func<IJsRealm, DomMutationObserverOptions, JsValue> buildRecord)
     {
         if (_hub.Count == 0)
             return;
 
         var realm = _host.Realm;
-        var mutation = new DomMutationRecord(DomMutationType.ChildList, target);
         foreach (var (observer, observedTarget, options) in _hub.Snapshot())
         {
             if (!DomMutationObserverFilter.Matches(mutation, observedTarget, options))
@@ -232,9 +237,19 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
             if (!notifyFunction.IsFunction)
                 continue;
 
-            var record = realm.NewObject();
-            realm.SetProperty(record, "type", JsValue.String("childList"));
-            realm.SetProperty(record, "target", _host.WrapNode(target));
+            var record = buildRecord(realm, options);
+            realm.Invoke(notifyFunction, observer, [realm.NewArray([record])]);
+        }
+    }
+
+    /// <summary>Delivers a <c>childList</c> mutation record to every matching registered observer.</summary>
+    internal void DeliverChildListMutation(DomNode target,
+        DomNode? addedChild, DomNode? removedChild, DomNode? previousSibling, DomNode? nextSibling)
+    {
+        var mutation = new DomMutationRecord(DomMutationType.ChildList, target);
+        DeliverToObservers(mutation, (realm, _) =>
+        {
+            var record = CreateRecord(realm, "childList", target);
             realm.SetProperty(record, "addedNodes", addedChild != null
                 ? realm.NewArray([_host.WrapNode(addedChild)])
                 : realm.NewArray());
@@ -247,66 +262,37 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
             realm.SetProperty(record, "nextSibling", nextSibling != null
                 ? _host.WrapNode(nextSibling)
                 : JsValue.Null);
-
-            realm.Invoke(notifyFunction, observer, [realm.NewArray([record])]);
-        }
+            return record;
+        });
     }
 
     /// <summary>Delivers an <c>attributes</c> mutation record to every matching registered observer.</summary>
     internal void DeliverAttributeMutation(DomElement target, string attributeName, string? oldValue)
     {
-        if (_hub.Count == 0)
-            return;
-
-        var realm = _host.Realm;
         var mutation = new DomMutationRecord(DomMutationType.Attributes, target, AttributeName: attributeName);
-        foreach (var (observer, observedTarget, options) in _hub.Snapshot())
+        DeliverToObservers(mutation, (realm, options) =>
         {
-            if (!DomMutationObserverFilter.Matches(mutation, observedTarget, options))
-                continue;
-
-            var notifyFunction = realm.GetProperty(observer, "_notify");
-            if (!notifyFunction.IsFunction)
-                continue;
-
-            var record = realm.NewObject();
-            realm.SetProperty(record, "type", JsValue.String("attributes"));
-            realm.SetProperty(record, "target", _host.WrapNode(target));
+            var record = CreateRecord(realm, "attributes", target);
             realm.SetProperty(record, "attributeName", JsValue.String(attributeName));
-            realm.SetProperty(record, "oldValue", options.AttributeOldValue && oldValue != null
+            realm.SetProperty(record, "oldValue", DomMutationObserverFilter.CapturesOldValue(mutation, options) && oldValue != null
                 ? JsValue.String(oldValue)
                 : JsValue.Null);
-
-            realm.Invoke(notifyFunction, observer, [realm.NewArray([record])]);
-        }
+            return record;
+        });
     }
 
     /// <summary>Delivers a <c>characterData</c> mutation record to every matching registered observer.</summary>
     internal void DeliverCharacterDataMutation(DomNode target, string? oldValue)
     {
-        if (_hub.Count == 0)
-            return;
-
-        var realm = _host.Realm;
         var mutation = new DomMutationRecord(DomMutationType.CharacterData, target);
-        foreach (var (observer, observedTarget, options) in _hub.Snapshot())
+        DeliverToObservers(mutation, (realm, options) =>
         {
-            if (!DomMutationObserverFilter.Matches(mutation, observedTarget, options))
-                continue;
-
-            var notifyFunction = realm.GetProperty(observer, "_notify");
-            if (!notifyFunction.IsFunction)
-                continue;
-
-            var record = realm.NewObject();
-            realm.SetProperty(record, "type", JsValue.String("characterData"));
-            realm.SetProperty(record, "target", _host.WrapNode(target));
-            realm.SetProperty(record, "oldValue", options.CharacterDataOldValue && oldValue != null
+            var record = CreateRecord(realm, "characterData", target);
+            realm.SetProperty(record, "oldValue", DomMutationObserverFilter.CapturesOldValue(mutation, options) && oldValue != null
                 ? JsValue.String(oldValue)
                 : JsValue.Null);
-
-            realm.Invoke(notifyFunction, observer, [realm.NewArray([record])]);
-        }
+            return record;
+        });
     }
 
     /// <summary>Drops all registered observers and canonical subscriptions (session reset/dispose).</summary>

@@ -240,7 +240,8 @@ public sealed class ContentSecurityPolicy
 
         foreach (var source in sources)
         {
-            if (string.Equals(source, "*", StringComparison.Ordinal))
+            if (string.Equals(source, "*", StringComparison.Ordinal) &&
+                CspSourceMatching.MatchesWildcard(resolved, pageUrl))
                 return true;
 
             if (string.Equals(source, "'self'", StringComparison.OrdinalIgnoreCase) &&
@@ -259,12 +260,21 @@ public sealed class ContentSecurityPolicy
     }
 
     /// <summary>
-    /// Returns whether an external stylesheet URL (a <c>&lt;link rel="stylesheet"&gt;</c> href) is allowed
+    /// Returns whether a stylesheet request for <paramref name="styleUrl"/> — a
+    /// <c>&lt;link rel="stylesheet"&gt;</c> href, or an <c>@import</c> URL, <c>data:</c> included — is allowed
     /// under the effective <c>style-src-elem</c> → <c>style-src</c> → <c>default-src</c> directive. This is
     /// the style analogue of <see cref="AllowsExternalScript"/>: it applies the same source-token matching
-    /// (<c>*</c>, <c>'self'</c>, scheme source, absolute host source) plus a <c>&lt;link&gt;</c> nonce, but
+    /// (<c>*</c>, <c>'self'</c>, scheme source, absolute host source) plus the request's nonce, but
     /// not <c>'unsafe-inline'</c> (which does not apply to a fetched URL) nor <c>'strict-dynamic'</c> (a
-    /// script-only keyword).
+    /// script-only keyword). A <c>&lt;link&gt;</c> passes its own <c>nonce</c> attribute; an <c>@import</c>
+    /// passes none, because "fetch a style resource" gives its request no nonce.
+    /// <para>
+    /// Per CSP3 §6.7.2.8, <c>*</c> matches HTTP(S) URLs, WebSocket URLs on HTTP(S) pages, or URLs
+    /// whose scheme equals the page's own scheme and is not a local scheme. Local schemes (<c>data:</c>,
+    /// <c>blob:</c>, <c>filesystem:</c>, <c>javascript:</c>, <c>about:</c>) and cross-scheme non-network
+    /// loads (such as <c>file:</c> stylesheets on an <c>http(s)</c> page) require an explicit scheme or
+    /// host source and are not admitted by <c>*</c>.
+    /// </para>
     /// </summary>
     public bool AllowsExternalStyle(string styleUrl, string? pageUrl, string? nonce = null)
     {
@@ -284,7 +294,8 @@ public sealed class ContentSecurityPolicy
 
         foreach (var source in sources)
         {
-            if (string.Equals(source, "*", StringComparison.Ordinal))
+            if (string.Equals(source, "*", StringComparison.Ordinal) &&
+                CspSourceMatching.MatchesWildcard(resolved, pageUrl))
                 return true;
 
             if (string.Equals(source, "'self'", StringComparison.OrdinalIgnoreCase) &&
@@ -331,9 +342,7 @@ public sealed class ContentSecurityPolicy
     /// attribute is matched by its whole name, so <c>data-nonce</c> or a <c>nonce=</c> spelled inside
     /// another attribute's value is not it; quoted, unquoted and upper-case forms are read as a browser
     /// reads them; character references in the value are decoded; and the first of two <c>nonce</c>
-    /// attributes wins. Whitespace before the <c>=</c> is closed up first
-    /// (<see cref="HtmlSourceAttributes.CloseSpaceBeforeEquals"/>), because the tokenizer would otherwise
-    /// leave the attribute empty where the HTML Standard gives it the value.
+    /// attributes wins.
     /// </para>
     /// <para>
     /// A list can arrive cut off inside a quoted value. The CLI's script extraction captures it with
@@ -355,7 +364,6 @@ public sealed class ContentSecurityPolicy
         if (string.IsNullOrWhiteSpace(attributes))
             return null;
 
-        attributes = HtmlSourceAttributes.CloseSpaceBeforeEquals(attributes, "nonce");
         if (TryReadNonce(attributes + ">", out var nonce))
             return nonce;
 

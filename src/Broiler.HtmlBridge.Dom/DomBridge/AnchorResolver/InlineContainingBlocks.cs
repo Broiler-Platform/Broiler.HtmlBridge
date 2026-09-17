@@ -1,5 +1,6 @@
 using System.Globalization;
 using Broiler.Dom;
+using Broiler.Layout;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
@@ -22,12 +23,7 @@ public sealed partial class DomBridge
                 {
                     var info = box with { SourceElement = el };
                     registry[anchorName] = info;
-                    if (_anchorCandidates != null)
-                    {
-                        if (!_anchorCandidates.TryGetValue(anchorName, out var list))
-                            _anchorCandidates[anchorName] = list = [];
-                        list.Add(info);
-                    }
+                    _layoutAnchors?.Register(anchorName, new AnchorRect(info.Left, info.Top, info.Width, info.Height), info);
                 }
             }
         }
@@ -170,16 +166,7 @@ public sealed partial class DomBridge
         }
         return 8;
     }
-    private DomElement? FindBodyElement()
-    {
-        foreach (var el in Elements)
-        {
-            if (!IsText(el) &&
-                string.Equals(el.TagName, "body", StringComparison.OrdinalIgnoreCase))
-                return el;
-        }
-        return null;
-    }
+    private DomElement? FindBodyElement() => _document.Body;
     /// <summary>
     /// Estimates the content width of an inline element (e.g. a positioned
     /// <c>&lt;span&gt;</c>) by examining its text content and child element widths.

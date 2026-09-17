@@ -61,14 +61,6 @@ public static class HtmlBaseHref
     /// <c>noembed</c> or <c>noframes</c> (raw text), or after <c>plaintext</c>
     /// still counts.
     /// </para>
-    /// <para>
-    /// The exception is whitespace before the <c>=</c> of <c>href</c>
-    /// (<c>&lt;base href = "x/"&gt;</c>). The tokenizer leaves the attribute empty
-    /// there, and so does the DOM built from it; this closes the whitespace up first
-    /// (<see cref="HtmlSourceAttributes.CloseSpaceBeforeEquals"/>) and reads
-    /// <c>x/</c>, as the Standard does and the regular expression this replaced did.
-    /// For such a base the WPT runner's inliner and the DOM transform's walk
-    /// disagree until the tokenizer is fixed.
     /// </para>
     /// </summary>
     public static bool TryFindBaseHref(string html, out string baseHref)
@@ -80,8 +72,6 @@ public static class HtmlBaseHref
         // source without this text has no base start tag to find.
         if (string.IsNullOrEmpty(html) || !html.Contains("<base", StringComparison.OrdinalIgnoreCase))
             return false;
-
-        html = HtmlSourceAttributes.CloseSpaceBeforeEquals(html, "href");
 
         // A depth counter rather than a flag: templates nest, and an inner template's end tag must
         // not re-open the outer one's contents to the search.

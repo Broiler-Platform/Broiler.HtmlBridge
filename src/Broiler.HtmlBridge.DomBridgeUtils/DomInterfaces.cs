@@ -581,6 +581,9 @@ public static partial class DomBridgeUtils
     // or — for an element root with none — the root itself (the prior `?? docRoot` fallback). A
     // canonical DomDocument with no documentElement yields null (per DOM; e.g. createDocument with an
     // empty qualifiedName), so callers must null-check.
-    internal static DomElement? GetDocumentElement(DomNode docRoot) =>
-        ChildElements(docRoot).FirstOrDefault(c => !IsText(c) && !c.TagName.StartsWith('#')) ?? docRoot as DomElement;
+    internal static DomElement? GetDocumentElement(DomNode docRoot) => docRoot switch
+    {
+        DomDocument doc => doc.DocumentElement,
+        _ => docRoot.ChildElements.FirstOrDefault(c => !c.TagName.StartsWith('#')) ?? docRoot as DomElement
+    };
 }

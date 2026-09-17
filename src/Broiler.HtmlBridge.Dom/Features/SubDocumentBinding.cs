@@ -146,7 +146,7 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
         // createEvent(type)
         realm.DefineValue(doc, "createEvent",
-            realm.NewMethod("createEvent", (in call) => CreateEvent(in call), 1));
+            realm.NewMethod("createEvent", LegacyEventBinding.Create, 1));
 
         // querySelector / querySelectorAll
         realm.DefineValue(doc, "querySelector",

@@ -12,16 +12,13 @@ public sealed partial class DomBridge
     // Anchor registry
     // -----------------------------------------------------------------
 
-    // All anchors, keyed by anchor-name, in document order. The name→single
-    // <see cref="AnchorInfo"/> registry keeps only the last element for a name;
-    // this keeps every element so a query can bind to the anchor in its own
-    // scope when several elements share an anchor-name (see
-    // <see cref="ResolveAnchorForElement"/>). Rebuilt by BuildAnchorRegistry.
-    private Dictionary<string, List<AnchorInfo>>? _anchorCandidates;
+    // The engine's public AnchorRegistry (Broiler.Layout), tracking registered anchors
+    // with their border-box geometry and source element scope token. Rebuilt by BuildAnchorRegistry.
+    private Broiler.Layout.AnchorRegistry? _layoutAnchors;
 
     private void BuildAnchorRegistry(Dictionary<string, AnchorInfo> registry)
     {
-        var candidates = new Dictionary<string, List<AnchorInfo>>(StringComparer.Ordinal);
+        var layoutAnchors = new Broiler.Layout.AnchorRegistry();
         foreach (var el in Elements)
         {
             if (IsText(el))
@@ -36,40 +33,22 @@ public sealed partial class DomBridge
             {
                 var info = box with { SourceElement = el };
                 registry[anchorName] = info;
-                if (!candidates.TryGetValue(anchorName, out var list))
-                    candidates[anchorName] = list = [];
-                list.Add(info);
+                layoutAnchors.Register(anchorName, new AnchorRect(info.Left, info.Top, info.Width, info.Height), info);
             }
         }
-        _anchorCandidates = candidates;
+        _layoutAnchors = layoutAnchors;
     }
+
     /// <summary>
-    /// Resolves the anchor a positioned element binds to for a given
-    /// <c>anchor-name</c>. When several elements share that name, CSS binds the
-    /// query element to the acceptable anchor <em>in its scope</em> rather than a
-    /// single global one; here that is approximated by the candidate inside the
-    /// query element's own containing block. Only diverges from the global
-    /// name→single registry when duplicates exist <em>and</em> an in-CB candidate
-    /// is found, so unique-name lookups (the overwhelming majority) are unchanged.
+    /// Resolves the anchor a positioned element binds to for a given <c>anchor-name</c>
+    /// using Broiler.Layout's public <see cref="AnchorRegistry"/>.
     /// </summary>
     private AnchorInfo? ResolveAnchorForElement(string name, DomElement queryEl, Dictionary<string, AnchorInfo> registry)
     {
-        if (_anchorCandidates != null &&
-            _anchorCandidates.TryGetValue(name, out var list) && list.Count > 1)
-        {
-            var cb = FindContainingBlockElement(queryEl);
-            if (cb != null)
-            {
-                AnchorInfo? scoped = null;
-                foreach (var cand in list) // document order
-                    if (cand.SourceElement != null &&
-                        cand.SourceElement.IsDescendantOf(cb))
-                        scoped = cand; // keep the last in-CB candidate
-                if (scoped != null)
-                    return scoped;
-            }
-        }
-        return registry.TryGetValue(name, out var global) ? global : null;
+        var cb = FindContainingBlockElement(queryEl);
+        return _layoutAnchors?.ResolveScope<AnchorInfo>(name, scope =>
+            scope is AnchorInfo { SourceElement: { } el } && cb != null && el.IsDescendantOf(cb))
+            ?? (registry.TryGetValue(name, out var global) ? global : null);
     }
 
     private AnchorInfo? ComputeElementBox(DomElement element)
@@ -313,6 +292,7 @@ public sealed partial class DomBridge
             // seed-first ordering (an author `display` still wins).
             ResolveExplicitInheritedValues(props, element);
             ApplyUserAgentDisplayDefaults(props, element);
+            ApplyUserAgentPropertyDefaults(props, element);
 
             _styleContext.SetComputedProps(element, props);
             return props;

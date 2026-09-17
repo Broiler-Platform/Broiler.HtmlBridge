@@ -57,34 +57,26 @@ internal static class NodeAccessorsBinding
 
     public static JsValue GetFirstChild(INodeAccessorsHost host, DomNode node, in JsCall call)
     {
-        var first = node.ChildNodes.FirstOrDefault();
+        var first = node.FirstChild;
         return first != null ? host.WrapNode(first) : JsValue.Null;
     }
 
     public static JsValue GetLastChild(INodeAccessorsHost host, DomNode node, in JsCall call)
     {
-        var last = node.ChildNodes.LastOrDefault();
+        var last = node.LastChild;
         return last != null ? host.WrapNode(last) : JsValue.Null;
     }
 
     public static JsValue GetNextSibling(INodeAccessorsHost host, DomNode node, in JsCall call)
     {
-        var parent = node.ParentNode;
-        if (parent == null)
-            return JsValue.Null;
-        var siblings = parent.ChildNodes;
-        var idx = DomBridgeUtils.ChildIndexOf(parent, node);
-        return idx >= 0 && idx + 1 < siblings.Count ? host.WrapNode(siblings[idx + 1]) : JsValue.Null;
+        var next = node.NextSibling;
+        return next != null ? host.WrapNode(next) : JsValue.Null;
     }
 
     public static JsValue GetPreviousSibling(INodeAccessorsHost host, DomNode node, in JsCall call)
     {
-        var parent = node.ParentNode;
-        if (parent == null)
-            return JsValue.Null;
-        var siblings = parent.ChildNodes;
-        var idx = DomBridgeUtils.ChildIndexOf(parent, node);
-        return idx - 1 >= 0 ? host.WrapNode(siblings[idx - 1]) : JsValue.Null;
+        var prev = node.PreviousSibling;
+        return prev != null ? host.WrapNode(prev) : JsValue.Null;
     }
 
     public static JsValue GetNodeType(DomNode node, in JsCall call)
@@ -217,11 +209,7 @@ internal static class NodeAccessorsBinding
 
     public static JsValue GetParentElement(INodeAccessorsHost host, DomNode node, in JsCall call)
     {
-        var parent = DomBridgeUtils.ParentEl(node);
-        if (parent == null)
-            return JsValue.Null;
-        if (DomBridgeUtils.IsText(parent))
-            return JsValue.Null;
-        return host.WrapNode(parent);
+        var parent = node.ParentElement;
+        return parent != null ? host.WrapNode(parent) : JsValue.Null;
     }
 }

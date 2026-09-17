@@ -504,12 +504,6 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         {
             context["eval"] = new JSFunction((in Arguments _) => JsScriptEngineEval002Core(in _), "eval", 1);
         }
-
-        // WeakRef fallback, installed only when the context lacks one (Broiler.JS defines it natively)
-        RegisterWeakRefPolyfill(context);
-
-        // FinalizationRegistry fallback, on the same terms
-        RegisterFinalizationRegistryPolyfill(context);
     }
 
     /// <summary>
@@ -573,45 +567,4 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// </remarks>
     private void AdoptDocumentFreeRealm(JSContext context) =>
         _ = DomBridgeHostUtils.AdoptRealm(context, DomBridgeUtils.RealmOptionsFor(Csp));
-
-    /// <summary>
-    /// Register a minimal <c>WeakRef</c> constructor.  Because .NET's GC
-    /// model differs from V8/SpiderMonkey, the implementation uses
-    /// <see cref="WeakReference{T}"/> under the hood.
-    /// </summary>
-    private static void RegisterWeakRefPolyfill(JSContext context)
-    {
-        // Only install if not already present
-        try
-        {
-            var existing = context.Eval("typeof WeakRef");
-            if (existing is JSString s && s.ToString() != "undefined")
-                return;
-        }
-        catch (Exception ex) { RenderLogger.LogDebug(LogCategory.JavaScript, "ScriptEngine.WeakRefPolyfill", $"WeakRef not present, installing polyfill: {ex.Message}"); }
-
-        var weakRefCtor = new JSFunction((in Arguments args) => JsScriptEngineWeakRef004Core(in args), "WeakRef", 1);
-
-        context["WeakRef"] = weakRefCtor;
-    }
-
-    /// <summary>
-    /// Register a minimal <c>FinalizationRegistry</c> constructor.
-    /// Since .NET GC timing is non-deterministic, the cleanup callback
-    /// is exposed but invocation depends on GC scheduling.
-    /// </summary>
-    private static void RegisterFinalizationRegistryPolyfill(JSContext context)
-    {
-        try
-        {
-            var existing = context.Eval("typeof FinalizationRegistry");
-            if (existing is JSString s && s.ToString() != "undefined")
-                return;
-        }
-        catch (Exception ex) { RenderLogger.LogDebug(LogCategory.JavaScript, "ScriptEngine.FinalizationRegistryPolyfill", $"FinalizationRegistry not present, installing polyfill: {ex.Message}"); }
-
-        var registryCtor = new JSFunction((in Arguments args) => JsScriptEngineFinalizationRegistry007Core(in args), "FinalizationRegistry", 1);
-
-        context["FinalizationRegistry"] = registryCtor;
-    }
 }
