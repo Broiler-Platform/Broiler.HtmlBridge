@@ -1,30 +1,7 @@
 using System;
-using System.Text.RegularExpressions;
 using Broiler.Dom.Html;
 
 namespace Broiler.HtmlBridge.Internal.Scripting;
-
-/// <summary>
-/// Reads a named attribute value out of a raw HTML start-tag attribute string
-/// (e.g. <c>http-equiv</c>, <c>content</c>, <c>nonce</c>). Shared by the CSP
-/// document-discovery and policy layers.
-/// </summary>
-internal static class HtmlAttributeReader
-{
-    /// <summary>
-    /// Extract the value of <paramref name="attributeName"/> from an attribute string,
-    /// honouring double-quoted, single-quoted and unquoted forms. Returns <c>null</c> when absent.
-    /// </summary>
-    public static string? ExtractAttributeValue(string attributes, string attributeName)
-    {
-        if (string.IsNullOrWhiteSpace(attributes))
-            return null;
-
-        var pattern = $@"\b{Regex.Escape(attributeName)}\s*=\s*(?:""(?<value>[^""]*)""|'(?<value>[^']*)'|(?<value>[^\s>]+))";
-        var match = Regex.Match(attributes, pattern, RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups["value"].Value : null;
-    }
-}
 
 /// <summary>
 /// Document-side <b>discovery</b> of a Content Security Policy: locating the policy directive string

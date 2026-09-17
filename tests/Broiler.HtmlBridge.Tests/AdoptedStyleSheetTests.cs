@@ -165,7 +165,7 @@ public class AdoptedStyleSheetTests
 
     [Fact(Skip = "An adopted sheet never reaches the live cascade: the style scope is built only from " +
                  "the <style>/<link> elements found in the tree (DomBridge/ComputedStyle.cs " +
-                 "via DomBridge/Css.cs:150-167), and the adopted sheets are emitted as synthetic " +
+                 "via DomBridge/Css.cs:196-213), and the adopted sheets are emitted as synthetic " +
                  "<style> elements in the serialization pass instead " +
                  "(DomBridge/ComputedStyle.cs), which getComputedStyle never runs.")]
     public void AnAdoptedSheetsRuleAppliesForExactlyAsLongAsItIsAdopted()

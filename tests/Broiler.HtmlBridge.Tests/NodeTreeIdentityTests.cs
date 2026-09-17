@@ -164,11 +164,7 @@ public class NodeTreeIdentityTests
                 """));
     }
 
-    [Fact(Skip = "compareDocumentPosition answers a bare DOCUMENT_POSITION_DISCONNECTED for nodes in " +
-                 "different trees; DOM §4.4 requires DISCONNECTED | IMPLEMENTATION_SPECIFIC plus a " +
-                 "PRECEDING/FOLLOWING that reverses between the two orders, so a page sorting " +
-                 "disconnected nodes is handed no ordering at all. " +
-                 "src/Broiler.HtmlBridge.Dom/Features/NodeRelationshipsBinding.cs:53")]
+    [Fact]
     public void TwoDisconnectedNodesCompareWithAnImplementationBitAndAStableDirection()
     {
         Assert.Equal(

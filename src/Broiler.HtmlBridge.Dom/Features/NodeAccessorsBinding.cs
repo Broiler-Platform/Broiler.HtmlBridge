@@ -7,27 +7,39 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// Phase 3 feature module for the DOM <c>Node</c> read accessors shared by every node wrapper —
 /// <c>isConnected</c>, <c>childNodes</c>, <c>firstChild</c>/<c>lastChild</c>,
 /// <c>nextSibling</c>/<c>previousSibling</c>, <c>nodeType</c>/<c>nodeName</c>, <c>localName</c>/
-/// <c>prefix</c>/<c>namespaceURI</c>, <c>nodeValue</c> (get/set), <c>publicId</c>/<c>systemId</c>
-/// (DocumentType), <c>ownerDocument</c> and <c>parentElement</c>. These were the bridge's
-/// <c>JsJsObjectsGet…032</c>..<c>058</c> callbacks; the JS-wrapper factory, the live <c>childNodes</c>
-/// collection, the document node, the tree-root walk, the notifying character-data setter and the
-/// document-wrapper lookups reach the bridge through <see cref="INodeAccessorsHost"/>, while node-type
-/// tests, tree-order helpers, text reads and the owning-document derivation are the bridge's
-/// <c>internal static</c> helpers.
+/// <c>prefix</c>/<c>namespaceURI</c>, <c>nodeValue</c> (get/set), the <c>textContent</c> setter,
+/// <c>publicId</c>/<c>systemId</c> (DocumentType), <c>ownerDocument</c> and <c>parentElement</c>. These
+/// were the bridge's <c>JsJsObjectsGet…032</c>..<c>058</c> callbacks; the JS-wrapper factory, the live
+/// <c>childNodes</c> collection, the document node, the notifying character-data setter and the
+/// document-wrapper lookups reach the bridge through <see cref="INodeAccessorsHost"/>,
+/// while node-type tests, tree-order helpers, text reads and the owning-document derivation are the
+/// bridge's <c>internal static</c> helpers, and <c>textContent</c> is the canonical
+/// <see cref="DomNode.TextContent"/>.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. Only one member reads an argument at all — <see cref="SetNodeValue"/> — and it asks the realm
-/// for the coercion rather than rendering the handle: an object assigned to <c>nodeValue</c> runs its
-/// own <c>toString</c>, which is what a page observes and what <c>JsValue.ToString()</c> would not do.
+/// type. Only two members read an argument at all — <see cref="SetNodeValue"/> and
+/// <see cref="SetTextContent"/> — and both ask the realm for the coercion rather than rendering the
+/// handle: an object assigned to <c>nodeValue</c> runs its own <c>toString</c>, which is what a page
+/// observes and what <c>JsValue.ToString()</c> would not do.
 /// </remarks>
 internal static class NodeAccessorsBinding
 {
-    public static JsValue GetIsConnected(INodeAccessorsHost host, DomNode node, in JsCall call)
-    {
-        var root = host.GetTreeRoot(node);
-        return JsValue.Boolean(ReferenceEquals(root, host.DocumentNode));
-    }
+    /// <summary>
+    /// <c>node.isConnected</c> (DOM §4.4): whether the node is connected, meaning its shadow-including
+    /// root is a document (DOM §4.2.2) — the canonical <see cref="DomNode.IsConnected"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Any document, not the page's.</b> This compared the node's root with the page's own document,
+    /// so every node in a frame's document or in one <c>createHTMLDocument</c> built — that document's
+    /// <c>body</c> and <c>documentElement</c> included — answered <c>false</c>, and a framed script's
+    /// "am I in the page yet?" guard never opened. A shadow tree needs nothing extra: the bridge parents
+    /// its synthetic <c>#shadow-root</c> element into the host, so the plain root walk crosses every
+    /// host on the way up, nested shadow trees included, and ends at the outermost host's root — which
+    /// is the shadow-including root the Standard asks about.
+    /// </remarks>
+    public static JsValue GetIsConnected(DomNode node, in JsCall call) =>
+        JsValue.Boolean(node.IsConnected);
 
     /// <summary>
     /// <c>node.childNodes</c> — a <b>live</b> <c>NodeList</c> (DOM §4.4). It used to be a plain
@@ -151,6 +163,31 @@ internal static class NodeAccessorsBinding
         // toString, which is the coercion a page observes and the engine's own `ToString()` performed.
         if (DomBridgeUtils.IsText(node) || DomBridgeUtils.IsComment(node))
             host.SetCharacterData(node, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+        return JsValue.Undefined;
+    }
+
+    /// <summary>
+    /// The <c>textContent</c> setter for every node kind: the canonical <see cref="DomNode.TextContent"/>
+    /// setter, which sets a character-data node's data, replaces an element's or a fragment's children
+    /// with one text node (or none), and ignores a write to a document or a doctype (DOM §4.4).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>textContent</c> is a nullable <c>DOMString</c>, which is why this is not
+    /// <see cref="SetNodeValue"/>'s coercion.</b> WebIDL turns JavaScript <c>null</c> and <c>undefined</c>
+    /// into IDL null before anything is converted, and the setter treats null as the empty string: a
+    /// text node's data becomes <c>""</c> and an element is left with no children. Coercing first, as
+    /// every <c>textContent</c> setter here used to, wrote the string <c>"null"</c> instead.
+    /// </para>
+    /// <para>
+    /// The replace-all mints its text node from the node's own document and publishes <em>one</em>
+    /// child-list record carrying every removed child and the added text node, with null siblings; see
+    /// <c>MutationObserverBinding.OnDocumentMutation</c> for how that record reaches script.
+    /// </para>
+    /// </remarks>
+    public static JsValue SetTextContent(DomNode node, in JsCall call)
+    {
+        node.TextContent = call.Length > 0 && !call[0].IsNullish ? call.Realm.ToJsString(call[0]) : null;
         return JsValue.Undefined;
     }
 

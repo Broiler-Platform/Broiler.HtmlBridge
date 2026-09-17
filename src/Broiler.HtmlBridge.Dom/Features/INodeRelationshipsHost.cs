@@ -6,11 +6,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The narrow host surface <see cref="NodeRelationshipsBinding"/> needs from the bridge: the
 /// wrapper→node resolver (<c>contains</c>/<c>compareDocumentPosition</c>/<c>isSameNode</c>/
-/// <c>isEqualNode</c> all take another wrapper), the tree-root walk (document-position + <c>getRootNode</c>),
-/// the character-data-aware <c>normalize()</c>, the root-node wrapper factory, the deep/shallow clone and
-/// the plain JS-wrapper factory. Pure tree predicates (<c>IsDescendantOf</c>, <c>IsEqualNode</c>) live on
-/// <see cref="DomNode"/>; document-order comparison (<c>CompareTreeOrder</c>) and the shadow-root walk
-/// (<c>FindContainingShadowRoot</c>) are the bridge's <c>internal static</c> helpers, called directly.
+/// <c>isEqualNode</c> all take another wrapper), the tree-root walk (<c>getRootNode</c>), the
+/// character-data-aware <c>normalize()</c>, the root-node wrapper factory, the deep/shallow clone and
+/// the plain JS-wrapper factory. Pure tree operations (<c>IsDescendantOf</c>, <c>IsEqualNode</c>,
+/// <c>CompareDocumentPosition</c>) live on <see cref="DomNode"/>; the shadow-root walk
+/// (<c>FindContainingShadowRoot</c>) is the bridge's <c>internal static</c> helper, called directly.
 /// </summary>
 /// <remarks>
 /// <para>

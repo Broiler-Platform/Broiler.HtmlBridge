@@ -9,9 +9,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>previousElementSibling</c> (the element-only siblings of the P3.41 node accessors). These were the
 /// bridge's <c>JsJsObjectsGetChildren081Core</c>..<c>GetPreviousElementSibling086Core</c> callbacks; only
 /// the realm and the JS-wrapper factory reach the bridge, through the two-member
-/// <see cref="IElementTraversalHost"/> contract, while the element-child enumeration
-/// (<c>ChildElements</c>), the element-parent walk (<c>ParentEl</c>) and the text-node test
-/// (<c>IsText</c>) are the bridge's <c>internal static</c> helpers, called directly.
+/// <see cref="IElementTraversalHost"/> contract, while the views themselves are the canonical
+/// <see cref="DomNode"/> members (<c>ChildElements</c>, <c>FirstElementChild</c>, <c>LastElementChild</c>,
+/// <c>NextElementSibling</c>, <c>PreviousElementSibling</c>), read directly.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,64 +21,44 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// None of these five reads an argument — they are IDL attributes, and a getter's call frame carries
-/// nothing they want — so each takes the element it operates on and no call at all. Their one caller,
-/// <c>DomBridge/ElementInterface.cs</c>, mints the five getters through the realm and gets that element
-/// from its <c>JsElementSource</c>. (This said that site had not migrated and passed an engine frame.)
+/// nothing they want — so each takes the node it operates on and no call at all. Their callers,
+/// <c>DomBridge/ElementInterface.cs</c> and the fragment wrapper in
+/// <c>DomBridge/JsObjects.NonElementNodes.cs</c>, mint the getters through the realm. (This said the
+/// <c>ElementInterface.cs</c> site had not migrated and passed an engine frame.)
+/// </para>
+/// <para>
+/// <b>The three <c>ParentNode</c> views take any node, and the two siblings an element.</b> A fragment
+/// has <c>children</c> and its first and last element child exactly as an element does, and its wrapper
+/// reads them here. The siblings are found through the canonical parent <em>node</em>, so an element
+/// whose parent is a fragment has element siblings too; the bridge's own walk went through the parent
+/// element and answered null both ways under a fragment. The root element still has none, since a
+/// document holds at most one element.
 /// </para>
 /// </remarks>
 internal static class ElementTraversalBinding
 {
-    public static JsValue GetChildren(IElementTraversalHost host, DomElement element)
+    public static JsValue GetChildren(IElementTraversalHost host, DomNode parent)
     {
-        var result = new List<JsValue>();
-        foreach (var child in DomBridgeUtils.ChildElements(element))
-        {
-            if (!DomBridgeUtils.IsText(child))
-                result.Add(host.ToWrapper(child));
-        }
+        var children = parent.ChildElements;
+        var result = new JsValue[children.Count];
+        for (var index = 0; index < children.Count; index++)
+            result[index] = host.ToWrapper(children[index]);
 
-        return host.Realm.NewArray([.. result]);
+        return host.Realm.NewArray(result);
     }
 
-    public static JsValue GetFirstElementChild(IElementTraversalHost host, DomElement element)
-    {
-        var first = DomBridgeUtils.ChildElements(element).FirstOrDefault(c => !DomBridgeUtils.IsText(c));
-        return first != null ? host.ToWrapper(first) : JsValue.Null;
-    }
+    public static JsValue GetFirstElementChild(IElementTraversalHost host, DomNode parent) =>
+        Wrap(host, parent.FirstElementChild);
 
-    public static JsValue GetLastElementChild(IElementTraversalHost host, DomElement element)
-    {
-        var last = DomBridgeUtils.ChildElements(element).LastOrDefault(c => !DomBridgeUtils.IsText(c));
-        return last != null ? host.ToWrapper(last) : JsValue.Null;
-    }
+    public static JsValue GetLastElementChild(IElementTraversalHost host, DomNode parent) =>
+        Wrap(host, parent.LastElementChild);
 
-    public static JsValue GetNextElementSibling(IElementTraversalHost host, DomElement element)
-    {
-        if (DomBridgeUtils.ParentEl(element) == null)
-            return JsValue.Null;
-        var siblings = DomBridgeUtils.ChildElements(DomBridgeUtils.ParentEl(element)).ToList();
-        var idx = siblings.IndexOf(element);
-        for (var i = idx + 1; i < siblings.Count; i++)
-        {
-            if (!DomBridgeUtils.IsText(siblings[i]))
-                return host.ToWrapper(siblings[i]);
-        }
+    public static JsValue GetNextElementSibling(IElementTraversalHost host, DomElement element) =>
+        Wrap(host, element.NextElementSibling);
 
-        return JsValue.Null;
-    }
+    public static JsValue GetPreviousElementSibling(IElementTraversalHost host, DomElement element) =>
+        Wrap(host, element.PreviousElementSibling);
 
-    public static JsValue GetPreviousElementSibling(IElementTraversalHost host, DomElement element)
-    {
-        if (DomBridgeUtils.ParentEl(element) == null)
-            return JsValue.Null;
-        var siblings = DomBridgeUtils.ChildElements(DomBridgeUtils.ParentEl(element)).ToList();
-        var idx = siblings.IndexOf(element);
-        for (var i = idx - 1; i >= 0; i--)
-        {
-            if (!DomBridgeUtils.IsText(siblings[i]))
-                return host.ToWrapper(siblings[i]);
-        }
-
-        return JsValue.Null;
-    }
+    private static JsValue Wrap(IElementTraversalHost host, DomElement? element) =>
+        element != null ? host.ToWrapper(element) : JsValue.Null;
 }

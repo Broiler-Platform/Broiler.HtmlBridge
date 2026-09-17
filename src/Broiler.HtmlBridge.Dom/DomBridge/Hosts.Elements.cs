@@ -146,9 +146,6 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
         UncheckRadioSiblings(scope, except, radioName);
 
     void Dom.Features.IFormControlHost.InvalidateStyleScope(DomElement anchor) => InvalidateStyleScope(anchor);
-
-    void Dom.Features.IFormControlHost.SetElementTextContent(DomElement element, string value) =>
-        SetElementTextContent(element, value);
 }
 
 // Explicit IFormSubmitHost implementation for the FormSubmitBinding feature module (Phase 3): the bridge

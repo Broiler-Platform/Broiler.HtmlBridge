@@ -141,17 +141,32 @@ public static partial class DomBridgeUtils
         CssLengthParser.ParseToPixels(value, viewportWidth, viewportHeight);
 
     /// <summary>
-    /// Extracts a pixel dimension from a CSS style string for a given property name.
+    /// The pixel length <paramref name="property"/> has in an inline declaration map as
+    /// <see cref="ParseStyle"/> builds it, or 0 when the property is absent or its value is not a
+    /// length.
     /// </summary>
-    internal static int ExtractCssDimension(string style, string property)
+    /// <remarks>
+    /// This used to search the raw <c>style</c> text for the first occurrence of the name and read
+    /// up to the next <c>;</c>. That found <c>width</c> inside <c>max-width</c> and
+    /// <c>border-width</c> and <c>height</c> inside <c>line-height</c>, read declarations out of
+    /// comments, took the first of two declarations where CSS takes the last, and read
+    /// <c>450px !important</c> as no length at all. The map is the one the element's own inline style
+    /// is built from, so the declarations are parsed and validated exactly as that style's are, and a
+    /// declaration the renderer drops is not read here either. <see cref="ParseStyle"/> keeps
+    /// <c> !important</c> on the value, hence the strip.
+    /// <para>
+    /// It is still one declaration, not the used size, so a frame's viewport can differ from the box the
+    /// renderer draws: <c>min-</c>/<c>max-width</c> and <c>-height</c> clamps are not applied,
+    /// <c>box-sizing</c>, padding and border are not taken off to reach the content box, and an author
+    /// <c>!important</c> rule that overrides the inline value is not consulted.
+    /// </para>
+    /// </remarks>
+    internal static int ExtractCssDimension(IReadOnlyDictionary<string, string> declarations, string property)
     {
-        var propIdx = style.IndexOf(property, StringComparison.OrdinalIgnoreCase);
-        if (propIdx < 0) return 0;
-        var colonIdx = style.IndexOf(':', propIdx);
-        if (colonIdx < 0) return 0;
-        var semiIdx = style.IndexOf(';', colonIdx);
-        var valueStr = semiIdx >= 0 ? style[(colonIdx + 1)..semiIdx].Trim() : style[(colonIdx + 1)..].Trim();
-        var px = ParseCssLengthToPixels(valueStr);
+        if (!declarations.TryGetValue(property, out var value))
+            return 0;
+
+        var px = ParseCssLengthToPixels(CssPriority.Strip(value));
         return !double.IsNaN(px) ? (int)px : 0;
     }
 
@@ -162,55 +177,6 @@ public static partial class DomBridgeUtils
 
         var px = ParseCssLengthToPixels(value.Trim());
         return !double.IsNaN(px) && px > 0 ? (int)px : 0;
-    }
-}
-
-public static partial class DomBridgeUtils
-{
-    /// <summary>
-    /// The <c>::part()</c> rules of a stylesheet, returned as CSS text. A brace-depth scan rather
-    /// than a parse: it keeps each qualifying rule's own text verbatim, so the cascade sees exactly
-    /// what the author wrote. Rules nested in an at-rule (<c>@media</c> …) are not lifted out — a
-    /// <c>::part()</c> inside one still will not cross into a shadow tree.
-    /// </summary>
-    private static string ExtractPartRules(string css)
-    {
-        if (string.IsNullOrEmpty(css) || css.IndexOf("::part(", StringComparison.OrdinalIgnoreCase) < 0)
-            return string.Empty;
-
-        var kept = new System.Text.StringBuilder();
-        var depth = 0;
-        var ruleStart = 0;
-        var preludeEnd = -1;
-
-        for (var index = 0; index < css.Length; index++)
-        {
-            var character = css[index];
-            if (character == '{')
-            {
-                if (depth == 0)
-                    preludeEnd = index;
-                depth++;
-            }
-            else if (character == '}')
-            {
-                depth--;
-                if (depth != 0)
-                    continue;
-
-                if (preludeEnd > ruleStart &&
-                    css.AsSpan(ruleStart, preludeEnd - ruleStart)
-                        .IndexOf("::part(", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    kept.Append(css, ruleStart, index - ruleStart + 1).Append('\n');
-                }
-
-                ruleStart = index + 1;
-                preludeEnd = -1;
-            }
-        }
-
-        return kept.ToString();
     }
 }
 
@@ -228,6 +194,15 @@ public static partial class DomBridgeUtils
             return false;
         return HasAttr(element, "href");
     }
+
+    /// <summary>
+    /// Whether <paramref name="element"/> owns a style sheet the cascade reads: a <c>&lt;style&gt;</c>, or a
+    /// <c>&lt;link rel="stylesheet" href="..."&gt;</c>. The one test behind both the scope's sheet walk and the
+    /// DOM edits that make computed style stale (<c>DomBridge.OnStyleSheetSourceMutation</c>), so the two
+    /// cannot disagree about what a sheet is.
+    /// </summary>
+    internal static bool IsStyleSheetOwner(DomElement element) =>
+        string.Equals(element.TagName, "style", StringComparison.OrdinalIgnoreCase) || IsExternalStylesheet(element);
 }
 
 public static partial class DomBridgeUtils

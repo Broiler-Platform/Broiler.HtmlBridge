@@ -49,7 +49,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     // contract (see DomBridge/Hosts.Elements.cs); backdrop/top-layer rendering stays in the bridge.
     private readonly Dom.Features.DialogBinding _dialogs;
     // Phase 3 (P3.8): HTMLSelectElement / HTMLOptionElement (add/options/selectedIndex/size/value +
-    // option.defaultSelected) live in SelectBinding, reached through the narrow ISelectHost contract
+    // option.defaultSelected/text) live in SelectBinding, reached through the narrow ISelectHost contract
     // (see DomBridge/Hosts.Elements.cs); the shared value property delegates its select branch to it.
     private readonly Dom.Features.SelectBinding _select;
     // Phase 3 (P3.9): HTMLFormElement (elements/length/action) and constraint validation
@@ -325,6 +325,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         _windowContext = new Dom.Runtime.WindowContextManager(this, _browsingContexts, _eventTargets);
         _scriptInsertion = new Dom.Runtime.ScriptInsertionRunner(this);
         _document = new DomDocument();
+        // A sheet's text changing through the DOM invalidates computed style; see OnStyleSheetSourceMutation.
+        _document.Mutated += OnStyleSheetSourceMutation;
         DocumentElement = CreateBridgeElement("html");
         // Phase 4 item 1 (final sentinel): the canonical DomDocument is the document root — the JS
         // `document` object maps to it and <html>/doctype are its direct children (no #document
@@ -353,8 +355,10 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         _inlineStyleStates.GetValue(node, static _ => new InlineStyleRuntimeState());
 
     /// <summary>Mints a canonical <see cref="DomText"/> carrying <paramref name="data"/>
-    /// (RF-BRIDGE-1c Phase F, F3c part 2d — construction cutover). The single funnel for text-node
-    /// construction; callers treat the result as a <see cref="DomNode"/>.</summary>
+    /// (RF-BRIDGE-1c Phase F, F3c part 2d — construction cutover). The funnel for every text node the
+    /// bridge constructs itself; callers treat the result as a <see cref="DomNode"/>. A
+    /// <c>textContent</c> write does not come through here: the canonical <see cref="DomNode.TextContent"/>
+    /// setter mints its text node from the written node's own document.</summary>
     private DomText CreateBridgeTextNode(string data) => NodeFactoryDocument.CreateTextNode(data);
 
     /// <summary>Mints a canonical <see cref="DomComment"/> carrying <paramref name="data"/>
@@ -396,15 +400,17 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     /// <summary>Mints a canonical <see cref="DomDocumentType"/> (Phase 4 item 1 — the former
     /// <c>#doctype</c> sentinel element). The doctype name is lowercased to preserve the historical
     /// bridge behaviour (doctype name was always surfaced lowercase via the old <c>GetDocTypeName</c>);
-    /// publicId/systemId keep their case. The single funnel for doctype construction over the
-    /// canonical document factory.</summary>
+    /// publicId/systemId keep their case. The funnel for the doctypes script creates
+    /// (<c>createDocumentType</c>, <c>createHTMLDocument</c>) over the canonical document factory; a
+    /// parsed document's doctype is the shared parser's own node, moved across with the tree.</summary>
     private DomDocumentType CreateBridgeDocumentType(string name, string publicId, string systemId) =>
         NodeFactoryDocument.CreateDocumentType(name.ToLowerInvariant(), publicId, systemId);
 
     /// <summary>Mints a canonical <see cref="DomDocumentFragment"/> (Phase 4 item 1 — the former
     /// <c>#document-fragment</c> sentinel element). The single funnel for fragment construction over
     /// the canonical document factory (used by <c>createDocumentFragment</c>, Range clone/extract
-    /// results, and the internal HTML fragment-parse container).</summary>
+    /// results, and a template's contents). A parsed HTML fragment is the shared parser's own
+    /// fragment instead.</summary>
     private DomDocumentFragment CreateBridgeDocumentFragment() => NodeFactoryDocument.CreateDocumentFragment();
 
     /// <summary>Mints a canonical <see cref="DomDocument"/> for a detached browsing context (Phase 4
@@ -416,25 +422,13 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     {
         var document = new DomDocument();
         DocumentStateFor(document).HasViewport.Set(false);
+        // Its sheets resolve through the same computed-style memo as the page's.
+        document.Mutated += OnStyleSheetSourceMutation;
         // Custom element reactions are dispatched off each document's mutation stream, and adoption
         // publishes on the document a node moves *to* — so a document that can receive one has to be
         // listened to as well as the page's own.
         SubscribeBrowsingContextDocument(document);
         return document;
-    }
-
-    /// <summary>Sets an element's <c>textContent</c> per DOM (RF-BRIDGE-1c Phase F, F3c part 2d):
-    /// replaces all children with a single canonical <see cref="DomText"/> (or none when
-    /// <paramref name="value"/> is null/empty). Replaces the former element-store
-    /// <c>Broiler.Dom.DomElement.TextContent</c> scalar.</summary>
-    private void SetElementTextContent(DomElement element, string? value)
-    {
-        ClearChildren(element);
-        if (!string.IsNullOrEmpty(value))
-        {
-            var textNode = CreateBridgeTextNode(value);
-            element.AppendChild(textNode);
-        }
     }
 
     private Dictionary<string, List<EventListenerRegistration>> GetEventListeners(DomNode element) =>

@@ -35,8 +35,9 @@ namespace Broiler.HtmlBridge;
 /// the <c>HTMLElement</c> partial below (a non-HTML element, or a wrapper minted before that
 /// prototype is ready, carries its own copies); <c>appendChild</c> and the other four tree mutations
 /// are <c>Node</c>'s;
-/// <c>textContent</c> is <c>Node</c>'s and deliberately the element's own (its operation differs from
-/// a character-data node's); and <c>data</c>, <c>length</c>, <c>scrollParent</c> and
+/// <c>textContent</c> is <c>Node</c>'s and still the element's own (it was installed because an
+/// element's operation differed from a character-data node's, and both are the canonical
+/// <c>DomNode.TextContent</c> now); and <c>data</c>, <c>length</c>, <c>scrollParent</c> and
 /// <c>removeAttributeNodeNS</c> are on no browser's <c>Element.prototype</c> at all, so they are not
 /// smuggled onto this one.
 /// </para>
@@ -287,7 +288,7 @@ public sealed partial class DomBridge
         AddInterfaceAccessor(target, "children", (in call) =>
             Dom.Features.ElementTraversalBinding.GetChildren(this, element(in call, "children")));
         AddInterfaceAccessor(target, "childElementCount", (in call) =>
-            JsValue.Number(ChildElements(element(in call, "childElementCount")).Count(c => !IsText(c))));
+            JsValue.Number(element(in call, "childElementCount").ChildElementCount));
         AddInterfaceAccessor(target, "firstElementChild", (in call) =>
             Dom.Features.ElementTraversalBinding.GetFirstElementChild(this, element(in call, "firstElementChild")));
         AddInterfaceAccessor(target, "lastElementChild", (in call) =>
@@ -368,7 +369,8 @@ public sealed partial class DomBridge
 /// <c>value</c>, <c>checked</c>, <c>type</c>, <c>name</c>, <c>disabled</c>, <c>required</c> and
 /// <c>files</c> are installed on every element here where a browser gives them only to the interfaces
 /// that declare them, so relocating them is a decision about dropping them from a <c>&lt;div&gt;</c>
-/// rather than a relocation. <c>textContent</c> stays each wrapper's own for the reason it always has.
+/// rather than a relocation. <c>textContent</c> is <c>Node</c>'s, not <c>HTMLElement</c>'s, and
+/// stays each wrapper's own (see <c>ElementContentBinding.InstallTextContent</c>).
 /// </para>
 /// <para>
 /// <b>An SVG element keeps its own copies.</b> It does not inherit <c>HTMLElement.prototype</c> —
@@ -460,7 +462,7 @@ public sealed partial class DomBridge
     private void InstallHtmlElementInterface(JsValue target, Dom.Features.JsElementSource element)
     {
         Dom.Features.GlobalAttributeBinding.InstallHtmlElementMembers(this, Realm, target, element);
-        Dom.Features.ElementContentBinding.InstallHtmlElementMembers(this, Realm, target, element);
+        Dom.Features.ElementContentBinding.InstallHtmlElementMembers(Realm, target, element);
 
         // hidden and tabIndex — the two genuinely global reflectors the form-control module carries.
         // The realm's, in this position, since that module reads a JsCall now.

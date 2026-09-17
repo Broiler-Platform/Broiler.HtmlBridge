@@ -165,7 +165,10 @@ internal sealed class ComputedStyleEngineScope(CssStyleScopeBuilder scopeBuilder
     /// mutation bumps. That is the whole dependency: which elements are stylesheets is a function
     /// of the tree and of element attributes. Sheet <em>text</em> is deliberately NOT cached — the
     /// bridge re-reads it per call — so CSSOM <c>insertRule</c> and a late-arriving external sheet
-    /// are still seen, and neither needs to invalidate anything.
+    /// are still seen, and neither needs to invalidate this walk. (Either kind of sheet edit does have
+    /// to invalidate the <c>GetComputedProps</c> memo, which was resolved from the old text: a CSSOM
+    /// edit does so through <c>DomBridge.OnStyleSheetRulesMutated</c>, a DOM edit to a sheet's text
+    /// through <c>DomBridge.OnStyleSheetSourceMutation</c>.)
     /// </para>
     /// <para>
     /// Held as one snapshot object rather than a list plus a version field so a reader always sees

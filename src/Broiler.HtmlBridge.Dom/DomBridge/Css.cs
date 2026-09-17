@@ -44,6 +44,101 @@ public sealed partial class DomBridge
     /// </summary>
     private void ClearComputedPropsCache() => _styleContext.InvalidateComputedStyle();
 
+    /// <summary>
+    /// Records that a CSSOM edit changed a <c>&lt;style&gt;</c>/<c>&lt;link&gt;</c> sheet's rule list — an
+    /// <c>insertRule</c>, a <c>deleteRule</c>, or a write through a style rule's <c>style</c> — and
+    /// invalidates the computed style resolved from the list before the edit.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The defect this closes.</b> Setting <see cref="StyleSheetRuntimeState.RulesMutated"/> switches the
+    /// text the style engine is handed from the author's source to the serialized model
+    /// (<see cref="GetStyleElementCssText"/>), and the engine re-syncs whenever that text changes — which is
+    /// why <c>getComputedStyle(el).color</c> followed every edit. But <c>GetComputedProps</c> memoises a map per
+    /// element, and nothing on a CSSOM path cleared it. The memo is not keyed on the document version at all:
+    /// a DOM edit clears it only where its binding calls <see cref="InvalidateStyleScope"/>, or, for an edit to
+    /// a sheet's own text, through <see cref="OnStyleSheetSourceMutation"/> — and an edit to the rule list
+    /// touches no DOM node, so it reaches neither. <c>getComputedStyle</c> takes <c>display</c> from that memo
+    /// (<see cref="ApplyUserAgentDisplayToComputedStyle"/>), so <c>display</c> kept the value of the first
+    /// read; so did every other reader of the memo — <c>clientTop</c>/<c>clientLeft</c>, hit testing,
+    /// scrolling, the anchor resolver. It looked fixed whenever a layout pass ran in between, because
+    /// rebuilding the geometry snapshot clears the memo on its own.
+    /// </para>
+    /// <para>
+    /// <b>Why here.</b> This is the one report every edit of an element-backed sheet makes, and each makes it
+    /// only after the list changed and only if it did (<c>JsStyleSheetsInsertRule005Core</c> after the parse
+    /// succeeds, <c>JsStyleSheetsDeleteRule006Core</c> for a valid index, <c>StyleSheetRuleModel.Commit</c> for
+    /// a rule still in the sheet), so a re-resolution it lets through always reads the edited list. Not in the
+    /// <see cref="StyleSheetRuntimeState.RulesMutated"/> setter: that state has no way back to the bridge, and
+    /// the flag is also written on read paths — the reparse in <see cref="EnsureStyleSheetRulesCurrent"/>,
+    /// reached from inside <c>GetComputedProps</c>, and <c>StyleSheetRuntimeState.CopyTo</c> while a render
+    /// projection is built — where dropping the memo would discard maps still being resolved.
+    /// </para>
+    /// <para>
+    /// <b>Why <see cref="ClearComputedPropsCache"/> and not <see cref="InvalidateStyleScope"/>.</b> The memo
+    /// and the engines' caches are the whole of what a sheet edit leaves stale, and that call clears them
+    /// together, as <see cref="DocumentStyleContext.InvalidateComputedStyle"/> requires. The scope walk the
+    /// other adds visits every element to prune inline-style keys neither the <c>style</c> attribute nor
+    /// script set, which a sheet edit cannot have produced, and it would run per edit: pages building styles
+    /// with CSS-in-JS insert rules by the thousand. The geometry snapshot needs nothing from here, because
+    /// the <see cref="StyleSheetRuntimeState.RulesMutated"/> setter already moves
+    /// <see cref="BridgeRuntimeStateEpoch"/>.
+    /// </para>
+    /// </remarks>
+    private void OnStyleSheetRulesMutated(DomElement styleElement)
+    {
+        StyleSheetStateFor(styleElement).RulesMutated = true;
+        ClearComputedPropsCache();
+    }
+
+    /// <summary>
+    /// Invalidates computed style when a DOM mutation changed which sheets there are or what one says: the
+    /// children of a <c>&lt;style&gt;</c>/<c>&lt;link&gt;</c> (its text), a character-data edit to one of them, or
+    /// a sheet owner anywhere in a subtree that was added or removed. Subscribed to every document this bridge
+    /// owns.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The same stale memo as <see cref="OnStyleSheetRulesMutated"/>, reached from the DOM.</b> The engine
+    /// reads a sheet's text again per resolution, so <c>color</c> followed <c>style.textContent = …</c>, but
+    /// <c>display</c> is answered from the <c>GetComputedProps</c> memo, and the mutations that change a sheet's
+    /// text or remove a sheet with its container do not go through a binding that calls
+    /// <see cref="InvalidateStyleScope"/>: <c>textContent</c> is the canonical <see cref="DomNode.TextContent"/>
+    /// setter, and <c>data</c>/<c>nodeValue</c>/<c>appendData</c> the canonical character-data one. Those
+    /// publish to <see cref="DomDocument.Mutated"/> and nowhere else, which makes the mutation stream the one
+    /// place every such edit is seen.
+    /// </para>
+    /// <para>
+    /// <b>Why only sheet edits.</b> A <c>textContent</c> write that removes plain elements can make a map stale
+    /// too (<c>:empty</c>, <c>:has()</c>). That gap is older than this handler and not closed by it: clearing on
+    /// every child-list record would make this a second, general invalidation route beside the bindings' own.
+    /// This one is scoped to the sheet source the engine re-reads, so a record that is not about a sheet costs a
+    /// type test, and an added or removed subtree one walk of it.
+    /// </para>
+    /// <para>
+    /// <b>Only the memo, as for a CSSOM edit</b>, because that and the engines' caches are all a sheet edit
+    /// leaves stale. The render projection is a <see cref="DomDocument"/> of its own that nothing subscribes
+    /// to, so the serialization transforms that rewrite sheet text there never reach this.
+    /// </para>
+    /// </remarks>
+    private void OnStyleSheetSourceMutation(DomMutationRecord record)
+    {
+        var changesSheets = record.Type switch
+        {
+            DomMutationType.CharacterData => record.Target.ParentNode is DomElement owner && IsStyleSheetOwner(owner),
+            DomMutationType.ChildList => (record.Target is DomElement target && IsStyleSheetOwner(target)) ||
+                                         HoldsStyleSheetOwner(record.AddedNodes) || HoldsStyleSheetOwner(record.RemovedNodes),
+            _ => false,
+        };
+
+        if (changesSheets)
+            ClearComputedPropsCache();
+
+        static bool HoldsStyleSheetOwner(IReadOnlyList<DomNode>? nodes) =>
+            nodes is not null &&
+            nodes.OfType<DomElement>().Any(node => IsStyleSheetOwner(node) || node.Descendants().OfType<DomElement>().Any(IsStyleSheetOwner));
+    }
+
     // ------------------------------------------------------------------
     //  CSS specificity (Level 3) and <style> / <link> cascading
     // ------------------------------------------------------------------
@@ -167,7 +262,7 @@ public sealed partial class DomBridge
         var candidates = new List<DomElement>();
         foreach (var element in root.Descendants().OfType<DomElement>())
         {
-            if (string.Equals(element.TagName, "style", StringComparison.OrdinalIgnoreCase) || IsExternalStylesheet(element))
+            if (IsStyleSheetOwner(element))
                 candidates.Add(element);
         }
 
@@ -298,11 +393,11 @@ public sealed partial class DomBridge
     /// Ensures the style element's live rule model
     /// (<see cref="StyleSheetRuntimeState.Rules"/>) reflects its current source text,
     /// reparsing when the source changed. Returns the shared mutable rule list — the
-    /// single store behind the CSSOM (<c>cssRules</c>/<c>insertRule</c>/<c>deleteRule</c>),
+    /// single store behind the CSSOM (<c>cssRules</c>/<c>insertRule</c>/<c>deleteRule</c> and
+    /// the writes a style rule's <c>style</c> passes through <c>StyleSheetRuleModel</c>),
     /// the renderer/legacy-cascade text, and the <c>getComputedStyle</c> engine sheet
     /// (Phase 6 store unification). Replacing the element's <c>textContent</c> changes
-    /// the source text and thus discards prior <c>insertRule</c>/<c>deleteRule</c>
-    /// mutations, matching CSSOM semantics.
+    /// the source text and thus discards prior CSSOM mutations, matching CSSOM semantics.
     /// </summary>
     private List<CssRule> EnsureStyleSheetRulesCurrent(DomElement styleEl)
     {
@@ -319,13 +414,6 @@ public sealed partial class DomBridge
         return state.Rules;
     }
 
-    /// <summary>
-    /// The effective CSS text for a style element, as seen by the renderer/legacy
-    /// cascade and the <c>getComputedStyle</c> engine. Returns the raw author source
-    /// byte-for-byte while unmutated (so unchanged stylesheets are identical to
-    /// pre-Phase-6), and the serialized live model once <c>insertRule</c>/<c>deleteRule</c>
-    /// has mutated it — so script CSSOM mutations are observed downstream.
-    /// </summary>
     /// <summary>
     /// Enforces the Content Security Policy <c>style-src</c> family on the parsed
     /// DOM so blocked inline styles do not render: an inline <c>style="…"</c>
@@ -427,6 +515,14 @@ public sealed partial class DomBridge
         return enforcing;
     }
 
+    /// <summary>
+    /// The effective CSS text for a style element, as seen by the renderer/legacy
+    /// cascade and the <c>getComputedStyle</c> engine. Returns the raw author source
+    /// byte-for-byte while unmutated (so unchanged stylesheets are identical to
+    /// pre-Phase-6), and the serialized live model once <c>insertRule</c>/<c>deleteRule</c>
+    /// or a write to a style rule's <c>style</c> has mutated it — so script CSSOM mutations
+    /// are observed downstream.
+    /// </summary>
     private string GetStyleElementCssText(DomElement styleEl)
     {
         var rules = EnsureStyleSheetRulesCurrent(styleEl);
@@ -489,8 +585,9 @@ public sealed partial class DomBridge
             // parent is the iframe/object element — check its style for dimensions
             if (TryGetAttribute(parent, "style", out var style) && !string.IsNullOrEmpty(style))
             {
-                var w = ExtractCssDimension(style, "width");
-                var h = ExtractCssDimension(style, "height");
+                var declarations = ParseStyle(style);
+                var w = ExtractCssDimension(declarations, "width");
+                var h = ExtractCssDimension(declarations, "height");
                 if (w > 0 || h > 0)
                     return (w, h);
             }

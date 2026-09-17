@@ -251,28 +251,53 @@ public static partial class DomBridgeUtils
     /// resolve against the resource rather than against the containing page.</summary>
     internal const string FrameDocumentBaseAttr = "data-broiler-frame-base";
 
-    /// <summary>Whether the resource opens with a doctype, ignoring leading whitespace and any
-    /// comments before it.</summary>
+    /// <summary>Whether the resource's markup selects standards mode: its first token that is neither a
+    /// comment nor ASCII whitespace is a DOCTYPE named <c>html</c>.</summary>
+    /// <remarks>
+    /// <para>
+    /// That is HTML §13.2.6.4.1's "initial" insertion mode: comments and ASCII whitespace may come
+    /// before the DOCTYPE, any other token ends the mode in quirks, and a DOCTYPE after that is a parse
+    /// error that changes nothing. A DOCTYPE with any other name is quirks too, which is the rule the
+    /// page's own serialization applies (<c>DomBridge.SelectsStandardsMode</c>). A <c>&lt;?xml?&gt;</c>
+    /// prolog or a <c>&lt;!x&gt;</c> is a bogus comment and does not end the mode.
+    /// </para>
+    /// <para>
+    /// It reads tokens rather than the parsed tree because the tree cannot answer it: the shared parser
+    /// inserts the first DOCTYPE token before <c>&lt;html&gt;</c> wherever the token appears, and has no
+    /// document-mode output. The tokenizer is lazy, so this stops at the first token that decides.
+    /// </para>
+    /// <para>
+    /// One gap in that tokenizer is repaired first. <c>&lt;!---&gt;</c> is an abruptly closed empty comment
+    /// (HTML §13.2.5.44), but the tokenizer stays in the comment there, so it would swallow the DOCTYPE
+    /// after it and answer quirks — where the hand scanner this replaced, like the specification, answered
+    /// standards. Every <c>&lt;!---&gt;</c> is read as <c>&lt;!----&gt;</c>, the empty comment the tokenizer
+    /// does close. That changes no token that decides: inside a comment both spellings end it, and inside
+    /// a start tag or raw text the answer was already given by that tag.
+    /// </para>
+    /// <para>
+    /// A frame nobody scripted is not stamped, and its mode comes from Layout's
+    /// <c>DocumentModeContext.IsQuirksHtml</c> instead, which takes the first <c>&lt;!doctype</c> anywhere in
+    /// the source. So the two disagree for a frame with content before its DOCTYPE: it renders in
+    /// standards mode until a script touches it and in quirks mode after, which is Chromium's answer. The
+    /// hand scanner disagreed the same way, except for a leading non-ASCII space such as U+00A0, which it
+    /// skipped as whitespace and this does not.
+    /// </para>
+    /// </remarks>
     internal static bool HasHtmlDoctype(string html)
     {
-        var index = 0;
-        while (index < html.Length)
+        foreach (var token in new HtmlTokenizer().Tokenize(html.Replace("<!--->", "<!---->", StringComparison.Ordinal)))
         {
-            while (index < html.Length && char.IsWhiteSpace(html[index]))
-                index++;
+            if (token.Type == TokenType.Comment ||
+                (token.Type == TokenType.Character && token.Data.AsSpan().Trim(AsciiWhitespace).IsEmpty))
+                continue;
 
-            if (index >= html.Length)
-                return false;
-
-            if (!html.AsSpan(index).StartsWith("<!--", StringComparison.Ordinal))
-                break;
-
-            var end = html.IndexOf("-->", index, StringComparison.Ordinal);
-            if (end < 0)
-                return false;
-            index = end + 3;
+            return token.Type == TokenType.Doctype && string.Equals(token.Name, "html", StringComparison.Ordinal);
         }
 
-        return html.AsSpan(index).StartsWith("<!doctype", StringComparison.OrdinalIgnoreCase);
+        return false;
     }
+
+    /// <summary>The ASCII whitespace the HTML Standard ignores between tokens: tab, LF, FF, CR and
+    /// space.</summary>
+    private const string AsciiWhitespace = "\t\n\f\r ";
 }

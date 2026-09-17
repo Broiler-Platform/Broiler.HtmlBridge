@@ -38,31 +38,12 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    private static bool HasExplicitBodyMargin(string? value)
-    {
-        return !string.IsNullOrWhiteSpace(value) &&
-               !string.Equals(value, "auto", StringComparison.OrdinalIgnoreCase);
-    }
-}
-
-public static partial class DomBridgeUtils
-{
     internal static bool IsDocumentElement(DomElement element) =>
         string.Equals(element.TagName, "html", StringComparison.OrdinalIgnoreCase);
 
     internal static bool IsViewportBodyElement(DomElement element, DomElement documentElement) =>
         string.Equals(element.TagName, "body", StringComparison.OrdinalIgnoreCase) &&
         ReferenceEquals(ParentEl(element), documentElement);
-
-    internal static bool IsDomDescendantOrSelf(DomElement node, DomElement potentialAncestor)
-    {
-        for (var current = node; current != null; current = ParentEl(current))
-        {
-            if (ReferenceEquals(current, potentialAncestor))
-                return true;
-        }
-        return false;
-    }
 
     /// <summary>
     /// Picks the side named by <paramref name="longhandName"/> out of the matching
@@ -165,15 +146,6 @@ public static partial class DomBridgeUtils
         return overflowValue.Trim().ToLowerInvariant().Contains("clip");
     }
 
-    internal static bool EnablesScrollingBox(string? overflowValue)
-    {
-        if (string.IsNullOrWhiteSpace(overflowValue))
-            return false;
-
-        var value = overflowValue.Trim().ToLowerInvariant();
-        return value.Contains("hidden") || value.Contains("scroll") || value.Contains("auto") || value.Contains("clip");
-    }
-
     internal static int CountSelectOptions(DomElement element)
     {
         int count = 0;
@@ -200,28 +172,12 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    private static bool IsSvgShapeElement(DomElement element)
-    {
-        var tag = element.TagName;
-        return string.Equals(tag, "rect", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:rect", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "image", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:image", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "foreignobject", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "svg:foreignobject", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static bool IsSvgViewportElement(DomElement element)
     {
         var tag = element.TagName;
         return string.Equals(tag, "svg", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(tag, "svg:svg", StringComparison.OrdinalIgnoreCase);
     }
-
-    private static bool IsSvgElement(DomElement element) =>
-        string.Equals(element.NamespaceUri, "http://www.w3.org/2000/svg", StringComparison.OrdinalIgnoreCase) ||
-        IsSvgViewportElement(element) ||
-        IsSvgShapeElement(element);
 
     internal static bool IsSvgGroupElement(DomElement element)
     {

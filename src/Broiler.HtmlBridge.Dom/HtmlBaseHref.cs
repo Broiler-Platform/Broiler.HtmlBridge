@@ -1,12 +1,8 @@
 using System;
-using System.Text.RegularExpressions;
+using Broiler.Dom.Html;
+using Broiler.HtmlBridge.Dom;
 
 namespace Broiler.HtmlBridge;
-
-// From a `Broiler.*` namespace the `Broiler.Regex` NAMESPACE shadows the type, so the
-// alias must sit inside the namespace scope to win. This file uses only the .NET Regex.
-using Regex = System.Text.RegularExpressions.Regex;
-using Match = System.Text.RegularExpressions.Match;
 
 /// <summary>
 /// The shared <c>&lt;base href&gt;</c> seam: finding a document's base URL and
@@ -35,32 +31,86 @@ using Match = System.Text.RegularExpressions.Match;
 /// </summary>
 public static class HtmlBaseHref
 {
-    private static readonly Regex BaseTagPattern = new(
-        @"<base\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex HrefAttributePattern = new(
-        @"\bhref\s*=\s*(?:""(?<v>[^""]*)""|'(?<v>[^']*)'|(?<v>[^\s""'>]+))",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
     /// <summary>
     /// Finds the document base URL in raw HTML source: the <c>href</c> of the
-    /// first <c>&lt;base&gt;</c> in document order that carries a non-empty one.
-    /// For callers that hold a parsed tree, walking the DOM is equivalent — this
-    /// overload exists for the pre-DOM stages (the WPT runner reads the test file
-    /// as text).
+    /// first <c>&lt;base&gt;</c> in document order that carries a non-whitespace
+    /// one, trimmed. For callers that hold a parsed tree, walking the DOM is
+    /// equivalent — this overload exists for the pre-DOM stages (the WPT runner
+    /// reads the test file as text).
+    /// <para>
+    /// Skipping a blank <c>href</c> is not HTML §4.2.3, which takes the first
+    /// <c>&lt;base&gt;</c> with an <c>href</c> attribute of any value; it is the rule
+    /// the DOM walk this must agree with applies (<c>DomBridge.TryFindDocumentBaseHref</c>).
+    /// </para>
+    /// <para>
+    /// The source is read as the start tags the shared <see cref="HtmlTokenizer"/>
+    /// produces, the same tokens the DOM is built from, so the answer is the one
+    /// walking that DOM gives, with the one exception below. A
+    /// <c>&lt;base&gt;</c> spelled inside a comment, in <c>script</c>, <c>style</c>
+    /// or <c>noscript</c> text, in another tag's attribute value or in a
+    /// <c>&lt;template&gt;</c>'s contents is not an element of the document and
+    /// does not count; the <c>href</c> is matched by its whole name and its value
+    /// has its character references decoded. A self-closing <c>&lt;template/&gt;</c>
+    /// opens no contents, as the shared parser treats it.
+    /// </para>
+    /// <para>
+    /// Where the tokenizer departs from the HTML Standard, so does this, and so does
+    /// the DOM: the tokenizer reads only <c>script</c>, <c>style</c> and
+    /// <c>noscript</c> as raw text, so a <c>&lt;base&gt;</c> inside the text of
+    /// <c>title</c> or <c>textarea</c> (RCDATA), of <c>iframe</c>, <c>xmp</c>,
+    /// <c>noembed</c> or <c>noframes</c> (raw text), or after <c>plaintext</c>
+    /// still counts.
+    /// </para>
+    /// <para>
+    /// The exception is whitespace before the <c>=</c> of <c>href</c>
+    /// (<c>&lt;base href = "x/"&gt;</c>). The tokenizer leaves the attribute empty
+    /// there, and so does the DOM built from it; this closes the whitespace up first
+    /// (<see cref="HtmlSourceAttributes.CloseSpaceBeforeEquals"/>) and reads
+    /// <c>x/</c>, as the Standard does and the regular expression this replaced did.
+    /// For such a base the WPT runner's inliner and the DOM transform's walk
+    /// disagree until the tokenizer is fixed.
+    /// </para>
     /// </summary>
     public static bool TryFindBaseHref(string html, out string baseHref)
     {
         baseHref = string.Empty;
-        if (string.IsNullOrEmpty(html))
+
+        // Base-less source skips tokenizing altogether. The tokenizer lower-cases tag names
+        // invariantly, and no character outside ASCII lower-cases to one of these letters, so a
+        // source without this text has no base start tag to find.
+        if (string.IsNullOrEmpty(html) || !html.Contains("<base", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        foreach (Match tag in BaseTagPattern.Matches(html))
+        html = HtmlSourceAttributes.CloseSpaceBeforeEquals(html, "href");
+
+        // A depth counter rather than a flag: templates nest, and an inner template's end tag must
+        // not re-open the outer one's contents to the search.
+        var templateDepth = 0;
+        foreach (var token in new HtmlTokenizer().Tokenize(html))
         {
-            var href = HrefAttributePattern.Match(tag.Value);
-            if (href.Success && !string.IsNullOrWhiteSpace(href.Groups["v"].Value))
+            if (token.Type == TokenType.EndTag)
             {
-                baseHref = href.Groups["v"].Value.Trim();
+                if (templateDepth > 0 && token.Name == "template")
+                    templateDepth--;
+                continue;
+            }
+
+            if (token.Type != TokenType.StartTag)
+                continue;
+
+            if (token.Name == "template")
+            {
+                if (!token.SelfClosing)
+                    templateDepth++;
+                continue;
+            }
+
+            if (templateDepth == 0 &&
+                token.Name == "base" &&
+                token.Attributes.TryGetValue("href", out var href) &&
+                !string.IsNullOrWhiteSpace(href))
+            {
+                baseHref = href.Trim();
                 return true;
             }
         }

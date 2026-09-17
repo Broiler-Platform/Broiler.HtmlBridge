@@ -7,11 +7,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The narrow set of bridge services the <see cref="TraversalBinding"/> feature module needs
 /// (HtmlBridge complexity-reduction roadmap Phase 3, first vertical slice). It replaces the
 /// former direct reach into <c>DomBridge</c> private state from the traversal callbacks with a
-/// small, named contract: the realm, JS-wrapper identity, node lookup, the two
-/// range-boundary/geometry helpers that still live in the bridge (Phase 5 relocates geometry to
-/// Layout), and the range-scoped node-construction seams the <c>Range</c> content operations mint
-/// bridge nodes through. No member exposes arbitrary bridge feature state, so the module never
-/// holds a god-object back-reference.
+/// small, named contract: the realm, JS-wrapper identity, node lookup, the range geometry helpers
+/// that still live in the bridge (Phase 5 relocates geometry to Layout), and the range-scoped
+/// node-construction seams the <c>Range</c> content operations mint bridge nodes through. No member
+/// exposes arbitrary bridge feature state, so the module never holds a god-object back-reference.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's: a wrapper is a <see cref="JsValue"/> and errors are raised
@@ -41,10 +40,6 @@ internal interface ITraversalHost
 
     /// <summary>Resolves the canonical element behind a JS wrapper, or null.</summary>
     DomElement? FindElement(JsValue wrapper);
-
-    /// <summary>Compares two boundary points within <paramref name="docRoot"/>, returning -1/0/1
-    /// per the DOM Range comparison rules.</summary>
-    int CompareBoundaryPosition(DomNode docRoot, DomNode containerA, int offsetA, DomNode containerB, int offsetB);
 
     /// <summary>The used-value client rectangles covering the range's content (bridge geometry;
     /// Phase 5 moves this to Layout).</summary>

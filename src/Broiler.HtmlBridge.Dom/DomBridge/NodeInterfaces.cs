@@ -204,12 +204,13 @@ public sealed partial class DomBridge
             // already installed on every element and does the same thing; this aliases it so
             // `s.text = code` is not silently a plain JS property either.
             Realm.DefineAccessor(handle, "text",
-                (in _) => JsValue.String(((Dom.Features.IElementContentHost)this).NodeTextValue(element)),
+                (in _) => JsValue.String(element.TextContent),
                 (in call) =>
                 {
                     // ToJsString, not the handle's own rendering: `s.text = templateObject` runs the
-                    // object's toString, which is what the engine was doing here before.
-                    SetElementTextContent(element, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+                    // object's toString, which is what the engine was doing here before. Unlike
+                    // textContent, `text` is a plain DOMString, so `s.text = null` writes "null".
+                    element.TextContent = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
                     return JsValue.Undefined;
                 });
         }
@@ -339,8 +340,9 @@ public sealed partial class DomBridge
 /// <b>An element inherits the <c>Node.prototype</c> members installed here too.</b> It shadowed
 /// every one with a byte-identical copy of its own; those copies are gone, so the prototype is where
 /// they live for an element as well — see <c>PopulateElementNodeMembersOnInstance</c>, which is now
-/// only the pre-realm fallback. <c>textContent</c> is the exception and stays the element's own: an
-/// element's is a different operation from a character-data node's.
+/// only the pre-realm fallback. <c>textContent</c> is the exception and stays the element's own. It
+/// was one because an element's was a different operation from a character-data node's; both are
+/// the canonical <c>DomNode.TextContent</c> now, so an element answers the same through either.
 /// </para>
 /// <para>
 /// The document kept its own — separate implementations, not copies: <c>nodeType</c> a literal
@@ -510,7 +512,9 @@ public sealed partial class DomBridge
             // distinction DOM §4.4 draws for a document and a doctype. (This also named an engine-typed
             // GetNodeTextValue adapter as producing the same value elsewhere; that adapter is gone.)
             (in call) => JsValue.String(NodeTextOrNull(RequireNode(in call, "Node", "textContent"))),
-            (in call) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, RequireNode(in call, "Node", "textContent"), in call));
+            // The canonical setter, the one every node kind's textContent uses. This was the nodeValue
+            // setter, which coerced null to "null" and wrote nothing but a text or comment node's data.
+            (in call) => Dom.Features.NodeAccessorsBinding.SetTextContent(RequireNode(in call, "Node", "textContent"), in call));
 
         DefinePrototypeAccessor(proto, "parentNode", (in call) =>
         {
@@ -520,7 +524,7 @@ public sealed partial class DomBridge
         DefinePrototypeAccessor(proto, "parentElement",
             (in call) => Dom.Features.NodeAccessorsBinding.GetParentElement(this, RequireNode(in call, "Node", "parentElement"), in call));
         DefinePrototypeAccessor(proto, "isConnected",
-            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(this, RequireNode(in call, "Node", "isConnected"), in call));
+            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(RequireNode(in call, "Node", "isConnected"), in call));
         DefinePrototypeAccessor(proto, "childNodes",
             (in call) => Dom.Features.NodeAccessorsBinding.GetChildNodes(this, RequireNode(in call, "Node", "childNodes"), in call));
         DefinePrototypeAccessor(proto, "firstChild",

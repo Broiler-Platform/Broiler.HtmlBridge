@@ -131,17 +131,6 @@ public static partial class DomBridgeUtils
     /// </summary>
     internal static bool IsSticky(Dictionary<string, string> props) =>
         string.Equals(props.GetValueOrDefault("position"), "sticky", StringComparison.OrdinalIgnoreCase);
-    /// <summary>
-    /// True when <paramref name="node"/> is <paramref name="ancestor"/> or a
-    /// descendant of it.
-    /// </summary>
-    internal static bool IsDescendantOrSelf(DomElement node, DomElement ancestor)
-    {
-        for (var cur = node; cur != null; cur = ParentEl(cur))
-            if (cur == ancestor)
-                return true;
-        return false;
-    }
     internal static bool IsLayoutProperty(string prop) => prop switch
     {
         "position" or "top" or "right" or "bottom" or "left"
@@ -325,24 +314,6 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    /// <summary>
-    /// Returns <c>true</c> when <paramref name="el"/> is a descendant of
-    /// <paramref name="potentialAncestor"/> in the DOM tree.
-    /// </summary>
-    internal static bool IsDescendantOfElement(DomElement el, DomElement potentialAncestor)
-    {
-        var current = ParentEl(el);
-        while (current != null)
-        {
-            if (ReferenceEquals(current, potentialAncestor)) return true;
-            current = ParentEl(current);
-        }
-        return false;
-    }
-}
-
-public static partial class DomBridgeUtils
-{
     internal static string ResolveAnchorEdge(AnchorFunctionRef reference, Dictionary<string, AnchorInfo> registry,
         string contextProp, double cbWidth, double cbHeight, string? implicitAnchor = null)
     {
@@ -361,13 +332,6 @@ public static partial class DomBridgeUtils
 
         return $"{value.ToString(CultureInfo.InvariantCulture)}px";
     }
-}
-
-public static partial class DomBridgeUtils
-{
-    internal static bool HasStickyInset(string? value) =>
-        !string.IsNullOrWhiteSpace(value) &&
-        !string.Equals(value, "auto", StringComparison.OrdinalIgnoreCase);
 }
 
 public static partial class DomBridgeUtils

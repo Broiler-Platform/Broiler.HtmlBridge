@@ -174,9 +174,9 @@ public sealed partial class DomBridge
         if (element.TagName.Equals("textarea", StringComparison.OrdinalIgnoreCase))
         {
             if (state.Value.TryGet(out var areaValue) && areaValue is string areaString &&
-                !string.Equals(GetElementTextContent(element), areaString, StringComparison.Ordinal))
+                !string.Equals(element.TextContent, areaString, StringComparison.Ordinal))
             {
-                SetElementTextContent(element, areaString);
+                element.TextContent = areaString;
             }
 
             return;
@@ -297,8 +297,8 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Bakes CSSOM rule-model mutations into the render-bound document. Script
-    /// <c>insertRule</c>/<c>deleteRule</c> mutates the shared rule list held in the
-    /// style element's runtime state — never its text node — so the serialized HTML
+    /// <c>insertRule</c>/<c>deleteRule</c>, and a write to a style rule's <c>style</c>, mutate the
+    /// shared rule list held in the style element's runtime state — never its text node — so the serialized HTML
     /// handed to the renderer still carried the original author text and the mutation
     /// was invisible to layout and paint, while <c>getComputedStyle</c> (which reads
     /// the model through <see cref="GetStyleElementCssText"/>) already observed it.
@@ -330,7 +330,7 @@ public sealed partial class DomBridge
             // Read the effective text before rewriting: GetStyleElementCssText compares
             // the element's current source text against the model's parse source, and
             // would discard the mutations if the text node had already been replaced.
-            SetElementTextContent(element, GetStyleElementCssText(element));
+            element.TextContent = GetStyleElementCssText(element);
         }
 
         foreach (var child in ChildElements(element))
@@ -348,7 +348,7 @@ public sealed partial class DomBridge
             return;
 
         var styleElement = CreateBridgeElement("style");
-        SetElementTextContent(styleElement, string.Join(Environment.NewLine, rules));
+        styleElement.TextContent = string.Join(Environment.NewLine, rules);
 
         var head = FindFirstElementByTagName(root, "head");
         if (head != null)

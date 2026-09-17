@@ -6,61 +6,62 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The per-rule <c>CSSRule</c> object builder half of <see cref="StyleSheetBinding"/> (Phase 3,
-/// P3.15): maps a neutral <see cref="Broiler.CSS.CssRule"/> (or a fallback rule string) onto the JS
-/// <c>CSSRule</c> object for every rule kind — style, <c>@media</c>/<c>@supports</c>/<c>@layer</c>
-/// condition groups, <c>@keyframes</c>, <c>@font-face</c>, <c>@page</c>, <c>@property</c>,
-/// <c>@counter-style</c>, <c>@import</c>, <c>@namespace</c> — reading selector/prelude metadata from
+/// P3.15): maps a parsed <see cref="Broiler.CSS.CssRule"/> onto the JS <c>CSSRule</c> object for every
+/// rule kind the CSSOM shows — style, <c>@media</c>/<c>@supports</c>/<c>@layer</c> condition groups,
+/// <c>@keyframes</c> (and its <c>@-webkit-</c> alias), <c>@font-face</c>, <c>@page</c>, <c>@property</c>,
+/// <c>@counter-style</c>, <c>@import</c>, <c>@namespace</c>, the <c>@container</c>/<c>@scope</c>/
+/// <c>@starting-style</c> grouping rules and the at-rules exposed with <c>type</c> and <c>cssText</c>
+/// (and, for <c>@position-try</c>, <c>style</c>) — reading selector/prelude metadata from
 /// <see cref="Broiler.CSS.Cssom.CssomRuleMetadata"/> and the declaration block through
-/// <see cref="StyleDeclarationBinding.BuildRuleDeclaration"/>.
+/// <see cref="StyleDeclarationBinding.BuildRuleDeclaration(IJsRealm, RuleDeclarationStore, JsValue)"/>.
 /// </summary>
 internal static partial class StyleSheetBinding
 {
     /// <summary>
-    /// Builds a CSSRule object from a CSS rule string.
-    /// Sets <c>type</c> (1 = CSSStyleRule, 2 = CSSCharsetRule, 3 = CSSImportRule,
-    /// 4 = CSSMediaRule, 5 = CSSFontFaceRule, 6 = CSSPageRule, 7 = CSSKeyframesRule,
-    /// 9 = CSSNamespaceRule, 10 = CSSCounterStyleRule, 11 = CSSSupportsRule,
-    /// 12 = CSSLayerRule, 25 = CSSPropertyRule),
-    /// <c>cssText</c>, <c>selectorText</c>, <c>href</c>, <c>media</c>,
-    /// <c>conditionText</c>, <c>name</c>, <c>system</c>, <c>symbols</c>,
-    /// <c>additiveSymbols</c>, <c>negative</c>, <c>prefix</c>, <c>suffix</c>,
-    /// <c>range</c>, <c>pad</c>, <c>fallback</c>, <c>speakAs</c>, <c>syntax</c>,
-    /// <c>inherits</c>, <c>initialValue</c>, <c>namespaceURI</c>, <c>cssRules</c>,
-    /// and <c>style</c> properties as appropriate.
-    /// </summary>
-    /// <summary>
-    /// Builds a CSSRule object from a shared <see cref="CssRule"/>
-    /// model object. Rule kind and metadata (selector text, prelude-derived
-    /// media/condition/name/href/prefix values, keyframe keys, and descriptors)
-    /// are read from the neutral <see cref="CSS.Cssom.CssomRuleMetadata"/>
-    /// projection and the declaration model rather than by serializing the rule and
-    /// re-parsing the text. Declaration blocks still feed the JavaScript
-    /// <c>CSSStyleDeclaration</c> wrapper through <c>DomBridge.ParseStyle</c> on the
-    /// serialized block, which is unchanged. Unrecognized at-rules (for example
-    /// <c>@container</c> or a vendor-prefixed <c>@-webkit-keyframes</c>) fall back to
-    /// the legacy string builder, preserving their current behavior.
+    /// Builds a CSSRule object from a shared <see cref="CssRule"/> model object. Rule kind and metadata
+    /// (selector text, prelude-derived media/condition/name/href/prefix values, keyframe keys, and
+    /// descriptors) are read from the neutral <see cref="CSS.Cssom.CssomRuleMetadata"/> projection and the
+    /// declaration model; declaration blocks feed the JavaScript <c>CSSStyleDeclaration</c> wrapper through
+    /// <c>DomBridge.ParseStyle</c> on the serialized block. Sets <c>type</c> (1 = CSSStyleRule,
+    /// 3 = CSSImportRule, 4 = CSSMediaRule, 5 = CSSFontFaceRule, 6 = CSSPageRule, 7 = CSSKeyframesRule,
+    /// 10 = CSSNamespaceRule, 11 = CSSCounterStyleRule, 12 = CSSSupportsRule,
+    /// 14 = CSSFontFeatureValuesRule, 0 for every other kind — see <see cref="CssomTypeNumber"/>),
+    /// <c>cssText</c>, <c>selectorText</c>, <c>href</c>, <c>media</c>, <c>conditionText</c>, <c>name</c>,
+    /// <c>system</c>, <c>symbols</c>, <c>additiveSymbols</c>, <c>negative</c>, <c>prefix</c>, <c>suffix</c>,
+    /// <c>range</c>, <c>pad</c>, <c>fallback</c>, <c>speakAs</c>, <c>syntax</c>, <c>inherits</c>,
+    /// <c>initialValue</c>, <c>namespaceURI</c>, <c>cssRules</c>, and <c>style</c> properties as
+    /// appropriate.
     /// </summary>
     /// <remarks>
+    /// Every caller passes only rules <see cref="IsCssomVisible"/> accepts — the sheet's live list reads
+    /// <see cref="CssomRules"/>, the nested builders filter the same way, and an insert rejects the rest
+    /// first — so a <c>@charset</c> or an unsupported at-rule never reaches this.
+    /// <para>
     /// A missing <paramref name="parentRule"/> is <see cref="JsValue.Missing"/> rather than a CLR
     /// <see langword="null"/>, and the <c>parentRule</c> getter still answers <c>null</c> for it — the
     /// distinction the contract draws in the direction it is observed.
+    /// </para>
+    /// <para>
+    /// With a <paramref name="model"/>, a style rule's <c>style</c> — at the top level or inside grouping
+    /// rules, which pass the model down — writes through to the sheet
+    /// (<see cref="ModelRuleDeclarationStore"/>). Without one, and for every other declaration block, the
+    /// declaration is a map that lives only on the object (<see cref="MapRuleDeclarationStore"/> says why).
+    /// </para>
     /// </remarks>
-    internal static JsValue BuildCssRuleObject(IJsRealm realm, CssRule rule, JsValue parentStyleSheet, JsValue parentRule = default)
+    internal static JsValue BuildCssRuleObject(IJsRealm realm, CssRule rule, JsValue parentStyleSheet,
+        JsValue parentRule = default, StyleSheetRuleModel? model = null)
     {
-        var kind = CssomRuleMetadata.GetRuleType(rule);
-        if (kind == CssomRuleType.Unknown)
-            return BuildCssRuleObject(realm, CssSerializer.Serialize(rule), parentStyleSheet, parentRule);
+        var kind = CssomKindOf(rule);
 
         var ruleObj = realm.NewObject();
         realm.DefineAccessor(ruleObj, "parentStyleSheet", (in _) => parentStyleSheet, null);
         realm.DefineAccessor(ruleObj, "parentRule",
             (in _) => parentRule.IsMissing ? JsValue.Null : parentRule, null);
 
-        realm.DefineValue(ruleObj, "type", JsValue.Number((int)kind));
+        realm.DefineValue(ruleObj, "type", JsValue.Number(CssomTypeNumber(rule, kind)));
 
-        // Builds the JS CSSStyleDeclaration for a declaration-bodied rule from the
-        // model's declaration block — identical to the legacy substring path because
-        // ParseStyle sees the same declarations, just serialized from the block.
+        // Builds the JS CSSStyleDeclaration for a declaration-bodied rule from the model's declaration
+        // block, serialized so ParseStyle applies the same per-property validation an inline style gets.
         JsValue StyleFromBlock(CssDeclarationBlock? block)
         {
             var map = block is null
@@ -69,17 +70,16 @@ internal static partial class StyleSheetBinding
             return StyleDeclarationBinding.BuildRuleDeclaration(realm, map, ruleObj);
         }
 
+        // The factory a grouping rule's cssRules list builds an inserted rule with. The page's text has
+        // been parsed by then; a rule the CSSOM does not show answers Missing, which the list turns into
+        // the SyntaxError a sheet-level insert of the same text throws. The model goes along so the inserted
+        // rule's style is built the same way, but such a rule is never in the sheet's rule list, so its
+        // writes stay on the object (see the StyleSheetRuleModel remarks).
+        JsValue NestedRule(CssRule child) =>
+            IsCssomVisible(child) ? BuildCssRuleObject(realm, child, parentStyleSheet, ruleObj, model) : JsValue.Missing;
+
         switch (kind)
         {
-            case CssomRuleType.Charset:
-                {
-                    var encoding = CssomRuleMetadata.GetCharsetEncoding((CssAtRule)rule);
-                    realm.DefineValue(ruleObj, "encoding", JsValue.String(encoding));
-                    realm.DefineAccessor(ruleObj, "cssText",
-                        (in _) => JsValue.String($"@charset \"{encoding}\";"), null);
-                    break;
-                }
-
             case CssomRuleType.Import:
                 {
                     var import = CssomRuleMetadata.GetImport((CssAtRule)rule);
@@ -94,11 +94,8 @@ internal static partial class StyleSheetBinding
                 {
                     var atRule = (CssAtRule)rule;
                     var mediaText = atRule.Prelude;
-                    var nestedRuleObjects = BuildNestedRuleObjects(realm, string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
-                    var nestedCssRules = BuildCssRuleListObject(
-                        realm,
-                        nestedRuleObjects,
-                        text => BuildCssRuleObject(realm, text, parentStyleSheet, ruleObj));
+                    var nestedRuleObjects = BuildNestedRuleObjects(realm, atRule.Rules, parentStyleSheet, ruleObj, model);
+                    var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects, NestedRule);
 
                     realm.DefineValue(ruleObj, "media", JsValue.String(mediaText));
                     realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
@@ -120,14 +117,17 @@ internal static partial class StyleSheetBinding
                 {
                     var atRule = (CssAtRule)rule;
                     var name = CssomRuleMetadata.GetKeyframesName(atRule);
-                    var nestedRuleObjects = BuildNestedKeyframeObjects(realm, string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
+                    var nestedRuleObjects = BuildNestedKeyframeObjects(realm, atRule.Rules, parentStyleSheet, ruleObj);
                     var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects,
-                        text => BuildCssKeyframeRuleObject(realm, text, parentStyleSheet, ruleObj));
+                        child => child is CssStyleRule keyframe
+                            ? BuildCssKeyframeRuleObject(realm, keyframe, parentStyleSheet, ruleObj)
+                            : JsValue.Missing);
 
                     realm.DefineValue(ruleObj, "name", JsValue.String(name));
                     realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
+                    // The at-rule's own name, so @-webkit-keyframes keeps its prefix as Chromium's does.
                     realm.DefineAccessor(ruleObj, "cssText",
-                        (in _) => JsStyleSheetsGetCssText020Core(realm, name, nestedRuleObjects), null);
+                        (in _) => JsStyleSheetsGetCssText020Core(realm, atRule.Name, name, nestedRuleObjects), null);
                     break;
                 }
 
@@ -189,11 +189,8 @@ internal static partial class StyleSheetBinding
                 {
                     var atRule = (CssAtRule)rule;
                     var conditionText = atRule.Prelude;
-                    var nestedRuleObjects = BuildNestedRuleObjects(realm, string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
-                    var nestedCssRules = BuildCssRuleListObject(
-                        realm,
-                        nestedRuleObjects,
-                        text => BuildCssRuleObject(realm, text, parentStyleSheet, ruleObj));
+                    var nestedRuleObjects = BuildNestedRuleObjects(realm, atRule.Rules, parentStyleSheet, ruleObj, model);
+                    var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects, NestedRule);
 
                     realm.DefineValue(ruleObj, "conditionText", JsValue.String(conditionText));
                     realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
@@ -208,9 +205,8 @@ internal static partial class StyleSheetBinding
                     var nameText = atRule.Prelude;
                     if (atRule.HasBlock)
                     {
-                        var nestedRuleObjects = BuildNestedRuleObjects(realm, string.Empty, atRule.Rules, parentStyleSheet, ruleObj);
-                        var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects,
-                            text => BuildCssRuleObject(realm, text, parentStyleSheet, ruleObj));
+                        var nestedRuleObjects = BuildNestedRuleObjects(realm, atRule.Rules, parentStyleSheet, ruleObj, model);
+                        var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects, NestedRule);
 
                         realm.DefineValue(ruleObj, "name",
                             string.IsNullOrEmpty(nameText) ? JsValue.Null : JsValue.String(nameText));
@@ -253,330 +249,57 @@ internal static partial class StyleSheetBinding
                     break;
                 }
 
-            default:
+            case CssomRuleType.Style:
                 {
-                    // CSSStyleRule — type 1
                     var styleRule = (CssStyleRule)rule;
                     var selectorText = CssomRuleMetadata.GetSelectorText(styleRule);
                     realm.DefineValue(ruleObj, "selectorText", JsValue.String(selectorText));
                     realm.DefineAccessor(ruleObj, "cssText",
                         (in _) => JsStyleSheetsGetCssText028Core(realm, ruleObj, selectorText), null);
-                    var styleObj = StyleFromBlock(styleRule.Declarations);
+                    var styleObj = model is null
+                        ? StyleFromBlock(styleRule.Declarations)
+                        : StyleDeclarationBinding.BuildRuleDeclaration(
+                            realm, new ModelRuleDeclarationStore(model, model.CellFor(styleRule)), ruleObj);
                     realm.DefineValue(ruleObj, "style", styleObj);
                     break;
                 }
-        }
 
-        return ruleObj;
-    }
-
-    private static JsValue BuildCssRuleObject(IJsRealm realm, string ruleText, JsValue parentStyleSheet, JsValue parentRule = default, IReadOnlyList<CssRule>? nestedModelRules = null)
-    {
-        var ruleObj = realm.NewObject();
-        realm.DefineAccessor(ruleObj, "parentStyleSheet", (in _) => parentStyleSheet, null);
-        realm.DefineAccessor(ruleObj, "parentRule",
-            (in _) => parentRule.IsMissing ? JsValue.Null : parentRule, null);
-
-        var trimmedRuleText = ruleText.Trim();
-
-        if (trimmedRuleText.StartsWith("@charset", StringComparison.OrdinalIgnoreCase))
-        {
-            // CSSCharsetRule — type 2
-            realm.DefineValue(ruleObj, "type", JsValue.Number(2));
-
-            var charsetBody = trimmedRuleText[8..].Trim().TrimEnd(';').Trim();
-            var encoding = charsetBody.Trim('"', '\'');
-
-            realm.DefineValue(ruleObj, "encoding", JsValue.String(encoding));
-            realm.DefineAccessor(ruleObj, "cssText",
-                (in _) => JsValue.String($"@charset \"{encoding}\";"), null);
-        }
-        else if (trimmedRuleText.StartsWith("@import", StringComparison.OrdinalIgnoreCase))
-        {
-            realm.DefineValue(ruleObj, "type", JsValue.Number(3));
-
-            var importBody = trimmedRuleText[7..].Trim().TrimEnd(';').Trim();
-            var href = string.Empty;
-            var mediaText = string.Empty;
-
-            if (importBody.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
-            {
-                var openParen = importBody.IndexOf('(');
-                var closeParen = importBody.IndexOf(')', openParen + 1);
-                if (openParen >= 0 && closeParen > openParen)
+            default:
                 {
-                    href = importBody.Substring(openParen + 1, closeParen - openParen - 1).Trim().Trim('"', '\'');
-                    mediaText = importBody[(closeParen + 1)..].Trim();
+                    // An at-rule the metadata has no kind for and IsCssomVisible still shows: one of
+                    // GroupingAtRules or OpaqueAtRules.
+                    var atRule = (CssAtRule)rule;
+                    if (GroupingAtRules.Contains(atRule.Name))
+                    {
+                        var nestedRuleObjects = BuildNestedRuleObjects(realm, atRule.Rules, parentStyleSheet, ruleObj, model);
+                        realm.DefineValue(ruleObj, "cssRules", BuildCssRuleListObject(realm, nestedRuleObjects, NestedRule));
+                        // CSSContainerRule.conditionText is the whole prelude, container name included; the
+                        // scope and starting-style rules are grouping rules without a condition.
+                        if (atRule.Name.Equals("container", StringComparison.OrdinalIgnoreCase))
+                            realm.DefineValue(ruleObj, "conditionText", JsValue.String(atRule.Prelude));
+                        realm.DefineAccessor(ruleObj, "cssText",
+                            (in _) => JsStyleSheetsGetCssText029Core(realm, atRule.Name, atRule.Prelude, nestedRuleObjects), null);
+                    }
+                    else
+                    {
+                        // Opaque: the body is the block as parsed — declarations when the parser reads it
+                        // as a descriptor block, otherwise its text without comments.
+                        var body = atRule.Declarations is { } declarations
+                            ? string.Join(" ", declarations.Declarations.Select(declaration =>
+                                $"{declaration.Name}: {declaration.Value.Text}{(declaration.Important ? " !important" : string.Empty)};"))
+                            : CssSyntax.RemoveComments(atRule.BlockText ?? string.Empty).Trim();
+                        realm.DefineAccessor(ruleObj, "cssText",
+                            (in _) => JsStyleSheetsGetCssText030Core(atRule.Name, atRule.Prelude, body), null);
+
+                        // CSSPositionTryRule does have a member the page can use without a rule kind of
+                        // its own: `style`, its descriptor block. The parser keeps that block only as
+                        // text, so it is parsed here the way a descriptor block is.
+                        if (atRule.Name.Equals("position-try", StringComparison.OrdinalIgnoreCase))
+                            realm.DefineValue(ruleObj, "style", StyleFromBlock(
+                                new CssParser().ParseDeclarations(CssSyntax.RemoveComments(atRule.BlockText ?? string.Empty))));
+                    }
+                    break;
                 }
-            }
-            else if (importBody.StartsWith('"') || importBody.StartsWith('\''))
-            {
-                var quote = importBody[0];
-                var closingQuote = importBody.IndexOf(quote, 1);
-                if (closingQuote > 0)
-                {
-                    href = importBody[1..closingQuote];
-                    mediaText = importBody[(closingQuote + 1)..].Trim();
-                }
-            }
-
-            realm.DefineValue(ruleObj, "href", JsValue.String(href));
-            realm.DefineValue(ruleObj, "media", JsValue.String(mediaText));
-            realm.DefineAccessor(ruleObj, "cssText",
-                (in _) => JsStyleSheetsGetCssText017Core(href, mediaText), null);
-        }
-        else if (trimmedRuleText.StartsWith("@media", StringComparison.OrdinalIgnoreCase))
-        {
-            realm.DefineValue(ruleObj, "type", JsValue.Number(4));
-
-            int braceOpen = ruleText.IndexOf('{');
-            int braceClose = ruleText.LastIndexOf('}');
-            if (braceOpen >= 0 && braceClose > braceOpen)
-            {
-                var mediaText = ruleText[6..braceOpen].Trim();
-                var nestedCss = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var nestedRuleObjects = BuildNestedRuleObjects(realm, nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
-                var nestedCssRules = BuildCssRuleListObject(
-                    realm,
-                    nestedRuleObjects,
-                    rule => BuildCssRuleObject(realm, rule, parentStyleSheet, ruleObj));
-
-                realm.DefineValue(ruleObj, "media", JsValue.String(mediaText));
-                realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
-                realm.DefineAccessor(ruleObj, "cssText",
-                    (in _) => JsStyleSheetsGetCssText018Core(realm, mediaText, nestedRuleObjects), null);
-            }
-        }
-        else if (trimmedRuleText.StartsWith("@font-face", StringComparison.OrdinalIgnoreCase))
-        {
-            // CSSFontFaceRule — type 5
-            realm.DefineValue(ruleObj, "type", JsValue.Number(5));
-
-            // Extract declarations from @font-face { ... }
-            int braceOpen = ruleText.IndexOf('{');
-            int braceClose = ruleText.LastIndexOf('}');
-            if (braceOpen >= 0 && braceClose > braceOpen)
-            {
-                var declarations = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var styleMap = DomBridgeUtils.ParseStyle(declarations);
-                var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(realm, styleMap, ruleObj);
-                realm.DefineAccessor(ruleObj, "cssText",
-                    (in _) => JsStyleSheetsGetCssText019Core(realm, styleObj), null);
-                realm.DefineValue(ruleObj, "style", styleObj);
-            }
-        }
-        else if (trimmedRuleText.StartsWith("@keyframes", StringComparison.OrdinalIgnoreCase))
-        {
-            // CSSKeyframesRule — type 7
-            realm.DefineValue(ruleObj, "type", JsValue.Number(7));
-
-            int braceOpen = ruleText.IndexOf('{');
-            int braceClose = ruleText.LastIndexOf('}');
-            if (braceOpen >= 0 && braceClose > braceOpen)
-            {
-                var name = ruleText[10..braceOpen].Trim().Trim('"', '\'');
-                var nestedCss = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var nestedRuleObjects = BuildNestedKeyframeObjects(realm, nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
-                var nestedCssRules = BuildCssRuleListObject(
-                    realm,
-                    nestedRuleObjects,
-                    rule => BuildCssKeyframeRuleObject(realm, rule, parentStyleSheet, ruleObj));
-
-                realm.DefineValue(ruleObj, "name", JsValue.String(name));
-                realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
-                realm.DefineAccessor(ruleObj, "cssText",
-                    (in _) => JsStyleSheetsGetCssText020Core(realm, name, nestedRuleObjects), null);
-            }
-        }
-        else if (trimmedRuleText.StartsWith("@property", StringComparison.OrdinalIgnoreCase))
-        {
-            // CSSPropertyRule — type 25
-            realm.DefineValue(ruleObj, "type", JsValue.Number(25));
-
-            var braceOpen = trimmedRuleText.IndexOf('{');
-            var braceClose = trimmedRuleText.LastIndexOf('}');
-            if (braceOpen >= 0 && braceClose > braceOpen)
-            {
-                var propertyName = trimmedRuleText[9..braceOpen].Trim();
-                var descriptorsText = trimmedRuleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var descriptors = DomBridgeUtils.ParseStyle(descriptorsText);
-                var syntax = descriptors.TryGetValue("syntax", out var syntaxValue)
-                    ? CssomRuleMetadata.UnquoteDescriptor(syntaxValue)
-                    : "*";
-                var inherits = !descriptors.TryGetValue("inherits", out var inheritsValue)
-                    || !string.Equals(inheritsValue, "false", StringComparison.OrdinalIgnoreCase);
-                var initialValue = descriptors.GetValueOrDefault("initial-value");
-
-                realm.DefineValue(ruleObj, "name", JsValue.String(propertyName));
-                realm.DefineValue(ruleObj, "syntax", JsValue.String(syntax));
-                realm.DefineValue(ruleObj, "inherits", JsValue.Boolean(inherits));
-                realm.DefineValue(ruleObj, "initialValue",
-                    string.IsNullOrEmpty(initialValue) ? JsValue.Null : JsValue.String(initialValue));
-                realm.DefineAccessor(ruleObj, "cssText",
-                    (in _) => JsStyleSheetsGetCssText021Core(inherits, initialValue, propertyName, syntax), null);
-            }
-        }
-        else if (trimmedRuleText.StartsWith("@counter-style", StringComparison.OrdinalIgnoreCase))
-        {
-            // CSSCounterStyleRule — type 10
-            realm.DefineValue(ruleObj, "type", JsValue.Number(10));
-
-            var braceOpen = trimmedRuleText.IndexOf('{');
-            var braceClose = trimmedRuleText.LastIndexOf('}');
-            if (braceOpen >= 0 && braceClose > braceOpen)
-            {
-                var ruleName = trimmedRuleText[14..braceOpen].Trim();
-                var descriptorsText = trimmedRuleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var descriptors = DomBridgeUtils.ParseStyle(descriptorsText);
-
-                realm.DefineValue(ruleObj, "name", JsValue.String(ruleName));
-
-                var descriptorMap = new (string CssName, string JsName)[]
-                {
-                    ("system", "system"),
-                    ("symbols", "symbols"),
-                    ("additive-symbols", "additiveSymbols"),
-                    ("negative", "negative"),
-                    ("prefix", "prefix"),
-                    ("suffix", "suffix"),
-                    ("range", "range"),
-                    ("pad", "pad"),
-                    ("fallback", "fallback"),
-                    ("speak-as", "speakAs")
-                };
-
-                foreach (var (cssName, jsName) in descriptorMap)
-                {
-                    realm.DefineValue(ruleObj, jsName,
-                        descriptors.TryGetValue(cssName, out var value) ? JsValue.String(value) : JsValue.Undefined);
-                }
-
-                realm.DefineAccessor(ruleObj, "cssText",
-                    (in _) => JsStyleSheetsGetCssText022Core(realm, descriptorMap, ruleName, ruleObj), null);
-            }
-        }
-        else if (trimmedRuleText.StartsWith("@supports", StringComparison.OrdinalIgnoreCase))
-        {
-            // CSSSupportsRule — type 11
-            realm.DefineValue(ruleObj, "type", JsValue.Number(11));
-
-            int braceOpen = ruleText.IndexOf('{');
-            int braceClose = ruleText.LastIndexOf('}');
-            if (braceOpen >= 0 && braceClose > braceOpen)
-            {
-                var conditionText = ruleText[9..braceOpen].Trim();
-                var nestedCss = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var nestedRuleObjects = BuildNestedRuleObjects(realm, nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
-                var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects,
-                    rule => BuildCssRuleObject(realm, rule, parentStyleSheet, ruleObj));
-
-                realm.DefineValue(ruleObj, "conditionText", JsValue.String(conditionText));
-                realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
-                realm.DefineAccessor(ruleObj, "cssText",
-                    (in _) => JsStyleSheetsGetCssText023Core(realm, conditionText, nestedRuleObjects), null);
-            }
-        }
-        else if (trimmedRuleText.StartsWith("@layer", StringComparison.OrdinalIgnoreCase))
-        {
-            // CSSLayerRule — type 12
-            realm.DefineValue(ruleObj, "type", JsValue.Number(12));
-
-            var layerBody = ruleText[6..].Trim();
-            var braceOpen = ruleText.IndexOf('{');
-            var braceClose = ruleText.LastIndexOf('}');
-            if (braceOpen >= 0 && braceClose > braceOpen)
-            {
-                var nameText = ruleText[6..braceOpen].Trim();
-                var nestedCss = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var nestedRuleObjects = BuildNestedRuleObjects(realm, nestedCss, nestedModelRules, parentStyleSheet, ruleObj);
-                var nestedCssRules = BuildCssRuleListObject(realm, nestedRuleObjects,
-                    rule => BuildCssRuleObject(realm, rule, parentStyleSheet, ruleObj));
-
-                realm.DefineValue(ruleObj, "name",
-                    string.IsNullOrEmpty(nameText) ? JsValue.Null : JsValue.String(nameText));
-                realm.DefineValue(ruleObj, "cssRules", nestedCssRules);
-                realm.DefineAccessor(ruleObj, "cssText",
-                    (in _) => JsStyleSheetsGetCssText024Core(realm, nameText, nestedRuleObjects), null);
-            }
-            else
-            {
-                var nameText = layerBody.TrimEnd(';').Trim();
-                realm.DefineValue(ruleObj, "name",
-                    string.IsNullOrEmpty(nameText) ? JsValue.Null : JsValue.String(nameText));
-                realm.DefineValue(ruleObj, "cssRules", BuildCssRuleListObject(realm, []));
-                realm.DefineAccessor(ruleObj, "cssText",
-                    (in _) => JsStyleSheetsGetCssText025Core(nameText), null);
-            }
-        }
-        else if (trimmedRuleText.StartsWith("@namespace", StringComparison.OrdinalIgnoreCase))
-        {
-            // CSSNamespaceRule — type 9
-            realm.DefineValue(ruleObj, "type", JsValue.Number(9));
-
-            var namespaceBody = trimmedRuleText[10..].Trim().TrimEnd(';').Trim();
-            string? prefix = null;
-            var namespaceUri = string.Empty;
-
-            var parts = namespaceBody.Split([' ', '\t', '\r', '\n'], 2, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 2)
-            {
-                prefix = parts[0];
-                namespaceUri = CssomRuleMetadata.ExtractNamespaceUri(parts[1]);
-            }
-            else if (parts.Length == 1)
-            {
-                namespaceUri = CssomRuleMetadata.ExtractNamespaceUri(parts[0]);
-            }
-
-            realm.DefineValue(ruleObj, "namespaceURI", JsValue.String(namespaceUri));
-            realm.DefineValue(ruleObj, "prefix",
-                string.IsNullOrEmpty(prefix) ? JsValue.Undefined : JsValue.String(prefix));
-            realm.DefineAccessor(ruleObj, "cssText",
-                (in _) => JsStyleSheetsGetCssText026Core(namespaceUri, prefix), null);
-        }
-        else if (trimmedRuleText.StartsWith("@page", StringComparison.OrdinalIgnoreCase))
-        {
-            // CSSPageRule — type 6
-            realm.DefineValue(ruleObj, "type", JsValue.Number(6));
-
-            var braceOpen = ruleText.IndexOf('{');
-            var braceClose = ruleText.LastIndexOf('}');
-            if (braceOpen >= 0 && braceClose > braceOpen)
-            {
-                var selectorText = ruleText[5..braceOpen].Trim();
-                var declarations = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                var styleMap = DomBridgeUtils.ParseStyle(declarations);
-                var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(realm, styleMap, ruleObj);
-
-                realm.DefineValue(ruleObj, "selectorText", JsValue.String(selectorText));
-                realm.DefineValue(ruleObj, "style", styleObj);
-                realm.DefineAccessor(ruleObj, "cssText",
-                    (in _) => JsStyleSheetsGetCssText027Core(realm, selectorText, styleObj), null);
-            }
-        }
-        else
-        {
-            // CSSStyleRule — type 1
-            realm.DefineValue(ruleObj, "type", JsValue.Number(1));
-
-            // Extract selector text
-            int braceOpen = ruleText.IndexOf('{');
-            if (braceOpen >= 0)
-            {
-                var selectorText = ruleText[..braceOpen].Trim();
-                realm.DefineValue(ruleObj, "selectorText", JsValue.String(selectorText));
-                realm.DefineAccessor(ruleObj, "cssText",
-                    (in _) => JsStyleSheetsGetCssText028Core(realm, ruleObj, selectorText), null);
-
-                int braceClose = ruleText.LastIndexOf('}');
-                if (braceClose > braceOpen)
-                {
-                    var declarations = ruleText.Substring(braceOpen + 1, braceClose - braceOpen - 1).Trim();
-                    var styleMap = DomBridgeUtils.ParseStyle(declarations);
-                    var styleObj = StyleDeclarationBinding.BuildRuleDeclaration(realm, styleMap, ruleObj);
-                    realm.DefineValue(ruleObj, "style", styleObj);
-                }
-            }
         }
 
         return ruleObj;

@@ -1,5 +1,6 @@
 using System.Linq;
 using Broiler.Dom;
+using Broiler.Dom.Html;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
 
@@ -10,9 +11,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// (Phase 3). <c>write</c> parses its argument as an HTML fragment and inserts the resulting nodes
 /// at the parser insertion point — right after the currently executing <c>&lt;script&gt;</c>, or
 /// appended to <c>&lt;body&gt;</c> as a fallback — matching real browser behaviour. <c>writeln</c>
-/// is <c>write</c> with a trailing newline. The document root, element list, current-script index
-/// and the fragment parser are reached through the narrow <see cref="IDocumentWriteHost"/> contract;
-/// the structural moves use the bridge's neutral <c>internal static</c> tree helpers. Previously the
+/// is <c>write</c> with a trailing newline. The document root, element list and current-script index
+/// are reached through the narrow <see cref="IDocumentWriteHost"/> contract; the fragment is parsed by
+/// the shared <see cref="HtmlDocumentParser"/>, and the structural moves use the bridge's neutral
+/// <c>internal static</c> tree helpers. Previously the
 /// bridge's <c>JsRegistrationWrite036Core</c>/<c>JsRegistrationWriteln037Core</c> in the shared
 /// JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
@@ -33,7 +35,9 @@ internal static class DocumentWriteBinding
             // ToJsString, not the handle's rendering: document.write of an object has always run the
             // object's own toString, and what a page writes is what that returns.
             var fragment = call.Realm.ToJsString(call[0]);
-            var fragmentRoot = host.BuildFragment(fragment, "body");
+            // The parser's fragment belongs to a private document, so its nodes are adopted, and a
+            // defined custom element among them upgraded, only as they are inserted below.
+            var fragmentRoot = HtmlDocumentParser.ParseFragment(fragment, "body").Fragment;
             if (fragmentRoot.ChildNodes.Count > 0)
             {
                 // Find the <body> element in the main tree.

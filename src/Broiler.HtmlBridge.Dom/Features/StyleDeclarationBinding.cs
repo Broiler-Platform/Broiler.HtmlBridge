@@ -8,8 +8,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The CSSOM <c>CSSStyleDeclaration</c> feature binding (HtmlBridge complexity-reduction roadmap Phase 3,
 /// P3.14) — the JS style-declaration object in its three flavours: the writable <c>element.style</c>
 /// (backed by the element's inline-style map), the writable rule declaration (<c>rule.style</c>, backed
-/// by a plain property map) and the read-only <c>getComputedStyle</c> result (built from an
-/// engine-produced computed map). Each exposes cssText/setProperty/getPropertyValue/removeProperty/
+/// by a <see cref="RuleDeclarationStore"/> — the rule in its sheet for a style rule, a plain property map for
+/// the declaration blocks that are not written through) and the read-only <c>getComputedStyle</c> result
+/// (built from an engine-produced computed map). Each exposes cssText/setProperty/getPropertyValue/removeProperty/
 /// cssFloat/length/item/getPropertyPriority/parentRule plus camelCase↔kebab-case bracket access.
 /// <para>
 /// It is the cleanest kind of slice: pure CSSOM-IDL logic over an inline-style dictionary and the
@@ -128,38 +129,47 @@ internal static partial class StyleDeclarationBinding
         return style;
     }
 
-    /// <summary>Builds the writable rule (<c>CSSRule.style</c>) CSSStyleDeclaration over a property map.
-    /// Was <c>DomBridge.BuildStyleObject(styleMap, parentRule)</c>.</summary>
+    /// <summary>Builds the writable rule (<c>CSSRule.style</c>) CSSStyleDeclaration over a property map that
+    /// lives only on the declaration (<see cref="MapRuleDeclarationStore"/>). Was
+    /// <c>DomBridge.BuildStyleObject(styleMap, parentRule)</c>.</summary>
     internal static JsValue BuildRuleDeclaration(IJsRealm realm, Dictionary<string, string> styleMap,
+        JsValue parentRule = default) =>
+        BuildRuleDeclaration(realm, new MapRuleDeclarationStore(styleMap), parentRule);
+
+    /// <summary>Builds the writable rule (<c>CSSRule.style</c>) CSSStyleDeclaration over
+    /// <paramref name="store"/>, which decides whether an edit reaches the rule's sheet. The store is the only
+    /// place the declaration keeps a property: a camel-cased attribute write is not also left behind as an
+    /// ordinary property (see <see cref="RuleDeclaration.TrySetNamed"/>).</summary>
+    internal static JsValue BuildRuleDeclaration(IJsRealm realm, RuleDeclarationStore store,
         JsValue parentRule = default)
     {
-        var style = realm.NewExotic(new RuleDeclaration(realm, styleMap));
+        var style = realm.NewExotic(new RuleDeclaration(realm, store));
 
         realm.DefineAccessor(style, "cssText",
-            (in _) => RuleGetCssText(styleMap),
-            (in call) => RuleSetCssText(styleMap, in call));
+            (in _) => RuleGetCssText(store),
+            (in call) => RuleSetCssText(store, in call));
 
         realm.DefineValue(style, "setProperty",
-            realm.NewMethod("setProperty", (in call) => RuleSetProperty(styleMap, in call), 2));
+            realm.NewMethod("setProperty", (in call) => RuleSetProperty(store, in call), 2));
 
         realm.DefineValue(style, "getPropertyValue",
-            realm.NewMethod("getPropertyValue", (in call) => RuleGetPropertyValue(styleMap, in call), 1));
+            realm.NewMethod("getPropertyValue", (in call) => RuleGetPropertyValue(store, in call), 1));
 
         realm.DefineValue(style, "removeProperty",
-            realm.NewMethod("removeProperty", (in call) => RuleRemoveProperty(styleMap, in call), 1));
+            realm.NewMethod("removeProperty", (in call) => RuleRemoveProperty(store, in call), 1));
 
         realm.DefineAccessor(style, "cssFloat",
-            (in _) => RuleGetCssFloat(styleMap),
-            (in call) => RuleSetCssFloat(styleMap, in call));
+            (in _) => RuleGetCssFloat(store),
+            (in call) => RuleSetCssFloat(store, in call));
 
         realm.DefineAccessor(style, "length",
-            (in _) => JsValue.Number(GetStylePropertyNames(styleMap).Count), null);
+            (in _) => JsValue.Number(GetStylePropertyNames(store.Declared).Count), null);
 
         realm.DefineValue(style, "item",
-            realm.NewMethod("item", (in call) => RuleItem(styleMap, in call), 1));
+            realm.NewMethod("item", (in call) => RuleItem(store, in call), 1));
 
         realm.DefineValue(style, "getPropertyPriority",
-            realm.NewMethod("getPropertyPriority", (in call) => RuleGetPropertyPriority(styleMap, in call), 1));
+            realm.NewMethod("getPropertyPriority", (in call) => RuleGetPropertyPriority(store, in call), 1));
 
         realm.DefineAccessor(style, "parentRule",
             (in _) => parentRule.IsMissing ? JsValue.Null : parentRule, null);
@@ -302,14 +312,24 @@ internal static partial class StyleDeclarationBinding
         public uint IndexedLength => 0;
     }
 
-    /// <summary>The <c>rule.style</c> named-property hook, over a plain property map.</summary>
-    private sealed class RuleDeclaration(IJsRealm realm, Dictionary<string, string> style) : IJsExotic
+    /// <summary>
+    /// Whether <paramref name="value"/>, as a page passed it with no priority of its own, may be written to a rule
+    /// declaration's <paramref name="property"/>: valid for the property, and not carrying <c>!important</c>, which
+    /// CSSOM takes only as <c>setProperty</c>'s third argument. Accepting it was invisible while every rule
+    /// declaration was a detached map; a store that writes through puts it in the sheet as an important
+    /// declaration the cascade applies.
+    /// </summary>
+    private static bool IsRuleValue(string property, string value) =>
+        CssPriority.Parse(value).Length == 0 && DomBridgeUtils.IsAcceptableInlineValue(property, value);
+
+    /// <summary>The <c>rule.style</c> named-property hook, over the rule's <see cref="RuleDeclarationStore"/>.</summary>
+    private sealed class RuleDeclaration(IJsRealm realm, RuleDeclarationStore store) : IJsExotic
     {
         /// <inheritdoc />
         public bool TryGetNamed(string name, out JsValue value)
         {
             if (!NonCssNames.Contains(name) &&
-                TryGetStylePropertyRawValue(style, name, out var raw))
+                TryGetStylePropertyRawValue(store.Declared, name, out var raw))
             {
                 value = JsValue.String(CssPriority.Strip(raw));
                 return true;
@@ -327,21 +347,43 @@ internal static partial class StyleDeclarationBinding
         }
 
         /// <inheritdoc />
+        /// <remarks>
+        /// <para>
+        /// <b>Every write to a CSS property is intercepted, the accepted ones included</b> — unlike
+        /// <see cref="InlineDeclaration.TrySetNamed"/>, which declines after an accepted write so the value
+        /// also lands as an ordinary property. Ordinary properties are read before <see cref="TryGetNamed"/>,
+        /// so that copy answered every later read of the attribute, and <c>getPropertyValue</c> fell back to it
+        /// too. For an inline declaration there is one object per element and the copy mostly agreed with the
+        /// store; a rule's store is shared by every declaration of the rule, and changed by
+        /// <c>setProperty</c>, <c>removeProperty</c> and <c>cssText</c> as well, so the copy went stale on the
+        /// first such edit: <c>a.display = 'flex'; b.display = 'grid'</c> left <c>a.display</c> answering
+        /// <c>flex</c> over a cascade applying <c>grid</c>. Intercepting leaves the store the only answer.
+        /// </para>
+        /// <para>
+        /// <b>What is still declined</b>, and so becomes an ordinary property as on any object: the
+        /// declaration's own members, and a name beginning <c>--</c>. CSSOM gives a custom property no
+        /// attribute, so <c>style['--myVar'] = v</c> is an expando; handing it to the store instead wrote
+        /// <c>--my-var</c>, the name the camel-to-kebab rewrite makes of it, which is a different custom
+        /// property the cascade applies.
+        /// </para>
+        /// <para>
+        /// A value carrying <c>!important</c> is ignored like any other invalid one: the attribute setter is
+        /// <c>setProperty</c> with no priority, and <c>!important</c> is no part of a property's value.
+        /// </para>
+        /// </remarks>
         public bool TrySetNamed(string name, JsValue value)
         {
-            if (NonCssNames.Contains(name))
+            if (NonCssNames.Contains(name) || RuleDeclarationEdits.IsCustom(name))
                 return false;
 
             var kebab = ToCssPropertyName(name);
             var val = value.IsMissing ? string.Empty : realm.ToJsString(value);
             if (string.IsNullOrEmpty(val))
-                style.Remove(kebab);
-            else if (DomBridgeUtils.IsAcceptableInlineValue(kebab, val))
-                style[kebab] = val;
-            else
-                return true;   // invalid value ignored; don't store it as an ordinary property either
+                store.Remove(kebab);
+            else if (IsRuleValue(kebab, val))
+                store.Set(kebab, val);
 
-            return false;
+            return true;
         }
 
         /// <inheritdoc />
@@ -407,6 +449,16 @@ internal static partial class StyleDeclarationBinding
     {
         if (style.TryGetValue(property, out value!))
             return true;
+
+        // A custom property is its exact name: the camel/kebab rewrites below read --myVar as --my-var, a
+        // different property, so a rule declaration's getPropertyValue('--myVar') answered --my-var's value
+        // once --myVar was gone. (element.style still reaches that rewrite through its shorthand-expanded
+        // fallback, TryGetExpandedInlineStyleRawValue.)
+        if (RuleDeclarationEdits.IsCustom(property))
+        {
+            value = string.Empty;
+            return false;
+        }
 
         var camel = CssPropertyNames.ToDomPropertyName(property);
         if (camel != property && style.TryGetValue(camel, out value!))

@@ -482,7 +482,7 @@ public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
         _realm?.EvaluateClassicScript(source, label);
     }
 
-    string Dom.Runtime.IScriptInsertionHost.TextContentOf(DomElement element) => GetTextContentRecursive(element);
+    string Dom.Runtime.IScriptInsertionHost.TextContentOf(DomElement element) => element.TextContent;
 
     void Dom.Runtime.IScriptInsertionHost.FireSimpleEvent(DomElement target, string type)
     {

@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.Dom.Html;
@@ -19,21 +18,6 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 public sealed partial class DomBridge
 {
-    /// <summary>
-    /// Parses a DOCTYPE declaration and creates the canonical <see cref="DomDocumentType"/> node.
-    /// </summary>
-    private DomDocumentType? ParseDocType(string html)
-    {
-        var match = DocTypePattern.Match(html);
-        if (!match.Success) return null;
-
-        var name = match.Groups[1].Value;
-        var publicId = match.Groups[2].Success ? match.Groups[2].Value : string.Empty;
-        var systemId = match.Groups[3].Success ? match.Groups[3].Value : string.Empty;
-
-        return CreateBridgeDocumentType(name, publicId, systemId);
-    }
-
     /// <summary>
     /// Finds the <see cref="DomElement"/> a wrapper handle stands for, or <see langword="null"/>
     /// when it stands for none — a handle that is not an object included.
@@ -352,7 +336,7 @@ public sealed partial class DomBridge
                     continue;
 
                 case "textarea":
-                    entries.Add(new(name, CurrentControlValue(control, GetElementTextContent(control))));
+                    entries.Add(new(name, CurrentControlValue(control, control.TextContent)));
                     continue;
 
                 case "input":

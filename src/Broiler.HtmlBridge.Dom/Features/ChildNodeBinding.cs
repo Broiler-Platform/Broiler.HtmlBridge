@@ -8,8 +8,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>replaceWith()</c> — registered on every node wrapper, co-located as an HtmlBridge feature module
 /// (Phase 3). Pure DOM tree mutation: it positions the argument nodes relative to the context node
 /// through the bridge's neutral static tree helpers (<c>ParentEl</c>, <c>ChildIndexOf</c>,
-/// <c>RemoveNthChild</c>, <c>SetParent</c>) and drives the side-effecting insertion / removal plus the
-/// node-iterator / mutation-observer notifications through the <see cref="IChildNodeHost"/> contract.
+/// <c>RemoveNthChild</c>, <c>SetParent</c>) and drives the side-effecting insertion plus the style-scope
+/// invalidation through the <see cref="IChildNodeHost"/> contract.
 /// Was the bridge's <c>JsJsObjectsRemove093Core</c>..<c>ReplaceWith096Core</c>.
 /// </summary>
 /// <remarks>
@@ -92,12 +92,10 @@ internal static class ChildNodeBinding
         if (idx < 0)
             return;
 
-        host.NotifyNodeIteratorPreRemoval(element);
         DomBridgeUtils.RemoveNthChild(parent, idx);
         DomBridgeUtils.SetParent(element, null);
         if (parent is DomElement parentElement)
             host.InvalidateStyleScope(parentElement);
-        host.NotifyChildRemoved(parent, element, idx);
     }
 
     private static void BeforeCore(IChildNodeHost host, DomElement parent, DomNode element, List<DomNode> nodes)
@@ -122,11 +120,9 @@ internal static class ChildNodeBinding
     private static void ReplaceWithCore(
         IChildNodeHost host, DomElement parent, DomNode element, int replacementIndex, List<DomNode> nodes)
     {
-        host.NotifyNodeIteratorPreRemoval(element);
         DomBridgeUtils.RemoveNthChild(parent, replacementIndex);
         DomBridgeUtils.SetParent(element, null);
         host.InvalidateStyleScope(parent);
-        host.NotifyChildRemoved(parent, element, replacementIndex);
         foreach (var node in nodes)
             host.InsertNodeAt(parent, node, replacementIndex++);
     }

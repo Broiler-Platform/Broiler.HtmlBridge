@@ -6,28 +6,39 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The element-content IDL members, co-located as an HtmlBridge feature module (Phase 3): the HTML
 /// serialization pair <c>innerHTML</c> / <c>outerHTML</c> (read serializes, write reparses a fragment) and
-/// the text-content trio <c>textContent</c> / <c>innerText</c> / <c>outerText</c> (read returns the node's
-/// text value; only <c>textContent</c> is writable, replacing all children with a single text node). Every
-/// operation routes through the bridge's shared parser/serializer and canonical tree mutation, reached
-/// through the <see cref="IElementContentHost"/> contract. The three entry points follow the
+/// the text-content trio <c>textContent</c> / <c>innerText</c> / <c>outerText</c> (read returns the element's
+/// descendant text; only <c>textContent</c> is writable, replacing all children with a single text node).
+/// The serialization pair routes through the bridge's shared parser/serializer, reached through the
+/// <see cref="IElementContentHost"/> contract; the text trio is the canonical
+/// <see cref="DomNode.TextContent"/> read and written directly. The three entry points follow the
 /// interfaces: the serialization pair is <c>Element</c>'s and goes on <c>Element.prototype</c>,
-/// <c>textContent</c> (<c>Node</c>'s, deliberately shadowed here because an element's operation differs
-/// from a character-data node's) stays on each wrapper, and the two <c>HTMLElement</c> text members go
-/// on <c>HTMLElement.prototype</c>. A wrapper that cannot inherit one of those prototypes (one minted
-/// before the realm carried it or, for <c>HTMLElement</c>'s, a non-HTML element) carries those members
-/// itself. The serialization pair and the text members were first split to keep the unrelated
-/// <c>shadowRoot</c> accessor in its position between them; that position is decided in
-/// <c>DomBridge/ElementInterface.cs</c> now. Was the bridge's inline <c>innerHTML</c>/<c>outerHTML</c>/<c>textContent</c>/
-/// <c>innerText</c>/<c>outerText</c> registration plus the <c>JsJsObjectsSetInnerHTML016Core</c>/
-/// <c>SetOuterHTML018Core</c>/<c>SetTextContent021Core</c> callbacks.
+/// <c>textContent</c> (<c>Node</c>'s, shadowed here) stays on each wrapper, and the two
+/// <c>HTMLElement</c> text members go on <c>HTMLElement.prototype</c>. A wrapper that cannot inherit
+/// one of those prototypes (one minted before the realm carried it or, for <c>HTMLElement</c>'s, a
+/// non-HTML element) carries those members itself. The serialization pair and the text members were
+/// first split to keep the unrelated <c>shadowRoot</c> accessor in its position between them; that
+/// position is decided in <c>DomBridge/ElementInterface.cs</c> now. Was the bridge's inline
+/// <c>innerHTML</c>/<c>outerHTML</c>/<c>textContent</c>/<c>innerText</c>/<c>outerText</c> registration
+/// plus the <c>JsJsObjectsSetInnerHTML016Core</c>/<c>SetOuterHTML018Core</c>/<c>SetTextContent021Core</c>
+/// callbacks.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the members are minted by the realm,
-/// their bodies read a <see cref="JsCall"/>, and the three setters coerce with
+/// their bodies read a <see cref="JsCall"/>, and the two markup setters coerce with
 /// <see cref="IJsValues.ToJsString"/> — which is what the engine did before, and what the handle's own
 /// <c>ToString</c> deliberately does not do. <c>innerHTML = someObject</c> running that object's
 /// <c>toString</c> is the whole of how a templating library hands over a fragment.
+/// </para>
+/// <para>
+/// <b><c>textContent</c> is a nullable <c>DOMString</c> and the two markup members are not.</b> Its
+/// setter is <see cref="NodeAccessorsBinding.SetTextContent"/>, the one every node kind uses, which
+/// passes <c>null</c> and <c>undefined</c> through as IDL null, so <c>el.textContent = null</c> leaves no
+/// children at all. It used to be coerced like the other two, which left one text node reading
+/// <c>"null"</c>. The markup setters still coerce, so <c>innerHTML = null</c> parses the string
+/// <c>"null"</c>, and that is a known difference from Chromium rather than parity: the two are
+/// <c>[LegacyNullToEmptyString]</c>, so a browser reads <c>null</c> as the empty string and
+/// <c>el.innerHTML = null</c> leaves the element empty.
 /// </para>
 /// <para>
 /// <b><see cref="InstallTextContent"/> takes the wrapper handle and reads the realm off the host.</b>
@@ -58,9 +69,11 @@ internal static class ElementContentBinding
 
     /// <summary>
     /// <c>textContent</c> (read/write), which stays each element wrapper's own: it is <c>Node</c>'s
-    /// member, and an element's operation — read the descendants' text, and on write replace every
-    /// child with one text node — differs from the character-data one already on
-    /// <c>Node.prototype</c>, so it shadows that one until a single implementation serves both.
+    /// member, and it shadows the one on <c>Node.prototype</c>. It was installed because an element's
+    /// operation — read the descendants' text, and on write replace every child with one text node —
+    /// differed from the character-data one there. Both are the canonical <see cref="DomNode.TextContent"/>
+    /// now, so an element reads the same answer through either; this one never needs the document and
+    /// doctype <c>null</c> the prototype getter maps, since an element is neither.
     /// </summary>
     /// <param name="target">The element's JS wrapper, as the factory that calls this now holds it.</param>
     public static void InstallTextContent(IElementContentHost host, JsValue target, DomElement element)
@@ -68,21 +81,21 @@ internal static class ElementContentBinding
         var realm = host.Realm;
 
         realm.DefineAccessor(target, "textContent",
-            (in _) => JsValue.String(host.NodeTextValue(element)),
-            (in call) => SetTextContent(host, element, in call));
+            (in _) => JsValue.String(element.TextContent),
+            (in call) => NodeAccessorsBinding.SetTextContent(element, in call));
     }
 
     /// <summary>
     /// <c>innerText</c> and <c>outerText</c> (read-only), which are <c>HTMLElement</c>'s and go on its
     /// prototype.
     /// </summary>
-    public static void InstallHtmlElementMembers(IElementContentHost host, IJsRealm realm, JsValue target, JsElementSource element)
+    public static void InstallHtmlElementMembers(IJsRealm realm, JsValue target, JsElementSource element)
     {
         realm.DefineAccessor(target, "innerText",
-            (in call) => JsValue.String(host.NodeTextValue(element(in call, "innerText"))), null);
+            (in call) => JsValue.String(element(in call, "innerText").TextContent), null);
 
         realm.DefineAccessor(target, "outerText",
-            (in call) => JsValue.String(host.NodeTextValue(element(in call, "outerText"))), null);
+            (in call) => JsValue.String(element(in call, "outerText").TextContent), null);
     }
 
     private static JsValue SetInnerHtml(IElementContentHost host, DomElement element, in JsCall call)
@@ -94,13 +107,6 @@ internal static class ElementContentBinding
     private static JsValue SetOuterHtml(IElementContentHost host, DomElement element, in JsCall call)
     {
         host.SetElementOuterHtml(element, StringArgument(in call));
-        return JsValue.Undefined;
-    }
-
-    private static JsValue SetTextContent(IElementContentHost host, DomElement element, in JsCall call)
-    {
-        // Setting textContent replaces all children with a single text node per DOM spec.
-        host.SetElementTextContent(element, StringArgument(in call));
         return JsValue.Undefined;
     }
 

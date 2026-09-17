@@ -23,8 +23,7 @@ namespace Broiler.HtmlBridge.Tests;
 /// the node passes every other line here.
 /// </para>
 /// <para>
-/// Every assertion is what a browser answers, not what this bridge happens to do; the one place they
-/// differ is the skipped test, which spells the browser's answer and names the defect.
+/// Every assertion is what a browser answers, not what this bridge happens to do.
 /// </para>
 /// </summary>
 public class FrameDocumentTests
@@ -200,14 +199,13 @@ public class FrameDocumentTests
                 """));
     }
 
-    [Fact(Skip = "isConnected compares a node's tree root against the MAIN document, so every node in " +
-                 "a frame's document answers false — its own body and documentElement included. " +
-                 "DOM §4.4 makes a node connected when its shadow-including root is a document, and a " +
-                 "frame's document is one, so a framed script's standard \"am I in the page yet?\" " +
-                 "guard never opens. " +
-                 "src/Broiler.HtmlBridge.Dom/Features/NodeAccessorsBinding.cs:29")]
+    [Fact]
     public void EveryNodeInTheFramesDocumentIsConnected()
     {
+        // DOM §4.2.2: a node is connected when its shadow-including root is a document, and a frame's
+        // document is one. This was skipped while isConnected compared the root with the MAIN document,
+        // which made every node here — the frame's own body and documentElement included — answer false.
+        // NodeIsConnectedTests covers the other trees a node can be in.
         Assert.Equal(
             "inner=true body=true root=true",
             Run("""

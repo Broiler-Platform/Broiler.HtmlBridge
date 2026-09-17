@@ -135,10 +135,13 @@ public sealed partial class DomBridge
         // Internal rules storage for this stylesheet — the single shared, mutable
         // Broiler.CSS rule model held in the element's runtime state (Phase 6 store
         // unification). The same list backs the renderer text and the
-        // getComputedStyle engine, so a script insertRule/deleteRule here is observed
-        // by both. CurrentRules() reparses on textContent change before returning it.
+        // getComputedStyle engine, so a script insertRule/deleteRule here, or a write to a
+        // style rule's style (ruleModel), is observed by both. CurrentRules() reparses on
+        // textContent change before returning it; MarkRulesMutated is every edit's one report,
+        // and also invalidates computed style (OnStyleSheetRulesMutated says why it must).
         List<CssRule> CurrentRules() => EnsureStyleSheetRulesCurrent(styleElement);
-        void MarkRulesMutated() => StyleSheetStateFor(styleElement).RulesMutated = true;
+        void MarkRulesMutated() => OnStyleSheetRulesMutated(styleElement);
+        var ruleModel = new Dom.Features.StyleSheetRuleModel(CurrentRules, MarkRulesMutated);
 
         // Live cssRules object — single instance that always reflects current state
         var liveCssRules = realm.NewObject();
@@ -151,13 +154,13 @@ public sealed partial class DomBridge
             realm.NewMethod("item",
                 (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsItem003Core(SyncLiveCssRulesIndices, liveCssRules, CurrentRules, in call), 1));
 
-        // Syncs indexed properties on the live cssRules object with the shared model
+        // Syncs indexed properties on the live cssRules object with the CSSOM view of the shared model
         void SyncLiveCssRulesIndices()
         {
-            var rules = CurrentRules();
+            var rules = Dom.Features.StyleSheetBinding.CssomRules(CurrentRules());
             for (var i = 0; i < rules.Count; i++)
             {
-                var ruleObj = Dom.Features.StyleSheetBinding.BuildCssRuleObject(realm, rules[i], sheet);
+                var ruleObj = Dom.Features.StyleSheetBinding.BuildCssRuleObject(realm, rules[i], sheet, default, ruleModel);
                 realm.DefineIndex(liveCssRules, (uint)i, ruleObj);
             }
 
@@ -174,7 +177,8 @@ public sealed partial class DomBridge
             (in _) => Dom.Features.StyleSheetBinding.JsStyleSheetsGetCssRules004Core(SyncLiveCssRulesIndices, liveCssRules), null);
 
         // insertRule(rule, index) — mutates the shared model (marking it mutated so
-        // the renderer/engine serialize from it) and resyncs the live collection
+        // the renderer/engine serialize from it and computed style is re-resolved) and
+        // resyncs the live collection
         realm.DefineValue(sheet, "insertRule",
             realm.NewMethod("insertRule",
                 (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call), 2));
@@ -286,7 +290,7 @@ public sealed partial class DomBridge
             var original = GetStyleElementCssText(element);
             var rewritten = RewriteCssUrlsAgainstBaseHref(original, baseHref);
             if (!string.Equals(rewritten, original, StringComparison.Ordinal))
-                SetElementTextContent(element, rewritten);
+                element.TextContent = rewritten;
         }
 
         foreach (var child in ChildElements(element))
@@ -425,7 +429,7 @@ public sealed partial class DomBridge
                 var expanded = ExpandCssImports(
                     original, documentBaseUrl(), new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0);
                 if (!string.Equals(expanded, original, StringComparison.Ordinal))
-                    SetElementTextContent(element, expanded);
+                    element.TextContent = expanded;
             }
         }
 
@@ -537,8 +541,13 @@ public sealed partial class DomBridge
     /// callback (WPT issue #1497 problem 26,
     /// <c>uievents/…/UIEvent.load.stylesheet</c>).
     /// <para>
-    /// Only a link that is <em>in the document</em> fetches, so a detached one stays silent until it
-    /// is inserted. The event fires once per <c>href</c>: re-pointing the link at a different sheet
+    /// Only a link in <em>this bridge's page document</em> fetches, so a detached one stays silent until
+    /// it is inserted. That test is deliberately not <see cref="DomNode.IsConnected"/>, which is true in
+    /// any document: HTML fetches only once the link is <em>browsing-context connected</em>, which a
+    /// link in a <c>createHTMLDocument</c> document never is, and the base URL, CSP policy and cascade
+    /// the outcome is decided against below are all the page's. So a link in a frame's document fires
+    /// neither event here either, although a browser fetches it against the frame's own base URL and
+    /// fires one. The event fires once per <c>href</c>: re-pointing the link at a different sheet
     /// is a new fetch and fires again, while re-inserting it, or writing the same href twice, does
     /// not. Whether the fetch succeeded is decided the same way the cascade decides it — the CSP
     /// gate, then the resource loader — so the event never disagrees with whether the sheet applied.

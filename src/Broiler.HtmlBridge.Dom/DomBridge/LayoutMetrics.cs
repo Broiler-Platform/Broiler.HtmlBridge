@@ -294,32 +294,33 @@ public sealed partial class DomBridge
             if (ReferenceEquals(current, documentElement))
                 break;
 
-            if (EstablishesFixedPositionContainingBlock(current))
+            // A non-atomic inline box is passed over first, as the layout engine's fixed-position path
+            // passes over it (Broiler.Layout's CssBox.FixedPositioningViewport): a transform does not
+            // apply to one (CSS Transforms 1, "transformable element"), nor do layout and paint
+            // containment, and a will-change hint creates nothing its property would not. Chromium
+            // agrees. GetComputedProps has already seeded the user-agent display, so an absent one is
+            // the CSS initial value, inline.
+            //
+            // The transform/contain/will-change trio after it is the canonical Broiler.CSS predicate that
+            // path shares, so `will-change: transform` contains a fixed box exactly as `transform` does
+            // (CSS Will Change §2) and scrollParent() walks from that ancestor. Its will-change test is a
+            // substring match, so `will-change: transform-origin` or `transform-box` contains one too,
+            // where Chromium's does not; that over-match is the package's. `position` is deliberately not
+            // consulted: a positioned ancestor contains absolute boxes, not fixed ones, which is why
+            // EstablishesContainingBlock cannot stand in.
+            var props = GetComputedProps(current);
+            var display = props.GetValueOrDefault("display")?.Trim();
+            if (display is null || display.Equals("inline", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (CssContainingBlock.CreatedByTransformContainOrWillChange(
+                    props.GetValueOrDefault("transform"),
+                    props.GetValueOrDefault("contain"),
+                    props.GetValueOrDefault("will-change")))
                 return current;
         }
 
         return null;
-    }
-
-    private bool EstablishesFixedPositionContainingBlock(DomElement element)
-    {
-        var props = GetComputedProps(element);
-        var transform = props.GetValueOrDefault("transform");
-        if (!string.IsNullOrWhiteSpace(transform) &&
-            !string.Equals(transform.Trim(), "none", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        var contain = props.GetValueOrDefault("contain");
-        if (string.IsNullOrWhiteSpace(contain))
-            return false;
-
-        var normalized = contain.Trim().ToLowerInvariant();
-        return normalized.Contains("paint") ||
-               normalized.Contains("layout") ||
-               normalized.Contains("strict") ||
-               normalized.Contains("content");
     }
 
     private bool HasAssociatedLayoutBox(DomElement element)
@@ -525,21 +526,6 @@ public sealed partial class DomBridge
         if (!UseSharedLayoutGeometry || !TryGetSharedLayoutGeometry(element, out var box))
             return false;
         extent = UnzoomSharedExtent(vertical ? box.BorderBox.Height : box.BorderBox.Width, element);
-        return true;
-    }
-
-    /// <summary>
-    /// RF-BRIDGE-1b: <paramref name="element"/>'s content-box extent along the axis from
-    /// the shared renderer layout (the renderer's <c>ClientRectangle</c> is the content
-    /// box), in the element's own unzoomed CSS pixels. Returns <c>false</c> (caller falls
-    /// back to the estimator) when the shared path is off or the element has no box.
-    /// </summary>
-    private bool TrySharedContentBoxExtent(DomElement element, bool vertical, out double extent)
-    {
-        extent = 0;
-        if (!UseSharedLayoutGeometry || !TryGetSharedLayoutGeometry(element, out var box))
-            return false;
-        extent = UnzoomSharedExtent(vertical ? box.ContentBox.Height : box.ContentBox.Width, element);
         return true;
     }
 

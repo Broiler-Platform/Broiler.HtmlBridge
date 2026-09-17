@@ -9,9 +9,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// its <c>Attr</c> nodes — together with the attribute write path
 /// (<c>setAttribute</c>/<c>removeAttribute</c> and their <c>NS</c> variants), which applies the change
 /// to the canonical attribute set and coordinates the cross-cutting side effects (inline style, inline
-/// event handlers, style invalidation, mutation records) through the narrow <see cref="IAttributesHost"/>
-/// contract. The element's own <c>getAttribute</c>/<c>setAttribute</c>/… methods (registered among the
-/// other element members in the bridge) delegate their write and Attr-node construction here. The
+/// event handlers, style invalidation) through the narrow <see cref="IAttributesHost"/> contract. The
+/// element's own <c>getAttribute</c>/<c>setAttribute</c>/… methods (registered among the other element
+/// members in the bridge) delegate their write and Attr-node construction here. The
 /// low-level, engine-neutral attribute scans (<c>TryGetAttribute</c>/<c>SetAttr</c>/<c>RemoveAttr</c>/
 /// <c>AttributeNames</c>/<c>TryGetNsAttribute</c>) stay shared static helpers on <c>DomBridge</c> and
 /// are called qualified (Phase 4 promotes them to Broiler.Dom).
@@ -460,7 +460,6 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
 
     internal void SetAttributeLikeSetAttribute(DomElement element, string attrName, string attrVal)
     {
-        DomBridgeUtils.TryGetAttribute(element, attrName, out var previousAttrVal);
         DomBridgeUtils.SetAttr(element, attrName, attrVal);
         if (string.Equals(attrName, "id", StringComparison.OrdinalIgnoreCase))
             element.Id = attrVal;
@@ -477,42 +476,30 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
 
         if (!string.Equals(attrName, "style", StringComparison.OrdinalIgnoreCase))
             _host.InvalidateStyleScope(element);
-
-        if (!string.Equals(previousAttrVal, attrVal, StringComparison.Ordinal))
-            _host.NotifyAttributeMutationObservers(element, attrName, previousAttrVal);
     }
 
     internal void RemoveAttributeLikeRemoveAttribute(DomElement element, string attrName)
     {
-        DomBridgeUtils.TryGetAttribute(element, attrName, out var previousAttrVal);
         // Before the removal, so the wrapper can keep the value it had.
         DetachAttrNode(element, attrName);
-        var removed = DomBridgeUtils.RemoveAttr(element, attrName);
+        DomBridgeUtils.RemoveAttr(element, attrName);
         if (string.Equals(attrName, "id", StringComparison.OrdinalIgnoreCase))
             element.Id = null;
         else if (string.Equals(attrName, "class", StringComparison.OrdinalIgnoreCase))
             element.ClassName = null;
 
         _host.InvalidateStyleScope(element);
-        if (removed)
-            _host.NotifyAttributeMutationObservers(element, attrName, previousAttrVal);
     }
 
     internal void SetAttributeLikeSetAttributeNS(DomElement element, string? namespaceUri, string attrName, string localName, string attrVal)
     {
-        string? previousAttrVal = null;
-        if (DomBridgeUtils.TryGetNsAttribute(element, namespaceUri, localName, out var previousQualifiedName, out var existingAttrVal))
+        if (DomBridgeUtils.TryGetNsAttribute(element, namespaceUri, localName, out var previousQualifiedName, out _))
         {
-            previousAttrVal = existingAttrVal;
             // A prefix change keeps the same (namespace, localName) canonical key, so the
             // SetAttributeNS below replaces the old-prefix attribute in place. The explicit
             // remove keeps the canonical mutation-record sequence identical to the shadow-map era.
             if (!string.Equals(previousQualifiedName, attrName, StringComparison.OrdinalIgnoreCase))
                 DomBridgeUtils.RemoveAttr(element, previousQualifiedName);
-        }
-        else
-        {
-            DomBridgeUtils.TryGetAttribute(element, attrName, out previousAttrVal);
         }
 
         element.SetAttributeNS(namespaceUri, attrName, attrVal);
@@ -531,25 +518,20 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
 
         if (!string.Equals(attrName, "style", StringComparison.OrdinalIgnoreCase))
             _host.InvalidateStyleScope(element);
-
-        if (!string.Equals(previousAttrVal, attrVal, StringComparison.Ordinal))
-            _host.NotifyAttributeMutationObservers(element, attrName, previousAttrVal);
     }
 
     internal void RemoveAttributeLikeRemoveAttributeNS(DomElement element, string? namespaceUri, string localName)
     {
-        if (!DomBridgeUtils.TryGetNsAttribute(element, namespaceUri, localName, out var attrName, out var previousAttrVal))
+        if (!DomBridgeUtils.TryGetNsAttribute(element, namespaceUri, localName, out var attrName, out _))
             return;
 
         DetachAttrNode(element, attrName);
-        var removed = DomBridgeUtils.RemoveAttr(element, attrName);
+        DomBridgeUtils.RemoveAttr(element, attrName);
         if (string.Equals(attrName, "id", StringComparison.OrdinalIgnoreCase))
             element.Id = null;
         else if (string.Equals(attrName, "class", StringComparison.OrdinalIgnoreCase))
             element.ClassName = null;
 
         _host.InvalidateStyleScope(element);
-        if (removed)
-            _host.NotifyAttributeMutationObservers(element, attrName, previousAttrVal);
     }
 }

@@ -5,9 +5,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The two bridge seams <see cref="ElementTraversalBinding"/> needs: the realm its results are built
-/// in, and the JS-wrapper factory that maps a canonical node to its cached wrapper. The element-child
-/// enumeration (<c>ChildElements</c>), the element-parent walk (<c>ParentEl</c>) and the text-node
-/// test (<c>IsText</c>) are the bridge's <c>internal static</c> helpers, called directly.
+/// in, and the JS-wrapper factory that maps a canonical node to its cached wrapper. The views themselves
+/// are the canonical <see cref="DomNode"/> element-traversal members, which need no host.
 /// </summary>
 /// <remarks>
 /// <para>

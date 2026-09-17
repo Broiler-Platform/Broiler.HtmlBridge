@@ -7,7 +7,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// <see cref="StyleDeclarationBinding"/> — the per-method CSSSStyleDeclaration callbacks, in three
 /// families: <c>Inline*</c> (the writable <c>element.style</c>, over the inline-style store),
-/// <c>Rule*</c> (the writable rule declaration, over a property map) and <c>Computed*</c> (the read-only
+/// <c>Rule*</c> (the writable rule declaration, over a <see cref="RuleDeclarationStore"/>) and <c>Computed*</c> (the read-only
 /// getComputedStyle result). Was the numbered <c>JsUtilities…003…023Core</c> / <c>JsCss…001/003Core</c>
 /// callbacks.
 /// </summary>
@@ -189,100 +189,117 @@ internal static partial class StyleDeclarationBinding
         return JsValue.String(string.Empty);
     }
 
-    // -------- rule.style (writable, property map) --------
+    // -------- rule.style (writable, over a RuleDeclarationStore) --------
 
-    private static JsValue RuleGetCssText(Dictionary<string, string> styleMap)
+    private static JsValue RuleGetCssText(RuleDeclarationStore store)
     {
-        var parts = styleMap.Select(kv => $"{kv.Key}: {kv.Value}");
+        var parts = store.Declared.Select(kv => $"{kv.Key}: {kv.Value}");
         var text = string.Join("; ", parts);
         return JsValue.String(text.Length > 0 ? text + ";" : text);
     }
 
-    private static JsValue RuleSetCssText(Dictionary<string, string> styleMap, in JsCall call)
+    private static JsValue RuleSetCssText(RuleDeclarationStore store, in JsCall call)
     {
-        styleMap.Clear();
-        if (call.Length > 0)
-        {
-            foreach (var kv in DomBridgeUtils.ParseStyle(call.Realm.ToJsString(call[0])))
-                styleMap[kv.Key] = kv.Value;
-        }
-
+        store.ReplaceWith(call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         return JsValue.Undefined;
     }
 
-    private static JsValue RuleSetProperty(Dictionary<string, string> styleMap, in JsCall call)
+    /// <summary>
+    /// CSSOM <c>setProperty</c>: the name is looked up ASCII-lowercased
+    /// (<see cref="RuleDeclarationEdits.CssomPropertyName"/>), and the call returns without an edit unless the
+    /// priority is empty or an ASCII case-insensitive <c>important</c> and the value parses for the property.
+    /// </summary>
+    /// <remarks>
+    /// The two early returns are what a detached map could skip and a store that writes through cannot:
+    /// <c>CssPriority.Apply</c> reads any other priority as none and strips an <c>!important</c> written into
+    /// the value, so <c>setProperty('color', 'red', 'bogus')</c> and <c>setProperty('color', 'red !important')</c>
+    /// each wrote a normal <c>red</c> into the sheet — over an author's <c>!important</c> one, too — where CSSOM
+    /// changes nothing. The priority is compared untrimmed and ASCII case-insensitively, as CSSOM compares it.
+    /// </remarks>
+    private static JsValue RuleSetProperty(RuleDeclarationStore store, in JsCall call)
     {
         if (call.Length >= 2)
         {
-            var prop = call.Realm.ToJsString(call[0]);
-            var value = CssPriority.Apply(
-                call.Realm.ToJsString(call[1]),
-                call.Length >= 3 ? call.Realm.ToJsString(call[2]) : string.Empty);
-            if (string.IsNullOrEmpty(value))
-                styleMap.Remove(prop);
-            else if (DomBridgeUtils.IsAcceptableInlineValue(prop, value))
-                styleMap[prop] = value;
+            var prop = RuleDeclarationEdits.CssomPropertyName(call.Realm.ToJsString(call[0]));
+            var raw = call.Realm.ToJsString(call[1]);
+            var priority = call.Length >= 3 ? call.Realm.ToJsString(call[2]) : string.Empty;
+            if (priority.Length > 0 && !System.Text.Ascii.EqualsIgnoreCase(priority, "important"))
+                return JsValue.Undefined;
+
+            if (string.IsNullOrEmpty(raw))
+                store.Remove(prop);
+            else if (IsRuleValue(prop, raw))
+                store.Set(prop, CssPriority.Apply(raw, priority));
             // setProperty with an invalid value is a no-op per CSSOM.
         }
 
         return JsValue.Undefined;
     }
 
-    private static JsValue RuleGetPropertyValue(Dictionary<string, string> styleMap, in JsCall call)
+    /// <remarks>
+    /// Answers from the store alone. It used to fall back to the declaration object's own properties, which is
+    /// where a camel-cased attribute write used to leave a copy; nothing is left there now
+    /// (<see cref="RuleDeclaration.TrySetNamed"/>), and the fallback only ever answered that stale copy — or,
+    /// for <c>getPropertyValue('cssText')</c>, the declaration's own <c>cssText</c>.
+    /// </remarks>
+    private static JsValue RuleGetPropertyValue(RuleDeclarationStore store, in JsCall call)
     {
-        if (call.Length > 0)
+        if (call.Length > 0 &&
+            TryGetStylePropertyRawValue(store.Declared, call.Realm.ToJsString(call[0]), out var val))
         {
-            var prop = call.Realm.ToJsString(call[0]);
-            if (TryGetStylePropertyRawValue(styleMap, prop, out var val))
-                return JsValue.String(CssPriority.Strip(val));
-            var camel = CssPropertyNames.ToDomPropertyName(prop);
-            if (TryReadFromReceiver(in call, camel, out var jsVal) ||
-                TryReadFromReceiver(in call, prop, out jsVal))
-            {
-                return jsVal;
-            }
+            return JsValue.String(CssPriority.Strip(val));
         }
 
         return JsValue.String(string.Empty);
     }
 
-    private static JsValue RuleRemoveProperty(Dictionary<string, string> styleMap, in JsCall call)
+    /// <remarks>
+    /// Removes the one name CSSOM looks up, and answers that name's value. The camel-cased spelling
+    /// (<c>removeProperty('marginTop')</c>) used to remove the kebab-cased property too — harmless on a
+    /// detached map, but through the store it removed <c>margin-top</c> from the sheet, splitting an author's
+    /// <c>margin</c>, where CSSOM looks up <c>margintop</c> and removes nothing; and <c>--myVar</c> removed
+    /// <c>--my-var</c> as well, a different custom property.
+    /// </remarks>
+    private static JsValue RuleRemoveProperty(RuleDeclarationStore store, in JsCall call)
     {
         if (call.Length > 0)
         {
-            var prop = call.Realm.ToJsString(call[0]);
-            var removed = TryGetStylePropertyRawValue(styleMap, prop, out var val) ? CssPriority.Strip(val) : string.Empty;
-            styleMap.Remove(prop);
-            styleMap.Remove(ToCssPropertyName(prop));
+            var name = RuleDeclarationEdits.CssomPropertyName(call.Realm.ToJsString(call[0]));
+            var removed = store.Declared.TryGetValue(name, out var val) ? CssPriority.Strip(val) : string.Empty;
+            store.Remove(name);
             return JsValue.String(removed);
         }
 
         return JsValue.String(string.Empty);
     }
 
-    private static JsValue RuleGetCssFloat(Dictionary<string, string> styleMap)
+    private static JsValue RuleGetCssFloat(RuleDeclarationStore store)
     {
-        if (styleMap.TryGetValue("float", out var val))
+        if (store.Declared.TryGetValue("float", out var val))
             return JsValue.String(val);
         return JsValue.String(string.Empty);
     }
 
-    private static JsValue RuleSetCssFloat(Dictionary<string, string> styleMap, in JsCall call)
+    private static JsValue RuleSetCssFloat(RuleDeclarationStore store, in JsCall call)
     {
         if (call.Length > 0)
         {
+            // CSSOM: cssFloat is setProperty('float', value), so an empty value removes the declaration
+            // rather than storing an empty one.
             var val = call.Realm.ToJsString(call[0]);
-            if (string.IsNullOrEmpty(val) || DomBridgeUtils.IsAcceptableInlineValue("float", val))
-                styleMap["float"] = val;
+            if (string.IsNullOrEmpty(val))
+                store.Remove("float");
+            else if (IsRuleValue("float", val))
+                store.Set("float", val);
         }
         return JsValue.Undefined;
     }
 
-    private static JsValue RuleItem(Dictionary<string, string> styleMap, in JsCall call)
+    private static JsValue RuleItem(RuleDeclarationStore store, in JsCall call)
     {
         if (call.Length > 0 && int.TryParse(call.Realm.ToJsString(call[0]), out var index))
         {
-            var propertyNames = GetStylePropertyNames(styleMap);
+            var propertyNames = GetStylePropertyNames(store.Declared);
             if (index >= 0 && index < propertyNames.Count)
                 return JsValue.String(propertyNames[index]);
         }
@@ -290,10 +307,10 @@ internal static partial class StyleDeclarationBinding
         return JsValue.String(string.Empty);
     }
 
-    private static JsValue RuleGetPropertyPriority(Dictionary<string, string> styleMap, in JsCall call)
+    private static JsValue RuleGetPropertyPriority(RuleDeclarationStore store, in JsCall call)
     {
         if (call.Length > 0 &&
-            TryGetStylePropertyRawValue(styleMap, call.Realm.ToJsString(call[0]), out var value))
+            TryGetStylePropertyRawValue(store.Declared, call.Realm.ToJsString(call[0]), out var value))
         {
             return JsValue.String(CssPriority.Parse(value));
         }

@@ -1,9 +1,11 @@
 using System.Runtime.CompilerServices;
+using System.Text;
 using Broiler.Dom;
 using Broiler.Graphics;
 using Broiler.Graphics.Imaging;
 using Broiler.Graphics.Rendering;
 using Broiler.HtmlBridge.Jseal;
+using Broiler.Media;
 using Broiler.Media.Image;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -291,8 +293,9 @@ internal static class CanvasBinding
 
     private static JsValue SetFont(CanvasRenderingContext2D context2d, in JsCall call)
     {
+        // A value that does not parse as a CSS font is ignored (HTML §canvas), which TrySetFont decides.
         if (call.Length > 0)
-            context2d.Font = call.Realm.ToJsString(call[0]);
+            context2d.TrySetFont(call.Realm.ToJsString(call[0]));
         return JsValue.Undefined;
     }
 
@@ -602,7 +605,8 @@ internal static class CanvasBinding
     /// <summary>
     /// <c>toDataURL(type, quality)</c>. An image format the encoders do not support is <b>not</b> an
     /// error: HTML requires falling back to <c>image/png</c>, and the returned URL names the type that
-    /// was actually produced — which is exactly how a feature detector tells the difference.
+    /// was actually produced — which is exactly how a feature detector tells the difference. What is
+    /// supported is whatever the registered codec catalog can encode (<see cref="ResolveEncodeFormat"/>).
     /// </summary>
     private static JsValue ToDataUrl(CanvasRenderingContext2D context2d, in JsCall call)
     {
@@ -613,11 +617,8 @@ internal static class CanvasBinding
         string requested = call.Length > 0 && !call[0].IsUndefined
             ? call.Realm.ToJsString(call[0])
             : "image/png";
-        (ImageEncodeFormat format, string mediaType) = ResolveEncodeFormat(requested);
-
-        int quality = 92;
-        if (call.Length > 1 && call[1].IsNumber && call[1].AsNumber is >= 0 and <= 1)
-            quality = (int)Math.Round(call[1].AsNumber * 100);
+        (ImageEncodeFormat format, string mediaType) = ResolveEncodeFormat(BImageCodecs.Catalog, requested);
+        int quality = EncodeQuality(format, call[1]);
 
         byte[] encoded;
         try
@@ -636,14 +637,42 @@ internal static class CanvasBinding
             : JsValue.String($"data:{mediaType};base64,{Convert.ToBase64String(encoded)}");
     }
 
-    private static (ImageEncodeFormat Format, string MediaType) ResolveEncodeFormat(string requested) =>
-        requested.Trim().ToLowerInvariant() switch
+    /// <summary>
+    /// The format <c>toDataURL</c> produces for <paramref name="requested"/>, and the media type its URL
+    /// names: a format whose MIME type matches ASCII case-insensitively (no trimming, no
+    /// <c>image/jpg</c> alias) and that <paramref name="catalog"/> can encode, else <c>image/png</c> — even
+    /// when PNG has no encoder either, and the encode then fails into <c>data:,</c>. The catalog is a
+    /// parameter so tests can pin this without <c>BImageCodecs.Use</c>, which is process-global and final.
+    /// </summary>
+    internal static (ImageEncodeFormat Format, string MediaType) ResolveEncodeFormat(MediaCodecCatalog catalog, string requested)
+    {
+        // Ascii.EqualsIgnoreCase is HTML's "ASCII case-insensitive" by definition: any non-ASCII character
+        // is a mismatch, whatever Unicode case mapping would make of it.
+        foreach (ImageEncodeFormat format in Enum.GetValues<ImageEncodeFormat>())
         {
-            "image/jpeg" or "image/jpg" => (ImageEncodeFormat.Jpeg, "image/jpeg"),
-            "image/bmp" => (ImageEncodeFormat.Bmp, "image/bmp"),
-            "image/gif" => (ImageEncodeFormat.Gif, "image/gif"),
-            _ => (ImageEncodeFormat.Png, "image/png"),
-        };
+            string mediaType = format.GetMimeType();
+            if (Ascii.EqualsIgnoreCase(requested, mediaType) && catalog.FindEncoder(format) is not null)
+                return (format, mediaType);
+        }
+
+        return (ImageEncodeFormat.Png, ImageEncodeFormat.Png.GetMimeType());
+    }
+
+    /// <summary>
+    /// The quality handed to the encoder. HTML reads <paramref name="quality"/> only for a lossy format and
+    /// only when it is a number in [0, 1] (a type test, not a coercion); the default is ours to pick.
+    /// <c>ImageEncodeOptions</c> rejects anything outside 1..100, so a lossless format always gets 100 and a
+    /// lossy 0 is clamped to 1: forwarding the page's value is what made <c>toDataURL('image/png', 0)</c>
+    /// answer <c>data:,</c>.
+    /// </summary>
+    internal static int EncodeQuality(ImageEncodeFormat format, JsValue quality)
+    {
+        if (format is not (ImageEncodeFormat.Jpeg or ImageEncodeFormat.WebP))
+            return 100;
+        return quality.IsNumber && quality.AsNumber is >= 0 and <= 1
+            ? Math.Clamp((int)Math.Round(quality.AsNumber * 100), 1, 100)
+            : 92;
+    }
 
     /// <summary>
     /// An integer argument, truncated the way the canvas APIs take one. <c>Missing</c> is zero without

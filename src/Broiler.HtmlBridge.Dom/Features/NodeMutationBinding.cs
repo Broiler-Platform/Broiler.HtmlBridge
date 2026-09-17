@@ -6,10 +6,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The <c>document</c>-node mutation methods — <c>document.childNodes</c> (getter),
 /// <c>document.removeChild</c>, <c>document.appendChild</c>, <c>document.insertBefore</c> — co-located
-/// as an HtmlBridge feature module (Phase 3). Each resolves its argument node, performs the
-/// structural move on the document node via the bridge's neutral <c>internal static</c> tree helpers,
-/// and fires the mutation-observer / node-iterator notifications. The document node, wrapper factory,
-/// reverse lookup and notifications are reached through the <see cref="INodeMutationHost"/> contract.
+/// as an HtmlBridge feature module (Phase 3). Each resolves its argument node and performs the
+/// structural move on the document node via the bridge's neutral <c>internal static</c> tree helpers.
+/// The document node, wrapper factory and reverse lookup are reached through the
+/// <see cref="INodeMutationHost"/> contract.
 /// Previously the bridge's <c>JsRegistrationGetChildNodes046Core</c>..<c>InsertBefore049Core</c> in the
 /// shared JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
@@ -70,10 +70,8 @@ internal static class NodeMutationBinding
                     "The node to be removed is not a child of this node.");
             }
 
-            host.NotifyNodeIteratorPreRemoval(childEl);
             DomBridgeUtils.RemoveNthChild(doc, idx);
             DomBridgeUtils.SetParent(childEl, null);
-            host.NotifyChildRemoved(doc, childEl, idx);
         }
 
         return call[0];
@@ -91,18 +89,13 @@ internal static class NodeMutationBinding
                 var oldParent = DomBridgeUtils.ParentEl(childEl);
                 var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, childEl);
                 if (oldIndex >= 0)
-                {
-                    host.NotifyNodeIteratorPreRemoval(childEl);
                     DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
-                    host.NotifyChildRemoved(oldParent, childEl, oldIndex);
-                }
             }
 
             var doc = host.DocumentNode;
             // Single canonical append (the move-block above already detached childEl). The prior
             // SetParent(childEl, doc) did the append, leaving this AppendChild a redundant no-op.
             doc.AppendChild(childEl);
-            host.NotifyChildAdded(doc, childEl, doc.ChildNodes.Count - 1);
         }
 
         return call[0];
@@ -125,8 +118,7 @@ internal static class NodeMutationBinding
     /// </para>
     /// <para>
     /// The insert mirrors <see cref="AppendChild"/>: a node that already has a parent is
-    /// detached first (with the observer/iterator notifications that move owes), so
-    /// <c>append</c> moves rather than duplicating.
+    /// detached first, so <c>append</c> moves rather than duplicating.
     /// </para>
     /// </remarks>
     public static JsValue Append(INodeMutationHost host, in JsCall call)
@@ -173,10 +165,8 @@ internal static class NodeMutationBinding
         for (var index = doc.ChildNodes.Count - 1; index >= 0; index--)
         {
             var child = DomBridgeUtils.ChildAt(doc, index);
-            host.NotifyNodeIteratorPreRemoval(child);
             DomBridgeUtils.RemoveNthChild(doc, index);
             DomBridgeUtils.SetParent(child, null);
-            host.NotifyChildRemoved(doc, child, index);
         }
 
         var insertIndex = 0;
@@ -188,7 +178,7 @@ internal static class NodeMutationBinding
 
     /// <summary>
     /// Detaches <paramref name="node"/> from its current parent, if any, and inserts it into the
-    /// document at <paramref name="index"/>, firing the notifications each half owes.
+    /// document at <paramref name="index"/>.
     /// </summary>
     private static void InsertIntoDocumentAt(INodeMutationHost host, IJsRealm realm, DomNode node, int index)
     {
@@ -199,11 +189,7 @@ internal static class NodeMutationBinding
         {
             var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, node);
             if (oldIndex >= 0)
-            {
-                host.NotifyNodeIteratorPreRemoval(node);
                 DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
-                host.NotifyChildRemoved(oldParent, node, oldIndex);
-            }
         }
 
         var doc = host.DocumentNode;
@@ -212,8 +198,6 @@ internal static class NodeMutationBinding
             doc.AppendChild(node);
         else
             DomBridgeUtils.InsertChildAt(doc, at, node);
-
-        host.NotifyChildAdded(doc, node, at);
     }
 
     /// <summary>
@@ -254,11 +238,7 @@ internal static class NodeMutationBinding
             var oldParent = DomBridgeUtils.ParentEl(newEl);
             var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, newEl);
             if (oldIndex >= 0)
-            {
-                host.NotifyNodeIteratorPreRemoval(newEl);
                 DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
-                host.NotifyChildRemoved(oldParent, newEl, oldIndex);
-            }
         }
 
         var doc = host.DocumentNode;
@@ -281,13 +261,11 @@ internal static class NodeMutationBinding
             // Single canonical insert (newEl detached above); the prior SetParent-append +
             // reposition fired spurious add-at-end/remove records.
             DomBridgeUtils.InsertChildAt(doc, idx, newEl);
-            host.NotifyChildAdded(doc, newEl, idx);
             return call[0];
         }
 
         // A null or absent refChild means append — that IS the specified behaviour, not a fallback.
         doc.AppendChild(newEl);
-        host.NotifyChildAdded(doc, newEl, doc.ChildNodes.Count - 1);
         return call[0];
     }
 }

@@ -1,15 +1,11 @@
-using System.Text.RegularExpressions;
 using Broiler.CSS;
 using Broiler.CSS.Dom;
 using Broiler.Dom;
-using Broiler.Dom.Html;
 
 namespace Broiler.HtmlBridge;
 
 public static partial class DomBridgeUtils
 {
-    internal static readonly System.Text.RegularExpressions.Regex DocTypePattern = DocTypePatternRegex();
-
     /// <summary>
     /// Parses a CSS inline style string (e.g. <c>"color: red; font-size: 12px"</c>)
     /// into a property→value dictionary. Implements CSS error recovery: when the
@@ -74,49 +70,6 @@ public static partial class DomBridgeUtils
     /// </summary>
     internal static bool IsAcceptableInlineValue(string property, string value) =>
         CssDeclarationValidator.IsAcceptableDeclarationValue(property, CssPriority.Strip(value));
-
-    [GeneratedRegex(@"<!DOCTYPE\s+(\w+)(?:\s+PUBLIC\s+""([^""]*)""(?:\s+""([^""]*)"")?)?\s*>", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
-    private static partial System.Text.RegularExpressions.Regex DocTypePatternRegex();
-}
-
-public static partial class DomBridgeUtils
-{
-    /// <summary>
-    /// Parses a full HTML document via the shared <see cref="HtmlDocumentParser"/> and returns the
-    /// canonical <c>&lt;html&gt;</c> root, the parsed <c>&lt;!DOCTYPE&gt;</c> node (or <c>null</c>),
-    /// the non-structural node registration list, and the title. Replaces the retired
-    /// <c>HtmlTreeBuilder.Build</c>.
-    /// </summary>
-    internal static (DomElement DocumentElement, DomDocumentType? DocumentType, List<DomNode> AllElements, string Title) BuildDocumentTree(string html)
-    {
-        var parsed = HtmlDocumentParser.ParseDocument(html);
-        var root = parsed.Document.DocumentElement ??
-            throw new InvalidOperationException("The shared HTML parser did not produce a document element.");
-
-        var allElements = new List<DomNode>();
-        AppendParsedTreeNodes(root, structural: true, allElements);
-        return (root, parsed.Document.DocumentType, allElements, parsed.Title);
-    }
-
-    /// <summary>
-    /// Collects the registration set in document order, excluding the structural scaffold
-    /// (<c>&lt;html&gt;</c> and its direct <c>&lt;head&gt;</c>/<c>&lt;body&gt;</c> children) exactly as the
-    /// retired <c>HtmlTreeBuilder.ConvertNode</c>'s <c>structural</c> flag did.
-    /// </summary>
-    internal static void AppendParsedTreeNodes(DomNode source, bool structural, List<DomNode> allElements)
-    {
-        if (!structural)
-            allElements.Add(source);
-
-        foreach (var child in source.ChildNodes)
-        {
-            var childIsStructural = structural &&
-                child is DomElement childElement &&
-                childElement.LocalName is "head" or "body";
-            
-            AppendParsedTreeNodes(child, childIsStructural, allElements);
-        }
-    }
 }
 
 public static partial class DomBridgeUtils
@@ -271,13 +224,4 @@ public static partial class DomBridgeUtils
     /// <summary>Legacy <c>Attributes.Keys</c>: the qualified names of the element's attributes.</summary>
     internal static IEnumerable<string> AttributeNames(DomElement element) =>
         element.Attributes.Values.Select(static attribute => attribute.QualifiedName);
-
-    /// <summary>Collects all Broiler.Dom.DomElement nodes in a sub-tree for tracking.</summary>
-    private static void CollectSubDocElements(DomElement root, List<DomElement> list)
-    {
-        list.Add(root);
-        foreach (var child in ChildElements(root))
-            CollectSubDocElements(child, list);
-    }
-
 }

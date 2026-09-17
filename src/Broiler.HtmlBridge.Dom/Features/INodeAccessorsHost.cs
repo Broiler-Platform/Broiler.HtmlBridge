@@ -5,11 +5,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The narrow host surface <see cref="NodeAccessorsBinding"/> needs from the bridge: the JS-wrapper
-/// factory, the live <c>childNodes</c> collection, the document node (for
-/// <c>isConnected</c>/<c>ownerDocument</c>), the tree-root walk, the notifying character-data setter
-/// (for <c>nodeValue</c>), the sub-document wrapper lookup and the main document's wrapper (both for
-/// <c>ownerDocument</c>). Node-type tests, tree-order helpers, text reads and the owning-document
-/// derivation are the bridge's <c>internal static</c> helpers, called directly.
+/// factory, the live <c>childNodes</c> collection, the document node (for <c>ownerDocument</c>), the
+/// notifying character-data setter (for <c>nodeValue</c>), the sub-document wrapper lookup and the main
+/// document's wrapper (both for <c>ownerDocument</c>). <c>isConnected</c> needs none of it: it is the
+/// canonical <c>DomNode.IsConnected</c>. Node-type tests, tree-order helpers, text reads and the
+/// owning-document derivation are the bridge's <c>internal static</c> helpers, called directly.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -42,7 +42,6 @@ internal interface INodeAccessorsHost
     JsValue ChildNodeList(DomNode node);
 
     DomNode DocumentNode { get; }
-    DomNode GetTreeRoot(DomNode node);
     void SetCharacterData(DomNode node, string? value);
     bool TryGetDocumentWrapper(DomNode documentRoot, out JsValue wrapper);
 

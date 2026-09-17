@@ -51,14 +51,6 @@ internal interface IFormControlHost
     /// <summary>Unchecks the other radio inputs sharing <paramref name="radioName"/> within <paramref name="scope"/>.</summary>
     void UncheckRadioSiblings(DomElement scope, DomElement except, string radioName);
 
-    /// <summary>
-    /// Replaces <paramref name="element"/>'s children with a single text node holding
-    /// <paramref name="value"/>. Needed for one member: a <c>&lt;textarea&gt;</c>'s
-    /// <c>defaultValue</c> <em>is</em> its child text content, so writing the default is a tree
-    /// mutation rather than an attribute write.
-    /// </summary>
-    void SetElementTextContent(DomElement element, string value);
-
     /// <summary>Invalidates the cascade/computed style scope anchored at <paramref name="anchor"/>.</summary>
     void InvalidateStyleScope(DomElement anchor);
 }

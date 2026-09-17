@@ -11,8 +11,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// its host bridge functions, the <c>observe()</c>/<c>disconnect()</c> registration callbacks, the
 /// option parsing, and the childList/attribute/characterData record delivery. It depends only on
 /// the narrow <see cref="IMutationObserverHost"/> contract (realm + JS-wrapper identity + node
-/// lookup); the bridge's mutation path calls the three <c>Deliver…</c> methods, and lifetime reset
-/// calls <see cref="Clear"/>.
+/// lookup); its canonical <c>DomDocument.Mutated</c> subscription drives the three <c>Deliver…</c>
+/// methods, and lifetime reset calls <see cref="Clear"/>.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
@@ -32,10 +32,10 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
     private readonly MutationObserverHub _hub = new();
 
     // The documents whose canonical DomDocument.Mutated we have subscribed to. Delivery is driven
-    // off that event (not explicit bridge Notify* calls), so we subscribe lazily the first time an
-    // observer targets a node in a given document — the main document and each sub-document (iframe
-    // content) uniformly, without hooking document construction. NodeIterator and Range self-manage
-    // their own canonical Mutated subscriptions; this is the MutationObserver half.
+    // off that event, so we subscribe lazily the first time an observer targets a node in a given
+    // document — the main document and each sub-document (iframe content) uniformly, without hooking
+    // document construction. NodeIterator and Range self-manage their own canonical Mutated
+    // subscriptions; this is the MutationObserver half.
     private readonly HashSet<DomDocument> _subscribedDocuments = [];
 
     // -------- Registration --------
@@ -132,6 +132,25 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
     /// cannot re-enter script mid-serialize). Delivery is synchronous, matching the pre-existing
     /// observer model (a script reads its record log on the line after the mutation).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A child-list record reaches script as one JS record per node, removals first.</b> Chromium
+    /// delivers one <c>MutationRecord</c> per record the DOM queues, with both node lists whole; this
+    /// binding's JS records each carry one node, so a canonical record listing several is split, and
+    /// every piece keeps the record's two siblings.
+    /// </para>
+    /// <para>
+    /// Exactly one canonical record lists more than one node, or both lists at once: the "replace all"
+    /// a <c>textContent</c> write publishes, carrying every removed child, the added text node and null
+    /// siblings. Every other record — an insertion, a removal, and each half of <c>replaceChild</c> and
+    /// <c>moveBefore</c>, which publish separately — names a single node in a single list, so the order
+    /// below decides nothing for them. For the replace-all, removals first is the order the DOM itself
+    /// performs the steps in, the order the custom-element reactions fed off the same record run in, and
+    /// the order script saw when the bridge wrote <c>textContent</c> one <c>RemoveChild</c> and one
+    /// <c>AppendChild</c> at a time. (That older log also carried each removal's then-current next
+    /// sibling; the replace-all record's siblings are null, which is what Chromium reports for it.)
+    /// </para>
+    /// </remarks>
     private void OnDocumentMutation(DomMutationRecord record)
     {
         if (_hub.Count == 0 || _host.MutationDeliverySuppressed)
@@ -140,12 +159,12 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
         switch (record.Type)
         {
             case DomMutationType.ChildList:
-                if (record.AddedNodes is { Count: > 0 } added)
-                    foreach (var node in added)
-                        DeliverChildListMutation(record.Target, node, null, record.PreviousSibling, record.NextSibling);
                 if (record.RemovedNodes is { Count: > 0 } removed)
                     foreach (var node in removed)
                         DeliverChildListMutation(record.Target, null, node, record.PreviousSibling, record.NextSibling);
+                if (record.AddedNodes is { Count: > 0 } added)
+                    foreach (var node in added)
+                        DeliverChildListMutation(record.Target, node, null, record.PreviousSibling, record.NextSibling);
                 break;
             case DomMutationType.Attributes when record.Target is DomElement element && record.AttributeName is { } attributeName:
                 // The bridge reports "" (not null) as the prior value of a newly-added attribute
