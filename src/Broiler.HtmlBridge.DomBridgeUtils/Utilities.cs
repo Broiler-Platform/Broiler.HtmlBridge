@@ -7,13 +7,6 @@ namespace Broiler.HtmlBridge;
 public static partial class DomBridgeUtils
 {
     /// <summary>
-    /// Recursively collects text content from a node and its descendants.
-    /// </summary>
-    internal static void CollectTextContent(DomNode node, StringBuilder sb) =>
-        // Descendant-text aggregation is canonical DOM data-model logic (DomNode.TextContent).
-        sb.Append(node.TextContent);
-
-    /// <summary>
     /// Returns the MIME type for a given file extension.
     /// </summary>
     internal static string GetMimeTypeForExtension(string url)
@@ -139,35 +132,6 @@ public static partial class DomBridgeUtils
             .Replace("{{hosts[][]}}", "web-platform.test", StringComparison.Ordinal)
             .Replace("{{ports[http][0]}}", "8000", StringComparison.Ordinal)
             .Replace("{{ports[https][0]}}", "8443", StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Compares two nodes in document tree order.
-    /// Returns -1 when <paramref name="first"/> precedes <paramref name="second"/>,
-    /// 1 when it follows, and 0 when no ordering can be determined.
-    /// </summary>
-    internal static int CompareTreeOrder(DomNode first, DomNode second)
-    {
-        if (ReferenceEquals(first, second))
-            return 0;
-
-        // Phase 4 item 4/5: the tree order of two nodes is the order of the boundary points immediately
-        // before each of them, which canonical Broiler.Dom.DomRange.CompareBoundaryPoints computes — the
-        // same canonical order primitive IsPositionAfter (P4.17) now delegates to, replacing the
-        // hand-rolled ancestor-chain divergence. This helper's only caller (compareDocumentPosition)
-        // already resolves the same-node, disconnected, and ancestor/descendant cases before reaching
-        // here, so both nodes are same-tree, non-containing, and parented; the guards below preserve the
-        // old "return 0 when no ordering can be determined" contract (and avoid CompareBoundaryPoints's
-        // cross-tree WrongDocument throw) for any other caller.
-        var firstParent = first.ParentNode;
-        var secondParent = second.ParentNode;
-        if (firstParent is null || secondParent is null ||
-            !ReferenceEquals(first.GetRootNode(), second.GetRootNode()))
-            return 0;
-
-        return Math.Sign(DomRange.CompareBoundaryPoints(
-            firstParent, ChildIndexOf(firstParent, first),
-            secondParent, ChildIndexOf(secondParent, second)));
     }
 
     /// <summary>

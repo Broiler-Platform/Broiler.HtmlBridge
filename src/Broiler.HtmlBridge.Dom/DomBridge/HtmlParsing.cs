@@ -18,7 +18,7 @@ public sealed partial class DomBridge
 {
     private void ParseHtml(string html)
     {
-        // Multithreading roadmap item #17. Everything from here to BuildDocumentTree is CPU the
+        // Multithreading roadmap item #17. Everything from here to the parse is CPU the
         // document's sub-resource fetches could have been overlapping with, and until now they did
         // not start until the parse had finished and the sheet list had been collected. Start the
         // speculative scan first, so its worker is issuing requests while this thread tears the old
@@ -53,14 +53,17 @@ public sealed partial class DomBridge
         Layout.DocumentModeContext.CurrentQuirksMode =
             Layout.DocumentModeContext.IsQuirksHtml(html);
 
-        // Use WHATWG-aligned tokeniser & tree builder (shared HtmlDocumentParser). The parser
-        // now also yields the canonical <!DOCTYPE> node (name + PUBLIC/SYSTEM identifiers), so the
-        // bridge no longer re-parses it with its own regex. Add it as the document's first child
-        // (before <html>, appended below — canonical DomDocument requires doctype-before-element).
-        var (docElement, doctype, allElements, title) = BuildDocumentTree(html);
-        if (doctype != null)
+        // The shared WHATWG-aligned tokenizer and tree builder parse into a document of their own. Its
+        // <!DOCTYPE> node (name plus PUBLIC/SYSTEM identifiers) is moved across from there, and its <html>
+        // element stays behind: that element's children and attributes are carried into the persistent
+        // DocumentElement below. The doctype goes first, before DocumentElement is appended, because a
+        // canonical DomDocument requires doctype-before-element.
+        var parsed = HtmlDocumentParser.ParseDocument(html);
+        var docElement = parsed.Document.DocumentElement ??
+            throw new InvalidOperationException("The shared HTML parser did not produce a document element.");
+        if (parsed.Document.DocumentType is { } doctype)
             _document.AppendChild(doctype);
-        Title = title;
+        Title = parsed.Title;
         ClearChildren(DocumentElement);
         // RF-BRIDGE-1c Phase F (F3c part 2d): reparent ALL children (raw ChildNodes) so any
         // text/comment nodes directly under the parsed <html> survive — no-op on the old
@@ -183,38 +186,6 @@ public sealed partial class DomBridge
 
         RemoveNthChild(host, childIndex);
         return true;
-    }
-}
-
-public sealed partial class DomBridge
-{
-    // RF-BRIDGE-1c Phase F4: HtmlTreeBuilder is retired. It used to re-materialize the shared
-    // HtmlDocumentParser's canonical tree into facade Broiler.Dom.DomElement nodes; with the facade gone the
-    // parser already produces the canonical nodes the bridge holds, so these helpers parse and hand
-    // the tree straight back. Callers reparent the returned root/fragment children into the
-    // _document-owned tree, and canonical AppendChild auto-adopts the subtree into _document (see
-    // DomNode.InsertBefore), so no copy is needed. The returned AllElements list preserves the old
-    // "non-structural nodes only" registration contract (html/head/body scaffold excluded).
-
-    /// <summary>
-    /// Parses an HTML fragment in <paramref name="contextTagName"/>'s context and wraps its children
-    /// in a canonical <see cref="DomDocumentFragment"/> (Phase 4 item 1 — was a <c>#document-fragment</c>
-    /// sentinel element). Replaces <c>HtmlTreeBuilder.BuildFragment</c>.
-    /// </summary>
-    private (DomDocumentFragment Fragment, List<DomNode> AllElements) BuildFragmentTree(string html, string contextTagName)
-    {
-        var parsed = HtmlDocumentParser.ParseFragment(html, contextTagName);
-        var fragment = CreateBridgeDocumentFragment();
-        var allElements = new List<DomNode>();
-
-        // AppendChild adopts each parsed child subtree into _document (fragment is _document-owned).
-        foreach (var child in parsed.Fragment.ChildNodes.ToArray())
-        {
-            fragment.AppendChild(child);
-            AppendParsedTreeNodes(child, structural: false, allElements);
-        }
-
-        return (fragment, allElements);
     }
 }
 

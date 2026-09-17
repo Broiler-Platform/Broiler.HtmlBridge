@@ -1,4 +1,3 @@
-using System.Text;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
@@ -397,17 +396,13 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         {
             var titleEl = DomBridgeUtils.ChildElements(head).FirstOrDefault(c => string.Equals(c.TagName, "title", StringComparison.OrdinalIgnoreCase));
             if (titleEl != null)
-            {
-                var sb = new StringBuilder();
-                DomBridgeUtils.CollectTextContent(titleEl, sb);
-                return JsValue.String(sb.ToString());
-            }
+                return JsValue.String(titleEl.TextContent);
         }
 
         return JsValue.String(string.Empty);
     }
 
-    private JsValue SetTitle(DomNode docRoot, in JsCall call)
+    private static JsValue SetTitle(DomNode docRoot, in JsCall call)
     {
         var htmlEl = DomBridgeUtils.GetDocumentElement(docRoot);
         if (htmlEl == null)
@@ -417,7 +412,7 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         {
             var titleEl = DomBridgeUtils.ChildElements(head).FirstOrDefault(c => string.Equals(c.TagName, "title", StringComparison.OrdinalIgnoreCase));
             if (titleEl != null)
-                _host.SetElementTextContent(titleEl, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+                titleEl.TextContent = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         }
 
         return JsValue.Undefined;

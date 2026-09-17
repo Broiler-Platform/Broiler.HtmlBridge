@@ -118,7 +118,9 @@ public sealed partial class DomBridge
     /// text encoding; none of it was encoding code.
     /// <para>
     /// The cache holds only the walk. Sheet text is still read per call, so CSSOM edits and
-    /// external sheets that finish loading are picked up exactly as before, and the
+    /// external sheets that finish loading reach the engine exactly as before (a CSSOM edit also
+    /// clears the per-element <c>GetComputedProps</c> memo, through <c>OnStyleSheetRulesMutated</c>, and a DOM
+    /// edit to a sheet's text through <c>OnStyleSheetSourceMutation</c>), and the
     /// <c>disabled</c> filter — which honours a CSSOM override the DOM never sees — is applied
     /// here rather than baked in. <see cref="DomDocument.Version"/> covers the rest: it is bumped
     /// by every mutation, so a tree edit or an attribute write invalidates this on the next call.
@@ -359,6 +361,9 @@ public sealed partial class DomBridge
         // records: move the epoch so a retained geometry snapshot is not answered from the pre-edit
         // rules. See BridgeRuntimeStateEpoch.
         static void MarkRulesMutated() => BridgeRuntimeStateEpoch.Bump();
+        // A style rule's style writes through to this list too, reaching the adopted <style> the renderer is
+        // handed; getComputedStyle never reads adopted sheets, so there is no computed style to invalidate.
+        var ruleModel = new Dom.Features.StyleSheetRuleModel(CurrentRules, MarkRulesMutated);
 
         // ownerNode is null for a constructed sheet; href is null (no source URL).
         realm.DefineAccessor(sheet, "ownerNode", (in _) => JsValue.Null, null);
@@ -380,9 +385,11 @@ public sealed partial class DomBridge
 
         void SyncLiveCssRulesIndices()
         {
-            var current = CurrentRules();
+            // The CSSOM view of the list: indices skip the rules a page does not see (see
+            // StyleSheetBinding.IsCssomVisible), which stay in the list the cascade reads.
+            var current = Dom.Features.StyleSheetBinding.CssomRules(CurrentRules());
             for (var i = 0; i < current.Count; i++)
-                realm.DefineIndex(liveCssRules, (uint)i, Dom.Features.StyleSheetBinding.BuildCssRuleObject(realm, current[i], sheet));
+                realm.DefineIndex(liveCssRules, (uint)i, Dom.Features.StyleSheetBinding.BuildCssRuleObject(realm, current[i], sheet, default, ruleModel));
 
             // Retiring an index is the one CSSOM operation JSEAL cannot express; see
             // StyleSheetBinding.RetireIndex, which is where the reasoning lives.
@@ -512,7 +519,7 @@ public sealed partial class DomBridge
 
             var css = string.Join("\n", rules.Select(CssSerializer.Serialize));
             var styleElement = CreateBridgeElement("style");
-            SetElementTextContent(styleElement, css);
+            styleElement.TextContent = css;
             SetParent(styleElement, container);
             container.AppendChild(styleElement);
         }

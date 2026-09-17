@@ -34,11 +34,14 @@ namespace Broiler.HtmlBridge;
 /// <para>
 /// <b>What is exact and what is approximate.</b> Rect fills, <c>clearRect</c>, path fills and strokes,
 /// <c>globalAlpha</c> and the separable <c>globalCompositeOperation</c> blend modes rasterise through
-/// <see cref="BCanvas"/> and are as exact as that rasteriser is. Text goes through
-/// <see cref="BImageRenderer"/>'s glyph path — real outlines from the system font — but the pen advance
-/// <see cref="MeasureTextWidth"/> reports is the renderer's own estimate rather than a shaped advance,
-/// so <c>measureText</c> and the non-<c>start</c> <c>textAlign</c> values that derive from it are
-/// approximate. There is no transform stack: the binding exposes no <c>translate</c>/<c>rotate</c>/
+/// <see cref="BCanvas"/> and are as exact as that rasteriser is. Text is drawn through
+/// <see cref="BImageRenderer"/>'s glyph path — real outlines from the system font — and measured through
+/// <see cref="BTextMeasurer"/>. Its built-in provider resolves the same face and advances the pen the
+/// same way, so with it <c>measureText</c> and the <c>textAlign</c> placement derived from it match the
+/// drawn glyphs; both are unshaped (no kerning, no ligatures, no fallback along the family list). That
+/// holds only while no host has registered a platform text-metrics provider, and the shipping Windows
+/// browser does register one, so there measurement and placement follow DirectWrite rather than the drawn
+/// face (see <see cref="MeasureTextWidth"/>). There is no transform stack: the binding exposes no <c>translate</c>/<c>rotate</c>/
 /// <c>scale</c>, so none is needed, and <see cref="BCanvas"/> is a translate+uniform-scale rasteriser
 /// that could not carry a general affine anyway.
 /// </para>
@@ -67,6 +70,7 @@ internal sealed class CanvasRenderingContext2D
     private const long MaxBitmapPixels = 64L * 1024 * 1024;
 
     private BBitmap? _bitmap;
+    private BFontStyle _resolvedFont = CanvasFont.Default;
     private readonly Stack<CanvasState> _stateStack = new();
     private readonly List<List<PointF>> _subpaths = [];
 
@@ -82,8 +86,11 @@ internal sealed class CanvasRenderingContext2D
     public string StrokeStyle { get; set; } = "#000000";
     /// <summary>Current line width.</summary>
     public float LineWidth { get; set; } = 1.0f;
-    /// <summary>Current font specification.</summary>
-    public string Font { get; set; } = "10px sans-serif";
+    /// <summary>
+    /// The last <c>font</c> value that parsed, read back as it was assigned rather than serialized. Set
+    /// through <see cref="TrySetFont"/>, which keeps it and the font it resolved to together.
+    /// </summary>
+    public string Font { get; private set; } = "10px sans-serif";
     /// <summary>Current text alignment.</summary>
     public string TextAlign { get; set; } = "start";
     /// <summary>Current global alpha (transparency).</summary>
@@ -112,9 +119,25 @@ internal sealed class CanvasRenderingContext2D
         StrokeStyle = "#000000";
         LineWidth = 1.0f;
         Font = "10px sans-serif";
+        _resolvedFont = CanvasFont.Default;
         TextAlign = "start";
         GlobalAlpha = 1.0f;
         GlobalCompositeOperation = BCanvas.BlendMode.normal;
+    }
+
+    /// <summary>
+    /// Assigns <c>font</c>. HTML ignores a value that does not parse as a CSS <c>font</c> value, and the
+    /// CSS-wide keywords, so such a value changes nothing and answers false. The size is resolved here
+    /// rather than at draw time because the spec fixes a relative size when the attribute is set.
+    /// </summary>
+    public bool TrySetFont(string value)
+    {
+        if (!CanvasFont.TryResolve(value, out BFontStyle? font))
+            return false;
+
+        Font = value;
+        _resolvedFont = font;
+        return true;
     }
 
     private void Allocate(int width, int height)
@@ -260,12 +283,32 @@ internal sealed class CanvasRenderingContext2D
     public void StrokeText(string text, float x, float y) => DrawText(text, x, y, ResolveColor(StrokeStyle));
 
     /// <summary>
-    /// Advance width of <paramref name="text"/> in the current font. This is the same per-character
-    /// estimate <see cref="BImageRenderer"/> uses for its own block advance rather than a shaped
-    /// advance, so it tracks the drawn text's extent only approximately.
+    /// Advance width of <paramref name="text"/> in the current font, after HTML's text preparation.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is <see cref="BTextMeasurer.MeasureAdvance"/>. Broiler.Graphics' built-in metrics provider
+    /// resolves the face exactly as <see cref="BImageRenderer"/> does and mirrors its pen advance, so with it
+    /// the width is the drawn run's (unshaped, rounded to hundredths of a pixel) whatever the family, weight
+    /// and slant. Nothing in this repository replaces that provider, so it is what the tests measure.
+    /// </para>
+    /// <para>
+    /// <b>Caveat: the provider is process-global, and the shipping Windows browser replaces it.</b>
+    /// Broiler.Graphics.Windows' <c>Direct2DRenderer</c> registers its DirectWrite provider when it is
+    /// constructed (<c>BTextMeasurer.UseProviderIfDefault</c>), and Broiler.Browser.Windows' window creates
+    /// one. From then on this returns DirectWrite's shaped, kerned advance, in a face DirectWrite resolves
+    /// for itself — Segoe UI for <c>sans-serif</c>, Times New Roman for <c>serif</c>, Consolas for
+    /// <c>monospace</c> — while <see cref="DrawText"/> still draws through the renderer's own faces (Arial
+    /// first for <c>sans-serif</c>). There, even in the default font, <c>measureText</c>, <c>textAlign</c>
+    /// placement and the scratch bitmap's extent follow DirectWrite rather than the glyphs drawn, and a long
+    /// run can again be clipped by the scratch's one-em margin. It can also throw where the arithmetic
+    /// estimate this replaced could not: a failed DirectWrite call surfaces from <c>measureText</c>,
+    /// <c>fillText</c> and <c>strokeText</c>. No consumed API reaches the built-in provider once another is
+    /// registered.
+    /// </para>
+    /// </remarks>
     public double MeasureTextWidth(string text) =>
-        string.IsNullOrEmpty(text) ? 0.0 : text.Length * Math.Max(1.0, FontSizePixels() * 0.62);
+        string.IsNullOrEmpty(text) ? 0.0 : BTextMeasurer.MeasureAdvance(CanvasFont.PrepareText(text), _resolvedFont);
 
     // ---- pixel access -----------------------------------------------------------------------------
 
@@ -334,8 +377,8 @@ internal sealed class CanvasRenderingContext2D
     }
 
     /// <summary>
-    /// Encodes the bitmap in <paramref name="format"/> and reports the media type actually produced,
-    /// which the caller needs because it may not be the one asked for.
+    /// Encodes the bitmap in <paramref name="format"/>, or answers no bytes when there is no bitmap. The
+    /// caller decides the format, and with it the media type the data URL names.
     /// </summary>
     public byte[] Encode(ImageEncodeFormat format, int quality) =>
         _bitmap is null ? [] : _bitmap.Encode(format, quality);
@@ -349,6 +392,7 @@ internal sealed class CanvasRenderingContext2D
         StrokeStyle = StrokeStyle,
         LineWidth = LineWidth,
         Font = Font,
+        ResolvedFont = _resolvedFont,
         TextAlign = TextAlign,
         GlobalAlpha = GlobalAlpha,
         GlobalCompositeOperation = GlobalCompositeOperation,
@@ -364,6 +408,7 @@ internal sealed class CanvasRenderingContext2D
         StrokeStyle = state.StrokeStyle;
         LineWidth = state.LineWidth;
         Font = state.Font;
+        _resolvedFont = state.ResolvedFont;
         TextAlign = state.TextAlign;
         GlobalAlpha = state.GlobalAlpha;
         GlobalCompositeOperation = state.GlobalCompositeOperation;
@@ -527,14 +572,16 @@ internal sealed class CanvasRenderingContext2D
     /// <c>font: 1000px</c>, and a scratch sized to that would be an allocation no machine has — while
     /// every pixel of it outside the canvas is discarded on composite anyway. The run's origin is
     /// shifted by however much of it falls off the left or top edge, so clipping the surface moves no
-    /// glyph.
+    /// glyph. The run's extent is <see cref="MeasureTextWidth"/>, the advance the glyphs are drawn with,
+    /// so the scratch's right edge does not cut off a run wider than an estimate of it.
     /// </remarks>
     private void DrawText(string text, float x, float y, BColor color)
     {
         if (_bitmap is null || string.IsNullOrEmpty(text) || color.A == 0)
             return;
 
-        double fontSize = FontSizePixels();
+        text = CanvasFont.PrepareText(text);
+        double fontSize = _resolvedFont.Size;
         double runWidth = MeasureTextWidth(text);
 
         // Where the run would land on the canvas, with a margin for glyphs that overhang their advance.
@@ -560,9 +607,7 @@ internal sealed class CanvasRenderingContext2D
             (y - (fontSize * 0.8)) - visibleTop);
 
         var renderList = new BRenderList(1);
-        renderList.DrawText(
-            new BTextRun(text, new BFontStyle(FontFamily(), fontSize, FontWeight()), color),
-            origin);
+        renderList.DrawText(new BTextRun(text, _resolvedFont, color), origin);
 
         using var renderer = new BImageRenderer();
         using BBitmap scratch = renderer.RenderToImage(
@@ -586,49 +631,13 @@ internal sealed class CanvasRenderingContext2D
         _ => 0f,
     };
 
-    /// <summary>
-    /// Pulls the pixel size out of the CSS shorthand held in <c>font</c>. Only <c>px</c> is read: the
-    /// context has no element to resolve <c>em</c>, percentages or keywords against.
-    /// </summary>
-    private double FontSizePixels()
-    {
-        foreach (string token in (Font ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (!token.EndsWith("px", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (double.TryParse(
-                    token[..^2],
-                    System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out double size) && size > 0)
-                return size;
-        }
-
-        return 10.0;
-    }
-
-    private string FontFamily()
-    {
-        string font = Font ?? string.Empty;
-        int lastSize = font.LastIndexOf("px", StringComparison.OrdinalIgnoreCase);
-        if (lastSize < 0 || lastSize + 2 >= font.Length)
-            return "sans-serif";
-
-        string family = font[(lastSize + 2)..].Trim().Split(',')[0].Trim().Trim('"', '\'');
-        return family.Length == 0 ? "sans-serif" : family;
-    }
-
-    private BFontWeight FontWeight() =>
-        (Font ?? string.Empty).Contains("bold", StringComparison.OrdinalIgnoreCase)
-            ? BFontWeight.Bold
-            : BFontWeight.Normal;
-
     private sealed class CanvasState
     {
         public string FillStyle { get; init; } = string.Empty;
         public string StrokeStyle { get; init; } = string.Empty;
         public float LineWidth { get; init; }
         public string Font { get; init; } = string.Empty;
+        public BFontStyle ResolvedFont { get; init; } = CanvasFont.Default;
         public string TextAlign { get; init; } = string.Empty;
         public float GlobalAlpha { get; init; }
         public BCanvas.BlendMode GlobalCompositeOperation { get; init; } = BCanvas.BlendMode.normal;

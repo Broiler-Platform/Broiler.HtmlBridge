@@ -7,14 +7,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The <c>JsStyleSheets*Core</c> callback half of <see cref="StyleSheetBinding"/> (Phase 3, P3.15):
 /// the <c>CSSStyleSheet</c>/<c>CSSRuleList</c> <c>length</c>/<c>item</c>/<c>cssRules</c>/<c>insertRule</c>/
-/// <c>deleteRule</c> operations (driven by closures the bridge's <c>BuildStyleSheetObject</c> supplies)
-/// and the per-rule-kind <c>cssText</c> serializers. Pure functions over their arguments — no state.
+/// <c>deleteRule</c> operations (driven by closures the bridge's <c>BuildStyleSheetObject</c> supplies),
+/// the one parse of the text a page inserts (<see cref="ParseSingleRule"/>) and the per-rule-kind
+/// <c>cssText</c> serializers. Pure functions over their arguments — no state.
 /// </summary>
 /// <remarks>
 /// An index argument goes through <see cref="IJsValues.ToNumber"/> rather than reading the handle,
 /// because <c>deleteRule("0")</c> is a call a page makes and the string has to coerce the way the
-/// language says. The <c>cssText</c> serializers read a nested object's <c>cssText</c> through
-/// <see cref="CssTextOf"/>, which keeps the null-tolerance the engine-typed originals had.
+/// language says. A sheet-level index is an index into the CSSOM view of the shared model
+/// (<see cref="CssomRules"/>), never a model position. The <c>cssText</c> serializers read a nested
+/// object's <c>cssText</c> through <see cref="CssTextOf"/>, which keeps the null-tolerance the
+/// engine-typed originals had.
 /// </remarks>
 internal static partial class StyleSheetBinding
 {
@@ -59,15 +62,59 @@ internal static partial class StyleSheetBinding
             .Select(rule => CssTextOf(realm, rule))
             .Where(text => !string.IsNullOrEmpty(text)));
 
+    /// <summary>
+    /// Parses the text a page passes to <c>insertRule</c> as exactly one rule — CSSOM "parse a CSS rule" —
+    /// and throws the <c>SyntaxError</c> DOMException when it is not one.
+    /// </summary>
+    /// <remarks>
+    /// The consumed parser answers a rule list and diagnostics rather than one rule or a failure, so
+    /// "exactly one" is read off source ranges. It flattens CSS Nesting: <c>.e { .f {} }</c> parses into
+    /// <c>.e</c> followed by <c>.e .f</c>, and a nested at-rule likewise, so a later rule whose range lies
+    /// inside the first rule's is part of that rule, and one outside it is a second rule of the text. The
+    /// same test applies to Error diagnostics: text left after the rule (<c>.b {} junk</c>) is reported
+    /// outside it, while a block cut off by the end of the text (CSS1002–CSS1004) is reported over the rule
+    /// itself, which CSS Syntax still accepts as a rule, as Chromium does. A dropped declaration is a
+    /// Warning and never rejects the rule. Whether the one rule is one this list accepts is the caller's
+    /// question.
+    /// </remarks>
+    private static CssRule ParseSingleRule(IJsRealm realm, string ruleText)
+    {
+        var parsed = new CssParser().ParseStyleSheet(ruleText);
+        if (parsed.Rules.Count > 0)
+        {
+            var extent = RangeOf(parsed.Rules[0]);
+            if (parsed.Rules.Skip(1).All(rule => Encloses(extent, RangeOf(rule))) &&
+                parsed.Diagnostics.All(diagnostic =>
+                    diagnostic.Severity != CssDiagnosticSeverity.Error || Encloses(extent, diagnostic.Range)))
+                return parsed.Rules[0];
+        }
+
+        throw SyntaxError(realm, ruleText);
+    }
+
+    /// <summary>The <c>SyntaxError</c> an insert of <paramref name="ruleText"/> throws.</summary>
+    private static Exception SyntaxError(IJsRealm realm, string ruleText) =>
+        realm.DomError("SyntaxError", $"Failed to parse the rule '{ruleText}'.");
+
+    private static CssSourceRange RangeOf(CssRule rule) => rule switch
+    {
+        CssStyleRule styleRule => styleRule.Range,
+        CssAtRule atRule => atRule.Range,
+        _ => default,
+    };
+
+    private static bool Encloses(CssSourceRange outer, CssSourceRange inner) =>
+        inner.Start >= outer.Start && inner.Start + inner.Length <= outer.Start + outer.Length;
+
     internal static JsValue JsStyleSheetsGetLength002Core(Func<List<CssRule>> currentRules) =>
-        JsValue.Number(currentRules().Count);
+        JsValue.Number(CssomRuleCount(currentRules()));
 
 
     internal static JsValue JsStyleSheetsItem003Core(Action syncLiveCssRulesIndices, JsValue liveCssRules, Func<List<CssRule>> currentRules, in JsCall call)
     {
         syncLiveCssRulesIndices();
         var idx = IndexArgument(in call, 0, 0);
-        return idx >= 0 && idx < currentRules().Count
+        return idx >= 0 && idx < CssomRuleCount(currentRules())
             ? call.Realm.GetIndex(liveCssRules, (uint)idx)
             : JsValue.Null;
     }
@@ -84,18 +131,21 @@ internal static partial class StyleSheetBinding
     {
         var ruleText = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         // currentRules() reparses on any pending textContent change before we mutate,
-        // so the index is clamped against the up-to-date shared model.
+        // so the index is clamped against the up-to-date shared model — counted as the page
+        // counts it, over the rules the CSSOM shows.
         var rules = currentRules();
-        var index = Math.Clamp(IndexArgument(in call, 1, rules.Count), 0, rules.Count);
-        // Route the mutation through the shared model: parse the inserted text
-        // into a CssRule rather than storing the raw string (Phase 6).
-        var parsed = new CssParser().ParseStyleSheet(ruleText).Rules;
-        if (parsed.Count > 0)
-        {
-            rules.Insert(index, parsed[0]);
-            markRulesMutated();
-        }
+        var count = CssomRuleCount(rules);
+        var index = Math.Clamp(IndexArgument(in call, 1, count), 0, count);
+        // Route the mutation through the shared model: the inserted text becomes exactly one parsed
+        // CssRule rather than a stored string (Phase 6), and text that is not one rule the CSSOM shows is
+        // the SyntaxError Chromium throws rather than an insert of nothing or of its first rule.
+        var rule = ParseSingleRule(call.Realm, ruleText);
+        if (!IsCssomVisible(rule))
+            throw SyntaxError(call.Realm, ruleText);
 
+        // Just before the visible rule now at the index, so a hidden rule ahead of it keeps its place.
+        rules.Insert(ModelIndexOf(rules, index), rule);
+        markRulesMutated();
         syncLiveCssRulesIndices();
         return JsValue.Number(index);
     }
@@ -107,9 +157,9 @@ internal static partial class StyleSheetBinding
         if (call.Length > 0)
         {
             var idx = IndexArgument(in call, 0, 0);
-            if (idx >= 0 && idx < rules.Count)
+            if (idx >= 0 && idx < CssomRuleCount(rules))
             {
-                rules.RemoveAt(idx);
+                rules.RemoveAt(ModelIndexOf(rules, idx));
                 markRulesMutated();
             }
 
@@ -127,13 +177,19 @@ internal static partial class StyleSheetBinding
     }
 
 
-    private static JsValue JsStyleSheetsInsertRule009Core(Action syncIndices, Func<string, JsValue>? ruleFactory, List<JsValue> rules, in JsCall call)
+    private static JsValue JsStyleSheetsInsertRule009Core(Action syncIndices, Func<CssRule, JsValue>? ruleFactory, List<JsValue> rules, in JsCall call)
     {
         if (ruleFactory is null)
             return JsValue.Number(0);
         var ruleText = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         var index = Math.Clamp(IndexArgument(in call, 1, rules.Count), 0, rules.Count);
-        rules.Insert(index, ruleFactory(ruleText));
+        // Parsed once, as a sheet-level insert parses; the factory answers Missing for a rule this list
+        // does not hold (an unsupported at-rule, or anything but a keyframe in a @keyframes list).
+        var built = ruleFactory(ParseSingleRule(call.Realm, ruleText));
+        if (built.IsMissing)
+            throw SyntaxError(call.Realm, ruleText);
+
+        rules.Insert(index, built);
         syncIndices();
         return JsValue.Number(index);
     }
@@ -174,8 +230,8 @@ internal static partial class StyleSheetBinding
         JsValue.String($"@font-face {{ {CssTextOf(realm, styleObj)} }}");
 
 
-    private static JsValue JsStyleSheetsGetCssText020Core(IJsRealm realm, string? name, List<JsValue> nestedRuleObjects) =>
-        JsValue.String($"@keyframes {name} {{ {NestedCssTextOf(realm, nestedRuleObjects)} }}");
+    private static JsValue JsStyleSheetsGetCssText020Core(IJsRealm realm, string keyword, string? name, List<JsValue> nestedRuleObjects) =>
+        JsValue.String($"@{keyword} {name} {{ {NestedCssTextOf(realm, nestedRuleObjects)} }}");
 
 
     private static JsValue JsStyleSheetsGetCssText021Core(bool inherits, string? initialValue, string? propertyName, string? syntax)
@@ -245,4 +301,17 @@ internal static partial class StyleSheetBinding
         var styleText = CssTextOf(realm, styleObj);
         return JsValue.String($"{selectorText} {{ {styleText} }}");
     }
+
+
+    /// <summary>The <c>cssText</c> of a grouping at-rule the metadata has no kind for (<c>@container</c> and the rest).</summary>
+    private static JsValue JsStyleSheetsGetCssText029Core(IJsRealm realm, string name, string prelude, List<JsValue> nestedRuleObjects) =>
+        JsValue.String($"{AtRuleHead(name, prelude)} {{ {NestedCssTextOf(realm, nestedRuleObjects)} }}");
+
+
+    /// <summary>The <c>cssText</c> of an at-rule exposed with its type and text only.</summary>
+    private static JsValue JsStyleSheetsGetCssText030Core(string name, string prelude, string body) =>
+        JsValue.String($"{AtRuleHead(name, prelude)} {{ {body} }}");
+
+    private static string AtRuleHead(string name, string prelude) =>
+        prelude.Length == 0 ? $"@{name}" : $"@{name} {prelude}";
 }

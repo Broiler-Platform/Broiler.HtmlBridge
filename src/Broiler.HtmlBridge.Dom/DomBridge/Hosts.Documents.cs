@@ -248,9 +248,9 @@ public sealed partial class DomBridge : Dom.Features.IDocumentStructureHost
 }
 
 // Explicit IDocumentWriteHost implementation for the DocumentWriteBinding feature module (Phase 3):
-// the bridge exposes the document root, the document-order element list, the current parser
-// insertion point, and the HTML-fragment parser, via explicit interface members so the module
-// never reaches an arbitrary bridge private field and the public surface is unchanged.
+// the bridge exposes the document root, the document-order element list and the current parser
+// insertion point via explicit interface members so the module never reaches an arbitrary bridge
+// private field and the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IDocumentWriteHost
 {
     Broiler.Dom.DomElement Dom.Features.IDocumentWriteHost.DocumentElement => DocumentElement;
@@ -258,9 +258,6 @@ public sealed partial class DomBridge : Dom.Features.IDocumentWriteHost
     IReadOnlyList<Broiler.Dom.DomElement> Dom.Features.IDocumentWriteHost.Elements => Elements;
 
     int Dom.Features.IDocumentWriteHost.CurrentScriptIndex => CurrentScriptIndex;
-
-    Broiler.Dom.DomDocumentFragment Dom.Features.IDocumentWriteHost.BuildFragment(string html, string contextTagName)
-        => BuildFragmentTree(html, contextTagName).Fragment;
 }
 
 /// <summary>
@@ -360,7 +357,6 @@ public sealed partial class DomBridge : ISubDocumentHost
     DomDocumentType ISubDocumentHost.CreateDocumentType(string name, string publicId, string systemId) =>
         CreateBridgeDocumentType(name, publicId, systemId);
     DomDocument ISubDocumentHost.CreateBrowsingContextDocument() => CreateBrowsingContextDocument();
-    DomDocumentType? ISubDocumentHost.ParseDocType(string html) => ParseDocType(html);
 
     // The three validations raise their DOMException against the realm, through IJsCalls.DomError.
     // They took a script context until the validators did. The selector check is the one that
@@ -396,7 +392,6 @@ public sealed partial class DomBridge : ISubDocumentHost
             _ => Dom.Features.DocumentCollectionBinding.Embeds(collections),
         };
 
-    void ISubDocumentHost.SetElementTextContent(DomElement element, string? value) => SetElementTextContent(element, value);
     IReadOnlyList<DomElement> ISubDocumentHost.HitTestDocumentPoint(DomNode docRoot, double x, double y) =>
         HitTestDocumentPoint(docRoot, x, y);
 
@@ -458,9 +453,6 @@ public sealed partial class DomBridge : ISubDocumentHost
     }
 
     void ISubDocumentHost.InsertNodeAt(DomNode parent, DomNode node, int index) => InsertNodeAt(parent, node, index);
-    void ISubDocumentHost.NotifyNodeIteratorPreRemoval(DomNode node) => NotifyNodeIteratorPreRemoval(node);
-    void ISubDocumentHost.NotifyChildRemoved(DomElement parent, DomNode removedChild, int index) =>
-        NotifyChildRemoved(parent, removedChild, index);
 
     /// <summary>
     /// <c>startViewTransition()</c> on the sub-document, over the one argument the operation takes.

@@ -234,7 +234,7 @@ public sealed partial class DomBridge
             var parent = GetScrollTraversalParent(current);
             if (parent == null || ReferenceEquals(parent, ancestor))
                 break;
-            if (fixedAnchor != null && !IsDomDescendantOrSelf(parent, fixedAnchor))
+            if (fixedAnchor != null && !ReferenceEquals(parent, fixedAnchor) && !parent.IsDescendantOf(fixedAnchor))
                 break;
             natural -= GetElementScrollOffset(parent, vertical);
             current = parent;
@@ -278,7 +278,7 @@ public sealed partial class DomBridge
     /// <paramref name="ancestor"/> from the scroll-aware shared snapshot
     /// (<see cref="TrySharedOffsetWithinAncestor"/>). With the coarse estimators deleted, a
     /// shared-unavailable element (cross-origin / non-materialised frame) reports 0 — real
-    /// in-flow sticky/scrollIntoView targets are always present in the snapshot.
+    /// in-flow scrollIntoView targets are always present in the snapshot.
     /// </summary>
     private double OffsetWithinAncestorPreferShared(DomElement element, DomElement ancestor, bool vertical) =>
         TrySharedOffsetWithinAncestor(element, ancestor, vertical, out var shared)

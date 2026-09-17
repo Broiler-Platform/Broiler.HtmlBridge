@@ -196,7 +196,7 @@ internal sealed class StyleSheetRuntimeState
     /// <summary>
     /// The live, mutable CSSOM rule list backing this style element's stylesheet —
     /// the single source of truth shared by the CSSOM (<c>cssRules</c>/<c>insertRule</c>/
-    /// <c>deleteRule</c>), the renderer/legacy-cascade text, and the
+    /// <c>deleteRule</c> and rule <c>style</c> writes), the renderer/legacy-cascade text, and the
     /// <c>getComputedStyle</c> engine sheet (Phase 6 store unification). <c>null</c>
     /// until first materialized from <see cref="RulesSourceText"/>.
     /// </summary>
@@ -209,22 +209,25 @@ internal sealed class StyleSheetRuntimeState
     /// <summary>
     /// The source text <see cref="Rules"/> was last parsed from. When the element's
     /// current source text differs (e.g. <c>textContent</c> was replaced), the rules
-    /// are reparsed — discarding any <c>insertRule</c>/<c>deleteRule</c> mutations,
-    /// per CSSOM semantics.
+    /// are reparsed — discarding any CSSOM mutations (<c>insertRule</c>/<c>deleteRule</c>
+    /// and rule <c>style</c> writes), per CSSOM semantics.
     /// </summary>
     public string? RulesSourceText { get; set; }
 
     /// <summary>
-    /// <c>true</c> once <c>insertRule</c>/<c>deleteRule</c> has mutated <see cref="Rules"/>
-    /// away from the parsed source. While <c>false</c>, the renderer text is the raw
-    /// author source (byte-identical to pre-Phase-6); once <c>true</c>, the renderer
+    /// <c>true</c> once <c>insertRule</c>/<c>deleteRule</c> or a write to a style rule's <c>style</c>
+    /// has mutated <see cref="Rules"/> away from the parsed source. While <c>false</c>, the renderer
+    /// text is the raw author source (byte-identical to pre-Phase-6); once <c>true</c>, the renderer
     /// text is serialized from the model so the mutation is observed downstream.
     /// </summary>
     /// <remarks>
-    /// The setter is also the CSSOM's mutation signal: <c>insertRule</c>/<c>deleteRule</c> set it
-    /// through <c>BuildStyleSheet</c>'s local <c>MarkRulesMutated</c>, and they change the rule
-    /// <em>list's contents</em> and so move the cascade without touching the DOM at all.
-    /// <see cref="BridgeRuntimeStateEpoch"/> must see that, or a retained geometry snapshot goes stale.
+    /// The setter is also the CSSOM's mutation signal: those edits set it through
+    /// <c>DomBridge.OnStyleSheetRulesMutated</c>, and they change the rule <em>list's contents</em>
+    /// and so move the cascade without touching the DOM at all. <see cref="BridgeRuntimeStateEpoch"/>
+    /// must see that, or a retained geometry snapshot goes stale. The computed-style memo must see it
+    /// too, but that is cleared by <c>OnStyleSheetRulesMutated</c> rather than here: this state has no
+    /// way back to the bridge, and the flag is also written on read paths (the reparse, and
+    /// <see cref="CopyTo"/> while a render projection is built) where clearing the memo would be wrong.
     /// </remarks>
     public bool RulesMutated
     {

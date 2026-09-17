@@ -13,8 +13,7 @@ namespace Broiler.HtmlBridge;
 /// extracted <see cref="Broiler.HtmlBridge.Dom.Features.AttributesBinding"/> feature module consumes
 /// (HtmlBridge complexity-reduction roadmap Phase 3, P3.12). Each member is an explicit interface
 /// implementation, so these cross-cutting seams (CSSOM inline style, the Events inline-handler
-/// compiler, the CSS invalidation route and the MutationObserver notification) do not widen the public
-/// <c>DomBridge</c> surface.
+/// compiler and the CSS invalidation route) do not widen the public <c>DomBridge</c> surface.
 /// </summary>
 public sealed partial class DomBridge : IAttributesHost
 {
@@ -32,9 +31,6 @@ public sealed partial class DomBridge : IAttributesHost
         CompileInlineEventAttribute(element, attributeName, code);
 
     void IAttributesHost.InvalidateStyleScope(DomElement element) => InvalidateStyleScope(element);
-
-    void IAttributesHost.NotifyAttributeMutationObservers(DomElement element, string attributeName, string? oldValue) =>
-        NotifyAttributeMutationObservers(element, attributeName, oldValue);
 
     void IAttributesHost.LinkToInterface(JsValue wrapper, string interfaceName) =>
         LinkToInterface(wrapper, interfaceName);
@@ -61,9 +57,9 @@ public sealed partial class DomBridge : Dom.Features.ICharacterDataHost
 }
 
 // Explicit IChildNodeHost implementation for the ChildNodeBinding feature module (Phase 3): the bridge
-// exposes the child-node argument builder, the side-effecting insertion primitive, style-scope
-// invalidation and the node-iterator / mutation notifications via explicit interface members, so the
-// module never reaches an arbitrary bridge private field and the public surface is unchanged.
+// exposes the child-node argument builder, the side-effecting insertion primitive and style-scope
+// invalidation via explicit interface members, so the module never reaches an arbitrary bridge private
+// field and the public surface is unchanged.
 //
 // The builder appears once: all three of the mixin's installers mint through the realm now, so the one
 // reading is the bridge's ISubDocumentHost implementation, which coerces each non-node argument with
@@ -79,19 +75,12 @@ public sealed partial class DomBridge : Dom.Features.IChildNodeHost
 
     void Dom.Features.IChildNodeHost.InvalidateStyleScope(DomElement anchor)
         => InvalidateStyleScope(anchor);
-
-    void Dom.Features.IChildNodeHost.NotifyNodeIteratorPreRemoval(DomNode node)
-        => NotifyNodeIteratorPreRemoval(node);
-
-    void Dom.Features.IChildNodeHost.NotifyChildRemoved(DomNode parent, DomNode child, int index)
-        => NotifyChildRemoved(parent, child, index);
 }
 
 // Explicit INodeAccessorsHost implementation for the NodeAccessorsBinding feature module (Phase 3):
 // the bridge exposes the JS-wrapper factory, the live childNodes collection, the document node, the
-// tree-root walk, the notifying character-data setter and the two document-wrapper lookups via
-// explicit interface members, so the module reaches no arbitrary bridge private field and the public
-// surface is unchanged.
+// notifying character-data setter and the two document-wrapper lookups via explicit interface members,
+// so the module reaches no arbitrary bridge private field and the public surface is unchanged.
 //
 // Nothing here is engine-typed any more: the module speaks JsValue, the NodeList factory takes the
 // realm and the same handles, and the wrapper cache is reached through WrapNode. The childNodes
@@ -113,8 +102,6 @@ public sealed partial class DomBridge : Dom.Features.INodeAccessorsHost
         });
 
     DomNode Dom.Features.INodeAccessorsHost.DocumentNode => _document;
-
-    DomNode Dom.Features.INodeAccessorsHost.GetTreeRoot(DomNode node) => GetTreeRoot(node);
 
     void Dom.Features.INodeAccessorsHost.SetCharacterData(DomNode node, string? value)
         => SetCharacterData(node, value);
@@ -141,9 +128,9 @@ public sealed partial class DomBridge : Dom.Features.INodeAccessorsHost
 }
 
 // Explicit INodeMutationHost implementation for the NodeMutationBinding feature module (Phase 3):
-// the bridge exposes the document node, the JS-wrapper factory and reverse lookup, and the
-// mutation-observer / node-iterator notifications via explicit interface members, so the module never
-// reaches an arbitrary bridge private field and the public surface is unchanged.
+// the bridge exposes the document node, the JS-wrapper factory and reverse lookup, and the child-node
+// argument builder via explicit interface members, so the module never reaches an arbitrary bridge
+// private field and the public surface is unchanged.
 //
 // The contract is spelled in JSEAL and so are the two wrapper members behind it, so this file is no
 // longer a seam: the factory answers a handle and the reverse lookup takes one. The wrapper the module
@@ -166,15 +153,6 @@ public sealed partial class DomBridge : Dom.Features.INodeMutationHost
     // which coerces each non-node argument with the realm's ToString exactly as the engine frame did.
     List<DomNode> Dom.Features.INodeMutationHost.BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments)
         => ((Dom.Features.ISubDocumentHost)this).BuildChildNodeArgumentNodes(arguments);
-
-    void Dom.Features.INodeMutationHost.NotifyNodeIteratorPreRemoval(DomNode node)
-        => NotifyNodeIteratorPreRemoval(node);
-
-    void Dom.Features.INodeMutationHost.NotifyChildRemoved(DomNode parent, DomNode child, int index)
-        => NotifyChildRemoved(parent, child, index);
-
-    void Dom.Features.INodeMutationHost.NotifyChildAdded(DomNode parent, DomNode child, int index)
-        => NotifyChildAdded(parent, child, index);
 }
 
 // Explicit INodeRelationshipsHost implementation for the NodeRelationshipsBinding feature module
@@ -212,9 +190,8 @@ public sealed partial class DomBridge : Dom.Features.INodeRelationshipsHost
 
 // Explicit ITreeMutationHost implementation for the TreeMutationBinding feature module (Phase 3): the
 // bridge exposes the wrapper→node resolver, the child-node argument builder, the side-effecting
-// insertion primitive, style-scope invalidation and the node-iterator / mutation-observer notifications
-// via explicit interface members, so the module never reaches an arbitrary bridge private field and the
-// public surface is unchanged.
+// insertion primitive and style-scope invalidation via explicit interface members, so the module never
+// reaches an arbitrary bridge private field and the public surface is unchanged.
 //
 // The contract names no engine type any more. Both installers of these eight members —
 // ElementInterface.cs for the ParentNode three, JsObjects.cs for the Node five — mint through the
@@ -244,15 +221,6 @@ public sealed partial class DomBridge : Dom.Features.ITreeMutationHost
 
     void Dom.Features.ITreeMutationHost.InvalidateStyleScope(DomElement anchor)
         => InvalidateStyleScope(anchor);
-
-    void Dom.Features.ITreeMutationHost.NotifyNodeIteratorPreRemoval(DomNode node)
-        => NotifyNodeIteratorPreRemoval(node);
-
-    void Dom.Features.ITreeMutationHost.NotifyChildAdded(DomNode parent, DomNode child, int index)
-        => NotifyChildAdded(parent, child, index);
-
-    void Dom.Features.ITreeMutationHost.NotifyChildRemoved(DomNode parent, DomNode child, int index, DomNode? previousSibling, DomNode? nextSibling)
-        => NotifyChildRemoved(parent, child, index, previousSibling, nextSibling);
 }
 
 // Explicit IInsertAdjacentHost implementation for the InsertAdjacentBinding feature module (Phase 3): the
@@ -278,13 +246,9 @@ public sealed partial class DomBridge : Dom.Features.IInsertAdjacentHost
 }
 
 // Explicit IElementContentHost implementation for the ElementContentBinding feature module (Phase 3): the
-// innerHTML/outerHTML/textContent members route through the bridge's shared HTML parser/serializer and
-// canonical tree mutation, so each forwards to the existing private serialize/set helpers.
-//
-// This file used to be the engine-typed half of the seam, for one member. It asked the bridge's
-// GetNodeTextValue for an engine string or engine null and unpicked it again into the string-or-null
-// the contract wants — which was NodeTextOrNull spelled the long way round through two allocations,
-// as that adapter's own remarks said. The adapter is gone and this asks NodeTextOrNull directly.
+// innerHTML/outerHTML members route through the bridge's shared HTML parser/serializer and canonical tree
+// mutation, so each forwards to the existing private serialize/set helpers. The textContent members are
+// the canonical DomNode.TextContent, which the binding reaches without the bridge.
 public sealed partial class DomBridge : Dom.Features.IElementContentHost
 {
     IJsRealm Dom.Features.IElementContentHost.Realm => Realm;
@@ -293,12 +257,6 @@ public sealed partial class DomBridge : Dom.Features.IElementContentHost
     string Dom.Features.IElementContentHost.SerializeElementToHtml(DomElement element) => SerializeElementToHtml(element);
     void Dom.Features.IElementContentHost.SetElementInnerHtml(DomElement element, string html) => SetElementInnerHtml(element, html);
     void Dom.Features.IElementContentHost.SetElementOuterHtml(DomElement element, string html) => SetElementOuterHtml(element, html);
-
-    // The two answers the contract asks for, which is what NodeTextOrNull has always returned: the
-    // text, or null for a node that has none — a document or a doctype.
-    string? Dom.Features.IElementContentHost.NodeTextValue(DomNode node) => NodeTextOrNull(node);
-
-    void Dom.Features.IElementContentHost.SetElementTextContent(DomElement element, string? value) => SetElementTextContent(element, value);
 }
 
 // Explicit IElementReflectionHost implementation for the ElementReflectionBinding feature module
@@ -361,9 +319,6 @@ public sealed partial class DomBridge : ITraversalHost
 
     DomElement? ITraversalHost.FindElement(JsValue wrapper) =>
         wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
-
-    int ITraversalHost.CompareBoundaryPosition(DomNode docRoot, DomNode containerA, int offsetA, DomNode containerB, int offsetB) =>
-        CompareBoundaryPosition(docRoot, containerA, offsetA, containerB, offsetB);
 
     IReadOnlyList<(double Left, double Top, double Width, double Height)> ITraversalHost.GetClientRectsForRange(DomRange range) =>
         GetClientRectsForRange(range);
@@ -558,16 +513,7 @@ public sealed partial class DomBridge : ICustomElementsHost
     /// <c>connectedCallback</c> — measured, the cross-document <c>appendChild</c> shape reports
     /// connected, disconnected, adopted, connected.
     /// </remarks>
-    bool ICustomElementsHost.IsConnected(DomElement element)
-    {
-        for (DomNode? node = element; node is not null; node = node.ParentNode)
-        {
-            if (node is DomDocument)
-                return true;
-        }
-
-        return false;
-    }
+    bool ICustomElementsHost.IsConnected(DomElement element) => element.IsConnected;
 
     DomElement? ICustomElementsHost.FormOwnerOf(DomElement element) =>
         Dom.Features.FormAssociationBinding.FormOwnerOf(this, element);

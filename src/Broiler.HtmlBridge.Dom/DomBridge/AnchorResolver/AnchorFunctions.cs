@@ -216,7 +216,7 @@ public sealed partial class DomBridge
 
             // The target lives inside this scroller too → they scroll together
             // (or this scroller is the target's containing block); no separation.
-            if (IsDescendantOrSelf(targetEl, el))
+            if (ReferenceEquals(targetEl, el) || targetEl.IsDescendantOf(el))
                 break;
 
             // Skip scrollers the anchor is sticky-pinned to: the anchor resists
@@ -326,7 +326,7 @@ public sealed partial class DomBridge
         // Whether the box has no in-flow content — the engine's opposing-inset sizing and the
         // position-try fallback resize are childless-only (a childful box would need a re-flow).
         bool childless = !ChildElements(element).Any()
-            && string.IsNullOrWhiteSpace(GetElementTextContent(element));
+            && string.IsNullOrWhiteSpace(element.TextContent);
 
         // position-try is admitted only for the subset the engine's native fallback pass
         // reproduces (P5.8d.2b position-try expansion): the @position-try rule bodies must be
@@ -498,7 +498,7 @@ public sealed partial class DomBridge
         // Childless: the engine only resizes a box with no in-flow children/words.
         if (ChildElements(element).Any())
             return false;
-        if (!string.IsNullOrWhiteSpace(GetElementTextContent(element)))
+        if (!string.IsNullOrWhiteSpace(element.TextContent))
             return false;
         // The engine grows the box from its laid-out left/top origin, so a right/bottom inset
         // (which the baked path resolves via a re-layout) stays baked.
@@ -584,7 +584,7 @@ public sealed partial class DomBridge
         // Childless: the engine only sizes/repositions a box with no in-flow children/words.
         if (ChildElements(element).Any())
             return false;
-        if (!string.IsNullOrWhiteSpace(GetElementTextContent(element)))
+        if (!string.IsNullOrWhiteSpace(element.TextContent))
             return false;
         // position-try and position-area are handled by their own paths, not this one.
         if (merged.ContainsKey("position-try-fallbacks") || merged.ContainsKey("position-try"))

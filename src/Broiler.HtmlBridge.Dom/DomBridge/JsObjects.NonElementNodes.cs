@@ -115,10 +115,12 @@ public sealed partial class DomBridge
 
         // textContent's setter is NodeAccessorsBinding's, which is migrated, so the pair is the
         // realm's. JsValue.String turns the "no text at all" null into JavaScript null, which is the
-        // same value the engine-typed GetNodeTextValue adapter produced for this getter.
+        // same value the engine-typed GetNodeTextValue adapter produced for this getter. The setter is
+        // the canonical one every node kind uses rather than nodeValue's, because textContent is a
+        // nullable DOMString: `text.textContent = null` empties the data instead of writing "null".
         Realm.DefineAccessor(handle, "textContent",
             (in _) => JsValue.String(NodeTextOrNull(node)),
-            (in call) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, node, in call));
+            (in call) => Dom.Features.NodeAccessorsBinding.SetTextContent(node, in call));
 
         Realm.DefineAccessor(handle, "data",
             (in call) => Dom.Features.CharacterDataBinding.GetData(node, in call),
@@ -164,7 +166,7 @@ public sealed partial class DomBridge
             (in call) => Dom.Features.NodeAccessorsBinding.GetParentElement(this, node, in call), null);
 
         Realm.DefineAccessor(handle, "isConnected",
-            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(this, node, in call), null);
+            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(node, in call), null);
 
         Realm.DefineAccessor(handle, "childNodes",
             (in call) => Dom.Features.NodeAccessorsBinding.GetChildNodes(this, node, in call), null);
@@ -297,7 +299,7 @@ public sealed partial class DomBridge
             (in call) => Dom.Features.NodeAccessorsBinding.GetOwnerDocument(this, node, in call), null);
 
         Realm.DefineAccessor(handle, "isConnected",
-            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(this, node, in call), null);
+            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(node, in call), null);
 
         // A doctype is a leaf: hasChildNodes is constantly false.
         Realm.DefineValue(handle, "hasChildNodes",
@@ -379,9 +381,10 @@ public sealed partial class DomBridge
     /// fragment is a non-element container: it gets the Node base + ParentNode mixin + child-
     /// manipulation surface, but NOT the element-only surface (attributes/style/tagName) it inherited
     /// while it was a <c>#document-fragment</c> sentinel element. Node-generic members reuse the same
-    /// handlers the character-data wrapper uses; the container members are focused fragment lambdas
-    /// over the neutral tree helpers and the (DomNode-widened) <see cref="InsertNodeAt"/> — a fragment
-    /// parent has no style scope, sub-document onload or child-mutation-observer side effects.
+    /// handlers the character-data wrapper uses; the element views and <c>textContent</c> are the
+    /// canonical <see cref="DomNode"/> members an element's wrapper reads too, and the other container
+    /// members are focused fragment lambdas over the neutral tree helpers and the (DomNode-widened)
+    /// <see cref="InsertNodeAt"/> — a fragment parent has no style scope or sub-document onload.
     /// </summary>
     private void PopulateDocumentFragmentWrapper(JsValue handle, DomDocumentFragment fragment)
     {
@@ -410,45 +413,32 @@ public sealed partial class DomBridge
         Realm.DefineAccessor(handle, "lastChild",
             (in call) => Dom.Features.NodeAccessorsBinding.GetLastChild(this, node, in call), null);
         Realm.DefineAccessor(handle, "isConnected",
-            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(this, node, in call), null);
+            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(node, in call), null);
         Realm.DefineValue(handle, "hasChildNodes",
             Realm.NewMethod("hasChildNodes", (in _) => JsValue.Boolean(fragment.ChildNodes.Count > 0)));
 
         // -- ParentNode mixin (element views) --
+        // The same canonical element views an element's wrapper reads (ElementTraversalBinding).
         Realm.DefineAccessor(handle, "children",
-            (in _) => Realm.NewArray([.. ChildElements(fragment).Where(c => !IsText(c)).Select(c => WrapNode(c))]),
+            (in _) => Dom.Features.ElementTraversalBinding.GetChildren(this, fragment),
             null);
         Realm.DefineAccessor(handle, "childElementCount",
-            (in _) => JsValue.Number(ChildElements(fragment).Count(c => !IsText(c))),
+            (in _) => JsValue.Number(fragment.ChildElementCount),
             null);
         Realm.DefineAccessor(handle, "firstElementChild",
-            (in _) =>
-            {
-                var first = ChildElements(fragment).FirstOrDefault(c => !IsText(c));
-                return first != null ? WrapNode(first) : JsValue.Null;
-            },
+            (in _) => Dom.Features.ElementTraversalBinding.GetFirstElementChild(this, fragment),
             null);
         Realm.DefineAccessor(handle, "lastElementChild",
-            (in _) =>
-            {
-                var last = ChildElements(fragment).LastOrDefault(c => !IsText(c));
-                return last != null ? WrapNode(last) : JsValue.Null;
-            },
+            (in _) => Dom.Features.ElementTraversalBinding.GetLastElementChild(this, fragment),
             null);
 
         // -- textContent (get/set) --
+        // Both halves are canonical DomNode.TextContent: a fragment's text is its descendants' text, as
+        // an element's is (the bridge's own walk answered "" for every fragment), and a write replaces
+        // its children through the setter every node kind uses, which passes null through as IDL null.
         Realm.DefineAccessor(handle, "textContent",
-            (in _) => JsValue.String(NodeTextOrNull(node)),
-            (in call) =>
-            {
-                ClearChildren(fragment);
-                // ToJsString, not the handle's rendering: an object argument must run its own
-                // toString, which is the coercion a page observes here.
-                var value = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
-                if (!string.IsNullOrEmpty(value))
-                    fragment.AppendChild(CreateBridgeTextNode(value));
-                return JsValue.Undefined;
-            });
+            (in _) => JsValue.String(fragment.TextContent),
+            (in call) => Dom.Features.NodeAccessorsBinding.SetTextContent(fragment, in call));
 
         // -- Child manipulation --
         Realm.DefineValue(handle, "appendChild",
@@ -501,7 +491,6 @@ public sealed partial class DomBridge
                 var idx = ChildIndexOf(fragment, childEl);
                 if (idx < 0)
                     return call[0];
-                NotifyNodeIteratorPreRemoval(childEl);
                 RemoveNthChild(fragment, idx);
                 SetParent(childEl, null);
                 return call[0];

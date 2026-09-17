@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 
@@ -17,8 +16,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// Every accessor here is an attribute/font-size estimation stub — none reads layout geometry — so the
 /// module is a pure <c>internal static</c> class with <b>no host contract</b> (like <c>ClassListBinding</c>
-/// P3.6 and <c>WebStorageBinding</c> P3.48). It reads content attributes and text through the bridge's
-/// neutral <c>internal static</c> <c>TryGetAttribute</c>/<c>CollectTextContent</c> helpers. Was the
+/// P3.6 and <c>WebStorageBinding</c> P3.48). It reads content attributes through the bridge's neutral
+/// <c>internal static</c> <c>TryGetAttribute</c> helper and text through the canonical
+/// <see cref="DomNode.TextContent"/>. Was the
 /// bridge's <c>JsElementInterfacesCallback086Core</c>/<c>GetViewBox087Core</c>/
 /// <c>GetNumberOfChars088Core</c>..<c>GetRotationOfChar093Core</c>/<c>SetCurrentTime095Core</c> (and the
 /// private <c>CreateSvgLengthValue</c> helper, moved here since it had no other consumer).
@@ -193,30 +193,26 @@ internal static class SvgElementBinding
 
     private static JsValue GetNumberOfChars(DomElement element)
     {
-        var sb = new StringBuilder();
-        DomBridgeUtils.CollectTextContent(element, sb);
-        return JsValue.Number(sb.Length);
+        return JsValue.Number(element.TextContent.Length);
     }
 
     private static JsValue GetComputedTextLength(DomElement element)
     {
-        var sb = new StringBuilder();
-        DomBridgeUtils.CollectTextContent(element, sb);
+        var length = element.TextContent.Length;
         // Stub: estimate using font-size * character count * 0.6 average advance ratio
         var fontSize = ReadFontSize(element);
-        return JsValue.Number(sb.Length * fontSize * 0.6);
+        return JsValue.Number(length * fontSize * 0.6);
     }
 
     private static JsValue GetSubStringLength(DomElement element, in JsCall call)
     {
-        var sb = new StringBuilder();
-        DomBridgeUtils.CollectTextContent(element, sb);
+        var length = element.TextContent.Length;
         // The realm's ToNumber, not the handle's: the engine's DoubleValue on an argument *was* the
         // ECMAScript coercion, so `getSubStringLength("1", "2")` has always counted from character 1,
         // and an argument object's valueOf has always been allowed to run here.
         var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
         var nchars = call.Length > 1 ? (int)call.Realm.ToNumber(call[1]) : 0;
-        if (charnum < 0 || charnum >= sb.Length)
+        if (charnum < 0 || charnum >= length)
             throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
         if (nchars == 0)
             return JsValue.Number(0);
@@ -226,10 +222,9 @@ internal static class SvgElementBinding
 
     private static JsValue GetStartPositionOfChar(DomElement element, in JsCall call)
     {
-        var sb = new StringBuilder();
-        DomBridgeUtils.CollectTextContent(element, sb);
+        var length = element.TextContent.Length;
         var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
-        if (charnum < 0 || charnum >= sb.Length)
+        if (charnum < 0 || charnum >= length)
             throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
         var fontSize = ReadFontSize(element);
 
@@ -241,10 +236,9 @@ internal static class SvgElementBinding
 
     private static JsValue GetEndPositionOfChar(DomElement element, in JsCall call)
     {
-        var sb = new StringBuilder();
-        DomBridgeUtils.CollectTextContent(element, sb);
+        var length = element.TextContent.Length;
         var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
-        if (charnum < 0 || charnum >= sb.Length)
+        if (charnum < 0 || charnum >= length)
             throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
         var fontSize = ReadFontSize(element);
 
@@ -256,10 +250,9 @@ internal static class SvgElementBinding
 
     private static JsValue GetRotationOfChar(DomElement element, in JsCall call)
     {
-        var sb = new StringBuilder();
-        DomBridgeUtils.CollectTextContent(element, sb);
+        var length = element.TextContent.Length;
         var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
-        if (charnum < 0 || charnum >= sb.Length)
+        if (charnum < 0 || charnum >= length)
             throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
         // Default rotation is 0 degrees (horizontal text)
         return JsValue.Number(0);

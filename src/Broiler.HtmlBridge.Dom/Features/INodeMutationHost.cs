@@ -5,10 +5,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The narrow host surface <see cref="NodeMutationBinding"/> needs from the bridge: the document
-/// node (the mutation target), the JS-wrapper factory and reverse lookup, and the mutation-observer /
-/// node-iterator notifications. The structural tree operations (index-of, insert, remove-nth,
-/// set-parent, child enumeration) are the bridge's neutral <c>internal static</c> helpers, called
-/// directly.
+/// node (the mutation target), the JS-wrapper factory and reverse lookup, and the child-node argument
+/// builder. The structural tree operations (index-of, insert, remove-nth, set-parent, child
+/// enumeration) are the bridge's neutral <c>internal static</c> helpers, called directly.
 /// </summary>
 /// <remarks>
 /// The contract names no engine type, and that includes the two members whose old names did: the
@@ -33,8 +32,4 @@ internal interface INodeMutationHost
     /// <c>replaceChildren</c> share with their element-level counterparts.
     /// </summary>
     List<DomNode> BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments);
-
-    void NotifyNodeIteratorPreRemoval(DomNode node);
-    void NotifyChildRemoved(DomNode parent, DomNode child, int index);
-    void NotifyChildAdded(DomNode parent, DomNode child, int index);
 }

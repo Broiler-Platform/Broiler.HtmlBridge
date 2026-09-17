@@ -5,6 +5,7 @@ using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.JavaScript.Modules;
 using Broiler.Dom;
+using Broiler.Dom.Html;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
@@ -667,18 +668,18 @@ public sealed partial class DomBridge
     {
         var document = CreateBrowsingContextDocument();
 
-        var (parsedRoot, _, allElements, _) = BuildDocumentTree(html);
+        // Parsed into a document of its own and moved across whole: `document` is already subscribed
+        // to custom-element reactions, and parsing in place would publish a record per parsed node.
+        // Both children are live queries on the parsed document, so they are read before either moves.
+        var parsed = HtmlDocumentParser.ParseDocument(html).Document;
+        var parsedRoot = parsed.DocumentElement!;
 
         // The frame's DOCTYPE, before its documentElement — DOM §4.5 makes it the document's first
-        // child, and BuildDocumentTree returns only the <html> element, so a frame's resource
-        // declaring one produced a tree that did not carry it: `d.childNodes` was [<html>] where the
-        // containing document's is [doctype, <html>], and `d.doctype` had nothing to find. The same
-        // `ParseDocType` reading that `document.write` already uses for exactly this.
-        if (ParseDocType(html) is { } docType)
+        // child. It is the parser's own node, so a doctype quoted in a comment is not the frame's, and
+        // a SYSTEM-only or single-quoted one is.
+        if (parsed.DocumentType is { } docType)
             document.AppendChild(docType);
 
-        // parsedRoot is the <html> element itself (HtmlTreeBuilder returns it directly).
-        // Append it as the sub-document's documentElement (a canonical DomDocument child).
         document.AppendChild(parsedRoot);
 
         LinkContentDocument(containerElement, document);

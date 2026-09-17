@@ -121,9 +121,10 @@ public class CssOmExoticTests
     [Fact]
     public void ARuleDeclarationBehavesTheSameWayAsAnInlineOne()
     {
-        // The second exotic: rule.style is the same handler shape over a plain property map rather than
-        // the inline-style store. Indexed access and item() are both spelled here because a collection
-        // may serve either, and this test is about the declaration rather than about the collection.
+        // The second exotic: rule.style is the same handler shape over the rule's RuleDeclarationStore — for
+        // this <style> rule, the rule in its sheet — rather than the inline-style store. Indexed access and
+        // item() are both spelled here because a collection may serve either, and this test is about the
+        // declaration rather than about the collection.
         Assert.Equal(
             "kebab=green camel=green cssText=true unknown=true keys=true",
             Run("""

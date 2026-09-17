@@ -11,8 +11,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// funnels, and the shared builders for the sub-surfaces a document exposes (Range, TreeWalker,
 /// NodeIterator, style-sheets, hit testing). Every seam is explicit, so no handler reaches an arbitrary
 /// <c>DomBridge</c> private field; the assembly's neutral static tree/selector helpers on
-/// <c>DomBridge</c> (ChildElements, ChildAt, GetDocumentElement, CollectTextContent, MatchesSelector,
-/// SetParent, ValidateElementName, …) are called directly and are not part of this contract.
+/// <c>DomBridge</c> (ChildElements, ChildAt, GetDocumentElement, MatchesSelector, SetParent,
+/// ValidateElementName, …) and the canonical <c>DomNode.TextContent</c> a title reads and writes are
+/// called directly and are not part of this contract.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -89,9 +90,6 @@ internal interface ISubDocumentHost
     /// <summary>Mints a canonical <c>DomDocument</c> browsing-context root (P4.4a funnel).</summary>
     DomDocument CreateBrowsingContextDocument();
 
-    /// <summary>Parses a leading DOCTYPE out of an HTML string for <c>document.write</c>.</summary>
-    DomDocumentType? ParseDocType(string html);
-
     // -------- name and selector validation --------
 
     /// <summary>Throws an <c>InvalidCharacterError</c> when <paramref name="name"/> is not a valid
@@ -152,7 +150,6 @@ internal interface ISubDocumentHost
     bool HasAssociatedStyleSheet(DomElement element);
 
     // -------- shared document sub-surface builders --------
-    void SetElementTextContent(DomElement element, string? value);
     IReadOnlyList<DomElement> HitTestDocumentPoint(DomNode docRoot, double x, double y);
 
     JsValue BuildRange(DomNode docRoot);
@@ -177,7 +174,7 @@ internal interface ISubDocumentHost
     // `:checked` state, so it is now a bridge-instance method rather than a static helper.
     bool MatchesSelector(DomElement element, string selector, DomElement? scope = null);
 
-    // -------- mutation seams (append/remove on the sub-document) --------
+    // -------- mutation seams (append/prepend on the sub-document) --------
 
     /// <summary>
     /// The nodes an <c>append</c>/<c>prepend</c> argument list denotes: a node argument is its own
@@ -187,8 +184,6 @@ internal interface ISubDocumentHost
     List<DomNode> BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments);
 
     void InsertNodeAt(DomNode parent, DomNode node, int index);
-    void NotifyNodeIteratorPreRemoval(DomNode node);
-    void NotifyChildRemoved(DomElement parent, DomNode removedChild, int index);
 
     // -------- view transitions --------
 

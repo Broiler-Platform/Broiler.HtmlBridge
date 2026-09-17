@@ -1,4 +1,3 @@
-using System.Text;
 using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
@@ -150,9 +149,9 @@ public sealed partial class DomBridge
         if (!_htmlElementInterfacePrototypeReady || !IsHtmlNamespace(element))
             PopulateHtmlElementInterfaceOnInstance(handle, element);
 
-        // textContent (read/write) — Node's member, and deliberately the element's own: its operation
-        // differs from the character-data one on Node.prototype (Phase 3 P3.57:
-        // ElementContentBinding).
+        // textContent (read/write) — Node's member, and the element's own: it was installed because the
+        // element operation differed from the character-data one on Node.prototype, and both are the
+        // canonical DomNode.TextContent now (Phase 3 P3.57: ElementContentBinding).
         Dom.Features.ElementContentBinding.InstallTextContent(this, handle, element);
 
         // -- DOM tree navigation --
@@ -164,8 +163,8 @@ public sealed partial class DomBridge
         if (!_nodeInterfacePrototypesReady)
             PopulateElementNodeMembersOnInstance(handle, element);
 
-        // The CharacterData surface below is minted by the realm: its module is migrated, so each body
-        // has a JsCall frame of its own to read its offset and data arguments from.
+        // The CharacterData accessors below are minted by the realm: its module is migrated, so each body
+        // has a JsCall frame of its own to read its data argument from.
 
         // data (read/write) — on every element, where it reads undefined and ignores a write
         Realm.DefineAccessor(handle, "data",
@@ -176,38 +175,6 @@ public sealed partial class DomBridge
         Realm.DefineAccessor(handle, "length",
             (in call) => Dom.Features.CharacterDataBinding.GetLength(element, in call),
             null);
-
-        // splitText(offset) — unreachable: no DomElement is a text node, and Text.prototype has it
-        if (IsText(element))
-        {
-            Realm.DefineValue(handle, "splitText",
-                Realm.NewMethod("splitText",
-                    (in call) => Dom.Features.CharacterDataBinding.SplitText(this, element, in call), 1));
-        }
-
-        // substringData and the other four data methods — unreachable too, for the same reason
-        if (IsText(element) || IsComment(element))
-        {
-            Realm.DefineValue(handle, "substringData",
-                Realm.NewMethod("substringData",
-                    (in call) => Dom.Features.CharacterDataBinding.SubstringData(this, element, in call), 2));
-
-            Realm.DefineValue(handle, "appendData",
-                Realm.NewMethod("appendData",
-                    (in call) => Dom.Features.CharacterDataBinding.AppendData(this, element, in call), 1));
-
-            Realm.DefineValue(handle, "deleteData",
-                Realm.NewMethod("deleteData",
-                    (in call) => Dom.Features.CharacterDataBinding.DeleteData(this, element, in call), 2));
-
-            Realm.DefineValue(handle, "insertData",
-                Realm.NewMethod("insertData",
-                    (in call) => Dom.Features.CharacterDataBinding.InsertData(this, element, in call), 2));
-
-            Realm.DefineValue(handle, "replaceData",
-                Realm.NewMethod("replaceData",
-                    (in call) => Dom.Features.CharacterDataBinding.ReplaceData(this, element, in call), 3));
-        }
 
         // removeAttributeNodeNS(attr) — the one attribute member that stays the wrapper's own. DOM
         // §4.9 pairs setAttributeNode with setAttributeNodeNS but gives removeAttributeNode no
@@ -354,7 +321,7 @@ public sealed partial class DomBridge
             null);
 
         Realm.DefineAccessor(handle, "isConnected",
-            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(this, element, in call), null);
+            (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(element, in call), null);
 
         // childNodes (read-only, dynamic)
         Realm.DefineAccessor(handle, "childNodes",
@@ -501,40 +468,21 @@ public sealed partial class DomBridge
     /// text at all.
     /// </summary>
     /// <remarks>
-    /// The algorithm is engine-neutral and always was — it walks the tree and concatenates strings —
-    /// so it is stated here in CLR terms, and every getter that wants a JavaScript value makes one
-    /// from it — directly, or through <c>IElementContentHost.NodeTextValue</c>.
-    /// <see cref="JsValue.String(string?)"/> turns the <see langword="null"/> into
-    /// JavaScript <c>null</c>, which is exactly the distinction the next paragraph is about.
+    /// The text itself is the canonical <see cref="DomNode.TextContent"/>: a character-data node's own
+    /// data, and the descendant text of anything else — an element and a fragment alike. (The bridge's
+    /// own walk answered the empty string for every node that was neither character data nor an
+    /// element, so a fragment holding text read as blank.) Every getter that wants a JavaScript value
+    /// makes one from this; <see cref="JsValue.String(string?)"/> turns the <see langword="null"/> into
+    /// JavaScript <c>null</c>, which is exactly the distinction the body is about.
     /// </remarks>
-    private string? NodeTextOrNull(DomNode node)
-    {
-        // RF-BRIDGE-1c Phase F (F3c part 2d): character-data nodes expose their data as textContent;
-        // an element's textContent is the concatenation of its descendant text.
-        if (node is DomCharacterData characterData)
-            return characterData.Data;
-
+    private static string? NodeTextOrNull(DomNode node) =>
         // DOM §4.4: `textContent` is *null* for a document and for a doctype — they are the two node
-        // kinds the algorithm has no text for, rather than kinds whose text happens to be empty.
-        // Both answered the empty string, so `document.textContent` was `""` where Chromium says
-        // null, and a page distinguishing the two with `=== null` read the wrong branch.
-        if (node is DomDocument or DomDocumentType)
-            return null;
-
-        if (node is not DomElement element)
-            return string.Empty;
-
-        if (element.ChildNodes.Count > 0)
-        {
-            var sb = new StringBuilder();
-            CollectTextContent(element, sb);
-            return sb.ToString();
-        }
-
-        // A childless element has empty textContent (its content, if any, is canonical DomText
-        // children handled above — Phase 4 item 3 removed the parallel InnerHtml fallback).
-        return string.Empty;
-    }
+        // kinds the algorithm has no text for, rather than kinds whose text happens to be empty. The
+        // canonical getter never answers null (a document's is its descendants' text, a doctype's the
+        // empty string), so this distinction is the binding's to keep. Both used to answer the empty
+        // string here, so `document.textContent` was `""` where Chromium says null, and a page
+        // distinguishing the two with `=== null` read the wrong branch.
+        node is DomDocument or DomDocumentType ? null : node.TextContent;
 
     private bool IsCurrentIframeCrossOrigin(DomElement element)
     {
@@ -547,41 +495,6 @@ public sealed partial class DomBridge
 
     // MutationObserver option parsing and observe()/disconnect() registration moved to the Phase 3
     // MutationObserverBinding feature module (Broiler.HtmlBridge.Dom.Features).
-
-    private bool IsPositionAfter(DomNode docRoot, DomNode containerA, int offsetA, DomNode containerB, int offsetB)
-    {
-        // Phase 4 item 4/5: for boundary points in the SAME tree this is exactly canonical
-        // Broiler.Dom.DomRange.CompareBoundaryPoints(...) > 0 (verified branch-for-branch: same-container,
-        // either-descendant, and common-ancestor ordering all agree), so delegate to it instead of
-        // re-implementing the walk. The bridge deliberately keeps a LENIENT cross-tree path — canonical
-        // throws WrongDocument, but the bridge's compareBoundaryPoints returns an order rather than
-        // throwing — so the cross-tree branch (different roots) is preserved verbatim below.
-        if (ReferenceEquals(containerA.GetRootNode(), containerB.GetRootNode()))
-            return DomRange.CompareBoundaryPoints(containerA, offsetA, containerB, offsetB) > 0;
-
-        var allNodes = docRoot.InclusiveDescendants().ToList();
-        var idxA = allNodes.IndexOf(containerA);
-        var idxB = allNodes.IndexOf(containerB);
-        if (idxA < 0 || idxB < 0)
-            return false;
-
-        return idxA > idxB || (idxA == idxB && offsetA > offsetB);
-    }
-
-
-    private int CompareBoundaryPosition(DomNode docRoot, DomNode containerA, int offsetA, DomNode containerB, int offsetB)
-    {
-        if (ReferenceEquals(containerA, containerB) && offsetA == offsetB)
-            return 0;
-
-        if (IsPositionAfter(docRoot, containerA, offsetA, containerB, offsetB))
-            return 1;
-
-        if (IsPositionAfter(docRoot, containerB, offsetB, containerA, offsetA))
-            return -1;
-
-        return 0;
-    }
 }
 
 public sealed partial class DomBridge

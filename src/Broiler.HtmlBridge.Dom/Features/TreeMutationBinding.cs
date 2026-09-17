@@ -10,10 +10,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// child wrapper(s), enforces the <c>HierarchyRequestError</c> circular-reference guard, and positions
 /// or detaches nodes through the bridge's neutral static tree helpers (<c>ParentEl</c>, <c>ChildAt</c>,
 /// <c>ChildIndexOf</c>, <c>RemoveNthChild</c>, <c>RemoveChildFrom</c>, <c>SetParent</c>) while driving the
-/// side-effecting insertion plus the style-scope invalidation and node-iterator / mutation-observer
-/// notifications through the <see cref="ITreeMutationHost"/> contract. Was the bridge's
-/// <c>JsJsObjectsInsertBefore080Core</c>, <c>AppendChild088Core</c>, <c>Append089Core</c>,
-/// <c>Prepend090Core</c>, <c>RemoveChild091Core</c> and <c>ReplaceChild092Core</c> callbacks.
+/// side-effecting insertion plus the style-scope invalidation through the <see cref="ITreeMutationHost"/>
+/// contract. Was the bridge's <c>JsJsObjectsInsertBefore080Core</c>, <c>AppendChild088Core</c>,
+/// <c>Append089Core</c>, <c>Prepend090Core</c>, <c>RemoveChild091Core</c> and
+/// <c>ReplaceChild092Core</c> callbacks.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -202,10 +202,8 @@ internal static class TreeMutationBinding
         for (var index = element.ChildNodes.Count - 1; index >= 0; index--)
         {
             var child = DomBridgeUtils.ChildAt(element, index);
-            host.NotifyNodeIteratorPreRemoval(child);
             DomBridgeUtils.RemoveNthChild(element, index);
             DomBridgeUtils.SetParent(child, null);
-            host.NotifyChildRemoved(element, child, index, null, null);
         }
 
         host.InvalidateStyleScope(element);
@@ -238,11 +236,9 @@ internal static class TreeMutationBinding
             throw NotFoundError(call.Realm, "removeChild",
                 "The node to be removed is not a child of this node.");
         }
-        host.NotifyNodeIteratorPreRemoval(childEl);
         DomBridgeUtils.RemoveNthChild(element, idx);
         DomBridgeUtils.SetParent(childEl, null);
         host.InvalidateStyleScope(element);
-        host.NotifyChildRemoved(element, childEl, idx, null, null);
         return call[0];
     }
 
@@ -271,8 +267,6 @@ internal static class TreeMutationBinding
             throw NotFoundError(call.Realm, "replaceChild",
                 "The node to be replaced is not a child of this node.");
         }
-        var previousSibling = idx > 0 ? DomBridgeUtils.ChildAt(element, idx - 1) : null;
-        var nextSibling = idx + 1 < element.ChildNodes.Count ? DomBridgeUtils.ChildAt(element, idx + 1) : null;
         // If newChild is already in this parent, remove it first and re-find idx
         if (ReferenceEquals(DomBridgeUtils.ParentEl(newEl), element))
         {
@@ -288,11 +282,7 @@ internal static class TreeMutationBinding
                 var oldParent = DomBridgeUtils.ParentEl(newEl);
                 var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, newEl);
                 if (oldIndex >= 0)
-                {
-                    host.NotifyNodeIteratorPreRemoval(newEl);
                     DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
-                    host.NotifyChildRemoved(oldParent, newEl, oldIndex, null, null);
-                }
             }
         }
 
@@ -303,8 +293,6 @@ internal static class TreeMutationBinding
         // was already detached from any prior parent above; oldEl is still a child of element here.
         element.ReplaceChild(newEl, oldEl);
         host.InvalidateStyleScope(element);
-        host.NotifyChildRemoved(element, oldEl, idx, previousSibling, nextSibling);
-        host.NotifyChildAdded(element, newEl, idx);
         return call[1]; // returns the old child
     }
 }

@@ -9,10 +9,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>Node</c> child-mutation methods (<c>insertBefore</c>/<c>appendChild</c>/<c>append</c>/
 /// <c>prepend</c>/<c>removeChild</c>/<c>replaceChild</c>): the wrapper→node resolver (each takes a
 /// child wrapper), the node/string argument builder (<c>append</c>/<c>prepend</c>), the side-effecting
-/// insertion primitive, style-scope invalidation and the node-iterator / mutation-observer
-/// notifications. The neutral tree helpers the methods also use (<c>ParentEl</c>, <c>ChildAt</c>,
-/// <c>ChildIndexOf</c>, <c>RemoveNthChild</c>, <c>RemoveChildFrom</c>, <c>SetParent</c>) stay the
-/// bridge's <c>internal static</c> helpers, called directly.
+/// insertion primitive and style-scope invalidation. The neutral tree helpers the methods also use
+/// (<c>ParentEl</c>, <c>ChildAt</c>, <c>ChildIndexOf</c>, <c>RemoveNthChild</c>,
+/// <c>RemoveChildFrom</c>, <c>SetParent</c>) stay the bridge's <c>internal static</c> helpers, called
+/// directly.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -47,7 +47,4 @@ internal interface ITreeMutationHost
     /// reload and a render-blocking element keeps blocking.</summary>
     void MoveNodeBefore(DomNode parent, DomNode node, DomNode? reference);
     void InvalidateStyleScope(DomElement anchor);
-    void NotifyNodeIteratorPreRemoval(DomNode node);
-    void NotifyChildAdded(DomNode parent, DomNode child, int index);
-    void NotifyChildRemoved(DomNode parent, DomNode child, int index, DomNode? previousSibling, DomNode? nextSibling);
 }

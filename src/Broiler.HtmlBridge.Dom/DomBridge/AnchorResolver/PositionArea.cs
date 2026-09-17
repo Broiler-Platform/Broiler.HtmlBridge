@@ -49,7 +49,7 @@ public sealed partial class DomBridge
                 // anchor is in a scrollable sibling), the grid must
                 // be computed against the element's own CB.
                 var scrollContainer = rawScrollContainer != null &&
-                    IsDescendantOfElement(element, rawScrollContainer)
+                    element.IsDescendantOf(rawScrollContainer)
                         ? rawScrollContainer
                         : null;
 
@@ -521,7 +521,7 @@ public sealed partial class DomBridge
         var anchorEl = FindElementByAnchorName(positionAnchor);
         var rawScrollContainer = anchorEl != null ? FindNearestScrollContainer(anchorEl) : null;
         var scrollContainer = rawScrollContainer != null &&
-            IsDescendantOfElement(element, rawScrollContainer)
+            element.IsDescendantOf(rawScrollContainer)
                 ? rawScrollContainer
                 : null;
 
@@ -651,6 +651,6 @@ public sealed partial class DomBridge
     }
 
     // Scroll-container geometry helpers (FindScrollContentWidth/Height, ComputeAnchorRelativeToContainer,
-    // FindNearestScrollContainer, IsDescendantOfElement) and the resolution cache JS offset queries read
-    // live in ScrollPositioning.cs.
+    // FindNearestScrollContainer) and the resolution cache JS offset queries read live in
+    // ScrollPositioning.cs.
 }

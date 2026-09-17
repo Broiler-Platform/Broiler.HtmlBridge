@@ -11,9 +11,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>JsJsObjectsContains073Core</c>..<c>CloneNode079Core</c> callbacks; the wrapper→node resolver, the
 /// tree-root walk, character-data-aware <c>normalize()</c>, the root-node wrapper factory, the clone and
 /// the plain JS-wrapper factory reach the bridge through <see cref="INodeRelationshipsHost"/>, while the
-/// pure tree predicates (<c>IsDescendantOf</c>/<c>IsEqualNode</c> on <see cref="DomNode"/>), document-order
-/// comparison (<c>CompareTreeOrder</c>) and the shadow-root walk (<c>FindContainingShadowRoot</c>) are
-/// called directly (the latter two are the bridge's <c>internal static</c> helpers).
+/// pure tree operations (<c>IsDescendantOf</c>/<c>IsEqualNode</c>/<c>CompareDocumentPosition</c> on
+/// <see cref="DomNode"/>) and the shadow-root walk (<c>FindContainingShadowRoot</c>, the bridge's
+/// <c>internal static</c> helper) are called directly.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type.
@@ -37,25 +37,34 @@ internal static class NodeRelationshipsBinding
         return JsValue.Boolean(other.IsDescendantOf(node));
     }
 
+    /// <summary>
+    /// <c>compareDocumentPosition</c>: the canonical <see cref="DomNode.CompareDocumentPosition"/>
+    /// bitmask, whose values are the <c>Node.DOCUMENT_POSITION_*</c> constants, passed through as a number.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only the argument handling is the binding's own: a missing or non-object argument, or an object
+    /// that is not a node wrapper, answers <c>0</c> rather than the <c>TypeError</c> Chromium throws.
+    /// </para>
+    /// <para>
+    /// The canonical member finds each node's root by the same parent walk the bridge's tree root is
+    /// (<c>GetRootNode</c>), so a shadow tree answers exactly what it did before: the bridge parents a
+    /// <c>#shadow-root</c> element into its host, which makes a node in the shadow tree the host's
+    /// descendant here, where Chromium treats the two as disconnected. Nodes with different roots — a
+    /// created but unattached node, a node in a fragment — used to answer a bare
+    /// <c>DOCUMENT_POSITION_DISCONNECTED</c> both ways; they now carry
+    /// <c>IMPLEMENTATION_SPECIFIC</c> and a <c>PRECEDING</c>/<c>FOLLOWING</c> bit that reverses with
+    /// the argument order and holds while both trees live, as DOM §4.4 requires.
+    /// </para>
+    /// </remarks>
     public static JsValue CompareDocumentPosition(INodeRelationshipsHost host, DomNode node, in JsCall call)
     {
-        const int documentPositionDisconnected = 0x01;
-        const int documentPositionPreceding = 0x02;
-        const int documentPositionFollowing = 0x04;
-        const int documentPositionContains = 0x08;
-        const int documentPositionContainedBy = 0x10;
         if (call.Length == 0 || !call[0].IsObject)
             return JsValue.Number(0);
         var other = host.FindNode(call[0]);
-        if (other == null || ReferenceEquals(node, other))
+        if (other == null)
             return JsValue.Number(0);
-        if (!ReferenceEquals(host.GetTreeRoot(node), host.GetTreeRoot(other)))
-            return JsValue.Number(documentPositionDisconnected);
-        if (other.IsDescendantOf(node))
-            return JsValue.Number(documentPositionFollowing | documentPositionContainedBy);
-        if (node.IsDescendantOf(other))
-            return JsValue.Number(documentPositionPreceding | documentPositionContains);
-        return JsValue.Number(DomBridgeUtils.CompareTreeOrder(node, other) < 0 ? documentPositionFollowing : documentPositionPreceding);
+        return JsValue.Number((int)node.CompareDocumentPosition(other));
     }
 
     public static JsValue IsSameNode(INodeRelationshipsHost host, DomNode node, in JsCall call)

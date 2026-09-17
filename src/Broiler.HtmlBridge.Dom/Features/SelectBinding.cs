@@ -6,13 +6,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The HTMLSelectElement / HTMLOptionElement feature binding (HtmlBridge complexity-reduction
 /// roadmap Phase 3, P3.8) — <c>select.add</c>/<c>options</c>/<c>selectedIndex</c>/<c>size</c> and its
-/// value resolution, plus <c>option.defaultSelected</c>. The option-collection, selected-index and
-/// value algorithms (previously scattered as static helpers in <c>LayoutMetrics.cs</c>, though never
-/// used by layout) move here; the per-element form-control state they touch is reached through the
-/// narrow <see cref="ISelectHost"/> contract as named primitives, and neutral tree/attribute work
-/// uses the assembly's static <c>DomBridge</c> helpers. The shared <c>value</c> property stays a
-/// bridge form-control handler that delegates its select branch to <see cref="GetValue"/>/
-/// <see cref="SetValue"/>.
+/// value resolution, plus <c>option.defaultSelected</c> and <c>option.text</c>. The option-collection,
+/// selected-index and value algorithms (previously scattered as static helpers in
+/// <c>LayoutMetrics.cs</c>, though never used by layout) move here; the per-element form-control state
+/// they touch is reached through the narrow <see cref="ISelectHost"/> contract as named primitives,
+/// and neutral tree/attribute work uses the assembly's static <c>DomBridge</c> helpers. The shared
+/// <c>value</c> property stays a bridge form-control handler that delegates its select branch to
+/// <see cref="GetValue"/>/<see cref="SetValue"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -52,11 +52,16 @@ internal sealed class SelectBinding(ISelectHost host)
                 (in call) => SetSize(element, in call));
         }
 
-        if (tag == "option")
+        // HTMLOptionElement is an HTML-namespace element whose local name is exactly "option": an SVG
+        // <option> or createElementNS(xhtml, "OPTION") is not one, so neither gets these members.
+        if (IsHtmlOption(element))
         {
             realm.DefineAccessor(obj, "defaultSelected",
                 (in _) => JsValue.Boolean(_host.GetOptionDefaultSelected(element)),
                 (in call) => SetDefaultSelected(element, in call));
+            realm.DefineAccessor(obj, "text",
+                (in _) => JsValue.String(OptionText(element)),
+                (in call) => SetText(element, in call));
         }
     }
 
@@ -142,6 +147,87 @@ internal sealed class SelectBinding(ISelectHost host)
         return JsValue.Undefined;
     }
 
+    /// <summary>
+    /// <c>option.text = value</c>: HTML §4.10.10's "string replace all", which is the canonical
+    /// <see cref="DomNode.TextContent"/> replace-all — one child-list record and at most one text node
+    /// (none for the empty string).
+    /// </summary>
+    /// <remarks>
+    /// <c>text</c> is a plain <c>DOMString</c>, not a nullable one, so the realm's <c>ToString</c> runs
+    /// first and <c>option.text = null</c> writes the string <c>"null"</c>, as <c>script.text</c> does —
+    /// unlike <c>textContent</c>, whose <c>null</c> empties the element. A setter reached with no
+    /// argument at all (<c>descriptor.set.call(option)</c>) is WebIDL's arity TypeError, and the
+    /// children stay.
+    /// </remarks>
+    private static JsValue SetText(DomElement element, in JsCall call)
+    {
+        if (call.Length == 0)
+            throw call.Realm.Error(JsErrorKind.TypeError,
+                "Failed to set the 'text' property on 'HTMLOptionElement': 1 argument required, but only 0 present.");
+        element.TextContent = call.Realm.ToJsString(call[0]);
+        return JsValue.Undefined;
+    }
+
+    /// <summary>
+    /// An option's <c>text</c> (HTML §4.10.10): its descendant text nodes' data in tree order, leaving out
+    /// every text node inside a descendant HTML or SVG <c>script</c>, with ASCII whitespace stripped and
+    /// collapsed. It is also what an option without a <c>value</c> attribute is worth, so
+    /// <see cref="GetValue"/>, <see cref="SetValue"/> and <c>option.value</c> read it too.
+    /// </summary>
+    /// <remarks>
+    /// "Strip and collapse ASCII whitespace" is tab, LF, FF, CR and space only: a no-break space is text
+    /// and stays where it is. The whitespace is the text's, not the tree's, so a run that spans two
+    /// nodes (<c>a &lt;b&gt; b&lt;/b&gt;</c>) collapses like any other.
+    /// </remarks>
+    internal static string OptionText(DomElement option)
+    {
+        var builder = new System.Text.StringBuilder();
+        AppendNonScriptText(option, builder);
+        var raw = builder.ToString();
+
+        var text = new System.Text.StringBuilder(raw.Length);
+        var pendingSpace = false;
+        foreach (var c in raw)
+        {
+            if (c is '\t' or '\n' or '\f' or '\r' or ' ')
+            {
+                pendingSpace = text.Length > 0;
+                continue;
+            }
+
+            if (pendingSpace)
+                text.Append(' ');
+            pendingSpace = false;
+            text.Append(c);
+        }
+
+        return text.ToString();
+    }
+
+    private static void AppendNonScriptText(DomNode node, System.Text.StringBuilder text)
+    {
+        foreach (var child in node.ChildNodes)
+        {
+            if (child is DomText textNode)
+                text.Append(textNode.Data);
+            // The bridge parents a shadow host's #shadow-root into the host's child list, but a shadow
+            // tree is not the option's descendant (DOM §4.2.2), so none of its text is the option's.
+            else if (child is DomElement element && !IsHtmlOrSvgScript(element) &&
+                     !string.Equals(element.TagName, "#shadow-root", StringComparison.Ordinal))
+                AppendNonScriptText(element, text);
+        }
+    }
+
+    private static bool IsHtmlOrSvgScript(DomElement element) =>
+        string.Equals(element.LocalName, "script", StringComparison.Ordinal) &&
+        element.NamespaceUri is DomNamespaces.Html or DomNamespaces.Svg;
+
+    /// <summary>Whether <paramref name="element"/> is an HTMLOptionElement: HTML namespace, local name
+    /// exactly <c>option</c>.</summary>
+    internal static bool IsHtmlOption(DomElement element) =>
+        string.Equals(element.LocalName, "option", StringComparison.Ordinal) &&
+        element.NamespaceUri is DomNamespaces.Html;
+
     // -------- Select algorithms (moved out of LayoutMetrics; never used by layout) --------
 
     internal static List<DomElement> CollectSelectOptions(DomElement element)
@@ -198,7 +284,7 @@ internal sealed class SelectBinding(ISelectHost host)
     }
 
     /// <summary>The select's current value — the selected option's IDL value, else its
-    /// <c>value</c> attribute, else its text content.</summary>
+    /// <c>value</c> attribute, else its <see cref="OptionText"/>.</summary>
     internal string GetValue(DomElement element)
     {
         var options = CollectSelectOptions(element);
@@ -213,7 +299,7 @@ internal sealed class SelectBinding(ISelectHost host)
         if (DomBridgeUtils.TryGetAttribute(option, "value", out var attrValue))
             return attrValue;
 
-        return DomBridgeUtils.GetElementTextContent(option);
+        return OptionText(option);
     }
 
     /// <summary>Selects the first option whose value matches <paramref name="value"/> (or clears the
@@ -226,7 +312,7 @@ internal sealed class SelectBinding(ISelectHost host)
             var option = options[index];
             var optionValue = DomBridgeUtils.TryGetAttribute(option, "value", out var attrValue)
                 ? attrValue
-                : DomBridgeUtils.GetElementTextContent(option);
+                : OptionText(option);
             if (string.Equals(optionValue, value, StringComparison.Ordinal))
             {
                 _host.SetSelectedIndex(element, index);

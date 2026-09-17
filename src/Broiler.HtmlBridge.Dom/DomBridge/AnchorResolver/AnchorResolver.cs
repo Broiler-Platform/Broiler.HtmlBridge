@@ -243,12 +243,6 @@ public sealed partial class DomBridge
         //     the static renderer can reproduce zoomed fixed-position pages.
         ApplyVisualViewportSerializationState();
 
-        // 7b. Resolve position:sticky offsets into position:relative so the
-        //     static renderer pins sticky boxes to their scroll container /
-        //     containing-block edges.  Runs before scroll simulation so the
-        //     rewritten (relative) boxes flow through the normal path.
-        ResolveStickyPositioning(DocumentElement);
-
         // 8. Apply scroll simulation: shift content in scroll containers
         //    where JavaScript set scrollTop/scrollLeft to match Chromium output.
         ApplyScrollSimulation(DocumentElement);

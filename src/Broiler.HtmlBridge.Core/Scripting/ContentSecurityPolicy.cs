@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
+using Broiler.Dom.Html;
+using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Internal.Scripting;
 
 namespace Broiler.HtmlBridge.Scripting;
@@ -319,11 +321,71 @@ public sealed class ContentSecurityPolicy
     }
 
     /// <summary>
-    /// Extract a <c>nonce</c> attribute value from a script tag attribute list.
-    /// Returns <c>null</c> when no nonce is present.
+    /// Extract a <c>nonce</c> attribute value from a script tag attribute list — the text between
+    /// <c>&lt;script</c> and the <c>&gt;</c> that closes it. Returns <c>null</c> when no nonce is present,
+    /// and <c>""</c> for an empty or valueless one, which every check here treats as no nonce.
     /// </summary>
-    public static string? ExtractNonceFromAttributes(string attributes) =>
-        HtmlAttributeReader.ExtractAttributeValue(attributes, "nonce");
+    /// <remarks>
+    /// <para>
+    /// The list is read as the start tag it came from, by the shared <see cref="HtmlTokenizer"/>: the
+    /// attribute is matched by its whole name, so <c>data-nonce</c> or a <c>nonce=</c> spelled inside
+    /// another attribute's value is not it; quoted, unquoted and upper-case forms are read as a browser
+    /// reads them; character references in the value are decoded; and the first of two <c>nonce</c>
+    /// attributes wins. Whitespace before the <c>=</c> is closed up first
+    /// (<see cref="HtmlSourceAttributes.CloseSpaceBeforeEquals"/>), because the tokenizer would otherwise
+    /// leave the attribute empty where the HTML Standard gives it the value.
+    /// </para>
+    /// <para>
+    /// A list can arrive cut off inside a quoted value. The CLI's script extraction captures it with
+    /// <c>&lt;script(?&lt;attrs&gt;[^&gt;]*)&gt;</c>, which stops at a <c>&gt;</c> even inside quotes, so
+    /// <c>&lt;script nonce="abc" data-x="a&gt;b"&gt;</c> arrives as <c> nonce="abc" data-x="a</c>, in which
+    /// the tokenizer finds no tag at all. The open quote is then closed and the list read again, so a nonce
+    /// spelled before the cut is still the nonce. A nonce whose own value was cut is not: the page's nonce is
+    /// longer than what arrived, and matching that prefix against a policy would allow a script a browser
+    /// blocks, so it answers <c>null</c>.
+    /// </para>
+    /// <para>
+    /// Where the tokenizer otherwise departs from the HTML Standard, so does this — notably, a character
+    /// reference is decoded only when it ends in <c>;</c> and names an HTML 4 entity, and attributes are
+    /// separated by any Unicode whitespace rather than ASCII whitespace alone.
+    /// </para>
+    /// </remarks>
+    public static string? ExtractNonceFromAttributes(string attributes)
+    {
+        if (string.IsNullOrWhiteSpace(attributes))
+            return null;
+
+        attributes = HtmlSourceAttributes.CloseSpaceBeforeEquals(attributes, "nonce");
+        if (TryReadNonce(attributes + ">", out var nonce))
+            return nonce;
+
+        // Cut off inside a quoted value. Closing the other quote leaves that value just as open, so at
+        // most one of the two reads makes a tag. A character added before the closing quote lands in the
+        // value that was cut, so the nonce changes with it only when the nonce is that value.
+        foreach (var quote in "\"'")
+        {
+            if (!TryReadNonce(attributes + quote + ">", out nonce))
+                continue;
+
+            TryReadNonce(attributes + "x" + quote + ">", out var extended);
+            return nonce == extended ? nonce : null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Reads <c>&lt;script </c> followed by <paramref name="tagText"/> as a start tag. Answers whether it
+    /// made one at all, with its <c>nonce</c> when it has one.
+    /// </summary>
+    private static bool TryReadNonce(string tagText, out string? nonce)
+    {
+        // The tokenizer is lazy and the start tag is its first token, so nothing after it is read. When
+        // the tag is unfinished at the end of the text, the first token is the end of the input instead.
+        var tag = new HtmlTokenizer().Tokenize("<script " + tagText).First();
+        nonce = tag.Type == TokenType.StartTag && tag.Attributes.TryGetValue("nonce", out var value) ? value : null;
+        return tag.Type == TokenType.StartTag;
+    }
 
     private bool IsEvalAllowed()
     {

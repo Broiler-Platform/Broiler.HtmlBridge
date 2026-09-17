@@ -158,6 +158,10 @@ internal sealed class FormControlBinding(IFormControlHost host)
             return DefaultTextAreaValue(element);
         if (DomBridgeUtils.TryGetAttribute(element, "value", out var val))
             return val;
+        // An option without a value attribute is valued by its text (HTML §4.10.10) — the same value
+        // select.value reports for it and new FormData(form) collects for its select.
+        if (SelectBinding.IsHtmlOption(element))
+            return SelectBinding.OptionText(element);
         return string.Empty;
     }
 
@@ -176,11 +180,11 @@ internal sealed class FormControlBinding(IFormControlHost host)
     /// lives. A control with no dirty value flag then reports the new default as its value too,
     /// which is the same coupling <c>setAttribute("value", …)</c> already has.
     /// </summary>
-    private JsValue SetDefaultValue(DomElement element, in JsCall call)
+    private static JsValue SetDefaultValue(DomElement element, in JsCall call)
     {
         var value = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
         if (string.Equals(element.TagName, "textarea", StringComparison.OrdinalIgnoreCase))
-            _host.SetElementTextContent(element, value);
+            element.TextContent = value;
         else
             DomBridgeUtils.SetAttr(element, "value", value);
         return JsValue.Undefined;

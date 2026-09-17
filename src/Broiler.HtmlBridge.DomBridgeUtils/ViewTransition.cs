@@ -53,22 +53,6 @@ public static partial class DomBridgeUtils
     /// former engine-typed narrowing cast did, an argument that was never passed included.</summary>
     internal static JsValue ThenCallback(in JsCall call) => call[0].IsFunction ? call[0] : JsValue.Missing;
 
-    /// <summary>The writing modes whose block flow is horizontal, so a box in one is laid out in a
-    /// logical frame and rotated into physical space.</summary>
-    internal static bool IsVerticalWritingMode(string? writingMode) =>
-        writingMode?.Trim().ToLowerInvariant() is "vertical-rl" or "vertical-lr" or "sideways-rl" or "sideways-lr";
-
-    internal static DomElement? ParentElementForCapture(DomElement element)
-    {
-        for (DomNode? node = element.ParentNode; node is not null; node = node.ParentNode)
-        {
-            if (node is DomElement parent)
-                return parent;
-        }
-
-        return null;
-    }
-
     /// <summary>
     /// Applies the author rules a running transition activates to the live DOM, so the "new" snapshot
     /// the pseudo tree captures reflects them. Two selector forms are handled (css-view-transitions-2):
@@ -97,18 +81,6 @@ public static partial class DomBridgeUtils
             if (activeTypes.Contains(raw.Trim()))
                 return true;
         }
-        return false;
-    }
-
-    /// <summary>Whether <paramref name="candidate"/> is a strict ancestor of <paramref name="node"/>.</summary>
-    internal static bool IsAncestorOf(DomElement candidate, DomNode node)
-    {
-        for (var parent = node.ParentNode; parent != null; parent = parent.ParentNode)
-        {
-            if (ReferenceEquals(parent, candidate))
-                return true;
-        }
-
         return false;
     }
 

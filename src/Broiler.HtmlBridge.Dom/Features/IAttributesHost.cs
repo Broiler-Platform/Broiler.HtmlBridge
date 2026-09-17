@@ -8,11 +8,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// complexity-reduction roadmap Phase 3, P3.12). The attribute write path
 /// (<c>setAttribute</c>/<c>removeAttribute</c> and their <c>NS</c> variants) coordinates several
 /// subsystems beyond the canonical attribute set: it re-applies the <c>style</c> attribute to the
-/// element's inline style, compiles an <c>on*</c> inline event handler, invalidates the style scope,
-/// and queues an attribute mutation record. Those cross-cutting side effects stay owned by the bridge
-/// (CSSOM inline style, the Events inline-handler compiler, the CSS invalidation route and the
-/// MutationObserver hub); the module reaches each through a named seam here, implemented explicitly on
-/// <see cref="DomBridge"/> so the public surface is unchanged.
+/// element's inline style, compiles an <c>on*</c> inline event handler, and invalidates the style
+/// scope. Those cross-cutting side effects stay owned by the bridge (CSSOM inline style, the Events
+/// inline-handler compiler and the CSS invalidation route); the module reaches each through a named
+/// seam here, implemented explicitly on <see cref="DomBridge"/> so the public surface is unchanged.
 /// </summary>
 internal interface IAttributesHost
 {
@@ -42,9 +41,6 @@ internal interface IAttributesHost
 
     /// <summary>Invalidates the element's style scope so an attribute change re-cascades.</summary>
     void InvalidateStyleScope(DomElement element);
-
-    /// <summary>Queues an <c>attributes</c> MutationObserver record for the change.</summary>
-    void NotifyAttributeMutationObservers(DomElement element, string attributeName, string? oldValue);
 
     /// <summary>Points a wrapper at a named interface's prototype. Needed here because an attribute
     /// is not a <c>DomNode</c>, so its wrapper is not minted at the choke point that links every

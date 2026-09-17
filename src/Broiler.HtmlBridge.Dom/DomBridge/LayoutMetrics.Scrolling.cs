@@ -456,7 +456,18 @@ public sealed partial class DomBridge
         var props = GetComputedProps(element);
         var axisValue = GetOverflowAxisValue(props, vertical);
 
-        return EnablesScrollingBox(axisValue);
+        // Only this axis's value goes in, which keeps the per-axis answer the bridge's own copy of this
+        // test gave: GetOverflowAxisValue has already let the longhand win over the shorthand.
+        //
+        // That answer has a gap. CSS Overflow 3 §3.1 computes `visible` to `auto` (and `clip` to
+        // `hidden`) when the other axis scrolls, so `overflow-x: hidden` alone makes the box a scroll
+        // container on both axes, and Chromium takes scrollTop writes on it. Neither CssOverflow
+        // overload models that adjustment and GetOverflowAxisValue answers null for the unset axis, so
+        // such a box refuses scrollTop here — while FindNearestScrollParent, which uses the
+        // property-map overload (an OR of all three values), already counts it as a scroll container.
+        // Switching to that overload would match the specification except for the clip combinations,
+        // but it changes what a page observes and needs its own test against a real layout view.
+        return CssOverflow.ClipsOverflow(axisValue, null, null);
     }
 
     private bool CanProgrammaticallyScrollRoot(DomElement rootElement, bool vertical)

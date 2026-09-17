@@ -356,7 +356,7 @@ public sealed partial class DomBridge
                 if (string.Equals(rewritten, original, StringComparison.Ordinal))
                     continue;
 
-                SetElementTextContent(style, rewritten);
+                style.TextContent = rewritten;
                 scoped = true;
             }
 
@@ -458,7 +458,7 @@ public sealed partial class DomBridge
                     stamped = true;
                 }
 
-                SetElementTextContent(style, rewritten);
+                style.TextContent = rewritten;
             }
         }
     }

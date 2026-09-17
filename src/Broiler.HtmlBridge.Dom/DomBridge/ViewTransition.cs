@@ -534,11 +534,11 @@ public sealed partial class DomBridge
                 continue;
 
             var style = UsedStyleForCapture(ctx);
-            var parent = ParentElementForCapture(ctx);
+            var parent = ctx.ParentElement;
             bool parentVertical = parent is not null
-                && IsVerticalWritingMode(UsedStyleForCapture(parent).GetValueOrDefault("writing-mode"));
+                && CssWritingMode.IsVertical(UsedStyleForCapture(parent).GetValueOrDefault("writing-mode"));
 
-            if (IsVerticalWritingMode(style.GetValueOrDefault("writing-mode")) && !parentVertical)
+            if (CssWritingMode.IsVertical(style.GetValueOrDefault("writing-mode")) && !parentVertical)
                 return true;
 
             var position = style.GetValueOrDefault("position");
@@ -658,7 +658,7 @@ public sealed partial class DomBridge
         if (string.Equals(value, "root", System.StringComparison.Ordinal))
             return value;
 
-        return elementByName.TryGetValue(value, out var target) && IsAncestorOf(target, element)
+        return elementByName.TryGetValue(value, out var target) && element.IsDescendantOf(target)
             ? value
             : null;
     }

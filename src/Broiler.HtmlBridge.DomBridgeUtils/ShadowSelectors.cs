@@ -262,8 +262,8 @@ public static partial class DomBridgeUtils
 
     /// <summary>
     /// Adds a twin for each top-level rule whose prelude contains <c>::part(</c>. A brace-depth scan
-    /// rather than a parse, mirroring <c>ExtractPartRules</c>: rules nested inside an at-rule are
-    /// left alone, so a <c>::part()</c> inside <c>@media</c> still does not reach the renderer.
+    /// rather than a parse, which keeps each rule's declaration block verbatim. Rules nested inside an
+    /// at-rule are left alone, so a <c>::part()</c> inside <c>@media</c> still does not reach the renderer.
     /// </summary>
     internal static void CollectPartRuleTwins(
         string css, List<string> rules, string attribute, bool prefixlessOnly)

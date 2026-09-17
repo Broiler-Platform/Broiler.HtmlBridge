@@ -85,26 +85,10 @@ public sealed partial class DomBridge
             rects.Add(rect);
     }
 
-    // Mutation-delivery consolidation (Phase 4): the bridge no longer pushes MutationObserver,
-    // Range, or NodeIterator notifications from its mutation path. Delivery is driven off canonical
-    // DomDocument.Mutated — MutationObserverBinding subscribes per observed document, and canonical
-    // DomRange (trackMutations) / DomNodeIterator self-subscribe. Because the step-1 primitive
-    // cleanup makes each logical op fire exactly one canonical record, the subscribers see the same
-    // record stream the explicit channel produced. These former Notify* seams are kept as no-ops so
-    // the ~35 historical mutation-path call sites (child add/remove, attribute writes, the
-    // NodeIterator pre-removal marker) need no edit.
-    private void NotifyChildAdded(DomNode parent, DomNode addedChild, int index) { }
-
-    private void NotifyChildRemoved(DomNode parent, DomNode removedChild, int index, DomNode? previousSibling = null, DomNode? nextSibling = null) { }
-
-    private void NotifyAttributeMutationObservers(DomElement target, string attributeName, string? oldValue) { }
-
     // The canonical DomCharacterData.Data setter publishes a CharacterData record to
     // DomDocument.Mutated (with its own value-changed guard), so the observer subscription delivers
-    // it — no explicit notify needed.
+    // it.
     private void SetCharacterData(DomNode target, string? newValue) => UpdateCharacterData(target, newValue);
-
-    private void NotifyNodeIteratorPreRemoval(DomNode nodeToBeRemoved) { }
 }
 
 /// <summary>
@@ -175,19 +159,6 @@ public sealed partial class DomBridge
         InvalidateStyleScope(node);
     }
 
-    private void RemoveChildAt(DomElement parent, int index)
-    {
-        if (index < 0 || index >= parent.ChildNodes.Count)
-            return;
-
-        var child = ChildAt(parent, index);
-        NotifyNodeIteratorPreRemoval(child);
-        RemoveNthChild(parent, index);
-        SetParent(child, null);
-        InvalidateStyleScope(parent);
-        NotifyChildRemoved(parent, child, index);
-    }
-
     // Phase 4 items 4/5 (P4.9 follow-up): the bridge's NodesAreEqual / CanonicalAttributesAreEqual
     // copies were deleted after their promotion to canonical Broiler.Dom.DomNode.IsEqualNode landed
     // in the pinned submodule (patches/0001, applied by the maintainer). The isEqualNode binding now
@@ -199,9 +170,9 @@ public sealed partial class DomBridge
     // module (Phase 3 P3.56) with their only consumers, the insertAdjacent* methods.
 
     // Phase 4 item 1: parent widened DomElement -> DomNode so a canonical DomDocumentFragment can be
-    // an insertion parent (fragment.appendChild/append/...). The style-scope invalidation and
-    // child-added mutation notification are element-only concerns, guarded accordingly; the onload
-    // firing below already guards on `node is DomElement`. Behaviour for element parents is identical.
+    // an insertion parent (fragment.appendChild/append/...). The style-scope invalidation is an
+    // element-only concern, guarded accordingly; the onload firing below already guards on
+    // `node is DomElement`. Behaviour for element parents is identical.
     private void InsertNodeAt(DomNode parent, DomNode node, int index)
     {
         if (ReferenceEquals(node, parent) || parent.IsDescendantOf(node))
@@ -221,9 +192,7 @@ public sealed partial class DomBridge
                 if (ReferenceEquals(oldParent, parent) && oldIndex < index)
                     index--;
 
-                NotifyNodeIteratorPreRemoval(node);
                 RemoveNthChild(oldParent, oldIndex);
-                NotifyChildRemoved(oldParent, node, oldIndex);
             }
         }
 
@@ -235,10 +204,7 @@ public sealed partial class DomBridge
         // canonical ChildList(added) record.
         InsertChildAt(parent, index, node);
         if (parent is DomElement parentElement)
-        {
             InvalidateStyleScope(parentElement);
-            NotifyChildAdded(parentElement, node, index);
-        }
 
         // RF-BRIDGE-1c Phase F (F3c part 2b): only elements carry a TagName / fire onloads; a
         // canonical char-data node inserts with no sub-document side effects.
@@ -250,8 +216,9 @@ public sealed partial class DomBridge
             else
                 FireDescendantOnloads(insertedElement);
 
-            // A <link rel=stylesheet> only fetches once it is in the document, so insertion — not
-            // createElement — is when its load event becomes due (HTML §4.2.4).
+            // A <link rel=stylesheet> only fetches once it is in the page's document, so insertion — not
+            // createElement — is when its load event becomes due (HTML §4.2.4). The page's, not any
+            // document's: FireStylesheetLinkLoad says why that is not isConnected.
             FireDescendantStylesheetLinkLoads(insertedElement);
 
             // An already-checked radio joining a group is the other way the "at most one checked"
@@ -270,7 +237,7 @@ public sealed partial class DomBridge
     /// <para>
     /// The difference from <see cref="InsertNodeAt"/> is deliberate and is the entire point of the
     /// operation: no sub-document onload is fired, so a moved <c>&lt;iframe&gt;</c> does not
-    /// reload, and no node-iterator pre-removal is signalled.
+    /// reload.
     /// </para>
     /// <para>
     /// The move itself — including the pre-move validity steps and the pair of observer records —
@@ -315,7 +282,8 @@ public sealed partial class DomBridge
             return nodes;
 
         // RF-BRIDGE-1c Phase F (F3c part 2d): move ALL children (raw ChildNodes) so text/comment
-        // nodes in the parsed fragment survive.
+        // nodes in the parsed fragment survive. The detached nodes returned still belong to the
+        // parser's private document until the caller inserts them, which adopts them.
         foreach (var child in fragmentContainer.ChildNodes.ToArray())
         {
             RemoveChildFrom(fragmentContainer, child);
@@ -376,9 +344,6 @@ public sealed partial class DomBridge
         if (index < 0)
             return;
 
-        var previousSibling = index > 0 ? ChildAt(parent, index - 1) : null;
-        var nextSibling = index + 1 < parent.ChildNodes.Count ? ChildAt(parent, index + 1) : null;
-
         DomDocumentFragment? parsedContainer = null;
         if (!string.IsNullOrEmpty(html))
         {
@@ -389,10 +354,8 @@ public sealed partial class DomBridge
                 parsedContainer = fragmentContainer;
         }
 
-        NotifyNodeIteratorPreRemoval(element);
         RemoveNthChild(parent, index);
         SetParent(element, null);
-        NotifyChildRemoved(parent, element, index, previousSibling, nextSibling);
 
         if (parsedContainer != null)
         {
@@ -401,9 +364,8 @@ public sealed partial class DomBridge
             {
                 // Single canonical insert (InsertChildAt moves child out of the parsed fragment and
                 // into parent at insertIndex); the prior SetParent-append + reposition fired spurious
-                // records. The explicit NotifyChildAdded record is unchanged.
+                // records.
                 InsertChildAt(parent, insertIndex, child);
-                NotifyChildAdded(parent, child, insertIndex);
                 insertIndex++;
             }
         }
@@ -431,8 +393,14 @@ public sealed partial class DomBridge
         if (contextTag.StartsWith('#'))
             contextTag = "div";
 
-        var (fragment, _) = BuildFragmentTree(html, contextTag);
-        container = fragment;
+        // The parser's own fragment, handed over as it is. It and its nodes belong to the private
+        // document the parser built them in, which nothing here listens to, so no mutation is
+        // published on a document this bridge owns until the caller inserts them. Insertion adopts
+        // them, and a defined custom element among them is upgraded then — connected, as DOM "insert"
+        // does. They used to be moved into a staging fragment of this bridge's own first, which
+        // upgraded such an element while it was detached and then reported a disconnection as it
+        // left the staging fragment.
+        container = HtmlDocumentParser.ParseFragment(html, contextTag).Fragment;
         return true;
     }
 

@@ -1,4 +1,5 @@
 using Broiler.Dom;
+using Broiler.Dom.Html;
 using Broiler.HtmlBridge.Jseal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -88,28 +89,29 @@ internal sealed partial class SubDocumentBinding
         if (call.Length == 0)
             return JsValue.Undefined;
         var fragment = call.Realm.ToJsString(call[0]);
-        // Parse DOCTYPE if present
-        var doctype = _host.ParseDocType(fragment);
-        var (parsedDoc, _, _, _) = DomBridgeUtils.BuildDocumentTree(fragment);
+        var parsed = HtmlDocumentParser.ParseDocument(fragment).Document;
+        var parsedRoot = parsed.DocumentElement!;
         if (docRoot.ChildNodes.Count == 0)
         {
-            if (doctype != null)
+            // The doctype is the parser's own node, so one quoted inside a comment or script text is
+            // not taken and a SYSTEM-only or single-quoted one is. It goes in before <html>, as the
+            // document's first child.
+            if (parsed.DocumentType is { } doctype)
             {
                 DomBridgeUtils.SetParent(doctype, docRoot);
                 docRoot.AppendChild(doctype);
             }
 
-            // parsedDoc is the <html> element from HtmlTreeBuilder.
-            // Add it directly to docRoot (not its children).
-            DomBridgeUtils.SetParent(parsedDoc, docRoot);
-            docRoot.AppendChild(parsedDoc);
+            // The parsed <html> element itself becomes docRoot's document element, not its children.
+            DomBridgeUtils.SetParent(parsedRoot, docRoot);
+            docRoot.AppendChild(parsedRoot);
         }
         else
         {
             var bodyEl = DomBridgeUtils.FindInSubTree(docRoot, el => string.Equals(el.TagName, "body", StringComparison.OrdinalIgnoreCase));
             if (bodyEl != null)
             {
-                var parsedBody = DomBridgeUtils.FindInTree(parsedDoc, el => string.Equals(el.TagName, "body", StringComparison.OrdinalIgnoreCase));
+                var parsedBody = DomBridgeUtils.FindInTree(parsedRoot, el => string.Equals(el.TagName, "body", StringComparison.OrdinalIgnoreCase));
                 if (parsedBody != null)
                 {
                     foreach (var child in parsedBody.ChildNodes.ToArray())
@@ -140,13 +142,8 @@ internal sealed partial class SubDocumentBinding
                 var idx = DomBridgeUtils.ChildIndexOf(docRoot, child);
                 if (idx >= 0)
                 {
-                    _host.NotifyNodeIteratorPreRemoval(child);
                     DomBridgeUtils.RemoveNthChild(docRoot, idx);
                     DomBridgeUtils.SetParent(child, null);
-                    // Phase 4 item 1 (P4.4a): child-list mutation-observer notification is element-only;
-                    // a canonical DomDocument browsing-context root (regime-B) has no such observers.
-                    if (docRoot is DomElement docRootElement)
-                        _host.NotifyChildRemoved(docRootElement, child, idx);
                 }
 
                 return childObj;

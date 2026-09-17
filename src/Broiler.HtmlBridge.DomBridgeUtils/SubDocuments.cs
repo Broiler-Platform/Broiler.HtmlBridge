@@ -1,4 +1,3 @@
-using System.Text;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
@@ -165,7 +164,7 @@ public static partial class DomBridgeUtils
     {
         if (string.Equals(element.TagName, "script", StringComparison.OrdinalIgnoreCase))
         {
-            var text = GetTextContentRecursive(element);
+            var text = element.TextContent;
             if (!string.IsNullOrWhiteSpace(text))
                 scripts.Add(text);
             return;
@@ -173,17 +172,6 @@ public static partial class DomBridgeUtils
 
         foreach (var child in ChildElements(element))
             CollectScriptContent(child, scripts);
-    }
-
-    /// <summary>
-    /// Gets the concatenated text content of an element and all its descendants.
-    /// </summary>
-    internal static string GetTextContentRecursive(DomElement element)
-    {
-        // RF-BRIDGE-1c Phase F (F3c part 2d): aggregate descendant text over raw ChildNodes.
-        var sb = new StringBuilder();
-        CollectTextContent(element, sb);
-        return sb.ToString();
     }
 }
 

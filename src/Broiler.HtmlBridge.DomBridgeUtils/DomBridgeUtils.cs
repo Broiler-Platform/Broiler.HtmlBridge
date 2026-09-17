@@ -97,8 +97,7 @@ public static partial class DomBridgeUtils
     }
 
     /// <summary>Old raw <c>Children.RemoveAt(index)</c>, now canonical <c>RemoveChild</c>, which publishes
-    /// its own child-list mutation record; <c>DomBridge.RemoveChildAt</c> adds a style-scope invalidation
-    /// (its two notify hooks are empty).</summary>
+    /// its own child-list mutation record.</summary>
     internal static void RemoveNthChild(DomNode parent, int index) => parent.RemoveChild(parent.ChildNodes[index]);
 
     /// <summary>Old <c>Children.Clear()</c>.</summary>
@@ -136,15 +135,6 @@ public static partial class DomBridgeUtils
     {
         if (node is DomCharacterData characterData)
             characterData.Data = value;
-    }
-
-    /// <summary>An element's <c>textContent</c> — the concatenation of its descendant text (RF-BRIDGE-1c
-    /// Phase F, F3c part 2d). Replaces reads of the former element-store <c>Broiler.Dom.DomElement.TextContent</c>.</summary>
-    internal static string GetElementTextContent(DomElement element)
-    {
-        var sb = new System.Text.StringBuilder();
-        CollectTextContent(element, sb);
-        return sb.ToString();
     }
 
     /// <summary>The element's parent as a <see cref="DomElement"/> (RF-BRIDGE-1c Phase E:

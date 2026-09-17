@@ -46,7 +46,8 @@ internal interface ICustomElementsHost
 
     DomElement CreateBridgeElement(string tagName);
 
-    /// <summary>Whether the element is in the document tree, which is what decides
+    /// <summary>Whether the element is connected — its shadow-including root is a document, any
+    /// document rather than only the page's (DOM §4.2.2) — which is what decides
     /// <c>connectedCallback</c>.</summary>
     bool IsConnected(DomElement element);
 

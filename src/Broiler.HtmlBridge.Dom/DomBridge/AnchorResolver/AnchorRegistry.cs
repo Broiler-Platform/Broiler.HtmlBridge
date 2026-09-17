@@ -63,7 +63,7 @@ public sealed partial class DomBridge
                 AnchorInfo? scoped = null;
                 foreach (var cand in list) // document order
                     if (cand.SourceElement != null &&
-                        IsDescendantOfElement(cand.SourceElement, cb))
+                        cand.SourceElement.IsDescendantOf(cb))
                         scoped = cand; // keep the last in-CB candidate
                 if (scoped != null)
                     return scoped;
