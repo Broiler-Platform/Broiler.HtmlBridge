@@ -35,13 +35,6 @@
     solution manifest's forbiddenProjectPatterns would reject the WebAssembly profile on all three
     platform heads anyway, and it has no business in a JavaScript engine's closure.
   -->
-  <ItemGroup>
-    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Abstractions\Broiler.VM.Abstractions.csproj" />
-    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Binary\Broiler.VM.Binary.csproj" />
-    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Runtime\Broiler.VM.Runtime.csproj" />
-    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Profile.JavaScript\Broiler.VM.Profile.JavaScript.csproj" />
-    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Profile.JavaScript.Compiler\Broiler.VM.Profile.JavaScript.Compiler.csproj" />
-  </ItemGroup>
 
   <!--
     Core carries ScriptExecutionResult, ContentSecurityPolicy, ModuleRoot, MicroTaskQueue and the

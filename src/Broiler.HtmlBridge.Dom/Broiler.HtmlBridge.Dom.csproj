@@ -38,6 +38,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Broiler.JavaScript.Modules" Version="0.1.0-preview.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />
     <!-- DomBridgeUtils: the bridge's static helpers that need no bridge instance. The ones that do stay here
          as DomBridgeHostUtils. -->
@@ -55,15 +59,12 @@
          media image abstraction, which is what makes getImageData/toDataURL report real pixels. Both
          are dependency leaves here: Broiler.Graphics references only Broiler.Media.Image, and neither
          references this assembly, so there is no cycle. -->
-    <ProjectReference Include="$(BroilerJsRoot)\Broiler.JS\Broiler.JavaScript.Engine\Broiler.JavaScript.Engine.csproj" />
-    <ProjectReference Include="$(BroilerJsRoot)\Broiler.JS\Broiler.JavaScript.BuiltIns\Broiler.JavaScript.BuiltIns.csproj" />
     <!--
       Broiler.JavaScript.Globals is GONE from this project: the only thing the bridge used it for was
       JSGlobalStatic.StructuredClone, and structured clone is now IJsClone on the realm contract, so the
       reference moved to the provider that implements it. That is the shape every one of these should
       eventually take: an engine assembly reached by the provider and not by the bridge.
     -->
-    <ProjectReference Include="$(BroilerJsRoot)\Broiler.JS\Broiler.JavaScript.Modules\Broiler.JavaScript.Modules.csproj" />
   </ItemGroup>
 
 </Project>

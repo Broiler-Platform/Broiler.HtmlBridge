@@ -8,6 +8,12 @@
     <Description>A JSEAL provider backed by the Broiler.VM JavaScript profile's in-realm host surface.</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Broiler.VM.Profile.JavaScript" Version="0.1.0-preview.3" />
+    <PackageReference Include="Broiler.VM.Profile.JavaScript.Compiler" Version="0.1.0-preview.3" />
+    <PackageReference Include="Broiler.VM.Runtime" Version="0.1.0-preview.3" />
+  </ItemGroup>
+
   <!--
     THE CONTRACT AND THE ENGINE, AND NOTHING BETWEEN THEM.
 
@@ -27,14 +33,6 @@
   -->
   <ItemGroup>
     <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Abstractions\Broiler.VM.Abstractions.csproj" />
-    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Binary\Broiler.VM.Binary.csproj" />
-    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Runtime\Broiler.VM.Runtime.csproj" />
-    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Profile.JavaScript\Broiler.VM.Profile.JavaScript.csproj" />
-    <ProjectReference Include="$(BroilerVmRoot)\src\Broiler.VM.Profile.JavaScript.Compiler\Broiler.VM.Profile.JavaScript.Compiler.csproj" />
   </ItemGroup>
 
 </Project>
