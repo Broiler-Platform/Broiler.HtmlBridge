@@ -32,7 +32,7 @@ if ($Target -eq 'github') {
     $owner = if ($env:GITHUB_REPOSITORY_OWNER) { $env:GITHUB_REPOSITORY_OWNER } else { 'Broiler-Platform' }
     $owner = [Security.SecurityElement]::Escape($owner)
     $githubSource = "<add key=`"github`" value=`"https://nuget.pkg.github.com/$owner/index.json`" />"
-    $githubMapping = '<packageSource key="github"><package pattern="Broiler.*" /></packageSource>'
+    $githubMapping = '<packageSource key="github"><package pattern="Broiler.*" /><package pattern="UnicodeEmoji.*" /><package pattern="UnicodeCldr.*" /></packageSource>'
 }
 $escapedPath = [Security.SecurityElement]::Escape($packagePath)
 @"
