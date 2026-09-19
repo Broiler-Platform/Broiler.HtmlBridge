@@ -1,10 +1,10 @@
-using System.Net.Http;
+﻿using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Internal.Scripting;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge.Dom.Features;

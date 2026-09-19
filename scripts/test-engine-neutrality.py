@@ -8,7 +8,8 @@ import unittest
 
 
 GUARD = Path(__file__).with_name("check-engine-neutrality.sh")
-CONTRACTS = "Broiler.HtmlBridge.Jseal"
+GIT_BASH = Path(r"C:\Program Files\Git\bin\bash.exe")
+BASH = str(GIT_BASH) if GIT_BASH.exists() else (shutil.which("bash") or "bash")
 
 
 class EngineNeutralityTests(unittest.TestCase):
@@ -18,25 +19,24 @@ class EngineNeutralityTests(unittest.TestCase):
             (root / "scripts").mkdir()
             (root / "eng").mkdir()
             shutil.copyfile(GUARD, root / "scripts/check-engine-neutrality.sh")
-            projects = {}
-            for name in {CONTRACTS, project}:
-                folder = root / "src" / name
-                folder.mkdir(parents=True)
-                items = references if name == project else ""
-                (folder / f"{name}.csproj").write_text(
-                    f"<Project><ItemGroup>{items}</ItemGroup></Project>", encoding="utf-8"
-                )
-                (folder / "Example.cs").write_text("class Example {}\n", encoding="utf-8")
-                projects[name] = dict(
+            folder = root / "src" / project
+            folder.mkdir(parents=True)
+            (folder / f"{project}.csproj").write_text(
+                f"<Project><ItemGroup>{references}</ItemGroup></Project>", encoding="utf-8"
+            )
+            (folder / "Example.cs").write_text("class Example {}\n", encoding="utf-8")
+            projects = {
+                project: dict(
                     engineReferences=0,
-                    engineProjectRefs=budget if name == project else 0,
+                    engineProjectRefs=budget,
                     guestEvalSites=0,
                 )
+            }
             (root / "eng/jseal-budget.json").write_text(
                 json.dumps({"projects": projects}), encoding="utf-8"
             )
             return subprocess.run(
-                [shutil.which("bash") or "bash", "scripts/check-engine-neutrality.sh"],
+                [BASH, "scripts/check-engine-neutrality.sh"],
                 cwd=root, capture_output=True, text=True, timeout=30,
             )
 
@@ -75,10 +75,6 @@ class EngineNeutralityTests(unittest.TestCase):
             '<!-- <PackageReference Include="Broiler.VM.Runtime" /> -->'
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_contracts_cannot_reference_even_an_unrelated_package(self):
-        result = self.check_tree('<PackageReference Include="Example" />', project=CONTRACTS)
-        self.assert_rejected(result, "declares a PackageReference")
 
     def test_malformed_project_fails_closed(self):
         result = self.check_tree('<PackageReference Include="Broiler.VM.Runtime"')

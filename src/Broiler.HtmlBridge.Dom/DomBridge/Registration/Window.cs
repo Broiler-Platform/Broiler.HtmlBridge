@@ -1,9 +1,9 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using Broiler.HtmlBridge.Net;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 

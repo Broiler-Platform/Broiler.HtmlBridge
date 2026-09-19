@@ -1,5 +1,5 @@
-using Broiler.Dom;
-using Broiler.HtmlBridge.Jseal;
+﻿using Broiler.Dom;
+using Broiler.JSeal;
 
 // No engine namespace. This said one adapter at the foot of this file stayed engine-typed for
 // DomBridge/NodeInterfaces.cs's <img>.width/.height; that file mints the pair through the realm

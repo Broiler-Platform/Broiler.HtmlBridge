@@ -1,8 +1,8 @@
-using System;
+﻿using System;
 using System.Linq;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 

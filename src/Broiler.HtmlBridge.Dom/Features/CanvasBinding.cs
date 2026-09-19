@@ -1,10 +1,10 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Text;
 using Broiler.Dom;
 using Broiler.Graphics;
 using Broiler.Graphics.Imaging;
 using Broiler.Graphics.Rendering;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using Broiler.Media;
 using Broiler.Media.Image;
 

@@ -1,8 +1,8 @@
-using Broiler.JavaScript.BuiltIns.Array;
+﻿using Broiler.JavaScript.BuiltIns.Array;
 using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.JavaScript.Runtime;
-using Broiler.HtmlBridge.Jseal;
-using Broiler.HtmlBridge.Jseal.Providers;
+using Broiler.JSeal;
+using Broiler.JSeal.Providers;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
 

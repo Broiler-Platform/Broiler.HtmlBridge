@@ -1,7 +1,7 @@
-using Broiler.Dom;
+﻿using Broiler.Dom;
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Tests;
 

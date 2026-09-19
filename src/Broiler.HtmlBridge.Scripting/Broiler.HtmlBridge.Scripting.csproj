@@ -19,6 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Broiler.JSeal.BroilerJs" Version="0.1.0-preview.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Broiler.HtmlBridge.Core\Broiler.HtmlBridge.Core.csproj" />
     <ProjectReference Include="..\Broiler.HtmlBridge.Dom\Broiler.HtmlBridge.Dom.csproj" />
     <!--
@@ -26,11 +30,10 @@
       the JSContext, so it is the one place that already knows which engine is running, and a provider
       registered anywhere else would be registered after something had already asked for it.
 
-      It does not raise this project's engine coupling — the provider lives under src/, and this
+      It does not raise this project's engine coupling — this
       project already references Broiler.JavaScript directly. What it does is give Broiler.HtmlBridge.Dom
       a provider to adopt a realm from without referencing one itself.
     -->
-    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal.BroilerJs\Broiler.HtmlBridge.Jseal.BroilerJs.csproj" />
   </ItemGroup>
 
 </Project>

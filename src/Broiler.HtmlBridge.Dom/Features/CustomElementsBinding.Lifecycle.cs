@@ -1,6 +1,6 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Broiler.Dom;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 

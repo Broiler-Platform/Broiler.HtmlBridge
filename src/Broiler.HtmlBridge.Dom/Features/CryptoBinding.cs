@@ -1,5 +1,5 @@
-using System.Security.Cryptography;
-using Broiler.HtmlBridge.Jseal;
+﻿using System.Security.Cryptography;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 

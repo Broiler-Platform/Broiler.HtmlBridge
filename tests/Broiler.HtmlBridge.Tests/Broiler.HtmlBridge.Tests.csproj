@@ -47,13 +47,6 @@
     <ProjectReference Include="..\..\src\Broiler.HtmlBridge.Scripting.Vm\Broiler.HtmlBridge.Scripting.Vm.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Remove="Jseal\VmProviderRegistration.cs" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(BroilerJavaScriptEngine)' == 'Vm'">
-    <Compile Include="Jseal\VmProviderRegistration.cs" />
-  </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />

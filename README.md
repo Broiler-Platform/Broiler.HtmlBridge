@@ -17,25 +17,24 @@ about *being a browser*. The browser is now one embedder among the possible ones
 
 ## Status
 
-**Preview.** The bridge is real and heavily exercised — 975 passing tests at `Release`,
-1,095 at `Release-VM` (23 skipped in each, measured on 2026-09-19) — but the *named control surface* described in
+**Preview.** The bridge is real and heavily exercised — 895 passing tests at `Release`,
+950 at `Release-VM` (23 skipped in each, measured on 2026-09-19) — but the *named control surface* described in
 [docs/html-control.md](docs/html-control.md) is not written yet. Today a host composes
 `DomBridge`, `ScriptEngine` and a layout view itself, which is what
 `Broiler.Browser.Core` does. That document is the plan for closing the gap, feature by
 feature, against what WebView2 and MSHTML actually offer.
 
-## The eight assemblies
+## The assemblies
 
 | Assembly | What it is |
 | --- | --- |
 | `Broiler.HtmlBridge.Core` | Shared models with no engine in them: CSP, origins, the microtask queue, navigation requests, the render logger, fetch timing. |
-| `Broiler.HtmlBridge.Jseal` | **JSEAL** — the JavaScript Engine Abstraction Layer. Engine-neutral contracts the DOM is bound against. It has *no* `ProjectReference` and *no* `PackageReference`, and that is enforced. |
 | `Broiler.HtmlBridge.DomBridgeUtils` | The bridge's static helpers that need no bridge instance: tree, attribute, CSS, layout-geometry and serialization utilities. Sits *below* `Dom`. |
 | `Broiler.HtmlBridge.Dom` | The DOM bridge itself: tree building, the ~300 files of DOM/CSSOM/canvas/forms/frames/workers bindings, and the polyfills shipped as embedded JavaScript. |
-| `Broiler.HtmlBridge.Scripting` | `IScriptEngine` and the interactive session: script extraction, module roots, evaluation policy. |
-| `Broiler.HtmlBridge.Jseal.BroilerJs` | The JSEAL provider over [Broiler.JS](https://github.com/Broiler-Platform/Broiler.JS). |
-| `Broiler.HtmlBridge.Jseal.Vm` | The JSEAL provider over the [Broiler.VM](https://github.com/Broiler-Platform/Broiler.VM) JavaScript profile's in-realm host surface. |
-| `Broiler.HtmlBridge.Scripting.Vm` | An `IScriptEngine` on the same profile, selected by the `Debug-VM` / `Release-VM` configurations. |
+| `Broiler.HtmlBridge.Scripting` | `IScriptEngine` and the interactive session: script extraction, module roots, evaluation policy. References `Broiler.JSeal.BroilerJs`. |
+| `Broiler.HtmlBridge.Scripting.Vm` | An `IScriptEngine` on the same profile, selected by the `Debug-VM` / `Release-VM` configurations. References `Broiler.JSeal.Vm`. |
+
+External engine abstraction contracts and reference providers arrive via the [Broiler.JSeal](https://github.com/Broiler-Platform/Broiler.JSeal) NuGet packages (`Broiler.JSeal`, `Broiler.JSeal.BroilerJs`, `Broiler.JSeal.Vm`).
 
 The dependency rule that shapes all of it: **a binding never names an engine.** It names
 JSEAL, and a *provider* names the engine. `eng/jseal-budget.json` records how much

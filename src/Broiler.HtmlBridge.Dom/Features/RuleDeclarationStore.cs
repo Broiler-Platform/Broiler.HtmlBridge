@@ -1,11 +1,11 @@
-using Broiler.CSS;
+﻿using Broiler.CSS;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// What a rule's <c>CSSStyleDeclaration</c> (<c>rule.style</c>) reads and writes: the declared
 /// properties as a property map, and the three edits CSSOM makes to them. The declaration object itself
-/// (<see cref="StyleDeclarationBinding.BuildRuleDeclaration(Broiler.HtmlBridge.Jseal.IJsRealm, RuleDeclarationStore, Broiler.HtmlBridge.Jseal.JsValue)"/>)
+/// (<see cref="StyleDeclarationBinding.BuildRuleDeclaration(Broiler.JSeal.IJsRealm, RuleDeclarationStore, Broiler.JSeal.JsValue)"/>)
 /// is the same for every rule kind; what differs is whether an edit reaches the sheet.
 /// </summary>
 /// <remarks>

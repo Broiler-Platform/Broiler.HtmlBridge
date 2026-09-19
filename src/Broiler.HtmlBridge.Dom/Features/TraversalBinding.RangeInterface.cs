@@ -1,5 +1,5 @@
-using System.Runtime.CompilerServices;
-using Broiler.HtmlBridge.Jseal;
+﻿using System.Runtime.CompilerServices;
+using Broiler.JSeal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;

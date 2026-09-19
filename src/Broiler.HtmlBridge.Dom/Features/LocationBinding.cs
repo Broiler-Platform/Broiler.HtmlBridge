@@ -1,5 +1,5 @@
-using System;
-using Broiler.HtmlBridge.Jseal;
+﻿using System;
+using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 
 // Nothing here is engine-typed. This said the Build(string) overload and the installer beneath it

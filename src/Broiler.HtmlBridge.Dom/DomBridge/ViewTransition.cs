@@ -1,6 +1,6 @@
-using Broiler.CSS;
+﻿using Broiler.CSS;
 using Broiler.Dom;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 

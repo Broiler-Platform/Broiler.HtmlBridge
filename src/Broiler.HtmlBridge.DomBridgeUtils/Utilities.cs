@@ -1,6 +1,6 @@
-using System.Text;
+﻿using System.Text;
 using Broiler.Dom;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge;
 

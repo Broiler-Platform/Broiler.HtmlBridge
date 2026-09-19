@@ -1,8 +1,8 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 
 // NO ENGINE TYPE IS LEFT IN THIS FILE, NOT EVEN AS A WEAK TABLE'S KEY. All five collection adapters
 // that took a script context have gone with their callers — the interface-registration hub

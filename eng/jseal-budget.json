@@ -68,6 +68,28 @@
     "makes the entry name the same string the check prints.",
     "",
     "This is an object rather than the array eng/solutions.json uses, so that a directory cannot be",
+    "",
+    "  guestEvalSites     Occurrences of '.Eval(' in .cs files. The name records where these are",
+    "                     going, not what they are: today's sites are undifferentiated, and splitting",
+    "                     them into IJsSource.EvaluateHostScript (source this repository authored,",
+    "                     exempt from the page's content policy) and EvaluateClassicScript (a script",
+    "                     the page carries, which script-src governs) is the porting work this number",
+    "                     measures for a binding's sites; a provider's own evaluation and Dom's module",
+    "                     probe are counted as well and are not that work (see their notes). None goes to",
+    "                     EvaluateDynamicSource (what the page asks to evaluate at run time, which",
+    "                     'unsafe-eval' governs): no counted site evaluates text the page asks for at run",
+    "                     time, and the page's own eval and Function are refused inside the realm rather",
+    "                     than through that member. A ported site no longer names .Eval(, so it leaves",
+    "                     this count; engineReferences counts namespace text, so it falls only when a",
+    "                     port also deletes a using or qualified name the file no longer needs.",
+    "",
+    "WHY THE UNIT IS A DIRECTORY AND NOT A PROJECT FILE. src/Broiler.App has no .csproj: its eight",
+    "files are pulled in by <Compile Include=\"..\\Broiler.App\\...\"> from three heads. Keying this",
+    "on project files would leave those files counted nowhere, which is the one place an engine",
+    "reference could be parked without any budget noticing. Keying on the directory covers them, and",
+    "makes the entry name the same string the check prints.",
+    "",
+    "This is an object rather than the array eng/solutions.json uses, so that a directory cannot be",
     "budgeted twice -- two entries for one project would let the check read whichever came first.",
     "A project marked \"role\": \"provider\" is the one kind whose engine references are SUPPOSED to grow -- naming the engine is what a provider assembly is for. For those, engineReferences and guestEvalSites are recorded and reported when they drift, but not enforced; engineProjectRefs stays enforced, because which engine assemblies a provider links is a real boundary and a Broiler.JS provider quietly acquiring a Broiler.VM reference should have to argue for it in a diff.",
     "",
@@ -92,39 +114,19 @@
       "engineReferences": 0,
       "engineProjectRefs": 0,
       "guestEvalSites": 0,
-      "note": "The bridge's static helpers that need no bridge instance, moved out of Broiler.HtmlBridge.Dom. It references Core and Jseal and no engine project, and it arrived at zero because the one helper that names the engine, AdoptRealm (JSContext), stayed in Dom as DomBridgeHostUtils together with its using line -- so Dom's 12 did not move either. A helper that needs the engine belongs in DomBridgeHostUtils, not here."
-    },
-    "Broiler.HtmlBridge.Jseal": {
-      "engineReferences": 0,
-      "engineProjectRefs": 0,
-      "guestEvalSites": 0,
-      "note": "Proved by the compiler, not by this file. The project has no ProjectReference and no PackageReference, so it cannot name an engine type whatever a grep says; the check fails if that project file ever gains one. See the comment in Broiler.HtmlBridge.Jseal.csproj."
-    },
-    "Broiler.HtmlBridge.Jseal.BroilerJs": {
-      "engineReferences": 43,
-      "engineProjectRefs": 3,
-      "guestEvalSites": 1,
-      "role": "provider",
-      "note": "The Broiler.JS provider, and the one project under src/ whose budget is not expected to reach zero. Naming Broiler.JavaScript is what this assembly is for: every reference here is a reference the bridge no longer has to make. The single eval site is JSContext.Eval inside the realm's own IJsSource implementation -- the provider being asked to evaluate, not a binding evaluating. Its engine project references were Broiler.JavaScript.Engine and .BuiltIns until IJsClone landed and took engineProjectRefs from 2 to 3: JSGlobalStatic.StructuredClone lives in Broiler.JavaScript.Globals, so the provider that implements structured clone needs it. That is the gate doing its job rather than a regression -- the same reference LEFT Broiler.HtmlBridge.Dom in the same commit, because the bridge's only use of it was the call that is now behind the contract. An engine assembly reached by the provider and not by the bridge is the shape all of these should end in."
-    },
-    "Broiler.HtmlBridge.Jseal.Vm": {
-      "engineReferences": 0,
-      "engineProjectRefs": 3,
-      "guestEvalSites": 0,
-      "role": "provider",
-      "note": "VM provider: three direct packages (Profile.JavaScript, Profile.JavaScript.Compiler and Runtime). Abstractions and Binary arrive transitively. The source-reference metric counts Broiler.JS namespaces, not Broiler.VM."
+      "note": "The bridge's static helpers that need no bridge instance, moved out of Broiler.HtmlBridge.Dom. It references Core and Broiler.JSeal and no engine project, and it arrived at zero because the one helper that names the engine, AdoptRealm (JSContext), stayed in Dom as DomBridgeHostUtils together with its using line -- so Dom's 12 did not move either. A helper that needs the engine belongs in DomBridgeHostUtils, not here."
     },
     "Broiler.HtmlBridge.Scripting": {
       "engineReferences": 9,
       "engineProjectRefs": 0,
       "guestEvalSites": 4,
-      "note": "No direct engine package or project references; engine types still arrive through Core and Jseal.BroilerJs. Source references and evaluation sites remain budgeted."
+      "note": "No direct engine package or project references; engine types still arrive through Core. Source references and evaluation sites remain budgeted."
     },
     "Broiler.HtmlBridge.Scripting.Vm": {
       "engineReferences": 0,
       "engineProjectRefs": 0,
       "guestEvalSites": 0,
-      "note": "No direct engine package or project references; VM types arrive through Jseal.Vm. This does not mean its transitive closure is engine-neutral."
+      "note": "No direct engine package or project references; VM types arrive through Broiler.JSeal.Vm. This does not mean its transitive closure is engine-neutral."
     }
   }
 }

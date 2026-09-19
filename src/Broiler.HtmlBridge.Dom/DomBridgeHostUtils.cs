@@ -1,4 +1,4 @@
-using Broiler.HtmlBridge.Jseal;
+﻿using Broiler.JSeal;
 using Broiler.JavaScript.Engine;
 using Broiler.Dom;
 using static Broiler.HtmlBridge.DomBridgeUtils;
@@ -83,7 +83,7 @@ internal static class DomBridgeHostUtils
         throw new InvalidOperationException(
             "No registered JavaScript engine provider recognised the script context the host supplied. " +
             $"{JsEngineRegistry.All.Count} provider(s) are registered. A host must reference an engine " +
-            "provider assembly — Broiler.HtmlBridge.Jseal.BroilerJs for Broiler.JS — and that assembly " +
+            "provider assembly — Broiler.JSeal.BroilerJs for Broiler.JS — and that assembly " +
             "registers itself when it is loaded.");
     }
 

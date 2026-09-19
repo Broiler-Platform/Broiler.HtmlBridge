@@ -1,8 +1,8 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Xml.Linq;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using static Broiler.HtmlBridge.DomBridgeUtils;

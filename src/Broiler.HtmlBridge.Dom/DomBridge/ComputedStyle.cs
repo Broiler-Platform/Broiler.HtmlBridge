@@ -1,8 +1,8 @@
-using Broiler.CSS;
+﻿using Broiler.CSS;
 using Broiler.CSS.Dom;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using Broiler.JavaScript.BuiltIns.Array;
 using Broiler.JavaScript.Runtime;
 using static Broiler.HtmlBridge.DomBridgeUtils;

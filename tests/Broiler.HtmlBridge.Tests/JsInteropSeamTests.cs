@@ -1,6 +1,6 @@
-using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.HtmlBridge.Jseal;
-using Broiler.HtmlBridge.Jseal.Providers;
+﻿using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.JSeal;
+using Broiler.JSeal.Providers;
 using Broiler.JavaScript.Runtime;
 using Xunit;
 

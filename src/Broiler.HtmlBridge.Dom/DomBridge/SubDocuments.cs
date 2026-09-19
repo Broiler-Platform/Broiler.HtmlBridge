@@ -1,5 +1,5 @@
-using Broiler.HtmlBridge.Core.Diagnostics;
-using Broiler.HtmlBridge.Jseal;
+﻿using Broiler.HtmlBridge.Core.Diagnostics;
+using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Internal.Scripting;

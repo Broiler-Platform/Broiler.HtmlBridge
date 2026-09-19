@@ -21,12 +21,11 @@ try {
 
     # THE FLOOR IS PER CONFIGURATION, AND THE DIFFERENCE IS THE POINT.
     #
-    # The -VM pair compiles the cases guarded by `#if BROILER_VM_JS` and links the VM
-    # JSEAL provider, so the conformance run enumerates two engines instead of one.
-    # Measured on 2026-09-19: 975 executed at Release and 1095 at Release-VM
+    # The -VM pair compiles the cases guarded by `#if BROILER_VM_JS`.
+    # Measured on 2026-09-19 (after Broiler.JSeal extraction): 895 executed at Release and 950 at Release-VM
     # (23 skipped in each). Keep the VM floor above the default suite's count so
     # losing the VM-only cases cannot pass as an ordinary Release run.
-    $floor = if ($Configuration -like '*-VM') { 1000 } else { 900 }
+    $floor = if ($Configuration -like '*-VM') { 920 } else { 850 }
     if ($executed -lt $floor) {
         throw "Executed test count collapsed to $executed under ${Configuration}; expected at least $floor."
     }

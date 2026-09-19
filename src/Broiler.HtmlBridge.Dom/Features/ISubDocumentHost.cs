@@ -1,5 +1,5 @@
 using Broiler.Dom;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -40,7 +40,7 @@ internal interface ISubDocumentHost
     /// Never null while a document is attached; the sub-document surface is only reachable after
     /// attach.
     /// </summary>
-    Jseal.IJsRealm Realm { get; }
+    IJsRealm Realm { get; }
 
     /// <summary>
     /// The main window object, used for the sub-document's <c>defaultView</c>, or a non-object when

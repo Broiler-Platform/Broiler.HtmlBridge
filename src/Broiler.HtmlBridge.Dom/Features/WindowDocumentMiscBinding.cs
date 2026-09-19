@@ -1,5 +1,5 @@
-using System.Diagnostics;
-using Broiler.HtmlBridge.Jseal;
+﻿using System.Diagnostics;
+using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge.Dom.Features;

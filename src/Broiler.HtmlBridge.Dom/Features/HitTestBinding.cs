@@ -1,5 +1,5 @@
-using System.Linq;
-using Broiler.HtmlBridge.Jseal;
+﻿using System.Linq;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 

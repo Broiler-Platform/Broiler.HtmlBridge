@@ -1,5 +1,5 @@
-using System.Collections.Generic;
-using Broiler.HtmlBridge.Jseal;
+﻿using System.Collections.Generic;
+using Broiler.JSeal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;

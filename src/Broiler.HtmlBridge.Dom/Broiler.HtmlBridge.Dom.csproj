@@ -39,6 +39,7 @@
 
   <ItemGroup>
     <PackageReference Include="Broiler.JavaScript.Modules" Version="0.1.0-preview.1" />
+    <PackageReference Include="Broiler.JSeal" Version="0.1.0-preview.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -54,7 +55,7 @@
       obtained from whichever provider the host linked, through JsEngineRegistry; see
       DomBridge/Lifecycle.cs.
     -->
-    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal\Broiler.HtmlBridge.Jseal.csproj" />
+
     <!-- The canvas 2D context rasterises into a Broiler.Graphics BBitmap and encodes it through the
          media image abstraction, which is what makes getImageData/toDataURL report real pixels. Both
          are dependency leaves here: Broiler.Graphics references only Broiler.Media.Image, and neither

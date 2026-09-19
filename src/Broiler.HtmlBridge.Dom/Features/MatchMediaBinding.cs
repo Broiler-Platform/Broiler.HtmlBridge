@@ -1,5 +1,5 @@
-using Broiler.CSS.Dom;
-using Broiler.HtmlBridge.Jseal;
+﻿using Broiler.CSS.Dom;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 

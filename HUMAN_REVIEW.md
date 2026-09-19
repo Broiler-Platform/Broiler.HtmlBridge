@@ -23,10 +23,9 @@ it the highest-value review target in the platform and the one with the least ma
 - `src/Broiler.HtmlBridge.Core` holds the **policy** decisions — Content-Security-Policy
   parsing and matching, origins, the microtask queue. A defect here is a policy that does
   not apply rather than a crash.
-- `src/Broiler.HtmlBridge.Jseal` is the seam the whole design rests on. It references
-  nothing, deliberately, and CI enforces that; a reviewer should check that claim rather
-  than accept it.
-- The two providers are where an engine's semantics meet the bridge's assumptions. They are
+- `Broiler.JSeal` is the seam the whole design rests on. It is consumed as an external component
+  from `Broiler-Platform/Broiler.JSeal` and references nothing, deliberately, with zero external dependencies.
+- The two providers (`Broiler.JSeal.BroilerJs` and `Broiler.JSeal.Vm`) are where an engine's semantics meet the bridge's assumptions. They are
   the place a value crosses a trust boundary.
 
 **Neither engine is a security sandbox.** Broiler.JS records that about itself and is
@@ -38,8 +37,8 @@ not do that for it.
 
 | Review | Scope | Status |
 |---|---|---|
-| [ ] | `src/` — the eight bridge assemblies | **PENDING** |
-| [ ] | `tests/` — 622 cases at `Release`, 742 under the VM profile | **PENDING** |
+| [ ] | `src/` — the five bridge assemblies | **PENDING** |
+| [ ] | `tests/` — unit and integration test suite | **PENDING** |
 
 Reviewer: _not yet assigned_
 Reviewed commit: _none_

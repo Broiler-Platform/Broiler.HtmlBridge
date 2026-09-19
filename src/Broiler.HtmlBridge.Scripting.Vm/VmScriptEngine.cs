@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using Broiler.HtmlBridge.Logging;
@@ -29,7 +29,7 @@ namespace Broiler.HtmlBridge;
 /// call over opaque bytes, that a DOM is not a byte string, and that therefore no surface on the
 /// profile could carry one. Every clause of that is true and the conclusion does not follow: it
 /// assumes a host object has to travel through the capability channel, and it does not. The
-/// profile publishes an in-realm host surface, and <c>Broiler.HtmlBridge.Jseal.Vm</c> is a JSEAL
+/// profile publishes an in-realm host surface, and <c>Broiler.JSeal.Vm</c> is a JSEAL
 /// provider over it that declares <c>JsCapabilities.Document</c> and passes the conformance suite
 /// in full. <c>docs/jseal.md</c> records the mistake, which this file made a third time.
 /// </para>

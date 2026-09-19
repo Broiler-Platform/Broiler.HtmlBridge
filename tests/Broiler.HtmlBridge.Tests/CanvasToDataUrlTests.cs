@@ -1,6 +1,6 @@
-using Broiler.HtmlBridge;
+﻿using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Dom.Features;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using Broiler.Media;
 using Broiler.Media.Image;
 

@@ -1,6 +1,6 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Broiler.HtmlBridge.Core.Diagnostics;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;

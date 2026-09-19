@@ -1,7 +1,7 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 
-using Broiler.HtmlBridge.Jseal;
-using Broiler.HtmlBridge.Jseal.BroilerJs;
+using Broiler.JSeal;
+using Broiler.JSeal.BroilerJs;
 using Broiler.HtmlBridge.Scripting;
 
 namespace Broiler.HtmlBridge;

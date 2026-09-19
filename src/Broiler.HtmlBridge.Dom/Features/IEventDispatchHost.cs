@@ -1,4 +1,4 @@
-using Broiler.HtmlBridge.Jseal;
+﻿using Broiler.JSeal;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.Dom;
 

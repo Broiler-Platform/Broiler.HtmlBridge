@@ -1,11 +1,11 @@
-using System.Net;
+﻿using System.Net;
 using System.Runtime.CompilerServices;
 using Broiler.JavaScript.Engine;
 using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Dom.Runtime;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using Broiler.Dom;
 using Broiler.CSS.Dom;
 using Broiler.CSS;

@@ -1,6 +1,6 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using Broiler.JavaScript.Engine;
 using Broiler.JavaScript.Runtime;
 using static Broiler.HtmlBridge.DomBridgeHostUtils;

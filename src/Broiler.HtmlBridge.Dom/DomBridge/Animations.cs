@@ -1,9 +1,9 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Broiler.CSS;
 using Broiler.Dom;
-using Broiler.HtmlBridge.Jseal;
+using Broiler.JSeal;
 using static Broiler.HtmlBridge.DomBridgeHostUtils;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 

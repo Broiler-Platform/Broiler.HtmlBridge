@@ -72,7 +72,6 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root" || exit 1
 
 budget="eng/jseal-budget.json"
-jseal="src/Broiler.HtmlBridge.Jseal/Broiler.HtmlBridge.Jseal.csproj"
 
 if [ ! -f "$budget" ]; then
   echo "::error::$budget is missing. It is the ratchet; without it there is nothing to compare against and this check cannot pass vacuously."
@@ -113,7 +112,6 @@ import xml.etree.ElementTree as ET
 
 budget_path = sys.argv[1]
 SRC = "src"
-JSEAL = os.path.join("src", "Broiler.HtmlBridge.Jseal", "Broiler.HtmlBridge.Jseal.csproj")
 METRICS = ("engineReferences", "engineProjectRefs", "guestEvalSites")
 SKIP = {"bin", "obj"}
 
@@ -146,26 +144,6 @@ def files_under(directory, suffix):
         for name in sorted(names):
             if name.endswith(suffix):
                 yield os.path.join(base, name)
-
-# ── The claim the compiler makes, checked before the counts that depend on it ──
-if not os.path.isfile(JSEAL):
-    emit("error", "%s is missing. Every 0 in %s is a claim about that assembly; without it they "
-                  "assert nothing." % (JSEAL.replace(os.sep, "/"), budget_path))
-else:
-    try:
-        offending = [("ProjectReference", i) for i in project_references(JSEAL)]
-        offending += [("PackageReference", i) for i in package_references(JSEAL)]
-    except ET.ParseError as exc:
-        offending = None
-        emit("error", "%s could not be parsed as XML (%s), so its neutrality could not be checked."
-             % (JSEAL.replace(os.sep, "/"), exc))
-    if offending:
-        for kind, include in offending:
-            emit("error",
-                 "%s declares a %s to '%s'. That project is engine-neutral BY COMPILATION -- it "
-                 "references nothing, so it cannot name an engine type -- and this reference ends "
-                 "that. Put the dependency in a provider assembly instead; see the comment at the "
-                 "bottom of that project file." % (JSEAL.replace(os.sep, "/"), kind, include))
 
 # ── The budget file ──
 try:

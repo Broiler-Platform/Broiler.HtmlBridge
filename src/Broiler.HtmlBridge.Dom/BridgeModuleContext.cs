@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,7 +50,7 @@ namespace Broiler.HtmlBridge.Scripting;
 /// as a <c>JSContext</c> (<c>using JSContext context = moduleContext ?? new JSContext();</c>) and as
 /// the thing it calls <c>RunScriptAsync</c> on — so the type cannot stop being a <c>JSModuleContext</c>
 /// until that file changes with it. Second, the implementation belongs in
-/// <c>Broiler.HtmlBridge.Jseal.BroilerJs</c>, and <c>JSModuleContext</c> lives in
+/// <c>Broiler.JSeal.BroilerJs</c>, and <c>JSModuleContext</c> lives in
 /// <c>Broiler.JavaScript.Modules</c>, which that project deliberately does not reference: its
 /// <c>engineProjectRefs</c> budget is 3 and <c>scripts/check-engine-neutrality.sh</c> enforces that
 /// number for a provider as well as for a binding. Adding the reference is a real budget increase and

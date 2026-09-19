@@ -57,7 +57,7 @@
     what a realm is built from when BROILER_JS_ENGINE names it.
   -->
   <ItemGroup>
-    <ProjectReference Include="..\Broiler.HtmlBridge.Jseal.Vm\Broiler.HtmlBridge.Jseal.Vm.csproj" />
+    <PackageReference Include="Broiler.JSeal.Vm" Version="0.1.0-preview.1" />
   </ItemGroup>
 
 </Project>
