@@ -38,37 +38,6 @@
 
   <!--
     ════════════════════════════════════════════════════════════════════
-    WHERE THE TWO JAVASCRIPT ENGINES ARE, and why it is a property.
-
-    This component is the only one that references BOTH engines: Broiler.JS backs the
-    JSEAL provider in Broiler.HtmlBridge.Jseal.BroilerJs, and Broiler.VM backs the one
-    in Broiler.HtmlBridge.Jseal.Vm and the IScriptEngine in
-    Broiler.HtmlBridge.Scripting.Vm. Standalone it reaches them through its own
-    submodules, which is what the two defaults below say.
-
-    IN AN IN-TREE BUILD THE PARENT MUST WIN, and that is the whole reason these are
-    properties rather than the literal `..\..\Broiler.JS\...` paths the .csproj files
-    used to carry. Broiler.Browser checks out Broiler.JS and Broiler.VM at its OWN root
-    as well, and it reaches them directly from src/Broiler.Browser.Core. If this
-    component resolved its own nested checkouts there, one build graph would carry two
-    Broiler.JavaScript.Engine assemblies and two Broiler.VM.Runtime assemblies — the
-    duplicate-assembly failure Broiler.Browser's scripts/check-component-graph.sh exists
-    to catch, and which has already shipped once in this platform as a
-    TypeLoadException naming PngImageCodec.DecodeAsync.
-
-    So the parent sets $(BroilerJsRoot) and $(BroilerVmRoot) unconditionally to its own
-    checkouts, and the Condition here yields to it. The nested checkouts then simply go
-    uncompiled: their sources are built from the parent's copy instead, and whether they
-    still compile is something the build says out loud.
-    ════════════════════════════════════════════════════════════════════
-  -->
-  <PropertyGroup>
-    <BroilerJsRoot Condition="'$(BroilerJsRoot)' == ''">$(MSBuildThisFileDirectory)Broiler.JS</BroilerJsRoot>
-    <BroilerVmRoot Condition="'$(BroilerVmRoot)' == ''">$(MSBuildThisFileDirectory)Broiler.VM</BroilerVmRoot>
-  </PropertyGroup>
-
-  <!--
-    ════════════════════════════════════════════════════════════════════
     THE TWO DIAGNOSTICS THIS COMPONENT PROMOTES TO ERRORS.
 
     Both are one defect seen from two sides, and both are about JsValue — the JSEAL

@@ -159,10 +159,27 @@ internal sealed class EventTargetRegistry
     /// <summary>Drops every listener store — node, window, generic target, owner windows and viewport scroll.</summary>
     public void Clear()
     {
+        // In-flight dispatch snapshots must observe a session reset too.
+        foreach (var entry in _nodeListeners)
+            RemoveListeners(entry.Value);
+        RemoveListeners(_windowListeners);
+        foreach (var byType in _targetListeners.Values)
+            RemoveListeners(byType);
+
         _nodeListeners.Clear();
         _windowListeners.Clear();
         _targetListeners.Clear();
         _ownerWindows.Clear();
         _visualViewportScrollListeners.Clear();
+    }
+
+    private static void RemoveListeners(Dictionary<string, List<EventListenerRegistration>> byType)
+    {
+        foreach (var listeners in byType.Values)
+        {
+            foreach (var registration in listeners)
+                registration.Removed = true;
+            listeners.Clear();
+        }
     }
 }

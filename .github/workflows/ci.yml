@@ -30,116 +30,21 @@ env:
   NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }};ValidAuthenticationTypes=Basic
 
 jobs:
-  # A gitlink can point at a commit that was never pushed. It resolves for whoever
-  # recorded it and for nobody else, so the tree looks correct locally and every
-  # other job here dies in `Check out` with `upload-pack: not our ref`, before a
-  # single project is restored. That has happened twice in Broiler.Browser.
-  #
-  # Two properties this job has that the failure it replaces does not. It checks out
-  # WITHOUT submodules — a job that fetched them would fail in the same step it
-  # exists to explain, so do not add `submodules: true` here. And it reports EVERY
-  # bad pin rather than stopping at the first, because `git submodule update` stops
-  # there and tells you nothing about the rest.
-  pins:
-    name: Submodule pins
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      # No submodules, deliberately. See above.
-      - name: Check out
-        uses: actions/checkout@v7
-
-      # `git ls-remote` would only prove a pin is a branch or tag *tip*, and a pin to
-      # any other reachable commit is legitimate. So this asks the remote the same
-      # question `git submodule update` asks — fetch exactly this commit — which is
-      # the ground truth and costs one shallow fetch each.
-      - name: Verify every gitlink exists on its remote
-        shell: bash
-        run: |
-          set -uo pipefail
-
-          resolve() {
-            local url="$1" base
-            case "$url" in
-              ./*|../*)
-                base="$(git config --get remote.origin.url)"
-                base="${base%.git}"
-                while [ "${url#../}" != "$url" ]; do
-                  url="${url#../}"
-                  base="${base%/*}"
-                done
-                printf '%s/%s' "$base" "${url#./}"
-                ;;
-              *) printf '%s' "$url" ;;
-            esac
-          }
-
-          status=0
-          count=0
-
-          while IFS=$'\t' read -r meta path; do
-            sha="${meta##* }"
-            count=$((count + 1))
-
-            url="$(git config --file .gitmodules --get "submodule.$path.url" || true)"
-            if [ -z "$url" ]; then
-              echo "::error file=.gitmodules::$path is a gitlink with no submodule.$path.url entry"
-              status=1
-              continue
-            fi
-            url="$(resolve "$url")"
-
-            if git fetch --quiet --no-tags --depth=1 "$url" "$sha" 2>/dev/null; then
-              printf 'ok       %-20s %s\n' "$path" "$sha"
-            else
-              printf 'MISSING  %-20s %s\n' "$path" "$sha"
-              echo "::error file=.gitmodules::$path is pinned to $sha, which is not reachable from any ref on $url. Either push the commit to that repository, or re-point this gitlink at one that is already there."
-              status=1
-            fi
-          done < <(git ls-tree -r HEAD | grep '^160000 ')
-
-          if [ "$count" -eq 0 ]; then
-            echo "::error::No gitlinks found. This check cannot pass vacuously; if the submodules were removed, remove this job with them."
-            exit 1
-          fi
-
-          echo
-          echo "$count gitlink(s) checked."
-          exit "$status"
-
-  # THE RATCHET THIS COMPONENT EXISTS TO TURN.
-  #
-  # The DOM bindings are being moved off Broiler.JS and onto the engine-neutral
-  # contracts in src/Broiler.HtmlBridge.Jseal, and that is 250 files. A migration
-  # that size lands incrementally or not at all — and the way an incremental one
-  # fails is not that it stalls, it is that new bindings keep being written in the
-  # old vocabulary, because the neighbouring file still uses it and nothing says not
-  # to. It then finishes wherever the two rates met, with nobody able to name what
-  # is left.
-  #
-  # eng/jseal-budget.json records today's coupling per project and this job recounts
-  # it: a project that went UP fails, and a project that came in under its budget is
-  # reported so the number gets lowered in the same commit. It also guards the one
-  # neutrality claim the compiler makes rather than the budget —
-  # Broiler.HtmlBridge.Jseal.csproj referencing nothing at all — because every 0 in
-  # that file is only worth reading while that holds.
   neutrality:
     name: Engine neutrality
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      # No submodules and no dotnet, deliberately. The script reads this repository's
-      # own .cs files as text and its own .csproj files as XML; it restores nothing,
-      # evaluates nothing and builds nothing, so it answers in under a second and can
-      # fail a pull request before anything long starts.
       - name: Check out
         uses: actions/checkout@v7
 
+      - name: Test the engine coupling guard
+        run: python3 scripts/test-engine-neutrality.py
+
       - name: Verify no project gained engine coupling
         shell: bash
-        run: ./scripts/check-engine-neutrality.sh
+        run: bash ./scripts/check-engine-neutrality.sh
 
   build:
     name: ${{ matrix.os }} / ${{ matrix.configuration }}
@@ -160,24 +65,27 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         configuration: [Release]
         include:
-          # Release-VM is not a second spelling of Release: it CHANGES THE PROJECT
-          # GRAPH, adding Scripting.Vm and Jseal.Vm and defining BROILER_VM_JS. The
-          # suite gains the cases that only compile under it, so this leg is the one
-          # that runs JavaScript on the VM profile rather than only linking it. A
-          # configuration nothing builds is a configuration that rots.
+          # Link Scripting.Vm and Jseal.Vm into the tests and define BROILER_VM_JS,
+          # so this leg exercises the VM profile's additional cases.
           - os: ubuntu-latest
             configuration: Release-VM
 
     steps:
       - name: Check out
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Test preview version selection
+        run: node --test eng/resolve-preview-version.test.mjs
 
       - name: Build
         run: |
@@ -220,12 +128,12 @@ jobs:
           if-no-files-found: warn
 
       - name: Pack and verify every package
-        if: matrix.os == 'ubuntu-latest' && matrix.configuration == 'Release'
+        if: matrix.os == 'windows-latest' && matrix.configuration == 'Release'
         shell: pwsh
         run: ./eng/pack.ps1 -Version $env:PACKAGE_VERSION
 
       - name: Upload packages
-        if: matrix.os == 'ubuntu-latest' && matrix.configuration == 'Release'
+        if: matrix.os == 'windows-latest' && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v7
         with:
           name: nuget-packages

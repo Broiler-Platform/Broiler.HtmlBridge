@@ -1,5 +1,3 @@
-using System.Linq;
-
 using Broiler.Dom;
 using Broiler.HtmlBridge.Jseal;
 using Broiler.HtmlBridge.Logging;
@@ -73,10 +71,11 @@ internal static class FormSubmitBinding
                 // resolves the handleEvent form of a listener object, and swallows a listener's
                 // exception into a warning. It calls through the realm itself, so a realm call here
                 // would buy nothing and quietly drop all three.
-                foreach (var registration in submitListeners.ToList())
-                {
-                    DomBridgeUtils.InvokeEventListener(realm, registration.Listener, submitEvt, "DomBridge.submit");
-                }
+                var immediateStopped = false;
+                var currentListenerPassive = false;
+                EventListenerBinding.InvokeListeners(submitListeners,
+                    listener => DomBridgeUtils.InvokeEventListener(realm, listener, submitEvt, "DomBridge.submit"),
+                    ref immediateStopped, ref currentListenerPassive);
             }
 
             // preventDefault() on the synthetic event suppresses the default action, which is now a

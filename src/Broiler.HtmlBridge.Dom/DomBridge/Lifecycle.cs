@@ -545,18 +545,9 @@ public sealed partial class DomBridge
 
         if (_eventTargets.TryGetWindowListeners(eventType, out var listeners))
         {
-            foreach (var registration in listeners.ToList())
-            {
-                if (immediateStopped)
-                    break;
-
-                currentListenerPassive = registration.Passive;
-                InvokeEventListener(realm, registration.Listener, evt, "DomBridge.window.dispatchEvent");
-                currentListenerPassive = false;
-
-                if (registration.Once)
-                    listeners.Remove(registration);
-            }
+            Dom.Features.EventListenerBinding.InvokeListeners(listeners,
+                listener => InvokeEventListener(realm, listener, evt, "DomBridge.window.dispatchEvent"),
+                ref immediateStopped, ref currentListenerPassive);
         }
 
         realm.SetProperty(evt, "currentTarget", JsValue.Null);

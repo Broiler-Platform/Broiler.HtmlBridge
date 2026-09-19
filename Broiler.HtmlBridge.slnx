@@ -1,10 +1,7 @@
 <Solution>
   <!--
-    This component's OWN projects, and deliberately not its dependencies. The Broiler.JS and
-    Broiler.VM projects reached through $(BroilerJsRoot)/$(BroilerVmRoot) are built
-    transitively by every ProjectReference that names them; listing them here as well would
-    make eng/pack.ps1 — which packs every <Project Path> in the single solution it finds —
-    try to publish another component's assemblies under this component's version.
+    External Broiler components arrive as NuGet packages. This solution lists only
+    HtmlBridge projects; eng/pack.ps1 uses it as the shipping-package inventory.
   -->
   <Configurations>
     <BuildType Name="Debug" />

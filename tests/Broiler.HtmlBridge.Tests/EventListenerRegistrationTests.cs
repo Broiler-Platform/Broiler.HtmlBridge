@@ -7,11 +7,9 @@ namespace Broiler.HtmlBridge.Tests;
 /// across the JSEAL retyping of the listener store.
 /// <para>
 /// A registration is an <c>EventListenerRegistration</c> whose listener field is a JSEAL handle, and the
-/// operations that matter -- the DOM duplicate-registration check, match-by-listener-and-capture
-/// removal, and the <c>once</c> removal that finds the record a listener fired from -- are equality
-/// comparisons over that field. The retype moved every one of them from the engine value's equality
-/// onto the handle's, and the failure mode is quiet throughout: a listener that stops deduplicating
-/// fires twice, one that stops matching on removal never comes off and fires forever.
+/// duplicate-registration check and explicit removal compare that handle and the capture flag.
+/// Individual registrations have their own identity and shared removal state so a dispatch snapshot
+/// observes removal without mistaking a later re-registration for the original listener.
 /// </para>
 /// <para>
 /// <b>Identity is the subject, not firing.</b> Every assertion below is taken across a removal that
@@ -21,7 +19,7 @@ namespace Broiler.HtmlBridge.Tests;
 /// comparing by reference, and only the second is a browser.
 /// </para>
 /// </summary>
-public class EventListenerRegistrationTests
+public partial class EventListenerRegistrationTests
 {
     private const string PageUrl = "https://example.test/listeners";
 

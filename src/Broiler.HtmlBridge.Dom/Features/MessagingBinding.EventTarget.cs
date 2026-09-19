@@ -166,18 +166,9 @@ internal sealed partial class MessagingBinding
         if (_eventTargets.TryGetTargetListeners(target, out var listenersByType) &&
             listenersByType.TryGetValue(eventType, out var listeners))
         {
-            foreach (var registration in listeners.ToList())
-            {
-                if (immediateStopped)
-                    break;
-
-                currentListenerPassive = registration.Passive;
-                RunInOwnerWindow(target, () => DomBridgeUtils.InvokeEventListener(realm, registration.Listener, evt, logContext));
-                currentListenerPassive = false;
-
-                if (registration.Once)
-                    listeners.Remove(registration);
-            }
+            EventListenerBinding.InvokeListeners(listeners,
+                listener => RunInOwnerWindow(target, () => DomBridgeUtils.InvokeEventListener(realm, listener, evt, logContext)),
+                ref immediateStopped, ref currentListenerPassive);
         }
 
         realm.SetProperty(evt, "currentTarget", JsValue.Null);

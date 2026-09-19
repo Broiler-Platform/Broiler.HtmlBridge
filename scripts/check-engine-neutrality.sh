@@ -256,29 +256,19 @@ for name in on_disk:
     for path in files_under(directory, ".csproj"):
         try:
             includes = project_references(path)
+            packages = package_references(path)
         except ET.ParseError as exc:
             emit("error", "%s could not be parsed as XML (%s)."
                  % (path.replace(os.sep, "/"), exc))
             continue
-        # THE PROPERTY SPELLINGS ARE COUNTED TOO, AND LEAVING THEM OUT WOULD HAVE READ AS PROGRESS.
-        #
-        # When this component was extracted from Broiler.Browser the engine references stopped
-        # being `../../Broiler.JS/...` and became `$(BroilerJsRoot)/...` and `$(BroilerVmRoot)/...`,
-        # so that a parent repository can point them at its own checkouts and one build graph does
-        # not carry two copies of an engine assembly. Directory.Build.props says why.
-        #
-        # The JS spelling survived the change by accident -- `$(BroilerJsRoot)/Broiler.JS/...` still
-        # contains the `/Broiler.JS/` segment this pattern looked for. The VM spelling did not:
-        # `$(BroilerVmRoot)/src/Broiler.VM.Runtime/...` has no `Broiler.VM/` segment at all, and the
-        # five references in each of Jseal.Vm and Scripting.Vm would have counted as ZERO. Both
-        # projects would then have come in "under budget", which this script reports as good news --
-        # a silent instrument failure wearing the costume of progress.
-        #
-        # The path form stays because a consumer that still writes the relative path must not escape
-        # the count either.
+        # Keep the historical metric name, but count both source and NuGet dependencies.
+        # Switching a reference to a package must not look like reduced engine coupling.
         engine_project_refs += sum(
             1 for include in includes
             if re.search(r"(^|/)Broiler\.(JS|VM)/|^\$\(Broiler(Js|Vm)Root\)/", include))
+        engine_project_refs += sum(
+            1 for package in packages
+            if re.match(r"^Broiler\.(JavaScript|VM)(\.|$)", package, re.IGNORECASE))
 
     actual = {
         "engineReferences": engine_references,
@@ -378,7 +368,7 @@ while IFS=$'\t' read -r kind a b c d; do
       loose=1
       ;;
     ok)
-      printf '   ok  %-31s %4s references  %2s engine project refs  %3s eval sites\n' "$a" "$b" "$c" "$d"
+      printf '   ok  %-31s %4s references  %2s engine dependency refs  %3s eval sites\n' "$a" "$b" "$c" "$d"
       ;;
     scanned)
       scanned_projects="$a"

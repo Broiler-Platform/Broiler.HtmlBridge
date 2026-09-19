@@ -1,4 +1,4 @@
-# Pack every shipping project, including providers excluded from solution builds.
+# Pack and validate every shipping project in the solution.
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')][string] $Configuration = 'Release',
@@ -30,7 +30,7 @@ try {
     if (!$packages.Count) { throw 'No packable projects found.' }
     if (@($packages.Metadata.PackageVersion | Select-Object -Unique).Count -ne 1) { throw 'Package versions must agree.' }
     if (@($packages.Metadata.PackageId | Select-Object -Unique).Count -ne $packages.Count) { throw 'Duplicate package IDs.' }
-    $outputPath = [IO.Path]::GetFullPath($Output, (Get-Location).Path)
+    $outputPath = [IO.Path]::GetFullPath([IO.Path]::Combine((Get-Location).Path, $Output))
     # Refuse stale packages rather than silently uploading an earlier version.
     if (Test-Path $outputPath) {
         if (Get-ChildItem -LiteralPath $outputPath -File | Where-Object Extension -in '.nupkg', '.snupkg') {

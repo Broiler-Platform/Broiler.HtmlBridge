@@ -17,8 +17,8 @@ about *being a browser*. The browser is now one embedder among the possible ones
 
 ## Status
 
-**Preview.** The bridge is real and heavily exercised — 622 tests at `Release`, 742 under
-the VM profile — but the *named control surface* described in
+**Preview.** The bridge is real and heavily exercised — 975 passing tests at `Release`,
+1,095 at `Release-VM` (23 skipped in each, measured on 2026-09-19) — but the *named control surface* described in
 [docs/html-control.md](docs/html-control.md) is not written yet. Today a host composes
 `DomBridge`, `ScriptEngine` and a layout view itself, which is what
 `Broiler.Browser.Core` does. That document is the plan for closing the gap, feature by
@@ -46,7 +46,7 @@ on every push, and those numbers may fall and may never rise. See
 ## Building
 
 ```bash
-git clone --recurse-submodules https://github.com/Broiler-Platform/Broiler.HtmlBridge.git
+git clone https://github.com/Broiler-Platform/Broiler.HtmlBridge.git
 cd Broiler.HtmlBridge
 dotnet build Broiler.HtmlBridge.slnx -c Release
 dotnet test  Broiler.HtmlBridge.slnx -c Release
@@ -56,24 +56,37 @@ Four build types, and the `-VM` pair is not cosmetic — it changes the project 
 
 | Configuration | JavaScript engine | Notes |
 | --- | --- | --- |
-| `Debug` / `Release` | Broiler.JS | The default. Nothing of Broiler.VM is restored, built or copied. |
+| `Debug` / `Release` | Broiler.JS | The default test and scripting configuration. |
 | `Debug-VM` / `Release-VM` | Broiler.VM JavaScript profile | Adds `Scripting.Vm` and `Jseal.Vm`, defines `BROILER_VM_JS`, and gains the ~120 tests that only exist under it. |
 
 Either engine can also be selected without changing configuration:
 `dotnet build … -p:BroilerJavaScriptEngine=Vm`.
 
-`Broiler.JS` and `Broiler.VM` are submodules. When this repository is itself checked out
-inside another (Broiler.Browser does exactly that), the parent sets `$(BroilerJsRoot)` and
-`$(BroilerVmRoot)` to its own checkouts and these go uncompiled — one engine assembly per
-build graph rather than two. `Directory.Build.props` says why that matters.
+External Broiler components, including both JavaScript engines, are pinned NuGet
+dependencies. `NuGet.config` maps `Broiler.*` to the Broiler-Platform GitHub Packages
+feed, which requires authentication even for public packages. Configure credentials
+for the `github` source before a fresh restore; CI supplies its `GITHUB_TOKEN` through
+`NuGetPackageSourceCredentials_github`.
+
+The solution builds all eight shipping assemblies in every configuration. The `-VM`
+configurations additionally link the VM provider into the test suite and compile its
+engine-specific cases. No external component checkout is required.
 
 ## Packaging
 
-Every shipping project carries NuGet metadata and `eng/pack.ps1` builds and validates the
-packages. **Publishing is blocked upstream, not here:** these packages would depend on
-`Broiler.JavaScript.*` and `Broiler.VM.*`, and neither engine publishes to a feed yet.
-`eng/verify-feed.ps1` runs a real consumer restore in `publish.yml` and will say so
-plainly rather than shipping a package nobody can install.
+Every shipping project carries NuGet metadata and `eng/pack.ps1` builds and validates
+all eight packages, including symbols, metadata and internal dependency versions.
+
+CI follows Broiler.JS and Broiler.VM: .NET 10 and Node.js 24, Release builds and tests on
+Linux and Windows, preview-version tests, and package artifacts from Windows. HtmlBridge
+also keeps its Linux `Release-VM` run, engine-neutrality guard and test-report artifacts.
+The coupling guard counts direct engine package references as well as project references.
+
+`publish.yml` resolves one preview version, calls CI with that version, then runs
+`eng/verify-feed.ps1` against an isolated consumer cache before pushing the validated
+artifacts. Manual runs default to a dry run and can target GitHub Packages or NuGet.org;
+`v*` tags target NuGet.org. The chosen feed must contain all external dependencies, and
+NuGet.org publication requires the `NUGET_API_KEY` secret.
 
 ## Documentation
 

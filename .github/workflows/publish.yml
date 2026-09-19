@@ -1,19 +1,5 @@
-# PUBLISHING IS BLOCKED UPSTREAM, NOT HERE, AND THIS FILE IS WHERE YOU FIND OUT.
-#
-# Every package this component produces depends on Broiler.JavaScript.* (the Broiler.JS
-# engine) or Broiler.VM.*, and neither engine publishes to a feed yet -- both vendor
-# eng/Broiler.Packaging.props, so they are packable, but neither repository has a publish
-# workflow. A consumer restoring Broiler.HtmlBridge.Dom would therefore fail on a
-# dependency that exists nowhere.
-#
-# eng/verify-feed.ps1 builds a real consumer project against the destination feed and
-# restores it, so that is the step that will say so, by name, before anything is pushed.
-# That is deliberate: a package nobody can install is worse than no package, and the
-# alternative -- dropping the dependency metadata to make the push succeed -- produces
-# exactly that.
-#
-# The default for a manual run is `dry-run: true`, which validates and attaches the
-# packages without pushing. Leave it that way until the engines publish.
+# Follows the Broiler.JS / Broiler.VM release flow: resolve one version, validate in
+# CI, then verify consumer restore from the destination feed before pushing.
 
 name: Publish
 

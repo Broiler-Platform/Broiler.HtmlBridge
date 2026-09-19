@@ -148,20 +148,9 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
     {
         if (_host.GetEventListeners(el).TryGetValue(eventType, out var listeners))
         {
-            foreach (var registration in listeners.ToList())
-            {
-                if (immediateStopped) break;
-                // In capture/bubble phases, only fire matching listeners.
-                // In target phase (capturePhase == null), fire all listeners.
-                if (capturePhase.HasValue && registration.Capture != capturePhase.Value) continue;
-                currentListenerPassive = registration.Passive;
-                // Listener, event and invoker are all the realm's; nothing converts here.
-                DomBridgeUtils.InvokeEventListener(_host.Realm, registration.Listener, evt, "DomBridge.dispatchEvent");
-                currentListenerPassive = false;
-
-                if (registration.Once)
-                    listeners.Remove(registration);
-            }
+            EventListenerBinding.InvokeListeners(listeners,
+                listener => DomBridgeUtils.InvokeEventListener(_host.Realm, listener, evt, "DomBridge.dispatchEvent"),
+                ref immediateStopped, ref currentListenerPassive, capturePhase);
         }
 
         // Fire inline event handler (on* property) — fires after addEventListener listeners on the target,

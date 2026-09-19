@@ -9,7 +9,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the P3.3 <see cref="EventDispatchBinding"/> dispatch half. This is pure logic over a resolved
 /// per-type listener list plus the JS <c>options</c> argument: option parsing
 /// (capture/once/passive), the DOM duplicate-registration check, and match-by-listener-and-capture
-/// removal. It is deliberately stateless and storage-agnostic -- each target callback (element,
+/// removal, plus snapshot invocation shared by the dispatch paths. It is deliberately stateless
+/// and storage-agnostic -- each target callback (element,
 /// document, window, message port) resolves its own listener list from the P2.5
 /// <see cref="EventTargetRegistry"/> and calls these operations, which replaces the same
 /// registration block that was previously copied across four feature files.
@@ -80,9 +81,40 @@ internal static class EventListenerBinding
         {
             if (listeners[i].Listener == listener && listeners[i].Capture == capture)
             {
+                listeners[i].Removed = true;
                 listeners.RemoveAt(i);
                 break;
             }
+        }
+    }
+
+    /// <summary>
+    /// Invokes a snapshot of the matching registrations. Removal remains visible to snapshots,
+    /// while additions wait for a later invocation of the target's listeners.
+    /// </summary>
+    internal static void InvokeListeners(
+        List<EventListenerRegistration> listeners, Action<JsValue> invoke,
+        ref bool immediateStopped, ref bool currentListenerPassive, bool? capturePhase = null)
+    {
+        foreach (var registration in listeners.ToArray())
+        {
+            if (immediateStopped)
+                break;
+            if (registration.Removed ||
+                (capturePhase.HasValue && registration.Capture != capturePhase.Value))
+                continue;
+
+            // Remove before calling page code: a nested dispatch must not see this registration,
+            // and the callback may register itself again without reviving the old snapshot entry.
+            if (registration.Once)
+            {
+                registration.Removed = true;
+                listeners.Remove(registration);
+            }
+
+            currentListenerPassive = registration.Passive;
+            try { invoke(registration.Listener); }
+            finally { currentListenerPassive = false; }
         }
     }
 
