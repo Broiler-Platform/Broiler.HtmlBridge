@@ -162,18 +162,16 @@ public sealed partial class DomBridge
     /// </remarks>
     private void ReflectFormControlValue(DomElement element)
     {
-        var state = FormControlStateFor(element);
-
         if (element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase))
         {
-            if (state.Value.TryGet(out var inputValue) && inputValue is string inputString)
+            if (_formState.TryGetDirtyValue(element, out var inputValue) && inputValue is string inputString)
                 SetAttr(element, "value", inputString);
             return;
         }
 
         if (element.TagName.Equals("textarea", StringComparison.OrdinalIgnoreCase))
         {
-            if (state.Value.TryGet(out var areaValue) && areaValue is string areaString &&
+            if (_formState.TryGetDirtyValue(element, out var areaValue) && areaValue is string areaString &&
                 !string.Equals(element.TextContent, areaString, StringComparison.Ordinal))
             {
                 element.TextContent = areaString;
@@ -183,7 +181,7 @@ public sealed partial class DomBridge
         }
 
         if (element.TagName.Equals("select", StringComparison.OrdinalIgnoreCase) &&
-            state.SelectedIndex.TryGet(out var indexValue) && indexValue is int selectedIndex)
+            _formState.TryGetDirtySelectedIndex(element, out var selectedIndex))
         {
             // The same walk the select binding selects through, so "which option is the third one"
             // has one answer rather than two that can disagree about nested optgroups.
@@ -206,11 +204,8 @@ public sealed partial class DomBridge
         HtmlSerializer.Serialize(node, CreateSerializationAdapter(),
             new HtmlSerializationOptions(MaximumDepth: MaxSerializationDepth, EncodeTextNodes: false));
 
-    /// <summary><c>innerHTML</c>'s read side: every child, not only the element ones. The
-    /// <c>OfType&lt;DomElement&gt;()</c> this filtered with is a leftover from the facade era, when a
-    /// text child was a string on its parent's element record rather than a node.</summary>
-    private string SerializeChildrenToHtml(DomElement element) =>
-        string.Concat(SerializationChildrenOf(element).Select(SerializeNodeToHtml));
+    private string SerializeChildrenToHtml(DomNode node) =>
+        string.Concat(SerializationChildrenOf(node).Select(SerializeNodeToHtml));
 
     private void ApplySerializationTransforms(DomElement root)
     {
@@ -543,7 +538,7 @@ public sealed partial class DomBridge
         // emitted alongside it. See the matching reflection in ReflectRenderState.
         var scriptSetValue =
             element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase) &&
-            FormControlStateFor(element).Value.TryGet(out var idlValue) &&
+            _formState.TryGetDirtyValue(element, out var idlValue) &&
             idlValue is string idlString
                 ? idlString
                 : null;
@@ -611,8 +606,7 @@ public sealed partial class DomBridge
         }
 
         if (select is null ||
-            !FormControlStateFor(select).SelectedIndex.TryGet(out var stored) ||
-            stored is not int chosen)
+            !_formState.TryGetDirtySelectedIndex(select, out var chosen))
         {
             return null;
         }

@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Features;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -419,32 +419,16 @@ public sealed partial class DomBridge : Dom.Features.IShadowDomHost
 {
     IJsRealm Dom.Features.IShadowDomHost.Realm => Realm;
 
-    DomElement? Dom.Features.IShadowDomHost.GetShadowRoot(DomElement element) => GetShadowRoot(element);
+    DomShadowRoot? Dom.Features.IShadowDomHost.GetShadowRoot(DomElement element) => element.ShadowRoot;
 
-    bool Dom.Features.IShadowDomHost.TryGetShadowMode(DomElement element, out string mode)
-    {
-        if (ShadowStateFor(element).Mode.TryGet(out var raw) && raw is string s)
-        {
-            mode = s;
-            return true;
-        }
-
-        mode = string.Empty;
-        return false;
-    }
-
-    DomElement Dom.Features.IShadowDomHost.AttachShadowRoot(DomElement host, string mode)
+    DomShadowRoot Dom.Features.IShadowDomHost.AttachShadowRoot(
+        DomElement host,
+        DomShadowRootMode mode,
+        bool delegatesFocus,
+        DomSlotAssignmentMode slotAssignment)
     {
         _hasShadowRoots = true;
-        var shadowRoot = CreateBridgeElement("#shadow-root");
-        // SetParent links the shadow root to its host, so GetOwningDocument derives the shadow root's
-        // owning document from the host's tree position — no OwnerDocRoot inheritance needed (P4.4c).
-        SetParent(shadowRoot, host);
-        ShadowStateFor(shadowRoot).Host.Set(host);
-        ShadowStateFor(shadowRoot).Mode.Set(mode);
-        ShadowStateFor(host).Root.Set(shadowRoot);
-        ShadowStateFor(host).Mode.Set(mode);
-        return shadowRoot;
+        return host.AttachShadow(mode, delegatesFocus, slotAssignment);
     }
 
     // The bridge's wrapper factory, forwarded as it stands: WrapNode answers the handle its wrapper

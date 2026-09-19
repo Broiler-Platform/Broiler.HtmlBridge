@@ -1,8 +1,7 @@
-﻿using System.Globalization;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using Broiler.Dom;
-using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.JSeal;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
@@ -10,40 +9,11 @@ namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    // Phase 2 item 4 (de-globalization, 2026-07-17): the per-element shadow-DOM linkage (a host's
-    // shadow root, a root's host, and the root's mode) was the Shadow slot of the process-static
-    // ElementRuntimeState table; it is now a per-bridge instance table, owned by the session's bridge.
-    // Still element-keyed, so it GCs with the element and the cloneNode copy (see CloneDomElement) is
-    // preserved. The former static GetShadowRoot / GetShadowHost helpers became instance methods (all
-    // their callers were already on the bridge instance), so no cross-class host threading was needed.
-    private readonly ConditionalWeakTable<DomElement, ShadowRuntimeState> _shadowRuntimeStates = [];
+    private static DomShadowRoot? GetShadowRoot(DomElement element) =>
+        element.InternalShadowRoot;
 
-    private ShadowRuntimeState ShadowStateFor(DomElement element) =>
-        _shadowRuntimeStates.GetValue(element, static _ => new ShadowRuntimeState());
-
-    private DomElement? GetShadowRoot(DomElement element)
-    {
-        if (ShadowStateFor(element).Root.TryGet(out var rawShadowRoot) &&
-            rawShadowRoot is DomElement root)
-        {
-            return root;
-        }
-
-        return null;
-    }
-
-    private DomElement? GetShadowHost(DomElement? shadowRoot)
-    {
-        if (shadowRoot != null &&
-            string.Equals(shadowRoot.TagName, "#shadow-root", StringComparison.Ordinal) &&
-            ShadowStateFor(shadowRoot).Host.TryGet(out var rawHost) &&
-            rawHost is DomElement host)
-        {
-            return host;
-        }
-
-        return null;
-    }
+    private static DomElement? GetShadowHost(DomNode? node) =>
+        (node as DomShadowRoot)?.Host ?? (node?.GetRootNode(composed: false) as DomShadowRoot)?.Host;
 
     // Walk to the absolute root. For a connected node this is the canonical DomDocument (Phase 4: the
     // document root is the DomDocument, not a #document wrapper element); a detached subtree roots to its
@@ -79,39 +49,16 @@ public sealed partial class DomBridge
         return WrapNode(root);
     }
 
-    private DomElement? GetSlotHost(DomElement slot) => GetShadowHost(FindContainingShadowRoot(slot));
+    private static DomElement? GetSlotHost(DomElement slot) =>
+        (slot.GetRootNode(composed: false) as DomShadowRoot)?.Host;
 
-    private DomElement? FindAssignedSlot(DomElement root, DomElement node)
-    {
-        foreach (var child in ChildElements(root))
-        {
-            if (IsText(child))
-                continue;
+    private static DomElement? FindAssignedSlot(DomElement root, DomElement node) =>
+        DomSlotting.FindAssignedSlot(node);
 
-            if (string.Equals(child.TagName, "slot", StringComparison.OrdinalIgnoreCase) &&
-                SlotAcceptsNode(child, node))
-            {
-                return child;
-            }
+    private static DomElement? GetAssignedSlot(DomElement element) =>
+        DomSlotting.FindAssignedSlot(element);
 
-            var nested = FindAssignedSlot(child, node);
-            if (nested != null)
-                return nested;
-        }
-
-        return null;
-    }
-
-    private DomElement? GetAssignedSlot(DomElement element)
-    {
-        if (IsText(element) || ParentEl(element) == null)
-            return null;
-
-        var shadowRoot = GetShadowRoot(ParentEl(element));
-        return shadowRoot != null ? FindAssignedSlot(shadowRoot, element) : null;
-    }
-
-    private DomElement? GetScrollTraversalParent(DomElement element)
+    private static DomElement? GetScrollTraversalParent(DomElement element)
     {
         var assignedSlot = GetAssignedSlot(element);
         if (assignedSlot != null)
@@ -119,6 +66,19 @@ public sealed partial class DomBridge
 
         var parent = ParentEl(element);
         return GetShadowHost(parent) ?? parent;
+    }
+
+    private static IEnumerable<DomShadowRoot> GetDescendantShadowRoots(DomNode root)
+    {
+        foreach (var element in root.Descendants().OfType<DomElement>())
+        {
+            if (element.InternalShadowRoot is { } shadowRoot)
+            {
+                yield return shadowRoot;
+                foreach (var nested in GetDescendantShadowRoots(shadowRoot))
+                    yield return nested;
+            }
+        }
     }
 }
 
@@ -151,114 +111,58 @@ public sealed partial class DomBridge
     /// </summary>
     private void HideUnslottedShadowHostChildren(DomElement root)
     {
-        var shadowRoots = root.Descendants()
-            .OfType<DomElement>()
-            .Where(e => string.Equals(e.TagName, "#shadow-root", StringComparison.Ordinal))
-            .ToList();
-
-        foreach (var shadowRoot in shadowRoots)
+        foreach (var shadowRoot in GetDescendantShadowRoots(root))
         {
-            var host = ParentEl(shadowRoot);
-            if (host == null)
-                continue;
-
-            // A slot somewhere in this shadow tree can assign the light children — leave them
-            // in place rather than dropping content the author expects to see.
-            if (ShadowTreeHasSlot(shadowRoot))
+            var host = shadowRoot.Host;
+            if (host == null || ShadowTreeHasSlot(shadowRoot))
                 continue;
 
             foreach (var child in host.ChildNodes.ToArray())
             {
-                if (ReferenceEquals(child, shadowRoot))
-                    continue;
-
                 host.RemoveChild(child);
             }
         }
     }
 
     /// <summary>
-    /// Replaces each <c>#shadow-root</c> element with its children, in place, for the
-    /// render-bound tree.
-    /// <para>
-    /// <c>#shadow-root</c> is a bridge-internal container, not an HTML element, and it is
-    /// serialized literally as <c>&lt;#shadow-root&gt;</c>. Per the HTML tokenizer a <c>&lt;</c>
-    /// followed by anything that is not an ASCII letter (or <c>!</c>, <c>/</c>, <c>?</c>) is not a
-    /// tag at all — it is emitted as character data — so the renderer painted the literal string
-    /// "&lt;#shadow-root&gt;" inside every shadow host. Flattening the wrapper away puts the
-    /// shadow content directly in the host, which is what the renderer should draw.
-    /// </para>
-    /// <para>
-    /// Deliberately limited to shadow trees with no <c>&lt;slot&gt;</c> — the same set
-    /// <see cref="HideUnslottedShadowHostChildren"/> acts on. Flattening the wrapper moves the
-    /// shadow content into the host, which changes the ancestor chain that slot assignment and
-    /// scroll-container resolution walk; restricting it to slotless trees leaves every
-    /// slot-bearing shadow tree byte-identical to its previous rendering, so this cannot disturb
-    /// slot behaviour. Slotless trees have no assignment to preserve, so the flatten is safe
-    /// there and is what the <c>css/css-shadow</c> <c>:host</c> reftests need.
-    /// </para>
-    /// <para>
-    /// Runs after the other shadow passes, which locate content by the <c>#shadow-root</c>
-    /// wrapper. Only the render-bound serialization is affected.
-    /// </para>
+    /// Replaces each shadow root with its children, in place, for the render-bound tree.
     /// </summary>
     private void UnwrapShadowRootsForRender(DomElement root)
     {
-        var shadowRoots = root.Descendants()
-            .OfType<DomElement>()
-            .Where(e => string.Equals(e.TagName, "#shadow-root", StringComparison.Ordinal))
+        var shadowRoots = GetDescendantShadowRoots(root)
             .Where(e => !ShadowTreeHasSlot(e))
             .ToList();
 
-        // Innermost first, so unwrapping a nested root is not disturbed by its ancestor moving.
         shadowRoots.Reverse();
 
         foreach (var shadowRoot in shadowRoots)
         {
-            var host = ParentEl(shadowRoot);
+            var host = shadowRoot.Host;
             if (host == null)
                 continue;
 
-            var index = ChildIndexOf(host, shadowRoot);
-            if (index < 0)
-                continue;
-
-            RemoveNthChild(host, index);
-            SetParent(shadowRoot, null);
-
             foreach (var child in shadowRoot.ChildNodes.ToArray())
             {
-                InsertChildAt(host, index, child);
-                index++;
+                host.AppendChild(child);
             }
         }
     }
 
     /// <summary>
-    /// Whether <paramref name="shadowRoot"/>'s tree contains a <c>&lt;slot&gt;</c>, not
-    /// descending into a nested <c>#shadow-root</c> (whose slots assign that root's own host's
-    /// children, not this one's).
+    /// Whether <paramref name="shadowRoot"/>'s tree contains a <c>&lt;slot&gt;</c>.
     /// </summary>
-    private bool ShadowTreeHasSlot(DomElement shadowRoot)
+    private static bool ShadowTreeHasSlot(DomNode shadowRoot)
     {
-        foreach (var child in ChildElements(shadowRoot))
+        foreach (var child in shadowRoot.Descendants().OfType<DomElement>())
         {
-            if (IsText(child))
-                continue;
-
-            if (string.Equals(child.TagName, "#shadow-root", StringComparison.Ordinal))
-                continue;
-
             if (child.TagName.Equals("slot", StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            if (ShadowTreeHasSlot(child))
                 return true;
         }
 
         return false;
     }
 }
+
 
 /// <summary>
 /// Render-time scoping of a shadow tree's <em>own</em> style rules (CSS Scoping 1 §3.3,
@@ -335,16 +239,13 @@ public sealed partial class DomBridge
 
         var index = 0;
 
-        foreach (var element in root.Descendants().OfType<DomElement>())
+        foreach (var shadowRoot in GetDescendantShadowRoots(root))
         {
-            if (!string.Equals(element.TagName, "#shadow-root", StringComparison.Ordinal))
-                continue;
-
             var token = index.ToString(CultureInfo.InvariantCulture);
             index++;
 
             var styles = new List<DomElement>();
-            CollectStylesInShadowRoot(element, styles);
+            CollectStylesInShadowRoot(shadowRoot, styles);
             if (styles.Count == 0)
                 continue;
 
@@ -361,22 +262,19 @@ public sealed partial class DomBridge
             }
 
             if (scoped)
-                StampShadowTreeScope(element, token);
+                StampShadowTreeScope(shadowRoot, token);
         }
     }
 
     /// <summary>
     /// Stamps every element of <paramref name="shadowRoot"/>'s tree with the scope marker, not
-    /// descending into a nested <c>#shadow-root</c> — an inner tree is its own scope, and an
+    /// descending into a nested shadow root — an inner tree is its own scope, and an
     /// outer tree's rules must not reach into it either.
     /// </summary>
-    private void StampShadowTreeScope(DomElement shadowRoot, string token)
+    private void StampShadowTreeScope(DomNode shadowRoot, string token)
     {
-        foreach (var child in ChildElements(shadowRoot))
+        foreach (var child in shadowRoot.ChildNodes.OfType<DomElement>())
         {
-            if (IsText(child) || child.TagName.StartsWith('#'))
-                continue;
-
             SetAttr(child, ShadowScopeAttr, token);
             StampShadowTreeScope(child, token);
         }
@@ -429,12 +327,9 @@ public sealed partial class DomBridge
     {
         var index = 0;
 
-        foreach (var element in root.Descendants().OfType<DomElement>())
+        foreach (var shadowRoot in GetDescendantShadowRoots(root))
         {
-            if (!string.Equals(element.TagName, "#shadow-root", StringComparison.Ordinal))
-                continue;
-
-            var host = ParentEl(element);
+            var host = shadowRoot.Host;
             if (host == null)
                 continue;
 
@@ -442,7 +337,7 @@ public sealed partial class DomBridge
             index++;
 
             var styles = new List<DomElement>();
-            CollectStylesInShadowRoot(element, styles);
+            CollectStylesInShadowRoot(shadowRoot, styles);
 
             var stamped = false;
             foreach (var style in styles)
@@ -465,19 +360,13 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Collects the <c>&lt;style&gt;</c> elements belonging to <paramref name="shadowRoot"/>,
-    /// without descending into a nested <c>#shadow-root</c> (whose styles are scoped to their
+    /// without descending into a nested shadow root (whose styles are scoped to their
     /// own host by that root's own pass).
     /// </summary>
-    private void CollectStylesInShadowRoot(DomElement shadowRoot, List<DomElement> styles)
+    private void CollectStylesInShadowRoot(DomNode shadowRoot, List<DomElement> styles)
     {
-        foreach (var child in ChildElements(shadowRoot))
+        foreach (var child in shadowRoot.ChildNodes.OfType<DomElement>())
         {
-            if (IsText(child))
-                continue;
-
-            if (string.Equals(child.TagName, "#shadow-root", StringComparison.Ordinal))
-                continue;
-
             if (child.TagName.Equals("style", StringComparison.OrdinalIgnoreCase))
                 styles.Add(child);
 
@@ -552,11 +441,8 @@ public sealed partial class DomBridge
         if (rules.Count == 0)
             return;
 
-        foreach (var shadowRoot in root.Descendants().OfType<DomElement>())
+        foreach (var shadowRoot in GetDescendantShadowRoots(root))
         {
-            if (!string.Equals(shadowRoot.TagName, "#shadow-root", StringComparison.Ordinal))
-                continue;
-
             foreach (var element in shadowRoot.Descendants().OfType<DomElement>())
             {
                 if (TryGetAttribute(element, "part", out var part) && !string.IsNullOrWhiteSpace(part))
@@ -581,5 +467,11 @@ public sealed partial class DomBridge
 
             CollectStyleElementsForParts(child, styles);
         }
+
+        if (element.InternalShadowRoot is { } shadowRoot)
+        {
+            CollectStylesInShadowRoot(shadowRoot, styles);
+        }
     }
 }
+

@@ -51,6 +51,12 @@ public sealed class InteractiveSession : IDisposable
     public bool HasPendingWork => !_disposed && _bridge.HasPendingTimers;
 
     /// <summary>
+    /// Whether the last <see cref="SettleLoadWindow(Action{Func{string}}?, CancellationToken)"/>
+    /// exhausted its iteration budget before settling.
+    /// </summary>
+    public bool AsyncDrainLimitExhausted { get; private set; }
+
+    /// <summary>
     /// Whether queued work is due within the load window — the same bounded question the
     /// non-interactive drains ask (<c>ScriptEngine.DrainAsyncWork</c>,
     /// <c>CaptureService.DrainAsyncWork</c>), against the same
@@ -143,29 +149,18 @@ public sealed class InteractiveSession : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        for (var iteration = 0; iteration < DomBridgeRuntimeLimits.AsyncDrainIterationLimit; iteration++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
+        Action? batchAction = onIntermediateDocument != null
+            ? () => onIntermediateDocument(_bridge.SerializeToHtml)
+            : null;
 
-            var hadWork = false;
+        var status = AsyncDrainOperations.DrainUntilSettled(
+            _microTasks,
+            _bridge,
+            batchAction,
+            cancellationToken,
+            callerName: "InteractiveSession.SettleLoadWindow");
 
-            if (_microTasks.Count > 0)
-            {
-                _microTasks.Drain();
-                hadWork = true;
-            }
-
-            if (_bridge.HasPendingTimersDueBy(DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs))
-            {
-                _bridge.FlushTimerStep();
-                hadWork = true;
-            }
-
-            if (!hadWork)
-                break;
-
-            onIntermediateDocument?.Invoke(_bridge.SerializeToHtml);
-        }
+        AsyncDrainLimitExhausted = status == AsyncDrainStatus.Exhausted;
 
         return _bridge.SerializeToHtml();
     }

@@ -1,4 +1,4 @@
-﻿using Broiler.CSS.Dom;
+using Broiler.CSS.Dom;
 using Broiler.Dom;
 using Broiler.Dom.Html;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -115,8 +115,8 @@ public sealed partial class DomBridge
             if (element is not DomElement bridgeElement)
                 return null;
 
-            return bridge.FormControlStateFor(bridgeElement).Checked.TryGet(out var value)
-                ? value is true
+            return bridge._formState.TryGetDirtyChecked(bridgeElement, out var value)
+                ? value
                 : null;
         }
     }
@@ -332,6 +332,30 @@ public sealed partial class DomBridge
         InvalidateStyleScope(element);
     }
 
+    private void SetShadowRootInnerHtml(DomShadowRoot shadowRoot, string html)
+    {
+        html ??= string.Empty;
+
+        foreach (var child in shadowRoot.ChildNodes.ToArray())
+            RemoveElementsRecursive(child);
+
+        ClearChildren(shadowRoot);
+
+        var contextElement = shadowRoot.Host;
+        if (!string.IsNullOrEmpty(html) &&
+            TryBuildInnerHtmlFragmentContainer(contextElement, html, out var fragmentContainer))
+        {
+            foreach (var child in fragmentContainer.ChildNodes.ToArray())
+                shadowRoot.AppendChild(child);
+
+            DivertTemplateContents(shadowRoot);
+        }
+
+        ResetComputedStyleEngines();
+        if (contextElement != null)
+            InvalidateStyleScope(contextElement);
+    }
+
     private void SetElementOuterHtml(DomElement element, string html)
     {
         html ??= string.Empty;
@@ -374,35 +398,8 @@ public sealed partial class DomBridge
         InvalidateStyleScope(parent);
     }
 
-    private bool TryBuildInnerHtmlFragmentContainer(DomElement contextElement, string html, out DomDocumentFragment container)
-    {
-        container = null!;
-
-        var contextTag = contextElement.TagName.ToLowerInvariant();
-        // Void elements have no children, so they cannot host an innerHTML fragment.
-        // Canonical membership set lives in Broiler.Dom.Html (shared with the parser/serializer).
-        if (HtmlSerializer.VoidElements.Contains(contextTag))
-            return false;
-
-        // A bridge-internal container (a '#'-prefixed name such as #shadow-root) is not an HTML
-        // element, so it cannot be a fragment parsing context: the parser round-trips the context
-        // tag, and "<#shadow-root>" is unparsable — it came back as a literal text node plus a
-        // bogus comment, which then rendered as visible "<#shadow-root>" text inside every shadow
-        // host (the css/css-shadow reftest family). Parse in a neutral container context instead;
-        // a shadow root imposes no special content model of its own.
-        if (contextTag.StartsWith('#'))
-            contextTag = "div";
-
-        // The parser's own fragment, handed over as it is. It and its nodes belong to the private
-        // document the parser built them in, which nothing here listens to, so no mutation is
-        // published on a document this bridge owns until the caller inserts them. Insertion adopts
-        // them, and a defined custom element among them is upgraded then — connected, as DOM "insert"
-        // does. They used to be moved into a staging fragment of this bridge's own first, which
-        // upgraded such an element while it was detached and then reported a disconnection as it
-        // left the staging fragment.
-        container = HtmlDocumentParser.ParseFragment(html, contextTag).Fragment;
-        return true;
-    }
+    private static bool TryBuildInnerHtmlFragmentContainer(DomElement contextElement, string html, out DomDocumentFragment container) =>
+        HtmlFragmentParsing.TryBuildFragment(contextElement, html, out container!);
 
 }
 

@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -71,7 +71,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
         // defaultChecked (read/write) — reflects the `checked` content attribute, which is exactly
         // the state `checked` falls back to when no dirty checkedness has been set.
         realm.DefineAccessor(obj, "defaultChecked",
-            (in _) => JsValue.Boolean(DomBridgeUtils.HasAttr(element, "checked")),
+            (in _) => JsValue.Boolean(Broiler.Dom.Html.HtmlFormQueries.GetDefaultChecked(element)),
             (in call) => SetDefaultChecked(element, in call));
 
         // type (read/write) — for input/button elements; getter returns lowercase.
@@ -150,12 +150,9 @@ internal sealed class FormControlBinding(IFormControlHost host)
         if (_host.TryGetFormControlValue(element, out var sv))
             return sv;
         // A textarea has no `value` content attribute: its raw value starts as the child text
-        // content (HTML §4.10.11). Falling through to the attribute lookup meant an untouched
-        // textarea reported "" no matter what it contained — so a form read before the user typed
-        // anything submitted an empty field, and a page pre-filling a textarea through its markup
-        // could not read back what it had written.
+        // content (HTML §4.10.11).
         if (string.Equals(element.TagName, "textarea", StringComparison.OrdinalIgnoreCase))
-            return DefaultTextAreaValue(element);
+            return Broiler.Dom.Html.HtmlFormQueries.GetDefaultValue(element);
         if (DomBridgeUtils.TryGetAttribute(element, "value", out var val))
             return val;
         // An option without a value attribute is valued by its text (HTML §4.10.10) — the same value
@@ -170,9 +167,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
     /// control's <c>value</c> content attribute.
     /// </summary>
     private static string GetDefaultValue(DomElement element) =>
-        string.Equals(element.TagName, "textarea", StringComparison.OrdinalIgnoreCase)
-            ? DefaultTextAreaValue(element)
-            : DomBridgeUtils.TryGetAttribute(element, "value", out var val) ? val : string.Empty;
+        Broiler.Dom.Html.HtmlFormQueries.GetDefaultValue(element);
 
     /// <summary>
     /// Writing <c>defaultValue</c> writes the default itself, not the current value — the
@@ -202,19 +197,6 @@ internal sealed class FormControlBinding(IFormControlHost host)
         return JsValue.Undefined;
     }
 
-    /// <summary>A textarea's default value: its child text content (HTML §4.10.11).</summary>
-    private static string DefaultTextAreaValue(DomElement element)
-    {
-        var text = new System.Text.StringBuilder();
-        foreach (var child in element.ChildNodes)
-        {
-            if (DomBridgeUtils.IsText(child))
-                text.Append(DomBridgeUtils.BridgeText(child));
-        }
-
-        return text.ToString();
-    }
-
     private JsValue SetValue(DomElement element, in JsCall call)
     {
         var tag = element.TagName.ToLowerInvariant();
@@ -242,33 +224,13 @@ internal sealed class FormControlBinding(IFormControlHost host)
         // IDL property takes precedence over content attribute
         if (_host.TryGetFormControlChecked(element, out var v))
             return v;
-        return DomBridgeUtils.HasAttr(element, "checked");
+        return Broiler.Dom.Html.HtmlFormQueries.GetDefaultChecked(element);
     }
 
     private JsValue SetChecked(DomElement element, in JsCall call)
     {
         bool newVal = call[0].AsBoolean;
         _host.SetFormControlChecked(element, newVal);
-        if (newVal)
-        {
-            // Radio button mutual exclusion: uncheck others in same group
-            if (DomBridgeUtils.TryGetAttribute(element, "type", out var tp) && string.Equals(tp, "radio", StringComparison.OrdinalIgnoreCase) && DomBridgeUtils.TryGetAttribute(element, "name", out var radioName) && !string.IsNullOrEmpty(radioName))
-            {
-                // Find the scope for radio group — form parent, or document root if not in a form
-                var scope = DomBridgeUtils.ParentEl(element);
-                while (scope != null && !string.Equals(scope.TagName, "form", StringComparison.OrdinalIgnoreCase))
-                    scope = DomBridgeUtils.ParentEl(scope);
-                if (scope == null)
-                {
-                    scope = element;
-                    while (DomBridgeUtils.ParentEl(scope) != null)
-                        scope = DomBridgeUtils.ParentEl(scope);
-                }
-
-                _host.UncheckRadioSiblings(scope, element, radioName);
-            }
-        }
-
         return JsValue.Undefined;
     }
 

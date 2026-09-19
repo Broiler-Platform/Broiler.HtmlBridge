@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -36,10 +36,7 @@ internal static class ShadowDomBinding
     public static JsValue GetShadowRoot(IShadowDomHost host, DomElement element)
     {
         var shadowRoot = host.GetShadowRoot(element);
-        if (shadowRoot == null)
-            return JsValue.Null;
-        var mode = host.TryGetShadowMode(element, out var rawMode) ? rawMode : null;
-        return string.Equals(mode, "open", StringComparison.OrdinalIgnoreCase) ? host.WrapNode(shadowRoot) : JsValue.Null;
+        return shadowRoot != null ? host.WrapNode(shadowRoot) : JsValue.Null;
     }
 
     /// <summary>
@@ -56,10 +53,12 @@ internal static class ShadowDomBinding
     {
         var realm = host.Realm;
 
-        if (host.GetShadowRoot(element) != null)
+        if (element.InternalShadowRoot != null)
             throw realm.DomError("NotSupportedError", "Shadow root already attached.");
 
-        var mode = "open";
+        var modeStr = "open";
+        var delegatesFocus = false;
+        var slotAssignment = DomSlotAssignmentMode.Named;
         if (options.IsObject)
         {
             var modeValue = realm.GetProperty(options, "mode");
@@ -67,12 +66,30 @@ internal static class ShadowDomBinding
             {
                 // The observable ECMAScript coercion, not the handle's diagnostic rendering: an
                 // object with a toString is a legal `mode`, and what it stringifies to is the answer.
-                mode = realm.ToJsString(modeValue);
+                modeStr = realm.ToJsString(modeValue);
             }
+
+            var delegatesFocusValue = realm.GetProperty(options, "delegatesFocus");
+            if (delegatesFocusValue.IsBoolean)
+                delegatesFocus = delegatesFocusValue.AsBoolean;
+
+            var slotAssignmentValue = realm.GetProperty(options, "slotAssignment");
+            if (!slotAssignmentValue.IsNullish && string.Equals(realm.ToJsString(slotAssignmentValue), "manual", StringComparison.OrdinalIgnoreCase))
+                slotAssignment = DomSlotAssignmentMode.Manual;
         }
 
-        mode = string.Equals(mode, "closed", StringComparison.OrdinalIgnoreCase) ? "closed" : "open";
-        var shadowRoot = host.AttachShadowRoot(element, mode);
-        return host.WrapNode(shadowRoot);
+        var mode = string.Equals(modeStr, "closed", StringComparison.OrdinalIgnoreCase)
+            ? DomShadowRootMode.Closed
+            : DomShadowRootMode.Open;
+
+        try
+        {
+            var shadowRoot = host.AttachShadowRoot(element, mode, delegatesFocus, slotAssignment);
+            return host.WrapNode(shadowRoot);
+        }
+        catch (DomException ex) when (ex.Name == "NotSupportedError")
+        {
+            throw realm.DomError("NotSupportedError", ex.Message);
+        }
     }
 }

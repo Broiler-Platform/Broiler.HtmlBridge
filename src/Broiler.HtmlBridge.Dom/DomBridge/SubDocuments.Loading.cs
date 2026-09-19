@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using System.Xml.Linq;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -173,90 +173,6 @@ public sealed partial class DomBridge
     }
 }
 
-/// <summary>
-/// Maps a <c>web-platform.test</c> URL onto the local WPT checkout, so a frame's sub-resource
-/// loads from disk when the tests run without the WPT server.
-/// </summary>
-public sealed partial class DomBridge
-{
-    private bool TryGetWptRootDirectory(out string wptRoot)
-    {
-        static string? FindWptRoot(string? path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                return null;
-
-            DirectoryInfo? current;
-            if (File.Exists(path))
-                current = new FileInfo(path).Directory;
-            else if (Directory.Exists(path))
-                current = new DirectoryInfo(path);
-            else
-                current = new FileInfo(path).Directory;
-
-            while (current != null)
-            {
-                if (string.Equals(current.Name, "wpt", StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(current.Parent?.Name, "tests", StringComparison.OrdinalIgnoreCase))
-                {
-                    return current.FullName;
-                }
-
-                current = current.Parent;
-            }
-
-            return null;
-        }
-
-        wptRoot = string.Empty;
-
-        var candidates = new List<string>();
-        if (!string.IsNullOrWhiteSpace(_resources.LocalBasePath))
-            candidates.Add(_resources.LocalBasePath);
-
-        if (Uri.TryCreate(_pageUrl, UriKind.Absolute, out var pageUri) &&
-            string.Equals(pageUri.Scheme, Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase))
-        {
-            candidates.Add(pageUri.LocalPath);
-        }
-
-        foreach (var candidate in candidates)
-        {
-            var root = FindWptRoot(candidate);
-            if (!string.IsNullOrWhiteSpace(root))
-            {
-                wptRoot = root;
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private string? TryMapLocalWptHttpResource(string absoluteUrl)
-    {
-        if (!TryGetWptRootDirectory(out var wptRoot) ||
-            !Uri.TryCreate(absoluteUrl, UriKind.Absolute, out var resourceUri) ||
-            !(string.Equals(resourceUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-              string.Equals(resourceUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
-        {
-            return null;
-        }
-
-        if (!string.Equals(resourceUri.Host, "web-platform.test", StringComparison.OrdinalIgnoreCase) &&
-            !resourceUri.Host.EndsWith(".web-platform.test", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        var relativePath = resourceUri.AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-        if (string.IsNullOrWhiteSpace(relativePath))
-            return null;
-
-        var localPath = Path.Combine(wptRoot, relativePath);
-        return File.Exists(localPath) ? localPath : null;
-    }
-}
 
 /// <summary>
 /// What a nested browsing context's own scripts declare, published on that frame's <c>window</c>.

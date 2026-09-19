@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using Broiler.Dom;
 using Broiler.JSeal;
 
@@ -131,27 +131,8 @@ internal sealed partial class CustomElementsBinding(ICustomElementsHost host)
         public bool IsCustomizedBuiltIn => !string.Equals(Name, LocalName, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// A valid custom element name (HTML §4.13.1): starts with an ASCII lower alpha, contains a
-    /// hyphen, and holds no upper-case letters.
-    /// </summary>
-    /// <remarks>
-    /// The reserved names below are the SVG and MathML element names that already contain a hyphen,
-    /// so they would otherwise pass the shape test while naming something that exists. Measured
-    /// against a browser rather than transcribed: each is a <c>SyntaxError</c>, as is a name with no
-    /// hyphen, an empty name, one with an upper-case letter, and one starting with a digit.
-    /// </remarks>
-    [GeneratedRegex(@"^[a-z][-._0-9a-z]*-[-._0-9a-z]*$", RegexOptions.Compiled)]
-    private static partial System.Text.RegularExpressions.Regex ValidNamePattern();
-
-    private static readonly HashSet<string> ReservedNames = new(StringComparer.Ordinal)
-    {
-        "annotation-xml", "color-profile", "font-face", "font-face-src", "font-face-uri",
-        "font-face-format", "font-face-name", "missing-glyph",
-    };
-
     internal static bool IsValidCustomElementName(string name) =>
-        name.Length > 0 && !ReservedNames.Contains(name) && ValidNamePattern().IsMatch(name);
+        DomNameValidation.IsValidCustomElementName(name);
 
     /// <summary>Whether <paramref name="tagName"/> has a definition — used by the element-wrapper
     /// interface lookup so a defined element reports its own class.</summary>

@@ -33,7 +33,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Broiler.Dom.Html" Version="0.1.0-preview.3" />
+    <PackageReference Include="Broiler.Dom.Html" Version="0.1.0-preview.10" />
     <PackageReference Include="Broiler.JavaScript.Engine" Version="0.1.0-preview.1" />
     <PackageReference Include="Broiler.Layout" Version="0.1.0-preview.4" />
     <PackageReference Include="Broiler.CSS.Dom" Version="0.1.0-preview.3" />

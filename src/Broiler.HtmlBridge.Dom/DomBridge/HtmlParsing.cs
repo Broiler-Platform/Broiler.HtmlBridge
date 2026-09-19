@@ -130,25 +130,26 @@ public sealed partial class DomBridge
     {
         // Depth-first with an explicit stack: a shadow tree may itself contain declarative shadow
         // roots, and those templates only become reachable once their content has been moved.
-        var pending = new Stack<DomElement>();
+        var pending = new Stack<DomNode>();
         pending.Push(root);
 
         while (pending.Count > 0)
         {
-            var element = pending.Pop();
+            var current = pending.Pop();
 
-            for (var index = element.ChildNodes.Count - 1; index >= 0; index--)
+            for (var index = current.ChildNodes.Count - 1; index >= 0; index--)
             {
-                if (element.ChildNodes[index] is not DomElement child)
+                if (current.ChildNodes[index] is not DomElement child)
                     continue;
 
-                if (!TryTakeDeclarativeShadowRoot(element, child, index, out var shadowRoot))
+                if (current is DomElement element &&
+                    TryTakeDeclarativeShadowRoot(element, child, index, out var shadowRoot))
                 {
-                    pending.Push(child);
+                    pending.Push(shadowRoot);
                     continue;
                 }
 
-                pending.Push(shadowRoot);
+                pending.Push(child);
             }
         }
     }
@@ -159,7 +160,7 @@ public sealed partial class DomBridge
     /// root. Returns <see langword="false"/> for anything else, leaving the tree untouched.
     /// </summary>
     private bool TryTakeDeclarativeShadowRoot(
-        DomElement host, DomElement child, int childIndex, out DomElement shadowRoot)
+        DomElement host, DomElement child, int childIndex, out DomShadowRoot shadowRoot)
     {
         shadowRoot = null!;
 
@@ -173,14 +174,24 @@ public sealed partial class DomBridge
 
         // "Only the first declarative shadow root wins": a second template on the same host is an
         // ordinary inert <template>, per the spec's already-has-a-shadow-root check.
-        if (GetShadowRoot(host) is not null)
+        if (host.InternalShadowRoot is not null)
             return false;
 
-        shadowRoot = ((Dom.Features.IShadowDomHost)this).AttachShadowRoot(host, mode!.ToLowerInvariant());
+        var shadowMode = string.Equals(mode, "closed", StringComparison.OrdinalIgnoreCase)
+            ? DomShadowRootMode.Closed
+            : DomShadowRootMode.Open;
+        _hasShadowRoots = true;
+        try
+        {
+            shadowRoot = host.AttachShadow(shadowMode);
+        }
+        catch (DomException)
+        {
+            return false;
+        }
 
         foreach (var content in child.ChildNodes.ToArray())
         {
-            SetParent(content, shadowRoot);
             shadowRoot.AppendChild(content);
         }
 
@@ -382,7 +393,7 @@ public sealed partial class DomBridge
             return GetTemplateContent(element).ChildNodes;
 
         if (element.TagName.Equals("textarea", StringComparison.OrdinalIgnoreCase) &&
-            FormControlStateFor(element).Value.TryGet(out var dirty) && dirty is string raw)
+            _formState.TryGetDirtyValue(element, out var dirty) && dirty is string raw)
         {
             return [CreateBridgeTextNode(raw)];
         }

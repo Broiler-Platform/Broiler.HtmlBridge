@@ -214,15 +214,11 @@ public partial class NodeRelationshipCanonicalTests
     [Fact]
     public void Characterization_AShadowTreeNodeComparesAsItsHostsDescendant()
     {
-        // Chromium treats a shadow tree as a tree of its own here: a node inside it and its host answer
-        // DISCONNECTED | IMPLEMENTATION_SPECIFIC plus a direction, as any two nodes with different roots
-        // do. The bridge parents a shadow root into its host (NodeTreeIdentityTests'
-        // AShadowTreeIsNotPartOfItsHostsNodeTree is the skipped test for that), so the node is the host's
-        // descendant to every walk up the parent chain — the bridge's and the canonical member's alike.
-        // This pins today's containment answer so the cutover leaves it as it found it; it is not
-        // Chromium's.
+        // Standard DOM §4.2.2 / Chromium behavior: a shadow tree is a tree of its own, so a node inside it
+        // and its host have different roots and compare as DISCONNECTED | IMPLEMENTATION_SPECIFIC plus
+        // a direction.
         Assert.Equal(
-            "innerToHost=contains|preceding hostToInner=containedBy|following rootToHost=contains|preceding",
+            "innerToHost=disconnected|preceding|implementationSpecific hostToInner=disconnected|following|implementationSpecific rootToHost=disconnected|preceding|implementationSpecific",
             Run("""
                 (function () {
                   function bits(value) {

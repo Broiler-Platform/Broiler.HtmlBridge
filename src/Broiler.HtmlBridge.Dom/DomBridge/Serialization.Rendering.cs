@@ -58,7 +58,6 @@ public sealed partial class DomBridge
             projectedRoot,
             projectedToSource,
             sourceToProjected);
-        RebindProjectedShadowState(sourceToProjected);
 
         var previousDocument = _renderProjectionDocument;
         var previousSources = _renderProjectionSources;
@@ -95,6 +94,25 @@ public sealed partial class DomBridge
             projectedToSource[projectedElement] = sourceElement;
             sourceToProjected[sourceElement] = projectedElement;
             CopyBridgeRuntimeStateTo(sourceElement, projectedElement);
+
+            if (sourceElement.InternalShadowRoot is { } sourceShadow)
+            {
+                var projectedShadow = projectedElement.AttachShadow(
+                    sourceShadow.Mode,
+                    sourceShadow.DelegatesFocus,
+                    sourceShadow.SlotAssignment);
+
+                foreach (var shadowChild in sourceShadow.ChildNodes)
+                {
+                    var projectedChild = projectedElement.OwnerDocument.ImportNode(shadowChild, deep: true);
+                    projectedShadow.AppendChild(projectedChild);
+                    CopyRenderProjectionState(
+                        shadowChild,
+                        projectedChild,
+                        projectedToSource,
+                        sourceToProjected);
+                }
+            }
         }
 
         var sourceChildren = source.ChildNodes;
@@ -106,30 +124,6 @@ public sealed partial class DomBridge
                 projectedChildren[index],
                 projectedToSource,
                 sourceToProjected);
-        }
-    }
-
-    private void RebindProjectedShadowState(
-        IReadOnlyDictionary<DomElement, DomElement> sourceToProjected)
-    {
-        foreach (var (source, projected) in sourceToProjected)
-        {
-            var sourceState = ShadowStateFor(source);
-            var projectedState = ShadowStateFor(projected);
-
-            if (sourceState.Root.TryGet(out var rawRoot) &&
-                rawRoot is DomElement sourceRoot &&
-                sourceToProjected.TryGetValue(sourceRoot, out var projectedRoot))
-            {
-                projectedState.Root.Set(projectedRoot);
-            }
-
-            if (sourceState.Host.TryGet(out var rawHost) &&
-                rawHost is DomElement sourceHost &&
-                sourceToProjected.TryGetValue(sourceHost, out var projectedHost))
-            {
-                projectedState.Host.Set(projectedHost);
-            }
         }
     }
 

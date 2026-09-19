@@ -31,52 +31,11 @@ public static partial class DomBridgeUtils
     /// <c>meta-color-scheme-first-valid-applies</c>).
     /// </para>
     /// </summary>
-    internal static string? FindMetaColorScheme(DomElement root)
-    {
-        foreach (var element in root.Descendants().OfType<DomElement>())
-        {
-            if (!element.TagName.Equals("meta", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (!TryGetAttribute(element, "name", out var name) ||
-                !name.Trim().Equals("color-scheme", StringComparison.OrdinalIgnoreCase))
-                continue;
-            // A meta in a shadow tree is not in the document tree (HTML §4.2.5.3), so it
-            // contributes no document-level color scheme (WPT
-            // meta-color-scheme-single-value-in-shadow-tree).
-            if (FindContainingShadowRoot(element) != null)
-                continue;
-            if (TryGetAttribute(element, "content", out var content) &&
-                IsValidColorSchemeValue(content))
-            {
-                return content.Trim();
-            }
-        }
-        return null;
-    }
+    internal static string? FindMetaColorScheme(DomElement root) =>
+        HtmlMetaScanner.FindMetaColorScheme(root);
 
-    /// <summary>
-    /// Whether <paramref name="content"/> is a valid CSS <c>&lt;'color-scheme'&gt;</c> value:
-    /// a whitespace-separated list of CSS identifiers (<c>normal</c>, <c>light</c>, <c>dark</c>,
-    /// <c>only</c>, or a custom ident). Any other character — most notably a comma, as in the
-    /// invalid <c>light,dark</c> — makes the value unparseable, so the meta is ignored per CSS
-    /// Color Adjust §2.
-    /// </summary>
-    private static bool IsValidColorSchemeValue(string? content)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-            return false;
-
-        var tokens = content.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        if (tokens.Length == 0)
-            return false;
-
-        foreach (var token in tokens)
-            foreach (var ch in token)
-                if (!(char.IsLetterOrDigit(ch) || ch == '-' || ch == '_' || ch > 0x7F))
-                    return false;
-
-        return true;
-    }
+    internal static bool IsValidColorSchemeValue(string? content) =>
+        HtmlMetaScanner.IsValidColorSchemeValue(content);
 
     /// <summary>
     /// Drops comment nodes from the render-bound document. Comments never render,
@@ -275,21 +234,6 @@ public static partial class DomBridgeUtils
     /// skipped as whitespace and this does not.
     /// </para>
     /// </remarks>
-    internal static bool HasHtmlDoctype(string html)
-    {
-        foreach (var token in new HtmlTokenizer().Tokenize(html))
-        {
-            if (token.Type == TokenType.Comment ||
-                (token.Type == TokenType.Character && token.Data.AsSpan().Trim(AsciiWhitespace).IsEmpty))
-                continue;
-
-            return token.Type == TokenType.Doctype && string.Equals(token.Name, "html", StringComparison.Ordinal);
-        }
-
-        return false;
-    }
-
-    /// <summary>The ASCII whitespace the HTML Standard ignores between tokens: tab, LF, FF, CR and
-    /// space.</summary>
-    private const string AsciiWhitespace = "\t\n\f\r ";
+    internal static bool HasHtmlDoctype(string html) =>
+        HtmlDocumentQueries.HasHtmlDoctype(html);
 }

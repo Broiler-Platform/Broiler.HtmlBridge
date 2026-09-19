@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -630,11 +630,11 @@ public sealed partial class DomBridge : Dom.Features.IEventTargetHost
 
     JsValue Dom.Features.IEventTargetHost.WindowWrapper => WindowHandle;
 
-    FormControlRuntimeState Dom.Features.IEventTargetHost.FormControlStateFor(DomElement element)
-        => FormControlStateFor(element);
+    bool Dom.Features.IEventTargetHost.TryGetFormControlChecked(DomElement element, out bool value)
+        => _formState.TryGetDirtyChecked(element, out value);
 
-    void Dom.Features.IEventTargetHost.UncheckRadioSiblings(DomElement scope, DomElement except, string radioName)
-        => UncheckRadioSiblings(scope, except, radioName);
+    void Dom.Features.IEventTargetHost.SetFormControlChecked(DomElement element, bool value)
+        => _formState.SetDirtyChecked(element, value);
 }
 
 // Explicit IEventHandlerReflectorHost implementation for the EventHandlerReflectorBinding feature module

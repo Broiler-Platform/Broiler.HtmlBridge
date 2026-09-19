@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Broiler.Dom;
 using Broiler.JSeal;
 
@@ -107,14 +107,7 @@ internal static class NodeRelationshipsBinding
             composed = call.Realm.GetProperty(call[0], "composed").AsBoolean;
         }
 
-        if (!composed)
-        {
-            var shadowRoot = DomBridgeUtils.FindContainingShadowRoot(node);
-            if (shadowRoot != null)
-                return host.WrapNode(shadowRoot);
-        }
-
-        return host.WrapRootNode(host.GetTreeRoot(node));
+        return host.WrapRootNode(node.GetRootNode(composed));
     }
 
     public static JsValue CloneNode(INodeRelationshipsHost host, DomNode node, in JsCall call)

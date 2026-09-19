@@ -432,37 +432,12 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// </summary>
     private void DrainAsyncWork(IDomBridgeRuntime bridge)
     {
-        for (var iteration = 0; iteration < DomBridgeRuntimeLimits.AsyncDrainIterationLimit; iteration++)
-        {
-            var hadWork = false;
+        var status = AsyncDrainOperations.DrainUntilSettled(
+            MicroTasks,
+            bridge,
+            callerName: "ScriptEngine.DrainAsyncWork");
 
-            if (MicroTasks.Count > 0)
-            {
-                MicroTasks.Drain();
-                hadWork = true;
-            }
-
-            if (bridge.HasPendingTimersDueBy(DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs))
-            {
-                bridge.FlushTimerStep();
-                hadWork = true;
-            }
-
-            if (!hadWork)
-                return; // settled — nothing left that this capture's window covers
-        }
-
-        // Phase 8 item 3: the iteration budget is exhausted while work is *still due now*. The
-        // virtual-time horizon above already retires the ordinary case — a page holding an interval,
-        // whose next tick is simply later — so reaching here means work that keeps regenerating at
-        // the current instant and never lets the clock move: a setTimeout or queueMicrotask that
-        // reschedules itself with no delay. Record it on the engine and log it, so the truncation is
-        // diagnosable rather than invisible.
-        AsyncDrainLimitExhausted = true;
-        RenderLogger.LogWarning(LogCategory.JavaScript, "ScriptEngine.DrainAsyncWork",
-            $"Async work still due after {DomBridgeRuntimeLimits.AsyncDrainIterationLimit} drain iterations; " +
-            $"stopping with pending microtasks={MicroTasks.Count}. " +
-            "A callback is rescheduling itself with no delay, so the virtual clock cannot advance.");
+        AsyncDrainLimitExhausted = status == AsyncDrainStatus.Exhausted;
     }
 
     /// <summary>

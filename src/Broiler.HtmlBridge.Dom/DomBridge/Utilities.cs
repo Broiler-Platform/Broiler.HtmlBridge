@@ -1,4 +1,4 @@
-﻿using Broiler.CSS;
+using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.Dom.Html;
 using Broiler.JSeal;
@@ -129,10 +129,9 @@ public sealed partial class DomBridge
             cloneStyle[kv.Key] = kv.Value;
 
         // Per-bridge instance tables (Phase 2 items 3/4 de-globalization) — each owns its CopyTo.
-        FormControlStateFor(source).CopyTo(FormControlStateFor(clone));
+        _formState.CopyControlState(source, clone);
         ScrollStateFor(source).CopyTo(ScrollStateFor(clone));
         DialogStateFor(source).CopyTo(DialogStateFor(clone));
-        ShadowStateFor(source).CopyTo(ShadowStateFor(clone));
         StyleSheetStateFor(source).CopyTo(StyleSheetStateFor(clone));
         DocumentStateFor(source).CopyTo(DocumentStateFor(clone));
         AnimationStateFor(source).CopyTo(AnimationStateFor(clone));
@@ -148,30 +147,6 @@ public sealed partial class DomBridge
         // Web Animations targeting a pseudo-element bake outside the inline style (a pseudo has no
         // node); the serialization pass reads them off the projected element, so they travel here.
         CopyAnimatedPseudoStyles(source, clone);
-    }
-
-    /// <summary>
-    /// Recursively unchecks all radio inputs with the given name within the scope,
-    /// except for the specified element. Used for radio button mutual exclusion.
-    /// </summary>
-    internal void UncheckRadioSiblings(DomElement scope, DomElement except, string radioName)
-    {
-        foreach (var child in ChildElements(scope))
-        {
-            if (!IsText(child) && !ReferenceEquals(child, except))
-            {
-                if (string.Equals(child.TagName, "input", StringComparison.OrdinalIgnoreCase) &&
-                    TryGetAttribute(child, "type", out var st) &&
-                    string.Equals(st, "radio", StringComparison.OrdinalIgnoreCase) &&
-                    TryGetAttribute(child, "name", out var sn) &&
-                    string.Equals(sn, radioName, StringComparison.Ordinal))
-                {
-                    FormControlStateFor(child).Checked.Set(false);
-                }
-
-                UncheckRadioSiblings(child, except, radioName);
-            }
-        }
     }
 
     // form.elements collection (indexed + named access) moved to the Phase 3 FormBinding feature
@@ -272,24 +247,8 @@ public sealed partial class DomBridge
     /// <paramref name="form"/>'s controls in tree order, including its form-associated custom
     /// elements — what <c>form.elements</c> lists.
     /// </summary>
-    internal List<DomElement> CollectFormControlsIncludingCustom(DomElement form)
-    {
-        var controls = new List<DomElement>();
-        Collect(form);
-        return controls;
-
-        void Collect(DomElement parent)
-        {
-            foreach (var child in ChildElements(parent))
-            {
-                if (ControlTags.Contains(AsciiToLower(child.TagName)) ||
-                    (_customElements?.IsFormAssociated(child) ?? false))
-                    controls.Add(child);
-
-                Collect(child);
-            }
-        }
-    }
+    internal List<DomElement> CollectFormControlsIncludingCustom(DomElement form) =>
+        Broiler.Dom.Html.HtmlFormQueries.GetFormElements(form, el => _customElements?.IsFormAssociated(el) ?? false);
 
     /// <summary>
     /// <paramref name="form"/>'s entry list: each submittable control's name and current value, in
@@ -308,7 +267,7 @@ public sealed partial class DomBridge
         var entries = new List<KeyValuePair<string, string>>();
         foreach (var control in CollectFormControlsIncludingCustom(form))
         {
-            if (IsFormControlDisabled(control))
+            if (Broiler.Dom.Html.HtmlFormQueries.IsFormControlDisabled(control))
                 continue;
 
             var name = TryGetAttribute(control, "name", out var declaredName) ? declaredName : string.Empty;
@@ -336,7 +295,7 @@ public sealed partial class DomBridge
                     continue;
 
                 case "textarea":
-                    entries.Add(new(name, CurrentControlValue(control, control.TextContent)));
+                    entries.Add(new(name, _formState.GetEffectiveValue(control)));
                     continue;
 
                 case "input":
@@ -360,29 +319,16 @@ public sealed partial class DomBridge
                 return;
 
             case "checkbox" or "radio":
-                if (!IsControlChecked(input))
+                if (!_formState.GetEffectiveChecked(input))
                     return;
                 entries.Add(new(name, TryGetAttribute(input, "value", out var boxValue) ? boxValue : "on"));
                 return;
 
             default:
-                entries.Add(new(name, CurrentControlValue(input,
-                    TryGetAttribute(input, "value", out var attributeValue) ? attributeValue : string.Empty)));
+                entries.Add(new(name, _formState.GetEffectiveValue(input)));
                 return;
         }
     }
-
-    /// <summary>The control's current value: its dirty IDL value when it has one, and
-    /// <paramref name="fallback"/> — the markup's default — when it does not.</summary>
-    private string CurrentControlValue(DomElement control, string fallback) =>
-        FormControlStateFor(control).Value.TryGet(out var stored) && stored is string value
-            ? value
-            : fallback;
-
-    private bool IsControlChecked(DomElement control) =>
-        FormControlStateFor(control).Checked.TryGet(out var stored)
-            ? stored is true
-            : HasAttr(control, "checked");
 }
 
 /// <summary>
@@ -418,11 +364,7 @@ public sealed partial class DomBridge
     /// </summary>
     internal void ResetFormControls(DomElement form)
     {
-        var controls = HtmlElementQueries.CollectFormControls(form);
-        foreach (var control in controls)
-            ResetFormControl(control);
-
-        EnforceRadioGroupExclusivity(form);
+        _formState.ResetForm(form);
         InvalidateStyleScope(form);
 
         // A form-associated custom element has no dirty flags to clear — its value is whatever it
@@ -430,85 +372,6 @@ public sealed partial class DomBridge
         // restores its own default.
         _customElements?.OnFormReset(CollectFormControlsIncludingCustom(form));
     }
-
-    /// <summary>
-    /// One control's reset algorithm. Every case is a dirty-flag removal, because the flag being
-    /// unset <em>is</em> "tracks the markup" everywhere the IDL getters read it.
-    /// </summary>
-    private void ResetFormControl(DomElement control)
-    {
-        var state = FormControlStateFor(control);
-        switch (control.TagName?.ToLowerInvariant())
-        {
-            case "input":
-                // Dirty value flag and dirty checkedness flag, both cleared: value falls back to the
-                // `value` attribute and checkedness to the presence of `checked`.
-                state.Value.Remove();
-                state.Checked.Remove();
-                break;
-
-            case "textarea":
-                // A textarea has no `value` attribute — its default is the child text content, which
-                // is where the value getter falls back to once this flag is gone.
-                state.Value.Remove();
-                break;
-
-            case "select":
-                // "Set the selectedness of each option to its selectedness content attribute" — the
-                // select's own dirty index is what overrides that, so removing it restores the
-                // markup's selection. An option's dirty selectedness (set through
-                // `option.selected`/`defaultSelected`) is cleared with it, so a script-selected
-                // option does not survive the reset that a markup-selected one must.
-                state.SelectedIndex.Remove();
-                foreach (var option in HtmlElementQueries.CollectFormControls(control))
-                {
-                    if (string.Equals(option.TagName, "option", StringComparison.OrdinalIgnoreCase))
-                        FormControlStateFor(option).DefaultSelected.Remove();
-                }
-
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Re-imposes "at most one member of a radio button group is checked" over every group under
-    /// <paramref name="scope"/>, keeping the <b>last</b> checked member in tree order.
-    /// </summary>
-    /// <remarks>
-    /// Last rather than first, because that is what the specification's own ordering produces and
-    /// what a browser answers. The rule fires whenever a radio's checkedness becomes true, so
-    /// restoring or inserting a run of checked radios one at a time leaves each one unchecking the
-    /// ones before it — the final state is the last one processed. Reference-checked against
-    /// Chromium for both the reset case (two <c>checked</c> radios in the markup) and the insertion
-    /// case (appending a checked radio into a group that already has one).
-    /// </remarks>
-    private void EnforceRadioGroupExclusivity(DomElement scope)
-    {
-        // Group name -> the last checked radio seen for it. Radios with no name are not in a group
-        // (HTML: the group is the elements sharing a non-empty name), so they are left alone.
-        Dictionary<string, DomElement>? lastChecked = null;
-
-        foreach (var element in scope.InclusiveDescendants().OfType<DomElement>())
-        {
-            if (!IsRadioInput(element) ||
-                !TryGetAttribute(element, "name", out var name) ||
-                string.IsNullOrEmpty(name) ||
-                !IsCheckedNow(element))
-                continue;
-
-            lastChecked ??= [];
-            if (lastChecked.TryGetValue(name, out var previous))
-                FormControlStateFor(previous).Checked.Set(false);
-            lastChecked[name] = element;
-        }
-    }
-
-    /// <summary>The checkedness a radio reports right now: its dirty flag when set, else the
-    /// presence of the <c>checked</c> content attribute — the same fallback the IDL getter uses.</summary>
-    private bool IsCheckedNow(DomElement element) =>
-        FormControlStateFor(element).Checked.TryGet(out var dirty)
-            ? dirty is true
-            : HasAttr(element, "checked");
 
     /// <summary>
     /// Restores the radio invariant after <paramref name="inserted"/> (or a descendant of it) joins
@@ -529,12 +392,14 @@ public sealed partial class DomBridge
     {
         foreach (var element in inserted.InclusiveDescendants().OfType<DomElement>())
         {
-            if (IsRadioInput(element) && IsCheckedNow(element) &&
-                TryGetAttribute(element, "name", out var name) && !string.IsNullOrEmpty(name))
+            if (Broiler.Dom.Html.HtmlFormQueries.IsRadioInput(element) && _formState.GetEffectiveChecked(element))
             {
-                // The newcomer wins, which is what "checkedness set to true" gives it: it is the
-                // last member of the group to have been made checked.
-                UncheckRadioSiblings(RadioGroupScope(element), element, name);
+                var group = Broiler.Dom.Html.HtmlFormQueries.GetRadioGroupElements(element);
+                foreach (var sibling in group)
+                {
+                    if (!ReferenceEquals(sibling, element))
+                        _formState.SetDirtyChecked(sibling, false);
+                }
             }
         }
     }

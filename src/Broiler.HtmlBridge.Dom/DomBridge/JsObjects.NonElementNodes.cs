@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 using static Broiler.HtmlBridge.DomBridgeHostUtils;
@@ -586,6 +586,22 @@ public sealed partial class DomBridge
         Realm.DefineValue(handle, "dispatchEvent",
             Realm.NewMethod("dispatchEvent",
                 (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in call), 1));
+
+        if (fragment is DomShadowRoot shadowRoot)
+        {
+            Realm.DefineAccessor(handle, "host", (in _) => WrapNode(shadowRoot.Host), null);
+            Realm.DefineAccessor(handle, "mode", (in _) => JsValue.String(shadowRoot.Mode == DomShadowRootMode.Open ? "open" : "closed"), null);
+            Realm.DefineAccessor(handle, "delegatesFocus", (in _) => JsValue.Boolean(shadowRoot.DelegatesFocus), null);
+            Realm.DefineAccessor(handle, "slotAssignment", (in _) => JsValue.String(shadowRoot.SlotAssignment == DomSlotAssignmentMode.Manual ? "manual" : "named"), null);
+            Realm.DefineAccessor(handle, "innerHTML",
+                (in _) => JsValue.String(SerializeChildrenToHtml(shadowRoot)),
+                (in call) =>
+                {
+                    var html = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+                    SetShadowRootInnerHtml(shadowRoot, html);
+                    return JsValue.Undefined;
+                });
+        }
 
         // Node interface constants (exist on all Node objects) — types and DOCUMENT_POSITION_* bits.
         // On Node.prototype, which this wrapper inherits; one minted before the realm carried it

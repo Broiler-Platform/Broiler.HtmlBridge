@@ -243,11 +243,7 @@ public class NodeTreeIdentityTests
                 """));
     }
 
-    [Fact(Skip = "A shadow root is a #shadow-root element parented into its host, so the shadow tree " +
-                 "is part of the host's node tree: document.contains and host.childNodes both reach " +
-                 "into it and the root reports a parent, where DOM §4.2.2 gives a shadow root a tree " +
-                 "of its own with no parent — which is what makes the composed flag mean anything. " +
-                 "src/Broiler.HtmlBridge.Dom/DomBridge/Hosts.Nodes.cs")]
+    [Fact]
     public void AShadowTreeIsNotPartOfItsHostsNodeTree()
     {
         Assert.Equal(

@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -27,14 +27,14 @@ internal interface IShadowDomHost
     IJsRealm Realm { get; }
 
     /// <summary>The element's attached shadow root, or null.</summary>
-    DomElement? GetShadowRoot(DomElement element);
+    DomShadowRoot? GetShadowRoot(DomElement element);
 
-    /// <summary>The element's shadow mode ("open"/"closed"), if a string mode is recorded.</summary>
-    bool TryGetShadowMode(DomElement element, out string mode);
-
-    /// <summary>Creates the <c>#shadow-root</c> element, links it to <paramref name="host"/> as its
-    /// shadow root with <paramref name="mode"/>, and returns it.</summary>
-    DomElement AttachShadowRoot(DomElement host, string mode);
+    /// <summary>Attaches a shadow root to <paramref name="host"/> with <paramref name="mode"/>, and returns it.</summary>
+    DomShadowRoot AttachShadowRoot(
+        DomElement host,
+        DomShadowRootMode mode,
+        bool delegatesFocus = false,
+        DomSlotAssignmentMode slotAssignment = DomSlotAssignmentMode.Named);
 
     /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
     JsValue WrapNode(DomNode node);

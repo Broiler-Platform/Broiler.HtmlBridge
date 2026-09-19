@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -109,7 +109,7 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
 
     bool Dom.Features.IFormControlHost.TryGetFormControlValue(DomElement element, out string value)
     {
-        if (FormControlStateFor(element).Value.TryGet(out var stored) && stored is string s)
+        if (_formState.TryGetDirtyValue(element, out var stored) && stored is string s)
         {
             value = s;
             return true;
@@ -120,30 +120,18 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
     }
 
     void Dom.Features.IFormControlHost.SetFormControlValue(DomElement element, string value) =>
-        FormControlStateFor(element).Value.Set(value);
+        _formState.SetDirtyValue(element, value);
 
     string Dom.Features.IFormControlHost.GetSelectValue(DomElement element) => _select.GetValue(element);
 
     void Dom.Features.IFormControlHost.SetSelectValue(DomElement element, string value) =>
         _select.SetValue(element, value);
 
-    bool Dom.Features.IFormControlHost.TryGetFormControlChecked(DomElement element, out bool value)
-    {
-        if (FormControlStateFor(element).Checked.TryGet(out var stored))
-        {
-            value = stored is true;
-            return true;
-        }
-
-        value = false;
-        return false;
-    }
+    bool Dom.Features.IFormControlHost.TryGetFormControlChecked(DomElement element, out bool value) =>
+        _formState.TryGetDirtyChecked(element, out value);
 
     void Dom.Features.IFormControlHost.SetFormControlChecked(DomElement element, bool value) =>
-        FormControlStateFor(element).Checked.Set(value);
-
-    void Dom.Features.IFormControlHost.UncheckRadioSiblings(DomElement scope, DomElement except, string radioName) =>
-        UncheckRadioSiblings(scope, except, radioName);
+        _formState.SetDirtyChecked(element, value);
 
     void Dom.Features.IFormControlHost.InvalidateStyleScope(DomElement anchor) => InvalidateStyleScope(anchor);
 }
@@ -240,10 +228,10 @@ public sealed partial class DomBridge : ISelectHost
     // own instance methods directly, and from the feature bindings that need it (EventTargetBinding's
     // click checkbox/radio toggle, and the `:checked` selector state provider) through their host
     // interfaces — the concern's static callers were threaded, not left on a process-static table.
-    private readonly ConditionalWeakTable<DomElement, FormControlRuntimeState> _formControlRuntimeStates = [];
-
-    private FormControlRuntimeState FormControlStateFor(DomElement element) =>
-        _formControlRuntimeStates.GetValue(element, static _ => new FormControlRuntimeState());
+    private readonly Broiler.Dom.Html.HtmlFormState _formState = new()
+    {
+        OnStateChanged = BridgeRuntimeStateEpoch.Bump
+    };
 
     IJsRealm ISelectHost.Realm => Realm;
 
@@ -252,24 +240,15 @@ public sealed partial class DomBridge : ISelectHost
     DomElement? ISelectHost.FindElement(JsValue wrapper) =>
         wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
 
-    bool ISelectHost.TryGetSelectedIndex(DomElement select, out int index)
-    {
-        if (FormControlStateFor(select).SelectedIndex.TryGet(out var value) && value is int i)
-        {
-            index = i;
-            return true;
-        }
-
-        index = 0;
-        return false;
-    }
+    bool ISelectHost.TryGetSelectedIndex(DomElement select, out int index) =>
+        _formState.TryGetDirtySelectedIndex(select, out index);
 
     void ISelectHost.SetSelectedIndex(DomElement select, int index) =>
-        FormControlStateFor(select).SelectedIndex.Set(index);
+        _formState.SetDirtySelectedIndex(select, index);
 
     bool ISelectHost.TryGetOptionValue(DomElement option, out string value)
     {
-        if (FormControlStateFor(option).Value.TryGet(out var stored) && stored is string s)
+        if (_formState.TryGetDirtyValue(option, out var stored) && stored is string s)
         {
             value = s;
             return true;
@@ -280,20 +259,15 @@ public sealed partial class DomBridge : ISelectHost
     }
 
     // defaultSelected reflects the `selected` CONTENT ATTRIBUTE (HTML §4.10.10), so the runtime slot
-    // is an override of it rather than the whole story. Reading the slot alone answered `false` for
-    // every option that carried `selected` in the markup — including the one the select was showing,
-    // so a page asking "is this the original selection?" was told no about the option it had just
-    // been handed. The slot still wins when a script has written the property.
+    // is an override of it rather than the whole story.
     bool ISelectHost.GetOptionDefaultSelected(DomElement option) =>
-        FormControlStateFor(option).DefaultSelected.TryGet(out var ds)
-            ? ds is true
-            : HasAttr(option, "selected");
+        _formState.GetEffectiveOptionSelected(option);
 
     // Writing the property writes the attribute it reflects, so a later reset — which clears the
     // slot — restores what was written rather than what the markup happened to say.
     void ISelectHost.SetOptionDefaultSelected(DomElement option, bool value)
     {
-        FormControlStateFor(option).DefaultSelected.Set(value);
+        _formState.SetDirtyOptionSelected(option, value);
         if (value)
             SetAttr(option, "selected", string.Empty);
         else
@@ -421,12 +395,12 @@ public sealed partial class DomBridge : IDialogHost
         DialogStateFor(element).PopoverTransitioningOut.Set(true);
 
     string IDialogHost.GetReturnValue(DomElement element) =>
-        FormControlStateFor(element).ReturnValue.TryGet(out var rv) && rv is string s
+        _formState.TryGetReturnValue(element, out var rv) && rv is string s
             ? s
             : string.Empty;
 
     void IDialogHost.SetReturnValue(DomElement element, string value) =>
-        FormControlStateFor(element).ReturnValue.Set(value);
+        _formState.SetReturnValue(element, value);
 
     bool IDialogHost.PopoverKeepsOverlayOnHide(DomElement element) => PopoverKeepsOverlayOnHide(element);
 

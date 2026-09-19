@@ -1,8 +1,9 @@
-﻿using System.Linq;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Broiler.CSS;
 using Broiler.CSS.Dom;
 using Broiler.Dom;
+using Broiler.Dom.Html;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.JSeal;
@@ -264,20 +265,15 @@ public sealed partial class DomBridge
 
     /// <summary>The first <c>&lt;base&gt;</c> in document order with a non-empty
     /// <c>href</c> — the element that sets the document base URL (HTML §4.2.3).</summary>
-    private bool TryFindDocumentBaseHref(DomElement root, out string baseHref)
+    private static bool TryFindDocumentBaseHref(DomElement root, out string baseHref)
     {
-        baseHref = string.Empty;
-        foreach (var element in root.Descendants().OfType<DomElement>())
+        if (HtmlDocumentQueries.TryGetEffectiveBaseHref(root, out var href))
         {
-            if (element.TagName.Equals("base", StringComparison.OrdinalIgnoreCase) &&
-                TryGetAttribute(element, "href", out var href) &&
-                !string.IsNullOrWhiteSpace(href))
-            {
-                baseHref = href.Trim();
-                return true;
-            }
+            baseHref = href;
+            return true;
         }
 
+        baseHref = string.Empty;
         return false;
     }
 

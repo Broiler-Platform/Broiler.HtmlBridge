@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -159,10 +159,8 @@ internal static class TreeMutationBinding
     {
         if (call.Length == 0)
             return JsValue.Undefined;
-        var nodes = host.BuildChildNodeArgumentNodes(call.Arguments);
-        var insertIndex = element.ChildNodes.Count;
-        foreach (var node in nodes)
-            host.InsertNodeAt(element, node, insertIndex++);
+        element.Append(host.BuildChildNodeArgumentNodes(call.Arguments));
+        host.InvalidateStyleScope(element);
         return JsValue.Undefined;
     }
 
@@ -170,10 +168,8 @@ internal static class TreeMutationBinding
     {
         if (call.Length == 0)
             return JsValue.Undefined;
-        var nodes = host.BuildChildNodeArgumentNodes(call.Arguments);
-        var insertIndex = 0;
-        foreach (var node in nodes)
-            host.InsertNodeAt(element, node, insertIndex++);
+        element.Prepend(host.BuildChildNodeArgumentNodes(call.Arguments));
+        host.InvalidateStyleScope(element);
         return JsValue.Undefined;
     }
 
@@ -181,37 +177,11 @@ internal static class TreeMutationBinding
     /// DOM §4.2.6 <c>ParentNode.replaceChildren()</c> on an element: remove every existing child,
     /// then insert the arguments. Called with none, it empties the element.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The wrapper bound <c>append</c> and <c>prepend</c> but not this third member of the same mixin,
-    /// so <c>container.replaceChildren()</c> — the modern way to empty a node, and the reason most
-    /// pages reach for it — threw on an undefined function. The document's counterpart has been here
-    /// since the mixin was bound there (<c>NodeMutationBinding.ReplaceChildren</c>); this is its
-    /// element half, and it mirrors it step for step.
-    /// </para>
-    /// <para>
-    /// The arguments are resolved before anything is removed, because one of them may be a current
-    /// child: clearing first would detach and re-insert it, which reaches the same tree by a different
-    /// set of mutation records.
-    /// </para>
-    /// </remarks>
     public static JsValue ReplaceChildren(ITreeMutationHost host, DomElement element, in JsCall call)
     {
         var nodes = call.Length == 0 ? [] : host.BuildChildNodeArgumentNodes(call.Arguments);
-
-        for (var index = element.ChildNodes.Count - 1; index >= 0; index--)
-        {
-            var child = DomBridgeUtils.ChildAt(element, index);
-            DomBridgeUtils.RemoveNthChild(element, index);
-            DomBridgeUtils.SetParent(child, null);
-        }
-
+        element.ReplaceChildren(nodes);
         host.InvalidateStyleScope(element);
-
-        var insertIndex = 0;
-        foreach (var node in nodes)
-            host.InsertNodeAt(element, node, insertIndex++);
-
         return JsValue.Undefined;
     }
 

@@ -41,7 +41,7 @@
     THE TWO DIAGNOSTICS THIS COMPONENT PROMOTES TO ERRORS.
 
     Both are one defect seen from two sides, and both are about JsValue — the JSEAL
-    handle in src/Broiler.HtmlBridge.Jseal/Values/JsValue.cs. It is a STRUCT, and the
+    handle provided by the Broiler.JSeal package. It is a STRUCT, and the
     engine-typed storage it replaced (JSObject, JSValue) was a class. What each reader
     of a retyped field would do on the day it happened, measured rather than assumed:
 
@@ -96,21 +96,21 @@
     listing them means the two builds report the same thing rather than the standalone one
     burying a real diagnostic under warnings the in-tree build never showed.
 
-    CS8600-CS8767 are the nullable family — this code mixes projects with and without
-    <Nullable>enable</Nullable> and several APIs pass null by design. CS9113 covers
-    primary-constructor parameters kept for API shape. CA1416 is the Windows-only surface
-    the canvas rasteriser reaches through Broiler.Graphics. CA2255 is the ModuleInitializer
+    CS8600-CS8767 (nullable family) are no longer globally suppressed here; they are
+    enforced cleanly across Broiler.HtmlBridge.Core, DomBridgeUtils, Scripting, Scripting.Vm,
+    and Tests, and narrowed to Broiler.HtmlBridge.Dom.csproj during its phased migration.
+    CS9113 covers primary-constructor parameters kept for API shape. CA1416 is the Windows-only
+    surface the canvas rasteriser reaches through Broiler.Graphics. CA2255 is the ModuleInitializer
     advisory: a JSEAL provider registers itself from one, which is the advanced scenario the
     rule's own documentation points at, and a provider nothing has named must register before
-    anything asks the registry. SYSLIB0013 is
-    Uri.EscapeUriString, which implements JavaScript's encodeURI() and matches its
-    semantics more closely than Uri.EscapeDataString does.
+    anything asks the registry. SYSLIB0013 is Uri.EscapeUriString, which implements JavaScript's
+    encodeURI() and matches its semantics more closely than Uri.EscapeDataString does.
 
     Each is a candidate to remove per project as that project is cleaned; none of them may
     grow, because that is what the promotion above is for.
   -->
   <PropertyGroup>
-    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8619;CS8620;CS8622;CS8625;CS8631;CS8632;CS8765;CS8767;CS9113;CA1416;CA2255;SYSLIB0013</NoWarn>
+    <NoWarn>$(NoWarn);CS9113;CA1416;CA2255;SYSLIB0013</NoWarn>
   </PropertyGroup>
 
 </Project>

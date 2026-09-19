@@ -1,4 +1,4 @@
-﻿using Broiler.HtmlBridge.Core.Diagnostics;
+using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
@@ -268,7 +268,6 @@ public sealed partial class DomBridge
 
     private string ResolveSubResourceUrl(string resourceUrl, string? baseUrl = null)
     {
-        resourceUrl = NormalizeWptPlaceholderUrl(resourceUrl);
         if (string.IsNullOrWhiteSpace(resourceUrl))
             return string.Empty;
 
@@ -506,7 +505,6 @@ public sealed partial class DomBridge
         string resourceUrl,
         string? baseUrl = null)
     {
-        resourceUrl = NormalizeWptPlaceholderUrl(resourceUrl);
         if (string.IsNullOrWhiteSpace(resourceUrl))
             return (null, string.Empty, null);
 
@@ -538,8 +536,8 @@ public sealed partial class DomBridge
         }
 
         // Resolve relative URL against page URL. An absolute URL keeps its raw string so the scheme
-        // checks below (file:// / http(s)) and WPT host mapping see the exact original prefix; only the
-        // relative case goes through the shared resolver (Phase 7 item 4).
+        // checks below (file:// / http(s)) see the exact original prefix; only the relative case goes
+        // through the shared resolver (Phase 7 item 4).
         string resolvedUrl;
         if (Uri.TryCreate(resourceUrl, UriKind.Absolute, out _))
         {
@@ -559,12 +557,6 @@ public sealed partial class DomBridge
         {
             var fileResult = TryReadFileResource(resolvedUrl, extensionMime);
             return (fileResult.content, fileResult.contentType, null);
-        }
-
-        if (TryMapLocalWptHttpResource(resolvedUrl) is { } localWptPath)
-        {
-            var wptResult = TryReadFileResource(new Uri(localWptPath).AbsoluteUri, extensionMime);
-            return (wptResult.content, wptResult.contentType, null);
         }
 
         // Only fetch HTTP/HTTPS URLs

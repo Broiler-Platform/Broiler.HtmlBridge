@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Broiler.JSeal;
 using Broiler.Dom;
 
@@ -95,21 +95,14 @@ internal static class EventTargetBinding
             var inputType = DomBridgeUtils.TryGetAttribute(element, "type", out var t) ? t.ToLowerInvariant() : "text";
             if (inputType == "checkbox")
             {
-                var checkedState = host.FormControlStateFor(element).Checked;
-                bool wasChecked = checkedState.TryGet(out var cv) && cv is true || (!checkedState.IsSet && DomBridgeUtils.HasAttr(element, "checked"));
-                checkedState.Set(!wasChecked);
+                bool wasChecked = host.TryGetFormControlChecked(element, out var cv)
+                    ? cv
+                    : DomBridgeUtils.HasAttr(element, "checked");
+                host.SetFormControlChecked(element, !wasChecked);
             }
             else if (inputType == "radio")
             {
-                host.FormControlStateFor(element).Checked.Set(true);
-                // Radio mutual exclusion
-                if (DomBridgeUtils.TryGetAttribute(element, "name", out var radioName) && !string.IsNullOrEmpty(radioName))
-                {
-                    var scope = element;
-                    while (DomBridgeUtils.ParentEl(scope) != null)
-                        scope = DomBridgeUtils.ParentEl(scope);
-                    host.UncheckRadioSiblings(scope, element, radioName);
-                }
+                host.SetFormControlChecked(element, true);
             }
         }
 

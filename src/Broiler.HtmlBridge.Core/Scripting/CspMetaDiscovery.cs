@@ -25,26 +25,6 @@ internal static class CspMetaDiscovery
     /// The returned string is unparsed — hand it to
     /// <see cref="Broiler.HtmlBridge.Scripting.ContentSecurityPolicy.Parse"/>.
     /// </summary>
-    public static string? FindPolicyContent(string html)
-    {
-        if (string.IsNullOrWhiteSpace(html))
-            return null;
-
-        foreach (var token in new HtmlTokenizer().Tokenize(html))
-        {
-            if (token.Type != TokenType.StartTag ||
-                !string.Equals(token.Name, "meta", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (!token.Attributes.TryGetValue("http-equiv", out var httpEquiv) ||
-                !string.Equals(httpEquiv, "Content-Security-Policy", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (token.Attributes.TryGetValue("content", out var content) &&
-                !string.IsNullOrWhiteSpace(content))
-                return content;
-        }
-
-        return null;
-    }
+    public static string? FindPolicyContent(string html) =>
+        HtmlMetaScanner.FindCspPolicyContent(html);
 }

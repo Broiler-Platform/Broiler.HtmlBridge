@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Broiler.Dom;
 using Broiler.JSeal;
 
@@ -105,7 +105,6 @@ public static partial class DomBridgeUtils
     /// </summary>
     internal static bool IsCrossOrigin(string targetUrl, string pageUrl)
     {
-        targetUrl = NormalizeWptPlaceholderUrl(targetUrl);
         if (string.IsNullOrWhiteSpace(targetUrl)) return false;
         // about:blank inherits the origin of the embedding document (always same-origin)
         if (string.Equals(targetUrl, "about:blank", StringComparison.OrdinalIgnoreCase)) return false;
@@ -119,19 +118,6 @@ public static partial class DomBridgeUtils
         if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var pageUri)) return false;
         // Same-origin: same scheme + host + port (shared origin primitive)
         return !Scripting.Origin.SchemeHostPortEquals(targetUri, pageUri);
-    }
-
-    internal static string NormalizeWptPlaceholderUrl(string url)
-    {
-        if (string.IsNullOrWhiteSpace(url))
-            return string.Empty;
-
-        return url
-            .Replace("{{hosts[alt][]}}", "www1.web-platform.test", StringComparison.Ordinal)
-            .Replace("{{hosts[www][]}}", "www.web-platform.test", StringComparison.Ordinal)
-            .Replace("{{hosts[][]}}", "web-platform.test", StringComparison.Ordinal)
-            .Replace("{{ports[http][0]}}", "8000", StringComparison.Ordinal)
-            .Replace("{{ports[https][0]}}", "8443", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -395,20 +381,8 @@ public static partial class DomBridgeUtils
     /// Whether the control is disabled — by its own <c>disabled</c> attribute or by an ancestor
     /// <c>&lt;fieldset disabled&gt;</c>, which disables everything in it (HTML §4.10.15).
     /// </summary>
-    internal static bool IsFormControlDisabled(DomElement control)
-    {
-        if (HasAttr(control, "disabled"))
-            return true;
-
-        for (var ancestor = ParentEl(control); ancestor is not null; ancestor = ParentEl(ancestor))
-        {
-            if (string.Equals(ancestor.TagName, "fieldset", StringComparison.OrdinalIgnoreCase) &&
-                HasAttr(ancestor, "disabled"))
-                return true;
-        }
-
-        return false;
-    }
+    internal static bool IsFormControlDisabled(DomElement control) =>
+        Broiler.Dom.Html.HtmlFormQueries.IsFormControlDisabled(control);
 
     /// <summary>
     /// Reads a <c>FormData</c>'s entries, or answers <see langword="false"/> for anything else.
@@ -457,9 +431,7 @@ public static partial class DomBridgeUtils
 public static partial class DomBridgeUtils
 {
     internal static bool IsRadioInput(DomElement element) =>
-        string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase) &&
-        TryGetAttribute(element, "type", out var type) &&
-        string.Equals(type, "radio", StringComparison.OrdinalIgnoreCase);
+        Broiler.Dom.Html.HtmlFormQueries.IsRadioInput(element);
 
     /// <summary>
     /// The radio-group scope for <paramref name="element"/>: its form owner, or the root of its tree
@@ -474,10 +446,10 @@ public static partial class DomBridgeUtils
         if (scope != null)
             return scope;
 
-        scope = element;
-        while (ParentEl(scope) != null)
-            scope = ParentEl(scope);
-        return scope;
+        var root = element;
+        while (ParentEl(root) is { } parent)
+            root = parent;
+        return root;
     }
 }
 

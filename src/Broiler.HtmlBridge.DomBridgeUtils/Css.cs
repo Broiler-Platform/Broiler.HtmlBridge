@@ -19,12 +19,12 @@ public static partial class DomBridgeUtils
     internal static DomElement GetDocumentRootFor(DomElement el)
     {
         var root = el;
-        while (ParentEl(root) != null)
+        while (ParentEl(root) is { } parent)
         {
             // If we've reached a scope root (shadow root), stop here
             if (root.TagName.StartsWith('#'))
                 return root;
-            root = ParentEl(root);
+            root = parent;
         }
         return root;
     }

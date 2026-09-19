@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Broiler.CSS;
 using Broiler.Dom;
+using Broiler.Dom.Html;
 using Broiler.Layout;
 
 namespace Broiler.HtmlBridge;
@@ -366,12 +367,8 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    internal static bool IsTableCellElement(DomElement element)
-    {
-        var tag = element.TagName;
-        return string.Equals(tag, "td", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(tag, "th", StringComparison.OrdinalIgnoreCase);
-    }
+    internal static bool IsTableCellElement(DomElement element) =>
+        HtmlTableOperations.IsTableCell(element);
 
     internal static bool IsAreaElement(DomElement element) =>
         string.Equals(element.TagName, "area", StringComparison.OrdinalIgnoreCase);

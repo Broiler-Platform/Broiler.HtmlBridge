@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
@@ -75,10 +75,13 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     // and clearInterval are interchangeable per the HTML spec).
     private readonly ConcurrentDictionary<int, TimerEntry> _timers = new();
     private readonly ConcurrentDictionary<int, byte> _clearedTimerIds = new();
+    private HashSet<int>? _inFlightTimerIds;
     private int _rafIdCounter;
     private readonly ConcurrentDictionary<int, JsValue> _rafCallbacks = new();
     private int _frameActionIdCounter;
     private readonly ConcurrentDictionary<int, Action> _frameActions = new();
+
+    internal int ClearedTimerCount => _clearedTimerIds.Count;
 
     // ------------------------------------------------------------------
     //  Registration / cancellation
@@ -152,7 +155,8 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     private void CancelTimer(int id)
     {
         _timers.TryRemove(id, out _);
-        _clearedTimerIds[id] = 0;
+        if (_inFlightTimerIds != null && _inFlightTimerIds.Contains(id))
+            _clearedTimerIds[id] = 0;
     }
 
     /// <summary>Registers a one-shot animation-frame callback, returning its id.</summary>
@@ -292,13 +296,10 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
             });
         }
 
-        // Collect rAF callbacks (one-shot: remove as collected)
-        var rafSnapshot = new List<(int Id, JsValue Fn)>();
-        foreach (var kv in _rafCallbacks.ToArray())
-        {
-            if (_rafCallbacks.TryRemove(kv.Key, out var fn))
-                rafSnapshot.Add((kv.Key, fn));
-        }
+        // Collect rAF callback IDs present at the start of this step in registration order.
+        // Callbacks remain in _rafCallbacks until immediately before invocation, so cancellation
+        // by timers or earlier rAF callbacks in this step remains effective.
+        var rafIds = _rafCallbacks.Keys.OrderBy(static id => id).ToList();
 
         var frameActionSnapshot = new List<Action>();
         foreach (var kv in _frameActions.ToArray())
@@ -307,64 +308,78 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
                 frameActionSnapshot.Add(action);
         }
 
-        if (pending.Count == 0 && rafSnapshot.Count == 0 && frameActionSnapshot.Count == 0)
+        if (pending.Count == 0 && rafIds.Count == 0 && frameActionSnapshot.Count == 0)
             return false;
 
-        // Execute the due timers in (deadline, seq) order. Each fires at most once this step; an interval is
-        // rescheduled for its next tick (Deadline + Period) for a later step unless it was cleared while
-        // running, so a self-rescheduling timer/interval ticks once per step (bounded by the DrainAll cap).
-        foreach (var (id, entry) in pending)
+        try
         {
-            if (_clearedTimerIds.ContainsKey(id)) continue;
-            try
-            {
-                // A timer callback is one of the turns the host hands to script; see JsEntryTrace.
-                // Inactive by default, and the label carries the id so a repeating interval is
-                // distinguishable from a one-shot in the trace.
-                using var turn = JsEntryTrace.Enter(JsEntryKind.Timer,
-                    entry.Period is null ? $"timeout#{id}" : $"interval#{id}");
+            if (pending.Count > 0)
+                _inFlightTimerIds = new HashSet<int>(pending.Select(static p => p.Id));
 
-                if (entry.Fn.IsFunction)
-                    _realm()?.Invoke(entry.Fn, JsValue.Undefined);
-                else
-                    entry.HostTask?.Invoke();
-            }
-            catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"timer callback error: {ex.Message}", ex); }
-            finally { RunTaskCheckpoint(); }
-
-            if (entry.Period is double period && !_clearedTimerIds.ContainsKey(id))
+            // Execute the due timers in (deadline, seq) order. Each fires at most once this step; an interval is
+            // rescheduled for its next tick (Deadline + Period) for a later step unless it was cleared while
+            // running, so a self-rescheduling timer/interval ticks once per step (bounded by the DrainAll cap).
+            foreach (var (id, entry) in pending)
             {
-                var nextSeq = Interlocked.Increment(ref _timerSeqCounter);
-                _timers[id] = new TimerEntry(entry.Deadline + period, nextSeq, entry.Fn, entry.HostTask, period);
+                if (_clearedTimerIds.ContainsKey(id)) continue;
+                try
+                {
+                    // A timer callback is one of the turns the host hands to script; see JsEntryTrace.
+                    // Inactive by default, and the label carries the id so a repeating interval is
+                    // distinguishable from a one-shot in the trace.
+                    using var turn = JsEntryTrace.Enter(JsEntryKind.Timer,
+                        entry.Period is null ? $"timeout#{id}" : $"interval#{id}");
+
+                    if (entry.Fn.IsFunction)
+                        _realm()?.Invoke(entry.Fn, JsValue.Undefined);
+                    else
+                        entry.HostTask?.Invoke();
+                }
+                catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"timer callback error: {ex.Message}", ex); }
+                finally { RunTaskCheckpoint(); }
+
+                if (entry.Period is double period && !_clearedTimerIds.ContainsKey(id))
+                {
+                    var nextSeq = Interlocked.Increment(ref _timerSeqCounter);
+                    _timers[id] = new TimerEntry(entry.Deadline + period, nextSeq, entry.Fn, entry.HostTask, period);
+                }
             }
+
+            // Execute rAF callbacks in registration order, removing immediately before invocation
+            foreach (var id in rafIds)
+            {
+                if (!_rafCallbacks.TryRemove(id, out var fn))
+                    continue;
+
+                try
+                {
+                    using var turn = JsEntryTrace.Enter(JsEntryKind.AnimationFrame, $"raf#{id}");
+                    _realm()?.Invoke(fn, JsValue.Undefined, [JsValue.Number(0)]);
+                }
+                catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"rAF callback error: {ex.Message}", ex); }
+                finally { RunTaskCheckpoint(); }
+            }
+
+            foreach (var action in frameActionSnapshot)
+            {
+                try
+                {
+                    // A frame action is a host action, but it reaches script through the bridge often
+                    // enough that leaving it out would attribute its time to the next turn's gap.
+                    using var turn = JsEntryTrace.Enter(JsEntryKind.FrameAction, "frame-action");
+                    action();
+                }
+                catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"frame action error: {ex.Message}", ex); }
+                finally { RunTaskCheckpoint(); }
+            }
+
+            return true;
         }
-
-        // Execute rAF callbacks
-        foreach (var (id, fn) in rafSnapshot)
+        finally
         {
-            try
-            {
-                using var turn = JsEntryTrace.Enter(JsEntryKind.AnimationFrame, $"raf#{id}");
-                _realm()?.Invoke(fn, JsValue.Undefined, [JsValue.Number(0)]);
-            }
-            catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"rAF callback error: {ex.Message}", ex); }
-            finally { RunTaskCheckpoint(); }
+            _inFlightTimerIds = null;
+            _clearedTimerIds.Clear();
         }
-
-        foreach (var action in frameActionSnapshot)
-        {
-            try
-            {
-                // A frame action is a host action, but it reaches script through the bridge often
-                // enough that leaving it out would attribute its time to the next turn's gap.
-                using var turn = JsEntryTrace.Enter(JsEntryKind.FrameAction, "frame-action");
-                action();
-            }
-            catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"frame action error: {ex.Message}", ex); }
-            finally { RunTaskCheckpoint(); }
-        }
-
-        return true;
     }
 
     /// <summary>Drops every queued task and resets the id counters. Runs on re-parse and disposal;
@@ -373,6 +388,7 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     {
         _timers.Clear();
         _clearedTimerIds.Clear();
+        _inFlightTimerIds = null;
         _rafCallbacks.Clear();
         _frameActions.Clear();
         _timerIdCounter = 0;

@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -47,9 +47,6 @@ internal interface IFormControlHost
 
     /// <summary>Sets the input's dirty IDL <c>checked</c> state.</summary>
     void SetFormControlChecked(DomElement element, bool value);
-
-    /// <summary>Unchecks the other radio inputs sharing <paramref name="radioName"/> within <paramref name="scope"/>.</summary>
-    void UncheckRadioSiblings(DomElement scope, DomElement except, string radioName);
 
     /// <summary>Invalidates the cascade/computed style scope anchored at <paramref name="anchor"/>.</summary>
     void InvalidateStyleScope(DomElement anchor);

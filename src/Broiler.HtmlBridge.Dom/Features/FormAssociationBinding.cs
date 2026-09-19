@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Broiler.Dom;
 using Broiler.JSeal;
@@ -127,26 +127,8 @@ internal static class FormAssociationBinding
             return labels;
         });
 
-    private static DomElement? FormOwner(IFormAssociationHost host, DomElement element)
-    {
-        // The `form` content attribute wins over ancestry, and names a form by id anywhere in the
-        // document — which is the whole point of it: a control rendered outside the form it submits.
-        if (DomBridgeUtils.TryGetAttribute(element, "form", out var formId) && !string.IsNullOrEmpty(formId))
-        {
-            var named = host.GetElementById(formId);
-            return named is not null && string.Equals(named.TagName, "form", StringComparison.OrdinalIgnoreCase)
-                ? named
-                : null;
-        }
-
-        for (var ancestor = DomBridgeUtils.ParentEl(element); ancestor is not null; ancestor = DomBridgeUtils.ParentEl(ancestor))
-        {
-            if (string.Equals(ancestor.TagName, "form", StringComparison.OrdinalIgnoreCase))
-                return ancestor;
-        }
-
-        return null;
-    }
+    private static DomElement? FormOwner(IFormAssociationHost host, DomElement element) =>
+        Broiler.Dom.Html.HtmlFormQueries.GetFormOwner(element);
 
     /// <summary>
     /// <c>control.labels</c> — a <b>live</b> <c>NodeList</c> of the labels associated with this

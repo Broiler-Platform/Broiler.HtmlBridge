@@ -1,4 +1,5 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
+using Broiler.Dom.Html;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -75,26 +76,11 @@ internal sealed class SelectBinding(ISelectHost host)
         if (optEl == null)
             return JsValue.Undefined;
 
-        // IsObject is the whole of the old four-part guard — "supplied, not null, not undefined, and
-        // an object": a missing, null or undefined argument is not an object, so all four collapse
-        // into the one question they were asking.
         DomElement? refEl = null;
         if (call[1].IsObject)
             refEl = _host.FindElement(call[1]);
 
-        // optEl.Remove() detaches; the insert/append below reattaches in one canonical op. The prior
-        // SetParent(optEl, element) appended at the end first, so a ref-node insert then re-moved it.
-        optEl.Remove();
-        if (refEl != null)
-        {
-            var idx = DomBridgeUtils.ChildIndexOf(element, refEl);
-            if (idx >= 0)
-                DomBridgeUtils.InsertChildAt(element, idx, optEl);
-            else
-                element.AppendChild(optEl);
-        }
-        else
-            element.AppendChild(optEl);
+        HtmlSelectQueries.AddOption(element, optEl, refEl);
         return JsValue.Undefined;
     }
 
@@ -105,9 +91,6 @@ internal sealed class SelectBinding(ISelectHost host)
             if (string.Equals(c.TagName, "option", StringComparison.OrdinalIgnoreCase))
                 opts.Add(_host.WrapNode(c));
 
-        // The array's own `length` is replaced by an accessor over the snapshot the array was built
-        // from, exactly as before: the two agree, and the accessor is what the site has always
-        // installed.
         var arr = realm.NewArray([.. opts]);
         realm.DefineAccessor(arr, "length", (in _) => JsValue.Number(opts.Count), null);
         return arr;
@@ -115,19 +98,13 @@ internal sealed class SelectBinding(ISelectHost host)
 
     private JsValue SetSelectedIndexCallback(DomElement element, in JsCall call)
     {
-        // ToNumber, not the handle's inline reading: `select.selectedIndex = "2"` is a string a page
-        // may well write, and the ECMAScript coercion is what it observes.
         var index = call.Length == 0 ? -1 : (int)Math.Truncate(call.Realm.ToNumber(call[0]));
         SetSelectedIndex(element, index);
         return JsValue.Undefined;
     }
 
-    private static JsValue GetSize(DomElement element)
-    {
-        if (DomBridgeUtils.TryGetAttribute(element, "size", out var rawSize) && int.TryParse(rawSize, out var parsedSize) && parsedSize > 0)
-            return JsValue.Number(parsedSize);
-        return JsValue.Number(0);
-    }
+    private static JsValue GetSize(DomElement element) =>
+        JsValue.Number(HtmlSelectQueries.GetSize(element));
 
     private static JsValue SetSize(DomElement element, in JsCall call)
     {
@@ -152,13 +129,6 @@ internal sealed class SelectBinding(ISelectHost host)
     /// <see cref="DomNode.TextContent"/> replace-all — one child-list record and at most one text node
     /// (none for the empty string).
     /// </summary>
-    /// <remarks>
-    /// <c>text</c> is a plain <c>DOMString</c>, not a nullable one, so the realm's <c>ToString</c> runs
-    /// first and <c>option.text = null</c> writes the string <c>"null"</c>, as <c>script.text</c> does —
-    /// unlike <c>textContent</c>, whose <c>null</c> empties the element. A setter reached with no
-    /// argument at all (<c>descriptor.set.call(option)</c>) is WebIDL's arity TypeError, and the
-    /// children stay.
-    /// </remarks>
     private static JsValue SetText(DomElement element, in JsCall call)
     {
         if (call.Length == 0)
@@ -169,115 +139,30 @@ internal sealed class SelectBinding(ISelectHost host)
     }
 
     /// <summary>
-    /// An option's <c>text</c> (HTML §4.10.10): its descendant text nodes' data in tree order, leaving out
-    /// every text node inside a descendant HTML or SVG <c>script</c>, with ASCII whitespace stripped and
-    /// collapsed. It is also what an option without a <c>value</c> attribute is worth, so
-    /// <see cref="GetValue"/>, <see cref="SetValue"/> and <c>option.value</c> read it too.
+    /// An option's <c>text</c> (HTML §4.10.10): delegates to canonical <see cref="HtmlSelectQueries.GetOptionText"/>.
     /// </summary>
-    /// <remarks>
-    /// "Strip and collapse ASCII whitespace" is tab, LF, FF, CR and space only: a no-break space is text
-    /// and stays where it is. The whitespace is the text's, not the tree's, so a run that spans two
-    /// nodes (<c>a &lt;b&gt; b&lt;/b&gt;</c>) collapses like any other.
-    /// </remarks>
-    internal static string OptionText(DomElement option)
-    {
-        var builder = new System.Text.StringBuilder();
-        AppendNonScriptText(option, builder);
-        var raw = builder.ToString();
+    internal static string OptionText(DomElement option) => HtmlSelectQueries.GetOptionText(option);
 
-        var text = new System.Text.StringBuilder(raw.Length);
-        var pendingSpace = false;
-        foreach (var c in raw)
-        {
-            if (c is '\t' or '\n' or '\f' or '\r' or ' ')
-            {
-                pendingSpace = text.Length > 0;
-                continue;
-            }
+    /// <summary>Whether <paramref name="element"/> is an HTMLOptionElement.</summary>
+    internal static bool IsHtmlOption(DomElement element) => HtmlSelectQueries.IsHtmlOption(element);
 
-            if (pendingSpace)
-                text.Append(' ');
-            pendingSpace = false;
-            text.Append(c);
-        }
+    // -------- Select algorithms --------
 
-        return text.ToString();
-    }
-
-    private static void AppendNonScriptText(DomNode node, System.Text.StringBuilder text)
-    {
-        foreach (var child in node.ChildNodes)
-        {
-            if (child is DomText textNode)
-                text.Append(textNode.Data);
-            // The bridge parents a shadow host's #shadow-root into the host's child list, but a shadow
-            // tree is not the option's descendant (DOM §4.2.2), so none of its text is the option's.
-            else if (child is DomElement element && !IsHtmlOrSvgScript(element) &&
-                     !string.Equals(element.TagName, "#shadow-root", StringComparison.Ordinal))
-                AppendNonScriptText(element, text);
-        }
-    }
-
-    private static bool IsHtmlOrSvgScript(DomElement element) =>
-        string.Equals(element.LocalName, "script", StringComparison.Ordinal) &&
-        element.NamespaceUri is DomNamespaces.Html or DomNamespaces.Svg;
-
-    /// <summary>Whether <paramref name="element"/> is an HTMLOptionElement: HTML namespace, local name
-    /// exactly <c>option</c>.</summary>
-    internal static bool IsHtmlOption(DomElement element) =>
-        string.Equals(element.LocalName, "option", StringComparison.Ordinal) &&
-        element.NamespaceUri is DomNamespaces.Html;
-
-    // -------- Select algorithms (moved out of LayoutMetrics; never used by layout) --------
-
-    internal static List<DomElement> CollectSelectOptions(DomElement element)
-    {
-        var options = new List<DomElement>();
-        foreach (var child in DomBridgeUtils.ChildElements(element).Where(c => !DomBridgeUtils.IsText(c)))
-        {
-            if (string.Equals(child.TagName, "option", StringComparison.OrdinalIgnoreCase))
-            {
-                options.Add(child);
-                continue;
-            }
-
-            options.AddRange(CollectSelectOptions(child));
-        }
-
-        return options;
-    }
+    internal static List<DomElement> CollectSelectOptions(DomElement element) =>
+        HtmlSelectQueries.GetOptions(element).ToList();
 
     /// <summary>The select's current selected index — the dirty index if set, else the first
     /// selected/default-selected option, else 0 (or -1 when there are no options).</summary>
     internal int GetSelectedIndex(DomElement element)
     {
-        var options = CollectSelectOptions(element);
-        if (options.Count == 0)
-            return -1;
-
-        if (_host.TryGetSelectedIndex(element, out var dirtyIndex))
-            return dirtyIndex >= 0 && dirtyIndex < options.Count ? dirtyIndex : -1;
-
-        for (var index = 0; index < options.Count; index++)
-        {
-            var option = options[index];
-            if (DomBridgeUtils.HasAttr(option, "selected") || _host.GetOptionDefaultSelected(option))
-                return index;
-        }
-
-        return 0;
+        int? dirtyIndex = _host.TryGetSelectedIndex(element, out var idx) ? idx : null;
+        return HtmlSelectQueries.ResolveSelectedIndex(element, dirtyIndex, _host.GetOptionDefaultSelected);
     }
 
     internal void SetSelectedIndex(DomElement element, int index)
     {
-        var options = CollectSelectOptions(element);
-        if (options.Count == 0)
-        {
-            _host.SetSelectedIndex(element, -1);
-            return;
-        }
-
-        if (index < 0 || index >= options.Count)
+        var count = HtmlSelectQueries.GetOptions(element).Count;
+        if (count == 0 || index < 0 || index >= count)
             index = -1;
 
         _host.SetSelectedIndex(element, index);
@@ -287,39 +172,22 @@ internal sealed class SelectBinding(ISelectHost host)
     /// <c>value</c> attribute, else its <see cref="OptionText"/>.</summary>
     internal string GetValue(DomElement element)
     {
-        var options = CollectSelectOptions(element);
-        var selectedIndex = GetSelectedIndex(element);
-        if (selectedIndex < 0 || selectedIndex >= options.Count)
-            return string.Empty;
-
-        var option = options[selectedIndex];
-        if (_host.TryGetOptionValue(option, out var stringValue))
-            return stringValue;
-
-        if (DomBridgeUtils.TryGetAttribute(option, "value", out var attrValue))
-            return attrValue;
-
-        return OptionText(option);
+        int? dirtyIndex = _host.TryGetSelectedIndex(element, out var idx) ? idx : null;
+        return HtmlSelectQueries.ResolveSelectValue(
+            element,
+            dirtyIndex,
+            _host.GetOptionDefaultSelected,
+            opt => _host.TryGetOptionValue(opt, out var val) ? val : null);
     }
 
     /// <summary>Selects the first option whose value matches <paramref name="value"/> (or clears the
     /// selection when none match).</summary>
     internal void SetValue(DomElement element, string value)
     {
-        var options = CollectSelectOptions(element);
-        for (var index = 0; index < options.Count; index++)
-        {
-            var option = options[index];
-            var optionValue = DomBridgeUtils.TryGetAttribute(option, "value", out var attrValue)
-                ? attrValue
-                : OptionText(option);
-            if (string.Equals(optionValue, value, StringComparison.Ordinal))
-            {
-                _host.SetSelectedIndex(element, index);
-                return;
-            }
-        }
-
-        _host.SetSelectedIndex(element, -1);
+        var matchingIndex = HtmlSelectQueries.FindOptionIndexByValue(
+            element,
+            value,
+            opt => _host.TryGetOptionValue(opt, out var val) ? val : null);
+        _host.SetSelectedIndex(element, matchingIndex);
     }
 }

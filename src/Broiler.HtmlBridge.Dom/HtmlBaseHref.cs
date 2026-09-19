@@ -65,46 +65,13 @@ public static class HtmlBaseHref
     /// </summary>
     public static bool TryFindBaseHref(string html, out string baseHref)
     {
-        baseHref = string.Empty;
-
-        // Base-less source skips tokenizing altogether. The tokenizer lower-cases tag names
-        // invariantly, and no character outside ASCII lower-cases to one of these letters, so a
-        // source without this text has no base start tag to find.
-        if (string.IsNullOrEmpty(html) || !html.Contains("<base", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        // A depth counter rather than a flag: templates nest, and an inner template's end tag must
-        // not re-open the outer one's contents to the search.
-        var templateDepth = 0;
-        foreach (var token in new HtmlTokenizer().Tokenize(html))
+        if (HtmlDocumentQueries.TryGetEffectiveBaseHref(html, out var href))
         {
-            if (token.Type == TokenType.EndTag)
-            {
-                if (templateDepth > 0 && token.Name == "template")
-                    templateDepth--;
-                continue;
-            }
-
-            if (token.Type != TokenType.StartTag)
-                continue;
-
-            if (token.Name == "template")
-            {
-                if (!token.SelfClosing)
-                    templateDepth++;
-                continue;
-            }
-
-            if (templateDepth == 0 &&
-                token.Name == "base" &&
-                token.Attributes.TryGetValue("href", out var href) &&
-                !string.IsNullOrWhiteSpace(href))
-            {
-                baseHref = href.Trim();
-                return true;
-            }
+            baseHref = href;
+            return true;
         }
 
+        baseHref = string.Empty;
         return false;
     }
 

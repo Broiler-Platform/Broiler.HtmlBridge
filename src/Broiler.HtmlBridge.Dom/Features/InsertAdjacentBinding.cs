@@ -1,5 +1,6 @@
-﻿using Broiler.JSeal;
 using Broiler.Dom;
+using Broiler.Dom.Html;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -7,23 +8,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The DOM <c>insertAdjacentElement</c> / <c>insertAdjacentText</c> / <c>insertAdjacentHTML</c> methods,
 /// co-located as an HtmlBridge feature module (Phase 3): each resolves the <c>beforebegin</c> /
 /// <c>afterbegin</c> / <c>beforeend</c> / <c>afterend</c> position to a (parent, index) target and inserts
-/// an element, a text node, or the parsed fragment there. The position-normalisation and target-resolution
-/// helpers move here with the methods (they had no other consumer); they raise the spec's <c>SyntaxError</c>
-/// / <c>NoModificationAllowedError</c> through the realm and navigate with the bridge's neutral
-/// <c>internal static</c> <c>ParentEl</c>/<c>ChildIndexOf</c> helpers, while the reverse lookup, insertion
-/// primitive, text-node factory, fragment parser and computed-style reset come through the
-/// <see cref="IInsertAdjacentHost"/> contract. Was the bridge's
-/// <c>JsJsObjectsInsertAdjacentElement130Core</c>/<c>InsertAdjacentText131Core</c>/<c>InsertAdjacentHTML132Core</c>.
+/// an element, a text node, or the parsed fragment there. Position parsing and target resolution
+/// delegate to canonical <see cref="HtmlAdjacentPositionResolver"/> (Sprint 5.6 D6), raising the spec's
+/// <c>SyntaxError</c> / <c>NoModificationAllowedError</c> through the realm.
 /// </summary>
-/// <remarks>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the three members are minted through
-/// the realm and installed on <c>Element.prototype</c> in the position <see cref="Install"/> is called
-/// in, so <c>Object.getOwnPropertyNames</c> reports the order it always did. Every argument read goes
-/// through the realm's <c>ToString</c> rather than the handle's, because that is the coercion a page
-/// observes — <c>insertAdjacentText(pos, {toString(){…}})</c> has always run the object's own
-/// <c>toString</c> here — and the two <c>DOMException</c>s the position resolution raises come from
-/// <c>IJsCalls.DomError</c>, which is what the script context the contract used to carry was for.
-/// </remarks>
 internal static class InsertAdjacentBinding
 {
     /// <summary>
@@ -49,7 +37,7 @@ internal static class InsertAdjacentBinding
     {
         if (call.Length < 2)
             return JsValue.Null;
-        var position = NormalizeInsertAdjacentPosition(call.Realm, call[0]);
+        var position = ParsePosition(call.Realm, call[0]);
         if (!call[1].IsObject)
             return JsValue.Null;
         var adjacentElement = host.FindElement(call[1]);
@@ -64,7 +52,7 @@ internal static class InsertAdjacentBinding
     {
         if (call.Length == 0)
             return JsValue.Undefined;
-        var position = NormalizeInsertAdjacentPosition(call.Realm, call[0]);
+        var position = ParsePosition(call.Realm, call[0]);
         var text = call.Length > 1 ? call.Realm.ToJsString(call[1]) : string.Empty;
         var (parent, index) = GetInsertAdjacentTarget(call.Realm, element, position);
         var textNode = host.CreateBridgeTextNode(text);
@@ -77,22 +65,19 @@ internal static class InsertAdjacentBinding
         if (call.Length == 0)
             return JsValue.Undefined;
         var realm = call.Realm;
-        var position = NormalizeInsertAdjacentPosition(realm, call[0]);
+        var position = ParsePosition(realm, call[0]);
         var html = call.Length > 1 ? realm.ToJsString(call[1]) : string.Empty;
         if (string.IsNullOrEmpty(html))
             return JsValue.Undefined;
+
         DomElement parsingContext;
-        switch (position)
+        try
         {
-            case "beforebegin":
-            case "afterend":
-                if (DomBridgeUtils.ParentEl(element) == null)
-                    throw realm.DomError("NoModificationAllowedError", "Cannot insert adjacent HTML without a parent node.");
-                parsingContext = DomBridgeUtils.ParentEl(element)!;
-                break;
-            default:
-                parsingContext = element;
-                break;
+            parsingContext = HtmlAdjacentPositionResolver.ResolveParsingContext(element, position);
+        }
+        catch (DomException ex) when (ex.Name == "NoModificationAllowedError")
+        {
+            throw realm.DomError("NoModificationAllowedError", "Cannot insert adjacent HTML without a parent node.");
         }
 
         var (parent, index) = GetInsertAdjacentTarget(realm, element, position);
@@ -103,38 +88,30 @@ internal static class InsertAdjacentBinding
         return JsValue.Undefined;
     }
 
-    // Validates and lower-cases the insertion position, raising SyntaxError for an unknown value. The
-    // realm's ToString, not the handle's: the position argument is coerced the way the page sees it,
-    // which is what the engine frame this replaces was doing.
-    private static string NormalizeInsertAdjacentPosition(IJsRealm realm, JsValue value)
+    private static HtmlAdjacentPosition ParsePosition(IJsRealm realm, JsValue value)
     {
-        var position = realm.ToJsString(value).Trim().ToLowerInvariant();
-        if (position is "beforebegin" or "afterbegin" or "beforeend" or "afterend")
+        var raw = realm.ToJsString(value);
+        if (HtmlAdjacentPositionResolver.TryParse(raw, out var position))
             return position;
 
-        throw realm.DomError("SyntaxError", $"'{position}' is not a valid insertion position.");
+        var positionStr = raw.Trim().ToLowerInvariant();
+        throw realm.DomError("SyntaxError", $"'{positionStr}' is not a valid insertion position.");
     }
 
-    // Resolves the position keyword to the (parent, insertion index) pair, raising
-    // NoModificationAllowedError when a beforebegin/afterend insertion has no parent.
-    private static (DomElement Parent, int Index) GetInsertAdjacentTarget(IJsRealm realm, DomElement element, string position)
+    private static (DomElement Parent, int Index) GetInsertAdjacentTarget(IJsRealm realm, DomElement element, HtmlAdjacentPosition position)
     {
-        switch (position)
+        try
         {
-            case "beforebegin":
-                if (DomBridgeUtils.ParentEl(element) == null)
-                    throw realm.DomError("NoModificationAllowedError", "Cannot insert adjacent content without a parent node.");
-                return (DomBridgeUtils.ParentEl(element)!, DomBridgeUtils.ChildIndexOf(DomBridgeUtils.ParentEl(element)!, element));
-            case "afterbegin":
-                return (element, 0);
-            case "beforeend":
-                return (element, element.ChildNodes.Count);
-            case "afterend":
-                if (DomBridgeUtils.ParentEl(element) == null)
-                    throw realm.DomError("NoModificationAllowedError", "Cannot insert adjacent content without a parent node.");
-                return (DomBridgeUtils.ParentEl(element)!, DomBridgeUtils.ChildIndexOf(DomBridgeUtils.ParentEl(element)!, element) + 1);
-            default:
-                throw realm.DomError("SyntaxError", $"'{position}' is not a valid insertion position.");
+            return HtmlAdjacentPositionResolver.ResolveTarget(element, position);
+        }
+        catch (DomException ex) when (ex.Name == "NoModificationAllowedError")
+        {
+            throw realm.DomError("NoModificationAllowedError", "Cannot insert adjacent content without a parent node.");
+        }
+        catch (DomException ex) when (ex.Name == "SyntaxError")
+        {
+            throw realm.DomError("SyntaxError", ex.Message);
         }
     }
 }
+

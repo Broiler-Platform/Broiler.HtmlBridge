@@ -36,18 +36,9 @@ public static class MetaRefreshDiscovery
         if (string.IsNullOrWhiteSpace(html))
             return null;
 
-        foreach (var token in new HtmlTokenizer().Tokenize(html))
+        foreach (var content in HtmlMetaScanner.FindAllHttpEquivContents(html, "refresh", trimHeader: true))
         {
-            if (token.Type != TokenType.StartTag ||
-                !string.Equals(token.Name, "meta", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (!token.Attributes.TryGetValue("http-equiv", out var httpEquiv) ||
-                !string.Equals(httpEquiv?.Trim(), "refresh", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (token.Attributes.TryGetValue("content", out var content) &&
-                TryParseContent(content, documentUrl, out var request))
+            if (TryParseContent(content, documentUrl, out var request))
                 return request;
         }
 

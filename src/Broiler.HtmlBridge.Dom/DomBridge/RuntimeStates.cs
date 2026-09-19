@@ -1,4 +1,4 @@
-﻿using Broiler.CSS;
+using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.JSeal;
 
@@ -88,28 +88,6 @@ internal sealed class InlineStyleRuntimeState
     // the earlier de-globalization had inlined into CloneDomElement).
 }
 
-// Phase 4 item 5 (CloneDomElement de-risk, 2026-07-19): each runtime-state composite owns a
-// CopyTo(target) that clones its own fields, co-located with the field declarations. cloneNode's
-// bridge-state copy (DomBridge.CopyBridgeRuntimeStateTo) is the single caller: keeping the copy
-// semantics next to the fields means adding a field can no longer silently drop from the clone
-// (the old scattered CopyTo list in CloneDomElement had to be hand-updated in a different file).
-internal sealed class FormControlRuntimeState
-{
-    public RuntimeValue<string> Value { get; } = new();
-    public RuntimeValue<bool> Checked { get; } = new();
-    public RuntimeValue<bool> DefaultSelected { get; } = new();
-    public RuntimeValue<int> SelectedIndex { get; } = new();
-    public RuntimeValue<string> ReturnValue { get; } = new();
-
-    public void CopyTo(FormControlRuntimeState target)
-    {
-        Value.CopyTo(target.Value);
-        Checked.CopyTo(target.Checked);
-        DefaultSelected.CopyTo(target.DefaultSelected);
-        SelectedIndex.CopyTo(target.SelectedIndex);
-        ReturnValue.CopyTo(target.ReturnValue);
-    }
-}
 
 internal sealed class ScrollRuntimeState
 {
@@ -155,22 +133,6 @@ internal sealed class DialogRuntimeState
         PopoverOpen.CopyTo(target.PopoverOpen);
         PopoverTransitioningOut.CopyTo(target.PopoverTransitioningOut);
         Fullscreen.CopyTo(target.Fullscreen);
-    }
-}
-
-internal sealed class ShadowRuntimeState
-{
-    public RuntimeValue<DomElement> Root { get; } = new();
-    public RuntimeValue<DomElement> Host { get; } = new();
-    public RuntimeValue<string> Mode { get; } = new();
-
-    // Copies the shadow root/host references verbatim — the clone points at the SAME shadow
-    // root/host as the source (the pre-existing cloneNode behaviour, preserved).
-    public void CopyTo(ShadowRuntimeState target)
-    {
-        Root.CopyTo(target.Root);
-        Host.CopyTo(target.Host);
-        Mode.CopyTo(target.Mode);
     }
 }
 

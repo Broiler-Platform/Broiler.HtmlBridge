@@ -6,6 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Description>DOM bridge, HTML tree building, and JavaScript DOM object integration for HtmlBridge.</Description>
+    <!--
+      Scoped nullable warnings suppressed for legacy DOM bridge code during its phased migration
+      to Broiler.DOM, Broiler.CSS, and Broiler.Layout (Sprint 5). All other projects enforce
+      nullability cleanly with zero suppressions.
+    -->
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8619;CS8620;CS8622;CS8625;CS8631;CS8632;CS8765;CS8767</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
