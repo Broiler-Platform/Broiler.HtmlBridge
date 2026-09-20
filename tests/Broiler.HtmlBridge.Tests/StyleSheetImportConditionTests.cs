@@ -112,43 +112,44 @@ public class StyleSheetImportConditionTests
     // ---------------------------------------------------------------------
 
     /// <summary>
-    /// <c>layer(base)</c> is consumed as the layer, and inlined unlayered because the consumed cascade
-    /// drops rules inside <c>@layer</c>. The old answer was <c>@media layer(base) { … }</c>, which
-    /// never matches.
+    /// <c>layer(base)</c> is consumed as the layer, and inlined wrapped in <c>@layer base { … }</c>
+    /// per CSS Cascade 5.
     /// </summary>
     [Fact]
-    public void ANamedLayerImportIsInlinedUnwrappedAndApplies()
+    public void ANamedLayerImportIsInlinedInLayerAndApplies()
     {
         var style = ProjectedStyle($"@import url({ImportedUrl}) layer(base); {OwnRule}");
 
-        AssertInlinedUnwrapped(style);
+        Assert.Contains("@layer base {", style);
+        Assert.Contains(Imported, style);
         Assert.Contains(OwnRule, style);
         Assert.Equal(Green, CascadedColor(style));
     }
 
     /// <summary>
-    /// The bare <c>layer</c> keyword (an anonymous layer), here after a string URL. The old answer was
-    /// <c>@media layer { … }</c>.
+    /// The bare <c>layer</c> keyword (an anonymous layer), here after a string URL, is wrapped
+    /// in <c>@layer { … }</c>.
     /// </summary>
     [Fact]
-    public void AnAnonymousLayerImportIsInlinedUnwrappedAndApplies()
+    public void AnAnonymousLayerImportIsInlinedInLayerAndApplies()
     {
         var style = ProjectedStyle($"@import \"{ImportedUrl}\" layer; {OwnRule}");
 
-        AssertInlinedUnwrapped(style);
+        Assert.Contains("@layer {", style);
+        Assert.Contains(Imported, style);
         Assert.Equal(Green, CascadedColor(style));
     }
 
     /// <summary>
-    /// A <c>&lt;layer-name&gt;</c> is a dotted ident chain. The old answer was
-    /// <c>@media layer(theme.base) { … }</c>.
+    /// A <c>&lt;layer-name&gt;</c> is a dotted ident chain, wrapped in <c>@layer &lt;name&gt; { … }</c>.
     /// </summary>
     [Fact]
-    public void ADottedLayerNameIsInlinedUnwrappedAndApplies()
+    public void ADottedLayerNameIsInlinedInLayerAndApplies()
     {
         var style = ProjectedStyle($"@import url({ImportedUrl}) layer(theme.base);");
 
-        AssertInlinedUnwrapped(style);
+        Assert.Contains("@layer theme.base {", style);
+        Assert.Contains(Imported, style);
         Assert.Equal(Green, CascadedColor(style));
     }
 
@@ -175,7 +176,7 @@ public class StyleSheetImportConditionTests
     /// A comment between a layer name's segments separates tokens without adding whitespace, so
     /// <c>layer(theme/**/.base)</c> is the layer <c>theme.base</c>, as Chromium's tokenizer reads it; and a
     /// hex escape with its trailing space is one code point, so <c>layer(\31 st)</c> is the ident
-    /// <c>1st</c>. The old answer left both in the media text, where they never matched.
+    /// <c>1st</c>. Both are inlined in their respective @layer blocks.
     /// </summary>
     [Fact]
     public void ALayerNameMayHoldACommentBetweenSegmentsOrAHexEscape()
@@ -183,23 +184,21 @@ public class StyleSheetImportConditionTests
         var style = ProjectedStyle(
             $"@import url({ImportedUrl}) layer(theme/**/.base); @import url({AlsoImportedUrl}) layer(\\31 st);");
 
-        AssertInlinedUnwrapped(style);
+        Assert.Contains("@layer theme.base {", style);
+        Assert.Contains("@layer \\31 st {", style);
         Assert.Contains(AlsoImported, style);
         Assert.Equal(Green, CascadedColor(style));
     }
 
     /// <summary>
-    /// Why a layered import is inlined unlayered: the consumed cascade discards every rule inside an
-    /// <c>@layer</c> block, named or anonymous, so wrapping the imported sheet in one would hide its rules
-    /// as surely as the old <c>@media layer(…)</c> did. When this fails, Broiler.CSS.Dom has gained
-    /// cascade layers: switch <c>ExpandCssImports</c> to the Cascade 5 form its comment gives (conditions
-    /// outside, <c>@layer</c> inside) and rewrite the layer tests above to expect it.
+    /// Broiler.CSS.Dom implements cascade layers per CSS Cascade 5: rules inside an @layer
+    /// block, named or anonymous, participate in the cascade with layer ordering.
     /// </summary>
     [Fact]
-    public void TheConsumedCascadeStillDiscardsRulesInsideLayerBlocks()
+    public void TheConsumedCascadeAppliesRulesInsideLayerBlocks()
     {
-        Assert.Null(CascadedColor($"@layer base {{ {Imported} }}"));
-        Assert.Null(CascadedColor($"@layer {{ {Imported} }}"));
+        Assert.Equal(Green, CascadedColor($"@layer base {{ {Imported} }}"));
+        Assert.Equal(Green, CascadedColor($"@layer {{ {Imported} }}"));
         Assert.Equal(Green, CascadedColor(Imported));
     }
 
@@ -283,31 +282,31 @@ public class StyleSheetImportConditionTests
     // ---------------------------------------------------------------------
 
     /// <summary>
-    /// With all three parts only the media list reaches <c>@media</c> (Chrome probe L5). The old answer
-    /// was <c>@media layer(base) supports(display: grid) screen { … }</c>.
+    /// With all three parts, the media query wraps the @layer block (Cascade 5 grammar:
+    /// conditions outside, layer inside).
     /// </summary>
     [Fact]
-    public void LayerSupportsAndMediaTogetherLeaveOnlyTheMediaWrapper()
+    public void LayerSupportsAndMediaTogetherWrapsMediaAndLayer()
     {
         var style = ProjectedStyle($"@import url({ImportedUrl}) layer(base) supports(display: grid) screen;");
 
         Assert.Contains("@media screen {", style);
-        Assert.DoesNotContain("layer", style);
+        Assert.Contains("@layer base {", style);
         Assert.DoesNotContain("supports", style);
         Assert.Contains(Imported, style);
         Assert.Equal(Green, CascadedColor(style));
     }
 
     /// <summary>
-    /// Keywords and functions match case-insensitively, and a comment between parts is skipped. The old
-    /// answer was <c>@media LAYER(base) /* between */ SUPPORTS(display: grid) { … }</c>.
+    /// Keywords and functions match case-insensitively, and a comment between parts is skipped.
     /// </summary>
     [Fact]
     public void PreludeKeywordsIgnoreCaseAndCommentsBetweenParts()
     {
         var style = ProjectedStyle($"@import url({ImportedUrl}) LAYER(base) /* between */ Supports(display: grid);");
 
-        AssertInlinedUnwrapped(style);
+        Assert.Contains("@layer base {", style);
+        Assert.Contains(Imported, style);
         Assert.Equal(Green, CascadedColor(style));
     }
 
@@ -614,4 +613,118 @@ public class StyleSheetImportConditionTests
         var own = style.IndexOf(OwnRule, StringComparison.Ordinal);
         Assert.True(b < a && a < own, $"expected b, then a, then the own rule: {style}");
     }
+
+    /// <summary>
+    /// When an import with a named layer fails due to a false supports() condition,
+    /// CSS Cascade 5 requires the layer to still be declared: an @layer &lt;name&gt;; statement is emitted.
+    /// </summary>
+    [Fact]
+    public void AFailedNamedLayerImportDueToFalseSupportsEmitsLayerStatement()
+    {
+        var style = ProjectedStyle($"@import url({ImportedUrl}) layer(foo) supports(display: bogus_invalid); {OwnRule}");
+
+        Assert.Contains("@layer foo;", style);
+        Assert.DoesNotContain(Imported, style);
+        Assert.Contains(OwnRule, style);
+    }
+
+    /// <summary>
+    /// When an import cycle occurs for a named-layer import, the recursive import emits
+    /// the @layer &lt;name&gt;; statement and breaks the cycle without recursing indefinitely.
+    /// </summary>
+    [Fact]
+    public void AFailedNamedLayerImportCycleEmitsLayerStatement()
+    {
+        using var server = new LoopbackStyleServer(new Dictionary<string, string>
+        {
+            ["/a.css"] = "@import url(b.css) layer(foo); #a { color: rgb(0, 0, 61) }",
+            ["/b.css"] = "@import \"a.css\" layer(foo); #b { color: rgb(0, 0, 62) }",
+        });
+
+        var style = ProjectedStyle($"@import url(/a.css); {OwnRule}", server.PageUrl);
+
+        Assert.Contains("@layer foo;", style);
+        Assert.Contains("#a {", style);
+        Assert.Contains("#b {", style);
+    }
+
+    /// <summary>
+    /// Cascade layer order declared via an @layer statement governs the cascade of imported sheets.
+    /// Later declared layers win over earlier layers in normal declaration origin.
+    /// </summary>
+    [Fact]
+    public void CascadeLayerOrderGovernsImportedRules()
+    {
+        var blueRule = "#p { color: rgb(0, 0, 255) }";
+        var blueUrl = DataUrl(blueRule);
+
+        // When layer order is "@layer b, a;", layer a wins over layer b.
+        var styleA = ProjectedStyle($"@layer b, a; @import url({ImportedUrl}) layer(a); @import url({blueUrl}) layer(b);");
+        Assert.Equal(Green, CascadedColor(styleA));
+
+        // When layer order is "@layer a, b;", layer b wins over layer a.
+        var styleB = ProjectedStyle($"@layer a, b; @import url({ImportedUrl}) layer(a); @import url({blueUrl}) layer(b);");
+        Assert.Equal(Blue, CascadedColor(styleB));
+    }
+
+    /// <summary>
+    /// Normal declarations outside of any layer beat normal declarations inside a layer,
+    /// regardless of specificity (CSS Cascade 5 §6.4).
+    /// </summary>
+    [Fact]
+    public void UnlayeredRuleBeatsLayeredImportedRuleRegardlessOfSpecificity()
+    {
+        var highSpecGreen = DataUrl("#p.special { color: rgb(0, 128, 0) }");
+        var lowSpecBlue = "p { color: rgb(0, 0, 255); }";
+
+        var style = ProjectedStyle($"@import url({highSpecGreen}) layer(base); {lowSpecBlue}");
+        Assert.Equal(Blue, CascadedColor(style));
+    }
+
+    /// <summary>
+    /// Verifies that getComputedStyle() in script resolves rules from @import statements
+    /// via BridgeStyleSheetLoader and CssStyleScopeBuilder.
+    /// </summary>
+    [Fact]
+    public void GetComputedStyleResolvesRulesFromImportedStyleSheet()
+    {
+        var html = @"<!DOCTYPE html><html><head>
+        <style id=""s"">
+          @import url('" + ImportedUrl + @"');
+        </style>
+        </head><body><p id=""p"">test</p><div id=""out""></div></body></html>";
+
+        var executed = new ScriptEngine().Execute([
+            "document.getElementById('out').textContent = getComputedStyle(document.getElementById('p')).color;"
+        ], html, PageUrl);
+
+        var match = TextRegex.Match(executed!, @"<div id=""out"">(.*?)</div>");
+        Assert.True(match.Success);
+        Assert.Equal(Green, match.Groups[1].Value);
+    }
+
+    /// <summary>
+    /// Verifies that getComputedStyle() respects cascade layers from imported stylesheets.
+    /// </summary>
+    [Fact]
+    public void GetComputedStyleRespectsCascadeLayersInImports()
+    {
+        var blueUrl = DataUrl("#p { color: rgb(0, 0, 255); }");
+        var html = @"<!DOCTYPE html><html><head>
+        <style id=""s"">
+          @layer a, b;
+          @import url('" + ImportedUrl + @"') layer(a);
+          @import url('" + blueUrl + @"') layer(b);
+        </style>
+        </head><body><p id=""p"">test</p><div id=""out""></div></body></html>";
+
+        var executed = new ScriptEngine().Execute([
+            "document.getElementById('out').textContent = getComputedStyle(document.getElementById('p')).color;"
+        ], html, PageUrl);
+
+        var match = TextRegex.Match(executed!, @"<div id=""out"">(.*?)</div>");
+        Assert.True(match.Success);
+        Assert.Equal(Blue, match.Groups[1].Value);
+    }
 }
+

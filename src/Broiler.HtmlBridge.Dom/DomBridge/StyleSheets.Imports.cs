@@ -1,5 +1,6 @@
 using System.Text;
 using Broiler.CSS;
+using Broiler.CSS.Cssom;
 using Broiler.CSS.Dom;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Internal.Scripting;
@@ -26,10 +27,11 @@ namespace Broiler.HtmlBridge;
 /// <see cref="ApplyCssomStyleSheetMutations"/> notes for baking linked sheets.
 /// </para>
 /// <para>
-/// <b>Imported rules never reach <c>getComputedStyle</c>.</b> They exist only in this projection:
-/// <see cref="GetSyncedScopedEngine"/> feeds the engine each sheet's own text, and neither Broiler.CSS
-/// nor Broiler.CSS.Dom resolves <c>@import</c>, so paint and computed style disagree about every
-/// imported rule whatever is emitted here.
+/// <b>Imported rules reach both <c>getComputedStyle</c> and the renderer.</b>
+/// <see cref="GetSyncedScopedEngine"/> passes <see cref="BridgeStyleSheetLoader"/>
+/// and each sheet's base URL to <see cref="CssStyleScopeBuilder"/>, which expands
+/// <c>@import</c> rules via <see cref="CssImportResolver"/>, while this projection
+/// inlines them into the render-bound HTML serialization.
 /// </para>
 /// <para>
 /// <b>Content Security Policy.</b> An import is a stylesheet request like a <c>&lt;link&gt;</c>'s
@@ -45,9 +47,9 @@ namespace Broiler.HtmlBridge;
 /// </para>
 /// <para>
 /// <b>Import conditions.</b> The prelude is split along the Cascade 5 grammar
-/// (<see cref="DomBridgeUtils.ScanLeadingImports"/>). A false <c>supports()</c> skips the import, a
+/// (<see cref="ScanLeadingImports"/>). A false <c>supports()</c> skips the import, a
 /// true one leaves no wrapper, a media list becomes an <c>@media</c> wrapper, and a <c>layer</c> is
-/// inlined unlayered because the consumed cascade discards layered rules; the emitter says why for each.
+/// inlined in its layer; the emitter says why for each.
 /// </para>
 /// </summary>
 public sealed partial class DomBridge
@@ -197,17 +199,29 @@ public sealed partial class DomBridge
             // resolver, which reads only top-level @keyframes (probes x6/x7).
             if (import.Supports is not null &&
                 !CssStyleEngine.EvaluatesSupportsCondition("(" + CssSyntax.RemoveComments(import.Supports) + ")"))
+            {
+                EmitFailedNamedLayer(sb, import);
                 continue;
+            }
 
             var absolute = ResolveStyleSheetUrl(import.Href, baseUrl);
             if (absolute is null)
+            {
+                EmitFailedNamedLayer(sb, import);
                 continue; // unresolvable
+            }
 
             if (exemptUrls?.Contains(absolute) != true && !IsStyleFetchAllowedByCsp(absolute, nonce: null))
+            {
+                EmitFailedNamedLayer(sb, import);
                 continue; // refused before any request or data: decode; see the remarks
+            }
 
             if (!chain.Add(absolute))
+            {
+                EmitFailedNamedLayer(sb, import);
                 continue; // already on the current chain (cycle)
+            }
 
             try
             {
@@ -217,35 +231,20 @@ public sealed partial class DomBridge
                     var rebased = RebaseRelativeUrls(imported, absolute);
                     var nested = ExpandCssImports(rebased, absolute, chain, depth + 1, exemptUrls: null);
 
-                    // layer / layer(name) emits NO @layer wrapper. The consumed Broiler.CSS.Dom, which
-                    // cascades both for the renderer (through Broiler.HTML) and for this bridge, has no
-                    // @layer case in either cascade walker and discards every rule inside an @layer block
-                    // (probes a, b, g, k14-k16; StyleSheetImportConditionTests.
-                    // TheConsumedCascadeStillDiscardsRulesInsideLayerBlocks fails the day that changes),
-                    // so "@layer base { ... }" would keep the imported rules as invisible as the old
-                    // "@media layer(base) { ... }" did. The sheet is inlined unlayered at the import's
-                    // position instead: its rules apply, and the importing sheet's later rules still win
-                    // at equal or higher specificity, which is the common reset/base-layer outcome. What
-                    // that cannot express:
-                    //  - a later unlayered rule beating a layered rule of higher specificity (unlayered
-                    //    author rules outrank every layer);
-                    //  - an EARLIER unlayered rule (an earlier <style> or <link>, or an earlier rule in
-                    //    this sheet) beating a layered one: flattened, the imported rule now comes later
-                    //    and wins whenever specificity is equal;
-                    //  - a layered !important beating an unlayered !important;
-                    //  - layer order, whether declared by @layer statements (kept above, ignored by the
-                    //    engine) or between named layers;
-                    //  - an anonymous layer's identity (each bare `layer` is a layer of its own);
-                    //  - merging with an @layer block of the same name elsewhere, which the engine drops,
-                    //    so only the imported half applies;
-                    //  - a named-layer import that fails or is blocked still declaring its layer.
-                    // Once Broiler.CSS.Dom implements layers, switch to the Cascade 5 equivalent, conditions
-                    // outside and layer inside: "@media M { @layer name { ... } }", "@layer { ... }" for
-                    // the bare keyword, and "@layer name;" in the same place for a failed named import.
+                    var content = nested;
+                    if (import.Layer == CssImportLayer.Named && import.LayerName is not null)
+                        content = $"@layer {import.LayerName} {{\n{nested}\n}}";
+                    else if (import.Layer == CssImportLayer.Anonymous)
+                        content = $"@layer {{\n{nested}\n}}";
+
                     if (import.Media.Length > 0)
-                        sb.Append("@media ").Append(import.Media).Append(" {\n").Append(nested).Append("\n}\n");
+                        sb.Append("@media ").Append(import.Media).Append(" {\n").Append(content).Append("\n}\n");
                     else
-                        sb.Append(nested).Append('\n');
+                        sb.Append(content).Append('\n');
+                }
+                else
+                {
+                    EmitFailedNamedLayer(sb, import);
                 }
             }
             finally
@@ -256,6 +255,12 @@ public sealed partial class DomBridge
 
         sb.Append(css, endOffset, css.Length - endOffset);
         return sb.ToString();
+
+        static void EmitFailedNamedLayer(StringBuilder sb, CssImportMetadata import)
+        {
+            if (import.Layer == CssImportLayer.Named && import.LayerName is not null)
+                sb.Append("@layer ").Append(import.LayerName).Append(";\n");
+        }
     }
 
     /// <summary>Resolves a stylesheet href against a base URL. A <c>data:</c> href is its
@@ -289,5 +294,393 @@ public sealed partial class DomBridge
             return body;
         }
         return FetchExternalStylesheet(url);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="absoluteUrl"/> is among the leading imports of a <c>&lt;style&gt;</c>
+    /// element reached before a <c>&lt;meta&gt;</c>-delivered CSP policy took effect.
+    /// </summary>
+    internal bool IsImportExemptFromCsp(string absoluteUrl)
+    {
+        if (_importsBeforePolicyMeta is null)
+            return false;
+
+        foreach (var set in _importsBeforePolicyMeta.Values)
+        {
+            if (set.Contains(absoluteUrl))
+                return true;
+        }
+
+        return false;
+    }
+
+    private BridgeStyleSheetLoader? _styleSheetLoader;
+    private BridgeStyleSheetLoader StyleSheetLoader => _styleSheetLoader ??= new(this);
+
+    /// <summary>
+    /// Implements <see cref="ICssStyleSheetLoader"/> for computed-style engine scope assembly.
+    /// Resolves <c>@import</c> URLs against referrer/document base URL, verifies CSP, fetches
+    /// stylesheet text, and rebases relative URLs.
+    /// </summary>
+    private sealed class BridgeStyleSheetLoader(DomBridge bridge) : ICssStyleSheetLoader
+    {
+        public string? LoadStyleSheet(string href, string? referrerUrl = null)
+        {
+            if (string.IsNullOrWhiteSpace(href))
+                return null;
+
+            var baseUrl = !string.IsNullOrWhiteSpace(referrerUrl) ? referrerUrl : bridge.DocumentBaseUrl();
+            var absolute = bridge.ResolveStyleSheetUrl(href, baseUrl);
+            if (absolute is null)
+                return null;
+
+            if (!bridge.IsImportExemptFromCsp(absolute) && !bridge.IsStyleFetchAllowedByCsp(absolute, nonce: null))
+                return null;
+
+            var text = bridge.FetchStyleSheetText(absolute);
+            if (string.IsNullOrEmpty(text))
+                return text;
+
+            return RebaseRelativeUrls(text, absolute);
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="css"/> begins with at least one <c>@import</c> that
+    /// <see cref="ScanLeadingImports"/> would collect, so a sheet with none skips the expansion.
+    /// </summary>
+    private static bool HasLeadingImport(string css)
+        => css.Contains("@import", StringComparison.OrdinalIgnoreCase) &&
+           ScanLeadingImports(css).Imports.Count > 0;
+
+    /// <summary>
+    /// Scans the leading portion of a stylesheet, where <c>@import</c> rules are valid, collecting each
+    /// one's parsed prelude via <see cref="CssomRuleMetadata.ParseImportPrelude"/> and the offset at which
+    /// the first other content begins.
+    /// </summary>
+    internal static (int EndOffset, List<string> LayerStatements, List<CssImportMetadata> Imports) ScanLeadingImports(string css)
+    {
+        var layerStatements = new List<string>();
+        var imports = new List<CssImportMetadata>();
+        var sawValidImport = false;
+        var i = 0;
+        var n = css.Length;
+        var consumedEnd = 0;
+
+        while (i < n)
+        {
+            while (i < n && char.IsWhiteSpace(css[i]))
+                i++;
+            if (i == n)
+                break;
+
+            if (i + 1 < n && css[i] == '/' && css[i + 1] == '*')
+            {
+                i = SkipComment(css, i);
+                continue;
+            }
+
+            if (string.CompareOrdinal(css, i, "<!--", 0, 4) == 0 || string.CompareOrdinal(css, i, "-->", 0, 3) == 0)
+            {
+                i += css[i] == '<' ? 4 : 3;
+                consumedEnd = i;
+                continue;
+            }
+
+            if (StartsWithAtKeyword(css, i, "@import"))
+            {
+                var stmtEnd = ScanStatement(css, i, out var opensBlock);
+                if (opensBlock)
+                    break;
+
+                var prelude = css[(i + "@import".Length)..stmtEnd].Trim().TrimEnd(';').Trim();
+                var import = ParseImportPrelude(prelude);
+                imports.Add(import);
+                sawValidImport |= import.Href.Length > 0;
+                i = stmtEnd;
+                consumedEnd = i;
+                continue;
+            }
+
+            if (StartsWithAtKeyword(css, i, "@layer"))
+            {
+                var stmtEnd = ScanStatement(css, i, out var opensBlock);
+                if (opensBlock || sawValidImport)
+                    break;
+
+                layerStatements.Add(css[i..stmtEnd]);
+                i = stmtEnd;
+                consumedEnd = i;
+                continue;
+            }
+
+            if (i + 1 < n && css[i] == '@' && (IsNameStartChar(css[i + 1]) || css[i + 1] == '-') &&
+                !StartsWithAtKeyword(css, i, "@namespace"))
+            {
+                var stmtEnd = ScanStatement(css, i, out var opensBlock);
+                if (opensBlock)
+                    break;
+
+                i = stmtEnd;
+                consumedEnd = i;
+                continue;
+            }
+
+            break;
+        }
+
+        return (consumedEnd, layerStatements, imports);
+    }
+
+    private static bool StartsWithAtKeyword(string css, int pos, string keyword)
+    {
+        if (pos + keyword.Length > css.Length)
+            return false;
+        if (string.Compare(css, pos, keyword, 0, keyword.Length, StringComparison.OrdinalIgnoreCase) != 0)
+            return false;
+        var after = pos + keyword.Length;
+        if (after == css.Length)
+            return true;
+        var next = css[after];
+        return char.IsWhiteSpace(next) || next == '"' || next == '\'' || next == '(' || next == ';' ||
+               (next == '/' && after + 1 < css.Length && css[after + 1] == '*');
+    }
+
+    private static int ScanStatement(string css, int start, out bool opensBlock)
+    {
+        opensBlock = false;
+        var i = start;
+        var n = css.Length;
+        var depth = 0;
+        while (i < n)
+        {
+            var c = css[i];
+            if (c == '"' || c == '\'')
+            {
+                i = SkipString(css, i);
+            }
+            else if (c == '/' && i + 1 < n && css[i + 1] == '*')
+            {
+                i = SkipComment(css, i);
+            }
+            else if (c == '\\')
+            {
+                i = Math.Min(n, i + 2);
+            }
+            else if ((c == 'u' || c == 'U') && IsUnquotedUrlStart(css, i, out var bodyStart))
+            {
+                i = SkipUnquotedUrlBody(css, bodyStart);
+            }
+            else
+            {
+                if (c == '(')
+                {
+                    depth++;
+                }
+                else if (c == ')')
+                {
+                    if (depth > 0)
+                        depth--;
+                }
+                else if (depth == 0 && c == ';')
+                {
+                    return i + 1;
+                }
+                else if (depth == 0 && c == '{' && !opensBlock)
+                {
+                    opensBlock = true;
+                }
+
+                i++;
+            }
+        }
+        return n;
+    }
+
+    private static bool IsUnquotedUrlStart(string text, int i, out int bodyStart)
+    {
+        bodyStart = i + 4;
+        if ((i > 0 && (IsNameChar(text[i - 1]) || text[i - 1] == '\\')) ||
+            string.Compare(text, i, "url(", 0, 4, StringComparison.OrdinalIgnoreCase) != 0)
+            return false;
+
+        var j = bodyStart;
+        while (j < text.Length && IsCssWhitespace(text[j]))
+            j++;
+        return j >= text.Length || (text[j] != '"' && text[j] != '\'');
+    }
+
+    private static int SkipUnquotedUrlBody(string text, int i)
+    {
+        while (i < text.Length && text[i] != ')')
+            i += text[i] == '\\' ? 2 : 1;
+        return Math.Min(text.Length, i + 1);
+    }
+
+    private static int SkipString(string text, int i)
+    {
+        var quote = text[i++];
+        while (i < text.Length && text[i] != quote)
+        {
+            if (text[i] is '\n' or '\r' or '\f')
+                return i;
+            i += text[i] == '\\' ? 2 : 1;
+        }
+        return Math.Min(text.Length, i + 1);
+    }
+
+    private static int SkipComment(string text, int i)
+    {
+        i += 2;
+        while (i + 1 < text.Length && !(text[i] == '*' && text[i + 1] == '/'))
+            i++;
+        return Math.Min(text.Length, i + 2);
+    }
+
+    private static bool IsNameStartChar(char c) => char.IsAsciiLetter(c) || c == '_' || c >= 0x80;
+    private static bool IsNameChar(char c) => IsNameStartChar(c) || char.IsAsciiDigit(c) || c == '-';
+    private static bool IsCssWhitespace(char c) => c is ' ' or '\t' or '\n' or '\r' or '\f';
+
+    private static int SkipComments(string text, int i)
+    {
+        while (i + 1 < text.Length && text[i] == '/' && text[i + 1] == '*')
+            i = SkipComment(text, i);
+        return i;
+    }
+
+    private static int SkipWhitespaceAndComments(string text, int i)
+    {
+        while (i < text.Length)
+        {
+            if (IsCssWhitespace(text[i]))
+                i++;
+            else if (text[i] == '/' && i + 1 < text.Length && text[i + 1] == '*')
+                i = SkipComment(text, i);
+            else
+                break;
+        }
+        return i;
+    }
+
+    private static CssImportMetadata ParseImportPrelude(string prelude)
+    {
+        var meta = CssomRuleMetadata.ParseImportPrelude(prelude);
+        if (meta.Layer == CssImportLayer.Named)
+        {
+            var layerIdx = prelude.IndexOf("layer(", StringComparison.OrdinalIgnoreCase);
+            if (layerIdx >= 0)
+            {
+                var start = layerIdx + "layer(".Length;
+                var close = prelude.IndexOf(')', start);
+                if (close >= 0)
+                {
+                    if (!TryReadLayerName(prelude, start, close, out var validName))
+                    {
+                        return new CssImportMetadata(meta.Href, CssImportLayer.None, null, meta.Supports, prelude[layerIdx..].Trim());
+                    }
+
+                    if (!string.Equals(validName, meta.LayerName, StringComparison.Ordinal))
+                    {
+                        meta = new CssImportMetadata(meta.Href, CssImportLayer.Named, validName, meta.Supports, meta.Media);
+                    }
+                }
+            }
+        }
+        return meta;
+    }
+
+    private static bool TryReadLayerName(string text, int start, int end, out string name)
+    {
+        name = string.Empty;
+        var written = new StringBuilder();
+        var i = SkipWhitespaceAndComments(text, start);
+        while (true)
+        {
+            var segmentStart = i;
+            if (!TryConsumeIdent(text, ref i))
+                return false;
+
+            written.Append(text, segmentStart, i - segmentStart);
+            i = SkipComments(text, i);
+            if (i >= end || text[i] != '.')
+                break;
+
+            written.Append('.');
+            i = SkipComments(text, i + 1);
+        }
+
+        if (SkipWhitespaceAndComments(text, i) != end)
+            return false;
+
+        name = written.ToString();
+        return true;
+    }
+
+    private static bool TryConsumeIdent(string text, ref int i)
+    {
+        var j = i;
+        if (j < text.Length && text[j] == '-')
+        {
+            j++;
+            if (j < text.Length && text[j] == '-')
+                j++;
+            else if (!StartsName(text, j))
+                return false;
+        }
+        else if (!StartsName(text, j))
+        {
+            return false;
+        }
+
+        while (j < text.Length)
+        {
+            if (CssSyntax.IsValidEscape(text, j))
+                AppendCssEscape(text, ref j, null);
+            else if (IsNameChar(text[j]))
+                j++;
+            else
+                break;
+        }
+
+        i = j;
+        return true;
+
+        static bool StartsName(string s, int k) =>
+            k < s.Length && (IsNameStartChar(s[k]) || CssSyntax.IsValidEscape(s, k));
+    }
+
+    private static void AppendCssEscape(string text, ref int i, StringBuilder? into)
+    {
+        i++;
+        if (i >= text.Length)
+            return;
+
+        if (char.IsAsciiHexDigit(text[i]))
+        {
+            var codePoint = 0;
+            var digitsEnd = Math.Min(text.Length, i + 6);
+            while (i < digitsEnd && char.IsAsciiHexDigit(text[i]))
+            {
+                var digit = text[i++];
+                codePoint = (codePoint * 16) + (digit <= '9' ? digit - '0' : (digit | 0x20) - 'a' + 10);
+            }
+
+            if (i < text.Length && IsCssWhitespace(text[i]))
+                i += text[i] == '\r' && i + 1 < text.Length && text[i + 1] == '\n' ? 2 : 1;
+
+            into?.Append(codePoint == 0 || codePoint > 0x10FFFF || codePoint is >= 0xD800 and <= 0xDFFF
+                ? "\uFFFD"
+                : char.ConvertFromUtf32(codePoint));
+            return;
+        }
+
+        if (text[i] is '\n' or '\r' or '\f')
+        {
+            i += text[i] == '\r' && i + 1 < text.Length && text[i + 1] == '\n' ? 2 : 1;
+            return;
+        }
+
+        into?.Append(text[i]);
+        i++;
     }
 }

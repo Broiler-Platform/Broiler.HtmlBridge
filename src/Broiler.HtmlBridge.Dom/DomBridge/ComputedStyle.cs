@@ -1,4 +1,4 @@
-﻿using Broiler.CSS;
+using Broiler.CSS;
 using Broiler.CSS.Dom;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -75,7 +75,7 @@ public sealed partial class DomBridge
             // source (see SerializeInlineStyleForEngine), so the engine reads JS-set inline from the
             // map, not the style attribute it is synced to (anchor bakes stay in the baked overlay).
             engine.SetInlineStyleSource(SerializeInlineStyleForEngine);
-            return new ComputedStyleEngineScope(new CssStyleScopeBuilder(engine), engine);
+            return new ComputedStyleEngineScope(new CssStyleScopeBuilder(engine, StyleSheetLoader), engine);
         });
 
         var styleElements = GetScopedStyleElements(docRoot, scope);
@@ -95,7 +95,8 @@ public sealed partial class DomBridge
             sources.Add(new CssStyleScopeBuilder.StyleSource(
                 GetStyleElementCssText(styleEl),
                 CSS.Dom.CssOrigin.Author,
-                GetAttr(styleEl, "media")));
+                GetAttr(styleEl, "media"),
+                GetStyleElementBaseUrl(styleEl)));
 
         AppendOuterPartRules(docRoot, sources);
 
@@ -195,8 +196,24 @@ public sealed partial class DomBridge
             var partRules = ExtractPartRulesForShadowScope(GetStyleElementCssText(styleEl));
             if (partRules.Length > 0)
                 sources.Add(new CssStyleScopeBuilder.StyleSource(
-                    partRules, CSS.Dom.CssOrigin.Author, GetAttr(styleEl, "media")));
+                    partRules, CSS.Dom.CssOrigin.Author, GetAttr(styleEl, "media"), GetStyleElementBaseUrl(styleEl)));
         }
+    }
+
+    /// <summary>
+    /// Gets the base URL for a stylesheet element (<c>&lt;style&gt;</c> or <c>&lt;link&gt;</c>)
+    /// for resolving relative <c>@import</c> URLs.
+    /// </summary>
+    private string GetStyleElementBaseUrl(DomElement styleEl)
+    {
+        if (string.Equals(styleEl.TagName, "link", StringComparison.OrdinalIgnoreCase) &&
+            TryGetAttribute(styleEl, "href", out var href) &&
+            !string.IsNullOrEmpty(href))
+        {
+            return ResolveStyleSheetLinkUrl(href);
+        }
+
+        return DocumentBaseUrl();
     }
 
     /// <summary>
