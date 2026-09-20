@@ -1,5 +1,3 @@
-using System.Net;
-
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Scripting;
 
@@ -36,15 +34,7 @@ public class DocumentFreeEvaluationPolicyTests
     private const string PageUrl = "https://example.test/document-free";
     private const string Marker = "outcome:";
 
-    private static ContentSecurityPolicy? Policy(string? text)
-    {
-        if (text is null)
-            return null;
-
-        var policy = new ContentSecurityPolicy();
-        policy.Parse(text);
-        return policy;
-    }
+    private static ContentSecurityPolicy? Policy(string? text) => CspFixture.Csp(text);
 
     /// <summary>The probe <see cref="PageEvaluationPolicyTests"/> uses: a value, or the name of what was thrown.</summary>
     private static string Attempt(string expression) =>
@@ -85,25 +75,13 @@ public class DocumentFreeEvaluationPolicyTests
     /// <summary>What a document's own script, under a meta <paramref name="policy"/>, writes for <paramref name="expression"/>.</summary>
     private static string DocumentOutcome(string policy, string expression)
     {
-        var pageHtml =
-            "<html><head>" +
-            $"<meta http-equiv=\"Content-Security-Policy\" content=\"{policy}\">" +
-            "</head><body><div id=\"out\">nothing</div></body></html>";
+        var pageHtml = CspFixture.MetaPage(policy, "<div id=\"out\">nothing</div>");
 
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = {expression};"],
-            pageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return WebUtility.HtmlDecode(html[start..end]);
+        // Not PageProbe.RunAgainst: the expression is already a string, and the probe this file's
+        // callers pass must reach #out unwrapped.
+        return PageProbe.OutOf(
+            PageProbe.Render([$"document.getElementById('out').textContent = {expression};"], pageHtml, PageUrl),
+            decode: true);
     }
 
     /// <summary>Every route that compiles a string at run time and is governed by <c>'unsafe-eval'</c>, bar <c>eval</c>.</summary>

@@ -54,28 +54,10 @@ public class VisualViewportScrollDispatchTests
         "</body></html>";
 
     /// <summary>
-    /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
-    /// <c>#out</c>. Reading the result out of the serialized document keeps the test to what a page can
-    /// see: the listener store, the dispatcher and the event object are all internal, and reaching for them
-    /// would pin their shape rather than their behaviour.
+    /// The probe read, which keeps each test to what a page can see: the listener store, the dispatcher
+    /// and the event object are all internal.
     /// </summary>
-    private static string Run(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string script) => PageProbe.RunAgainst(PageHtml, PageUrl, script);
 
     [Fact]
     public void AScrollListenerSeesTheVisualViewportAsTargetAndCurrentTarget()

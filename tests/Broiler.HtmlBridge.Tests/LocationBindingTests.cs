@@ -23,28 +23,11 @@ public class LocationBindingTests
     private const string PageHtml = "<html><body><div id=\"out\"></div></body></html>";
 
     /// <summary>
-    /// Runs <paramref name="script"/> against a document at <paramref name="url"/> and returns what
-    /// it wrote to <c>#out</c>. Reading the result out of the serialized DOM keeps the test to the
-    /// engine's public surface — the binding under test is internal, and reaching for it directly
-    /// would pin its shape rather than its behaviour.
+    /// Runs <paramref name="script"/> against a document at <paramref name="url"/>, which the
+    /// fragment cases below vary so the navigation starts from a URL that already has one.
     /// </summary>
-    private static string Run(string script, string url = PageUrl)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            PageHtml,
-            url);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string script, string url = PageUrl) =>
+        PageProbe.RunAgainst(PageHtml, url, script);
 
     [Fact]
     public void ReplaceToAnotherDocumentLeavesTheUrlAlone()

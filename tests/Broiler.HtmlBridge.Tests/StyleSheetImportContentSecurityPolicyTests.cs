@@ -1,10 +1,5 @@
-using System.Text;
-
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Scripting;
-
-// Aliased: inside namespace Broiler.*, a bare Regex binds to the Broiler.Regex namespace first.
-using TextRegex = System.Text.RegularExpressions.Regex;
 
 namespace Broiler.HtmlBridge.Tests;
 
@@ -68,14 +63,7 @@ public class StyleSheetImportContentSecurityPolicyTests
     private const string NestedDataRule = "#nested-data { color: rgb(0, 0, 8) }";
     private const string OwnRule = "#own { color: rgb(0, 0, 255) }";
 
-    /// <summary>
-    /// A <c>data:</c> stylesheet URL. Base64, because the body's <c>rgb(...)</c> would otherwise put a
-    /// raw <c>)</c> inside <c>url(...)</c>, which is a parsing question and not a policy one.
-    /// </summary>
-    private static string DataUrl(string css) =>
-        "data:text/css;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(css));
-
-    private static readonly string NestedDataImport = $"@import url({DataUrl(NestedDataRule)});";
+    private static readonly string NestedDataImport = $"@import url({CspFixture.DataUrl(NestedDataRule)});";
 
     /// <summary>Every sheet any test here imports over <c>http</c>.</summary>
     private static readonly Dictionary<string, string> Sheets = new()
@@ -91,42 +79,19 @@ public class StyleSheetImportContentSecurityPolicyTests
         ["/a.css"] = SameOriginA,
     };
 
-    private static string Meta(string policy) =>
-        $"<meta http-equiv=\"Content-Security-Policy\" content=\"{policy}\">";
-
     private static string Page(string head) =>
         "<!DOCTYPE html><html><head>" + head + "</head><body><p id=\"p\">p</p></body></html>";
 
     /// <summary>A page whose one <c>&lt;style id="s"&gt;</c> holds <paramref name="css"/>.</summary>
     private static string StylePage(string? policy, string css, string styleAttributes = "") =>
-        Page((policy is null ? string.Empty : Meta(policy)) + $"<style id=\"s\"{styleAttributes}>{css}</style>");
+        Page((policy is null ? string.Empty : CspFixture.Meta(policy)) + $"<style id=\"s\"{styleAttributes}>{css}</style>");
 
-    /// <summary>
-    /// Runs a script-free page (the one script is <c>1;</c>, because <c>Execute</c> answers
-    /// <see langword="null"/> for none) and returns the render projection's HTML.
-    /// </summary>
-    private static string Run(string pageHtml, string pageUrl, ContentSecurityPolicy? headerPolicy = null)
-    {
-        var engine = headerPolicy is null ? new ScriptEngine() : new ScriptEngine { Csp = headerPolicy };
-        var html = engine.Execute(["1;"], pageHtml, pageUrl);
-        Assert.NotNull(html);
-        return html!;
-    }
+    /// <summary>Runs a script-free page and returns the render projection's HTML.</summary>
+    private static string Run(string pageHtml, string pageUrl, ContentSecurityPolicy? headerPolicy = null) =>
+        CspFixture.RunProjection(pageHtml, pageUrl, header: headerPolicy);
 
     /// <summary>The projected text of the <c>&lt;style&gt;</c> with <paramref name="id"/>.</summary>
-    private static string StyleText(string html, string id = "s")
-    {
-        var match = TextRegex.Match(html, $"<style[^>]*\\bid=\"{id}\"[^>]*>([\\s\\S]*?)</style>");
-        Assert.True(match.Success, $"no <style id=\"{id}\"> in the projection: {html}");
-        return match.Groups[1].Value;
-    }
-
-    private static ContentSecurityPolicy Header(string policy)
-    {
-        var csp = new ContentSecurityPolicy();
-        csp.Parse(policy);
-        return csp;
-    }
+    private static string StyleText(string html, string id = "s") => CspFixture.StyleText(html, id);
 
     // ---------------------------------------------------------------------
     //  Host-source paths: which of a sheet's imports a policy admits
@@ -165,7 +130,7 @@ public class StyleSheetImportContentSecurityPolicyTests
         var html = Run(
             StylePage(policy: null, TwoImports("/ok/a.css", "/blocked/b.css")),
             server.PageUrl,
-            Header($"style-src 'unsafe-inline' {server.Origin}/ok/"));
+            CspFixture.CspOf($"style-src 'unsafe-inline' {server.Origin}/ok/"));
 
         Assert.Equal(new[] { "/ok/a.css" }, server.RequestedPaths());
         var style = StyleText(html);
@@ -367,7 +332,7 @@ public class StyleSheetImportContentSecurityPolicyTests
 
     private const string DataPageUrl = "https://example.test/imports";
 
-    private static string DataImport => $"@import url({DataUrl(DataRule)}); {OwnRule}";
+    private static string DataImport => $"@import url({CspFixture.DataUrl(DataRule)}); {OwnRule}";
 
     /// <summary>
     /// A <c>data:</c> import is a fetch like any other and needs a <c>data:</c> source: <c>'self'</c>
@@ -407,7 +372,7 @@ public class StyleSheetImportContentSecurityPolicyTests
     // ---------------------------------------------------------------------
 
     private static string LinkPage(string linkAttributes) =>
-        Page(Meta("style-src 'nonce-abc'") + $"<link rel=\"stylesheet\" href=\"/a.css\"{linkAttributes}>");
+        Page(CspFixture.Meta("style-src 'nonce-abc'") + $"<link rel=\"stylesheet\" href=\"/a.css\"{linkAttributes}>");
 
     /// <summary>
     /// The import gate shares its check with the <c>&lt;link rel="stylesheet"&gt;</c> gate and passes no

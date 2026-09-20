@@ -32,29 +32,7 @@ public class AdoptedStyleSheetTests
         "<html><head><style>.marker { color: red; }</style></head>" +
         "<body><div id=\"probe\"></div><div id=\"out\"></div></body></html>";
 
-    /// <summary>
-    /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
-    /// <c>#out</c>. Reading the result out of the serialized DOM keeps the test to the engine's public
-    /// surface — the binding under test is internal, and reaching for it directly would pin its shape
-    /// rather than its behaviour.
-    /// </summary>
-    private static string Run(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string script) => PageProbe.RunAgainst(PageHtml, PageUrl, script);
 
     [Fact]
     public void AConstructedSheetIsEmptyOwnerlessAndOutsideTheDocumentsSheetList()

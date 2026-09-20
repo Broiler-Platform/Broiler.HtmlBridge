@@ -1,7 +1,4 @@
-using System.Net;
-
 using Broiler.HtmlBridge;
-using Broiler.HtmlBridge.Scripting;
 
 namespace Broiler.HtmlBridge.Tests;
 
@@ -75,16 +72,6 @@ public class WorkerEvaluationPolicyTests
         { "new ShadowRealm().evaluate('6 * 7')", "ok:42" },
     };
 
-    private static ContentSecurityPolicy? Policy(string? text)
-    {
-        if (text is null)
-            return null;
-
-        var policy = new ContentSecurityPolicy();
-        policy.Parse(text);
-        return policy;
-    }
-
     /// <summary>
     /// A worker script that attempts <paramref name="expression"/> and posts either its value or the name
     /// of whatever was thrown, so a refusal and a success are told apart inside the worker.
@@ -121,17 +108,13 @@ public class WorkerEvaluationPolicyTests
             if (importedSource is not null)
                 File.WriteAllText(Path.Combine(directory.FullName, "imported.js"), importedSource);
 
-            var meta = pagePolicy is null
-                ? string.Empty
-                : $"<meta http-equiv=\"Content-Security-Policy\" content=\"{pagePolicy}\">";
-            var pageHtml =
-                $"<html><head>{meta}</head><body><div id=\"out\">{Waiting}</div></body></html>";
+            var pageHtml = CspFixture.MetaPage(pagePolicy, $"<div id=\"out\">{Waiting}</div>");
 
             // An apostrophe in the temporary path would end the string literal; the host decodes the
             // escape when it turns the URL back into a path.
             var workerUrl = new Uri(workerPath).AbsoluteUri.Replace("'", "%27");
 
-            var engine = new ScriptEngine { Csp = Policy(hostPolicy) };
+            var engine = new ScriptEngine { Csp = CspFixture.Csp(hostPolicy) };
             using var session = engine.ExecuteInteractive(
                 [
                     "try {" +
@@ -181,17 +164,11 @@ public class WorkerEvaluationPolicyTests
         }
     }
 
-    /// <summary>What <c>#out</c> holds in <paramref name="html"/>, decoded.</summary>
-    private static string Out(string html)
-    {
-        const string open = "<div id=\"out\">";
-        var start = html.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return WebUtility.HtmlDecode(html[start..end]);
-    }
+    /// <summary>
+    /// What <c>#out</c> holds in <paramref name="html"/>, decoded. The page is read from a live
+    /// session rather than from a completed call, so the slice is taken directly.
+    /// </summary>
+    private static string Out(string html) => PageProbe.OutOf(html, decode: true);
 
     // -- refused: the page's policy forbids 'unsafe-eval' ----------------------------------------------
 

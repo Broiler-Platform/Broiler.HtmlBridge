@@ -1,9 +1,6 @@
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Scripting;
 
-// Aliased: inside namespace Broiler.*, a bare Regex binds to the Broiler.Regex namespace first.
-using TextRegex = System.Text.RegularExpressions.Regex;
-
 namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
@@ -60,41 +57,22 @@ public class StyleSheetImportMetaPolicyTests
 
     private const string UnsafeInlineOnly = "style-src 'unsafe-inline'";
 
-    private static string Meta(string policy, string httpEquiv = "Content-Security-Policy") =>
-        $"<meta http-equiv=\"{httpEquiv}\" content=\"{policy}\">";
-
     private static string Page(string head) =>
         "<!DOCTYPE html><html><head>" + head + "</head><body><p id=\"p\">p</p></body></html>";
 
     private static string EarlyAndLatePage(string? policy, string earlyImport = "/early.css") =>
         Page(
             $"<style id=\"early\">@import url({earlyImport}); {EarlyOwnRule}</style>" +
-            (policy is null ? string.Empty : Meta(policy)) +
+            (policy is null ? string.Empty : CspFixture.Meta(policy)) +
             $"<style id=\"late\">@import url(/late.css); {LateOwnRule}</style>");
 
     /// <summary>Runs <paramref name="script"/> on the page and returns the render projection's HTML.</summary>
     private static string Run(
-        string pageHtml, string pageUrl, string script = "1;", string? headerPolicy = null)
-    {
-        var engine = new ScriptEngine();
-        if (headerPolicy is not null)
-        {
-            engine.Csp = new ContentSecurityPolicy();
-            engine.Csp.Parse(headerPolicy);
-        }
-
-        var html = engine.Execute([script], pageHtml, pageUrl);
-        Assert.NotNull(html);
-        return html!;
-    }
+        string pageHtml, string pageUrl, string script = "1;", string? headerPolicy = null) =>
+        CspFixture.RunProjection(pageHtml, pageUrl, script, CspFixture.Csp(headerPolicy));
 
     /// <summary>The projected text of the <c>&lt;style&gt;</c> with <paramref name="id"/>.</summary>
-    private static string StyleText(string html, string id)
-    {
-        var match = TextRegex.Match(html, $"<style[^>]*\\bid=\"{id}\"[^>]*>([\\s\\S]*?)</style>");
-        Assert.True(match.Success, $"no <style id=\"{id}\"> in the projection: {html}");
-        return match.Groups[1].Value;
-    }
+    private static string StyleText(string html, string id) => CspFixture.StyleText(html, id);
 
     // ---------------------------------------------------------------------
     //  A meta policy is not retroactive
@@ -229,7 +207,7 @@ public class StyleSheetImportMetaPolicyTests
 
     private static string BlockThenUnrecognizedMeta =>
         Page($"<style id=\"s\">@import url(/blocked/b.css); {OwnRule}</style>" +
-             Meta("style-src *", httpEquiv: "Content-Security-Policy "));
+             CspFixture.Meta("style-src *", httpEquiv: "Content-Security-Policy "));
 
     /// <summary>
     /// HTML matches <c>http-equiv</c> without trimming it, so a meta whose value ends in a space delivers
@@ -390,7 +368,7 @@ public class StyleSheetImportMetaPolicyTests
     public void ABlockScriptInsertsBeforeTheMetaIsBound()
     {
         using var server = new LoopbackStyleServer(Sheets);
-        var html = Run(Page(Meta(UnsafeInlineOnly)), server.PageUrl, InsertStyleBeforeMeta);
+        var html = Run(Page(CspFixture.Meta(UnsafeInlineOnly)), server.PageUrl, InsertStyleBeforeMeta);
 
         Assert.Empty(server.RequestedPaths());
         var style = StyleText(html, "inserted");

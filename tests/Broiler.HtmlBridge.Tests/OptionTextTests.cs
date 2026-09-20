@@ -83,34 +83,11 @@ public class OptionTextTests
         """;
 
     /// <summary>
-    /// Runs <see cref="Helpers"/> and then <paramref name="script"/> against the fixture and returns what
-    /// it wrote to <c>#out</c> — the same public-surface read <see cref="NodeTreeIdentityTests"/> uses. A
-    /// throw is written there too, as <see cref="NodeRelationshipCanonicalTests"/> does: a member that is
-    /// missing or throws would otherwise leave <c>#out</c> empty, with no word of where.
+    /// The same public-surface read <see cref="NodeTreeIdentityTests"/> uses, with a throw written to
+    /// <c>#out</c> as <see cref="NodeRelationshipCanonicalTests"/> does: a member that is missing or
+    /// throws would otherwise leave <c>#out</c> empty, with no word of where.
     /// </summary>
-    private static string Run(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [
-                Helpers,
-                "var probeResult;" +
-                $"try {{ probeResult = String({script}); }} " +
-                "catch (e) { probeResult = 'threw ' + (e && e.name) + ': ' + (e && e.message); }" +
-                "document.getElementById('out').textContent = probeResult;",
-            ],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string script) => PageProbe.RunGuarded(PageHtml, PageUrl, Helpers, script);
 
     [Fact]
     public void TextStripsAndCollapsesAsciiWhitespaceButKeepsANoBreakSpace()

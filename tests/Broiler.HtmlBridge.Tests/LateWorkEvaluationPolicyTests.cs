@@ -109,15 +109,7 @@ public class LateWorkEvaluationPolicyTests
         PoolThread,
     }
 
-    private static ContentSecurityPolicy? Policy(string? text)
-    {
-        if (text is null)
-            return null;
-
-        var policy = new ContentSecurityPolicy();
-        policy.Parse(text);
-        return policy;
-    }
+    private static ContentSecurityPolicy? Policy(string? text) => CspFixture.Csp(text);
 
     /// <summary>
     /// The body of a late callback: attempt <paramref name="attempt"/>, then report the outcome as a number of

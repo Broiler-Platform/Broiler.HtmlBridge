@@ -84,49 +84,19 @@ public class CssRuleStyleWriteThroughTests
         }
         """;
 
-    /// <summary>The serialized page after <see cref="Helpers"/> and <paramref name="script"/> ran.</summary>
-    private static string RunHtml(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [
-                Helpers,
-                "var probeResult;" +
-                $"try {{ probeResult = String({script}); }} " +
-                "catch (e) { probeResult = 'threw ' + (e && e.name) + ': ' + (e && e.message); }" +
-                "document.getElementById('out').textContent = probeResult;",
-            ],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-        return html!;
-    }
+    /// <summary>
+    /// The serialized page after <see cref="Helpers"/> and <paramref name="script"/> ran. The tests that
+    /// read the style text as well as <c>#out</c> run through this rather than <see cref="Run"/>.
+    /// </summary>
+    private static string RunHtml(string script) =>
+        PageProbe.Render([Helpers, PageProbe.GuardedProbe(script)], PageHtml, PageUrl);
 
     /// <summary>What <paramref name="script"/> wrote to <c>#out</c>, with a throw written there instead.</summary>
     private static string Run(string script) => OutOf(RunHtml(script));
 
-    private static string OutOf(string html)
-    {
-        const string open = "<div id=\"out\">";
-        var start = html.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string OutOf(string html) => PageProbe.OutOf(html);
 
-    /// <summary>The text of the <c>&lt;style&gt;</c> with <paramref name="id"/> in the serialized page.</summary>
-    private static string StyleTextOf(string html, string id)
-    {
-        var open = $"<style id=\"{id}\">";
-        var start = html.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no <style id=\"{id}\"> in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</style>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated <style id=\"{id}\"> in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string StyleTextOf(string html, string id) => PageProbe.StyleTextOf(html, id);
 
     [Fact]
     public void AHeldDeclarationKeepsWritingToItsRuleAfterInsertAndDeleteMoveIt()

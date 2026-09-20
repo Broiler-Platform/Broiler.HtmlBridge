@@ -53,20 +53,10 @@ public class CanvasTextTests
             " if (d[(y * 400 + x) * 4 + 3] > 64) { if (l < 0) { l = x; } r = x; break; } } }" +
             " return [l, r]; }";
 
-        var html = new ScriptEngine().Execute(
-            [$"{prelude} document.getElementById('out').textContent = String((function () {{ {body} }})());"],
+        return PageProbe.OutOf(PageProbe.Render(
+            [$"{prelude} " + PageProbe.Probe($"(function () {{ {body} }})()")],
             PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
+            PageUrl));
     }
 
     [Fact]

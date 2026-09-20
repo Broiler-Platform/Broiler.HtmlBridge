@@ -85,35 +85,13 @@ public partial class CssRuleObjectTests
         """;
 
     /// <summary>
-    /// Runs <paramref name="script"/> against <see cref="PageHtml"/> and returns what it wrote to
-    /// <c>#out</c>, as <see cref="NodeRelationshipCanonicalTests"/> does. A throw is written there too:
+    /// A throw is written to <c>#out</c> too, as <see cref="NodeRelationshipCanonicalTests"/> does:
     /// several members below are absent on one side of the change, and a script that died on one would
-    /// otherwise leave <c>#out</c> empty with no word of where.
+    /// otherwise leave <c>#out</c> empty with no word of where. Decoded, because the answers quote CSS
+    /// strings and the serializer writes '"' in text as an entity.
     /// </summary>
-    private static string Run(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [
-                Helpers,
-                "var probeResult;" +
-                $"try {{ probeResult = String({script}); }} " +
-                "catch (e) { probeResult = 'threw ' + (e && e.name) + ': ' + (e && e.message); }" +
-                "document.getElementById('out').textContent = probeResult;",
-            ],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        // Decoded: the answers quote CSS strings, and the serializer writes '"' in text as an entity.
-        return System.Net.WebUtility.HtmlDecode(html[start..end]);
-    }
+    private static string Run(string script) =>
+        PageProbe.RunGuarded(PageHtml, PageUrl, Helpers, script, decode: true);
 
     // ── Which rules are in cssRules ───────────────────────────────────────────────────────────────
 

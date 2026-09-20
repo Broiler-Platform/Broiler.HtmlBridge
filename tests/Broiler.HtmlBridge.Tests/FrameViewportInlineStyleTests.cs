@@ -60,32 +60,12 @@ public class FrameViewportInlineStyleTests
         """;
 
     /// <summary>
-    /// Runs <see cref="Probe"/> against a page whose frame carries <paramref name="frameAttributes"/>, and
-    /// returns what it wrote to <c>#out</c>; a throw is written there too, as in
-    /// <see cref="NodeRelationshipCanonicalTests"/>.
+    /// Runs <see cref="Probe"/> against a page whose frame carries <paramref name="frameAttributes"/>: the
+    /// script is the constant here and the page is what varies, which is why the fixture is a method. A
+    /// throw is written to <c>#out</c> too, as in <see cref="NodeRelationshipCanonicalTests"/>.
     /// </summary>
-    private static string ViewportOf(string frameAttributes)
-    {
-        var html = new ScriptEngine().Execute(
-            [
-                "var probeResult;" +
-                $"try {{ probeResult = String({Probe}); }} " +
-                "catch (e) { probeResult = 'threw ' + (e && e.name) + ': ' + (e && e.message); }" +
-                "document.getElementById('out').textContent = probeResult;",
-            ],
-            PageHtml(frameAttributes),
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string ViewportOf(string frameAttributes) =>
+        PageProbe.OutOf(PageProbe.Render([PageProbe.GuardedProbe(Probe)], PageHtml(frameAttributes), PageUrl));
 
     [Fact]
     public void AWidthInsideAnotherPropertysNameDoesNotSizeTheFrame()
