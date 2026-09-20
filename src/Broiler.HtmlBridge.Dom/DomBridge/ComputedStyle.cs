@@ -10,7 +10,7 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Phase 4 cutover: <c>getComputedStyle()</c> resolves through the shared
+/// <c>getComputedStyle()</c> resolves through the shared
 /// <see cref="CssStyleEngine"/> (cascade, inheritance, custom
 /// properties, shorthands, initial values) instead of the bridge's legacy
 /// <c>BuildComputedStyleMap</c> cascade. The bridge still owns stylesheet
@@ -20,10 +20,8 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 public sealed partial class DomBridge
 {
-    // P2.3: the per-document engine scopes, the GetComputedProps memo and the style-invalidation
-    // batch state now live in DocumentStyleContext, the single computed-style authority (was the
-    // scattered _computedStyleEngines/_computedPropsCache/_computedPropsInProgress/
-    // _styleInvalidationBatchDepth/_pendingStyleInvalidationRoots fields).
+    // The per-document engine scopes, the GetComputedProps memo and the style-invalidation
+    // batch state live in DocumentStyleContext, the single computed-style authority.
     private readonly DocumentStyleContext _styleContext = new();
 
     /// <summary>
@@ -69,7 +67,7 @@ public sealed partial class DomBridge
         var scope = _styleContext.GetOrCreateEngineScope(docRoot, () =>
         {
             // Non-static so the `:checked` state provider can read this bridge's per-instance
-            // FormControl table (Phase 2 item 4 de-globalization).
+            // FormControl table.
             var engine = new CssStyleEngine(new BridgeSelectorStateProvider(this));
             // Feed the bridge's live InlineStyleRuntimeState.Style map as the cascade's inline
             // source (see SerializeInlineStyleForEngine), so the engine reads JS-set inline from the
@@ -252,8 +250,8 @@ public sealed partial class DomBridge
 {
     /// <summary>
     /// The element's authoritative in-memory inline style dictionary (CSS kebab-case), relocated off the
-    /// <c>Broiler.Dom.DomElement</c> facade into <see cref="InlineStyleRuntimeState.Style"/> (RF-BRIDGE-1c
-    /// Phase B). Lazily seeded once from the element's <c>style=</c> attribute; thereafter it is the source
+    /// <c>Broiler.Dom.DomElement</c> facade into <see cref="InlineStyleRuntimeState.Style"/>. Lazily
+    /// seeded once from the element's <c>style=</c> attribute; thereafter it is the source
     /// of truth for script writes (JS <c>element.style</c>), and serialize-time bakes land beside it in the
     /// overlay that <see cref="EffectiveInlineStyle"/> merges when the attribute is synced at serialization.
     /// </summary>
@@ -294,7 +292,7 @@ public sealed partial class DomBridge
     }
 
     // Named bookkeeping seams for the set of inline-style properties explicitly set via JS
-    // (element.style.foo = …, setProperty, cssText). The Phase 3 (P3.14) StyleDeclarationBinding module
+    // (element.style.foo = …, setProperty, cssText). The StyleDeclarationBinding module
     // records/clears these through these helpers instead of touching the runtime-state object directly;
     // the bridge's own serialization/computed-style paths read InlineStyleStateFor(...).JsSetStyleProps.
     internal void MarkInlineStylePropSetByJs(DomElement element, string property) =>
@@ -311,8 +309,7 @@ public sealed partial class DomBridge
 
     /// <summary>Read-only diagnostic view of an element's script-observable inline-style map
     /// (<see cref="InlineStyle"/>). Serialize-time bakes, the anchor resolver's included, are not in it:
-    /// they land in the overlay <see cref="EffectiveInlineStyle"/> merges. RF-BRIDGE-1c Phase F4 removed
-    /// the <c>Broiler.Dom.DomElement.Style</c> facade member it replaced; no caller of it is left.
+    /// they land in the overlay <see cref="EffectiveInlineStyle"/> merges.
     /// Visible only to <c>InternalsVisibleTo</c> assemblies — not part of the public surface, so it
     /// does not re-open a public facade seam.</summary>
     internal IReadOnlyDictionary<string, string> GetInlineStyleView(DomElement element) =>

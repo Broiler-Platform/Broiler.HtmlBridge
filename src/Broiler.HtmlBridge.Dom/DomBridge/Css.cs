@@ -17,7 +17,7 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 public sealed partial class DomBridge
 {
-    // Phase 2 item 4 (de-globalization, 2026-07-17): the per-style-element stylesheet state (fetched
+    // The per-style-element stylesheet state (fetched
     // CSS text, the live CSSOM rule list and its parse-source / mutated flags) was the StyleSheet slot
     // of the process-static ElementRuntimeState table; it is now a per-bridge instance table, owned by
     // the session's bridge. Still an element-keyed ConditionalWeakTable, so it GCs with the style
@@ -28,7 +28,7 @@ public sealed partial class DomBridge
     private StyleSheetRuntimeState StyleSheetStateFor(DomElement element) =>
         _styleSheetRuntimeStates.GetValue(element, static _ => new StyleSheetRuntimeState());
 
-    // P2.3: computed-style state (the GetComputedProps memo and the style-invalidation batch depth /
+    // Computed-style state (the GetComputedProps memo and the style-invalidation batch depth /
     // pending roots) moved to DocumentStyleContext (see _styleContext). The memo maps are concurrent
     // there for the same reason they were here — JS continuations on ThreadPool threads re-enter
     // computed-style/geometry work concurrently with the main-thread layout pass, and a plain
@@ -178,19 +178,25 @@ public sealed partial class DomBridge
             InlineStyle(element).Remove(key);
     }
 
-    /// <summary>
-    /// Recalculates CSS-derived inline styles for every element in the current
-    /// document scope after a selector-affecting mutation such as a class,
-    /// attribute, or sibling structure change.
-    /// </summary>
+    /// <summary>Opens a style-invalidation batch: <see cref="InvalidateStyleScope"/> then defers its
+    /// document root until the matching <see cref="EndStyleInvalidationBatch"/> flushes it. No caller
+    /// in this repository: the batch is opened and closed by <c>Broiler.Wpt.WptTestRunner</c> in the
+    /// aggregate solution, which reaches these through <c>InternalsVisibleTo</c>.</summary>
     internal void BeginStyleInvalidationBatch() => _styleContext.BeginBatch();
 
+    /// <summary>Closes the batch <see cref="BeginStyleInvalidationBatch"/> opened, recalculating the
+    /// deferred document roots once the outermost batch ends.</summary>
     internal void EndStyleInvalidationBatch()
     {
         if (_styleContext.EndBatchShouldFlush())
             FlushPendingStyleInvalidations();
     }
 
+    /// <summary>
+    /// Recalculates CSS-derived inline styles for every element in the current
+    /// document scope after a selector-affecting mutation such as a class,
+    /// attribute, or sibling structure change.
+    /// </summary>
     internal void InvalidateStyleScope(DomElement anchor)
     {
         ClearComputedPropsCache();
@@ -212,7 +218,7 @@ public sealed partial class DomBridge
         if (!IsText(element) && !element.TagName.StartsWith('#'))
             InvalidateElementStyles(element);
 
-        // Sub-documents keep their own style scope, but since P4.4b severed the #subdoc-root element
+        // Sub-documents keep their own style scope, but since the sever of the #subdoc-root element
         // they are no longer in-tree children, so this walk never crosses a sub-document boundary.
         foreach (var child in ChildElements(element))
         {
@@ -223,9 +229,9 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Collects all <c>&lt;style&gt;</c> (and external-stylesheet <c>&lt;link&gt;</c>) elements from a
-    /// document tree. Sub-documents keep their own style scope, but since P4.4b severed the
+    /// document tree. Sub-documents keep their own style scope, but since the sever of the
     /// <c>#subdoc-root</c> element they are no longer in-tree children, so this walk never crosses a
-    /// sub-document boundary. Phase 4 item 4/5: reuses canonical <see cref="DomNode.Descendants"/>
+    /// sub-document boundary. Reuses canonical <see cref="DomNode.Descendants"/>
     /// (document-order, level-snapshotted against the concurrent-mutation race the per-level
     /// <see cref="DomBridgeUtils.SnapshotChildren"/> walk guarded — Descendants snapshots the real child list, so the
     /// LegacyChildList projection overflow cannot occur here) instead of the hand-rolled recursion.
@@ -269,7 +275,7 @@ public sealed partial class DomBridge
         return candidates;
     }
 
-    // The getComputedStyle result object is built by the Phase 3 (P3.14) StyleDeclarationBinding
+    // The getComputedStyle result object is built by the StyleDeclarationBinding
     // feature module; the bridge still produces the engine-cascaded computed map here. The name keeps
     // saying "object" because that is what it builds — the JSEAL handle is over the realm's own object,
     // and both host contracts that reach this (IComputedStyleHost, ISubWindowHost) name it that way.
@@ -296,7 +302,7 @@ public sealed partial class DomBridge
     {
         // getComputedStyle() resolves through the shared Broiler.CSS.Dom.CssStyleEngine
         // (BuildComputedStyleMapViaEngine, see DomBridge/ComputedStyle.cs). The legacy
-        // bridge computed-style cascade was retired in Phase 7 cleanup (RF-CSS-1); the engine
+        // bridge computed-style cascade was retired in an earlier cleanup; the engine
         // has been the sole getComputedStyle authority since the 2026-06-26 cutover, after it
         // gained the bridge's per-declaration value validation / error recovery and
         // border-shorthand reset semantics.
@@ -334,7 +340,7 @@ public sealed partial class DomBridge
     private string GetStyleElementSourceText(DomElement styleEl)
     {
         var cssText = new StringBuilder();
-        // RF-BRIDGE-1c Phase F (F3c part 2d): iterate raw ChildNodes — the <style> text is a
+        // Iterate raw ChildNodes — the <style> text is a
         // canonical DomText child, which ChildElements (OfType) would skip.
         foreach (var child in styleEl.ChildNodes)
         {
@@ -395,8 +401,8 @@ public sealed partial class DomBridge
     /// reparsing when the source changed. Returns the shared mutable rule list — the
     /// single store behind the CSSOM (<c>cssRules</c>/<c>insertRule</c>/<c>deleteRule</c> and
     /// the writes a style rule's <c>style</c> passes through <c>StyleSheetRuleModel</c>),
-    /// the renderer/legacy-cascade text, and the <c>getComputedStyle</c> engine sheet
-    /// (Phase 6 store unification). Replacing the element's <c>textContent</c> changes
+    /// the renderer/legacy-cascade text, and the <c>getComputedStyle</c> engine sheet.
+    /// Replacing the element's <c>textContent</c> changes
     /// the source text and thus discards prior CSSOM mutations, matching CSSOM semantics.
     /// </summary>
     private List<CssRule> EnsureStyleSheetRulesCurrent(DomElement styleEl)
@@ -488,7 +494,7 @@ public sealed partial class DomBridge
             string.Equals(docRoot.TagName, "#document", StringComparison.OrdinalIgnoreCase))
             return (_viewportWidth, _viewportHeight);
 
-        // docRoot is a severed sub-document's documentElement (<html>, post-P4.4b); its parent is
+        // docRoot is a severed sub-document's documentElement (<html>, post-sever); its parent is
         // the content DomDocument. Recover the containing iframe/object via the reverse map to read
         // its CSS dimensions as the sub-viewport size (was ParentEl(#subdoc-root)).
         var parent = GetFrameForContentDocument(docRoot?.ParentNode);

@@ -10,9 +10,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The whole contract is spelled in JSEAL (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. The script context it used to carry beside the realm was there for one thing — raising the
-/// two <c>NotSupportedError</c>s <c>attachInternals</c> and the form-only members produce — and
-/// <see cref="IJsCalls.DomError"/> owns that now. The realm stays because the module mints its two
+/// type. The two <c>NotSupportedError</c>s <c>attachInternals</c> and the form-only members produce
+/// are raised through <see cref="IJsCalls.DomError"/>, so no script context is needed beside the
+/// realm. The realm is here because the module mints its two
 /// interface prototypes, its per-instance objects and its coercions in it, and because
 /// <c>RegisterInterfaces</c> runs with no call frame to carry one.
 /// </remarks>

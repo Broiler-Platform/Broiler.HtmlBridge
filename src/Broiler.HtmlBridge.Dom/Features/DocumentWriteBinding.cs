@@ -7,20 +7,18 @@ using Broiler.HtmlBridge.Logging;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// <c>document.write</c> / <c>document.writeln</c>, co-located as an HtmlBridge feature module
-/// (Phase 3). <c>write</c> parses its argument as an HTML fragment and inserts the resulting nodes
+/// <c>document.write</c> / <c>document.writeln</c>, co-located as an HtmlBridge feature module.
+/// <c>write</c> parses its argument as an HTML fragment and inserts the resulting nodes
 /// at the parser insertion point — right after the currently executing <c>&lt;script&gt;</c>, or
 /// appended to <c>&lt;body&gt;</c> as a fallback — matching real browser behaviour. <c>writeln</c>
 /// is <c>write</c> with a trailing newline. The document root, element list and current-script index
 /// are reached through the narrow <see cref="IDocumentWriteHost"/> contract; the fragment is parsed by
 /// the shared <see cref="HtmlDocumentParser"/>, and the structural moves use the bridge's neutral
-/// <c>internal static</c> tree helpers. Previously the
-/// bridge's <c>JsRegistrationWrite036Core</c>/<c>JsRegistrationWriteln037Core</c> in the shared
-/// JsFunctionCallbacks/Registration.cs grab-bag.
+/// <c>internal static</c> tree helpers.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>). <see cref="IDocumentWriteHost"/>
-/// never named an engine type, so the whole of this unit's coupling was the two argument reads and
+/// names no engine type, so the whole of this unit's coupling is the two argument reads and
 /// <c>writeln</c>'s re-entry into <c>write</c>.
 /// </remarks>
 internal static class DocumentWriteBinding

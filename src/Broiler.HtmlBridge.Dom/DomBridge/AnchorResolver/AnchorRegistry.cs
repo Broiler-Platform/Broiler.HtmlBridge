@@ -59,7 +59,7 @@ public sealed partial class DomBridge
         bool isPositioned = position == "absolute" || position == "fixed";
 
         // Prefer the renderer's real layout for the anchor rect when the shared
-        // geometry path is active (RF-BRIDGE-1b). The CSS-property estimator below
+        // geometry path is active. The CSS-property estimator below
         // cannot model inline flow — an inline anchor after an inline-block, or with
         // real font metrics, is mis-sized/mis-placed (see AnchorScroll* / the
         // css-anchor-position anchor-scroll cluster). Real layout gets the inline
@@ -69,10 +69,9 @@ public sealed partial class DomBridge
         // the geometry is unavailable (flag off, detached, no box) — so this is a
         // no-op unless UseSharedLayoutGeometry is enabled.
         //
-        // (RF-BRIDGE-1b Track 3.1) The former absPosInInlineCB bypass is gone: the
-        // layout engine now places an abspos anchor whose containing block is an
-        // inline box at its inset position, so its shared box is correct — verified
-        // by the css-anchor-position position-area-inline-container cluster.
+        // An abspos anchor whose containing block is an inline box needs no bypass: the
+        // layout engine places it at its inset position, so its shared box is correct —
+        // verified by the css-anchor-position position-area-inline-container cluster.
         if (TryGetAnchorLayoutBox(element, out var layoutBox))
             return layoutBox;
 
@@ -203,8 +202,8 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Tries to source the anchor's box from the renderer's real layout
-    /// (RF-BRIDGE-1b), returning it in the same containing-block-relative frame the
+    /// Tries to source the anchor's box from the renderer's real layout,
+    /// returning it in the same containing-block-relative frame the
     /// CSS-property estimator uses. This is the accurate path for inline anchors
     /// (inline flow + font metrics), which the estimator cannot model. Returns
     /// <c>false</c> — so the caller falls back to the CSS-property estimator — when
@@ -398,7 +397,7 @@ public sealed partial class DomBridge
             {
                 // The @position-try at-rule grammar (comment stripping + rule and
                 // declaration parsing) is the canonical Broiler.CSS.PositionTryRule
-                // model (Phase 5 item 4). Merge each <style>'s rules into the
+                // model. Merge each <style>'s rules into the
                 // document-wide accumulator (later duplicates win, in document order).
                 foreach (var rule in PositionTryRule.Parse(raw))
                     result[rule.Key] = rule.Value;
@@ -435,10 +434,8 @@ public sealed partial class DomBridge
                 // the engine's post-pass applies the fallback from the PositionTryRules channel,
                 // so skip baking and leave the position-try + anchor() CSS intact. Every other
                 // position-try box is baked here and has its position-try neutralized inline so
-                // the engine's fallback pass skips the already-baked box. The NativeAnchorPlacement
-                // flag check is dropped in Phase 4 item-2 step 5 (a provable no-op on the native
-                // default path, where it was already true); the neutralizer is stamped
-                // unconditionally (harmless on the retired baked path).
+                // the engine's fallback pass skips the already-baked box. The neutralizer is
+                // stamped unconditionally.
                 if (IsMvpNativeAnchorInsetBox(element, cssProps, anchorRegistry, positionTryRules))
                 {
                     // handed off to the engine — the bridge does not touch this box

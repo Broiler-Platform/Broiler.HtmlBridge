@@ -13,10 +13,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// The contract names no engine type, the two wrapper members' own names included: they are
 /// <see cref="WrapNode"/> and <see cref="FindDomNode"/>, the signatures <c>IDocumentLevelFactoryHost</c>
-/// gives <c>ToJsObject</c> and <c>FindDomNode</c>. (This said that contract took these names too.)
-/// The name validations moved onto the contract for the same reason they did there —
-/// they raise a <c>DOMException</c> against the realm the bridge's side hands them, so the module only
-/// asks to reject a name. (This said the bridge's script context, which the validators took then.)
+/// gives <c>ToJsObject</c> and <c>FindDomNode</c>. The name validations are on the contract for the
+/// same reason they are there — they raise a <c>DOMException</c> against the realm the bridge's side
+/// hands them, so the module only asks to reject a name.
 /// </remarks>
 internal interface IDocumentFactoryHost
 {

@@ -10,21 +10,6 @@ namespace Broiler.HtmlBridge;
 /// intermediate visual states are displayed instead of jumping straight to
 /// the final frame.
 /// </summary>
-/// <remarks>
-/// <b>It names no engine type, and the one it used to name was never used for anything but
-/// disposal.</b> The field below held a <c>JSContext</c> through 215 lines that read it exactly
-/// once, in <see cref="Dispose"/>. Everything this session actually does goes through
-/// <see cref="IDomBridgeRuntime"/> or the micro-task queue.
-/// <para>
-/// That single reference was load-bearing for a reason unrelated to what it did:
-/// <c>VmScriptEngine</c>'s remarks named this constructor as half of why the document-bearing
-/// overloads are forwarded to Broiler.JS — "its constructor is internal and takes a
-/// <c>JSContext</c>, so an engine outside Broiler.JS cannot produce one at all". Taking an
-/// <see cref="IDisposable"/> instead is the whole of that half. The other half is
-/// <c>IDomBridgeRuntime.Attach</c>, which still takes a context, so this alone does not move a page
-/// onto another engine — it removes one of the two things that would have to change.
-/// </para>
-/// </remarks>
 public sealed class InteractiveSession : IDisposable
 {
     private readonly IDisposable _engineLifetime;

@@ -17,8 +17,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// it is drawing on.
 /// </para>
 /// <para>
-/// Absent, <c>screen.orientation.type</c> threw "Cannot get property type of undefined" rather than
-/// reading as an unsupported API — the abort that costs the rest of the calling function.
+/// Were it absent, <c>screen.orientation.type</c> would throw "Cannot get property type of
+/// undefined" rather than read as an unsupported API — the abort that costs the rest of the calling
+/// function.
 /// Responsive layouts branch on this in the same setup pass that installs their resize handling.
 /// </para>
 /// <para>
@@ -28,14 +29,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// method does not already tell a caller, and supplying one that resolves would be a lie.
 /// </para>
 /// <para>
-/// <c>unlock</c> is <em>constructable</em>, and only because it always has been. It was built by the
-/// bridge's <c>UndefinedFunction</c> helper (since removed), which minted a plain engine function —
-/// one that carries a <c>prototype</c> object and so passes the engine's constructor test — rather
+/// <c>unlock</c> is <em>constructable</em>, deliberately and only for compatibility with the shape
+/// the bridge has always published: a plain function — one that carries a <c>prototype</c> object
+/// and so passes the engine's constructor test — rather
 /// than the non-constructable shape WebIDL gives an operation. Under JSEAL that distinction is which
 /// factory is called, so preserving the behaviour means asking for a constructor here; a browser
 /// answers <c>undefined</c> for <c>screen.orientation.unlock.prototype</c> and throws on
 /// <c>new screen.orientation.unlock()</c>, and correcting that is a behaviour change that belongs in
-/// its own commit alongside the other members that helper used to build.
+/// its own commit.
 /// </para>
 /// </remarks>
 internal static class ScreenOrientationBinding
@@ -72,8 +73,8 @@ internal static class ScreenOrientationBinding
 
         // unlock() releases a lock; with no way to take one there is never a lock to release, which
         // makes doing nothing the specified behaviour rather than a stub. It is minted as a
-        // constructor rather than a method to preserve exactly what the bridge's UndefinedFunction
-        // helper built here — see the last paragraph of the class remarks.
+        // constructor rather than a method to preserve the constructable shape the bridge has always
+        // published here — see the last paragraph of the class remarks.
         realm.DefineValue(orientation, "unlock",
             realm.NewConstructor("unlock", static (in _) => JsValue.Undefined, 0));
 

@@ -33,15 +33,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// buffer and a duplicate entry are each a <c>DataCloneError</c>.
 /// </para>
 /// <para>
-/// <b>It named the engine until <see cref="IJsClone"/> existed, and what it named was the
-/// transferables rather than the plumbing.</b> Every decision here used to be a statement about
-/// <c>ArrayBuffer</c> — is this one, is it detached — and about the <c>{ transfer: [...] }</c> shape
-/// the engine's own <c>structuredClone</c> reads. The first is now
-/// <see cref="IJsClone.ClassifyTransferable"/>, which asks the question in the specification's
-/// vocabulary (is this transferable, is it spent) rather than in an engine's; the second belongs to
-/// the provider, because the options object is the clone's own signature and no host has business
-/// building one. The two senders that were told apart by which of them had a realm are now one
-/// method, because the worker's context is a realm too.
+/// <b>The transferables are classified in the specification's vocabulary, not an engine's.</b>
+/// "Is this transferable, is it spent" is <see cref="IJsClone.ClassifyTransferable"/> rather than a
+/// statement about <c>ArrayBuffer</c>; the <c>{ transfer: [...] }</c> options object belongs to the
+/// provider, because it is the clone's own signature and no host has business building one. One
+/// method serves both senders, because the worker's context is a realm too.
 /// </para>
 /// </remarks>
 internal static class WorkerTransfer

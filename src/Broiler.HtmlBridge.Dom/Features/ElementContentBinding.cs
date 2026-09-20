@@ -4,7 +4,7 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The element-content IDL members, co-located as an HtmlBridge feature module (Phase 3): the HTML
+/// The element-content IDL members, co-located as an HtmlBridge feature module: the HTML
 /// serialization pair <c>innerHTML</c> / <c>outerHTML</c> (read serializes, write reparses a fragment) and
 /// the text-content trio <c>textContent</c> / <c>innerText</c> / <c>outerText</c> (read returns the element's
 /// descendant text; only <c>textContent</c> is writable, replacing all children with a single text node).
@@ -15,27 +15,23 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>textContent</c> (<c>Node</c>'s, shadowed here) stays on each wrapper, and the two
 /// <c>HTMLElement</c> text members go on <c>HTMLElement.prototype</c>. A wrapper that cannot inherit
 /// one of those prototypes (one minted before the realm carried it or, for <c>HTMLElement</c>'s, a
-/// non-HTML element) carries those members itself. The serialization pair and the text members were
-/// first split to keep the unrelated <c>shadowRoot</c> accessor in its position between them; that
-/// position is decided in <c>DomBridge/ElementInterface.cs</c> now. Was the bridge's inline
-/// <c>innerHTML</c>/<c>outerHTML</c>/<c>textContent</c>/<c>innerText</c>/<c>outerText</c> registration
-/// plus the <c>JsJsObjectsSetInnerHTML016Core</c>/<c>SetOuterHTML018Core</c>/<c>SetTextContent021Core</c>
-/// callbacks.
+/// non-HTML element) carries those members itself. The <c>shadowRoot</c> accessor's position between
+/// the serialization pair and the text members is decided in <c>DomBridge/ElementInterface.cs</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the members are minted by the realm,
 /// their bodies read a <see cref="JsCall"/>, and the two markup setters coerce with
-/// <see cref="IJsValues.ToJsString"/> — which is what the engine did before, and what the handle's own
-/// <c>ToString</c> deliberately does not do. <c>innerHTML = someObject</c> running that object's
+/// <see cref="IJsValues.ToJsString"/> rather than with the handle's own <c>ToString</c>, which
+/// deliberately does not coerce. <c>innerHTML = someObject</c> running that object's
 /// <c>toString</c> is the whole of how a templating library hands over a fragment.
 /// </para>
 /// <para>
 /// <b><c>textContent</c> is a nullable <c>DOMString</c> and the two markup members are not.</b> Its
 /// setter is <see cref="NodeAccessorsBinding.SetTextContent"/>, the one every node kind uses, which
 /// passes <c>null</c> and <c>undefined</c> through as IDL null, so <c>el.textContent = null</c> leaves no
-/// children at all. It used to be coerced like the other two, which left one text node reading
-/// <c>"null"</c>. The markup setters still coerce, so <c>innerHTML = null</c> parses the string
+/// children at all. Coercing it like the other two would leave one text node reading
+/// <c>"null"</c>. The markup setters do coerce, so <c>innerHTML = null</c> parses the string
 /// <c>"null"</c>, and that is a known difference from Chromium rather than parity: the two are
 /// <c>[LegacyNullToEmptyString]</c>, so a browser reads <c>null</c> as the empty string and
 /// <c>el.innerHTML = null</c> leaves the element empty.
@@ -43,9 +39,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// <b><see cref="InstallTextContent"/> takes the wrapper handle and reads the realm off the host.</b>
 /// It is reached from the wrapper factory (<c>DomBridge/JsObjects.cs</c>), which hands it the handle it
-/// minted; the member it installs is built by the realm like the other four. (This said the factory had
-/// not migrated and held an engine object, so the parameter was one and a seam unwrapped it; that seam,
-/// <c>FromEngineObject</c> just after the realm read, wrapped it into a handle, and 45607c6 removed it.)
+/// minted; the member it installs is built by the realm like the other four.
 /// </para>
 /// </remarks>
 internal static class ElementContentBinding

@@ -4,24 +4,22 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The HTML/CSSOM element box-model and scrolling interface, co-located as an HtmlBridge feature module
-/// (Phase 3): the box metrics (<c>clientTop</c>/<c>clientLeft</c>/<c>clientWidth</c>/<c>clientHeight</c>,
+/// The HTML/CSSOM element box-model and scrolling interface, co-located as an HtmlBridge feature
+/// module: the box metrics (<c>clientTop</c>/<c>clientLeft</c>/<c>clientWidth</c>/<c>clientHeight</c>,
 /// <c>offsetWidth</c>/<c>offsetHeight</c>, <c>scrollWidth</c>/<c>scrollHeight</c>, <c>offsetTop</c>/
 /// <c>offsetLeft</c>, <c>offsetParent</c>, <c>getBoundingClientRect</c>/<c>getClientRects</c>) and the
 /// imperative scrolling API (<c>scrollTop</c>/<c>scrollLeft</c> get/set, <c>scroll</c>/<c>scrollTo</c>/
 /// <c>scrollBy</c>, <c>scrollIntoView</c>, <c>scrollParent</c>). Every value here reads the live layout, so
 /// the module depends on the bridge through the deliberately wide <see cref="IElementGeometryHost"/>
-/// contract (the Phase 3 "wide-explicit-host" template) rather than a one-member seam — the point is that
-/// the exact geometry surface is now named instead of the callbacks reaching into arbitrary bridge
-/// internals. Was the bridge's box-model block in <c>DomBridge/NodeInterfaces.cs</c> and the
-/// <c>JsElementInterfacesGetScrollTop072Core</c>..<c>ScrollParent085Core</c> callbacks.
+/// contract (the "wide-explicit-host" template) rather than a one-member seam — the point is that the
+/// exact geometry surface is named instead of the callbacks reaching into arbitrary bridge internals.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type:
 /// the members and the <c>DOMRect</c>-like objects come from the realm, and each body reads a
 /// <see cref="JsCall"/>. The two scroll-offset setters coerce with the realm's <c>ToNumber</c> rather
-/// than reading the handle's own number, because <c>el.scrollTop = "120"</c> is a string the engine was
-/// coercing before and <see cref="JsValue.AsNumber"/> deliberately answers NaN for one.
+/// than reading the handle's own number, because <c>el.scrollTop = "120"</c> is a string that must
+/// coerce and <see cref="JsValue.AsNumber"/> deliberately answers NaN for one.
 /// </remarks>
 internal static class ElementGeometryBinding
 {

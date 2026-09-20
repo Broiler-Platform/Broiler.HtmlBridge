@@ -136,7 +136,7 @@ public static partial class DomBridgeUtils
     /// <summary>Whether <paramref name="node"/>'s parent is an HTML raw-text element whose text
     /// content is serialized literally (not HTML-escaped). The standard raw-text element set is
     /// owned by <see cref="HtmlSerializer.RawTextElements"/> (§13.3); this bridge predicate
-    /// only applies it to the node's parent. (RF-BRIDGE-1c Phase F, F3c part 2d.)</summary>
+    /// only applies it to the node's parent.</summary>
     internal static bool IsRawTextSerializationParent(DomNode node) =>
         node.ParentNode is DomElement parent &&
         HtmlSerializer.IsRawTextElement(parent.TagName);

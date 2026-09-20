@@ -362,8 +362,8 @@ public sealed partial class DomBridge
 }
 
 /// <summary>
-/// Sibling partial peeled out of <c>DomBridge/Serialization.cs</c> (Phase 3 ratchet, 2026-07-17)
-/// to keep it under the 750-line guard: the cohesive SVG zoom-serialization attribute-scaling
+/// Sibling partial peeled out of <c>DomBridge/Serialization.cs</c>
+/// to keep it under the 750-line guideline: the cohesive SVG zoom-serialization attribute-scaling
 /// cluster. When a subtree carries a used <c>zoom</c>, serialization bakes it into the SVG
 /// presentation/geometry attributes (<c>fill</c>/<c>stroke</c>, <c>width</c>/<c>height</c>,
 /// <c>points</c>, path <c>d</c>, …) by scaling each length token — resolving font-relative and

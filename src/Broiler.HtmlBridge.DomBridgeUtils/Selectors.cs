@@ -49,18 +49,15 @@ public static partial class DomBridgeUtils
     /// or the <c>null</c> a <c>querySelector</c> that matched nothing answers.
     /// </summary>
     /// <remarks>
-    /// It stopped being a conversion when the searches migrated, but it stays a filter: the arms it
-    /// guards all answer an object or <c>null</c> already, and this is where that invariant is
-    /// stated. <c>DomBridge/JsObjects.NonElementNodes.cs</c> is the other caller.
+    /// A filter, not a conversion: the arms it guards all answer an object or <c>null</c> already,
+    /// and this is where that invariant is stated.
+    /// <c>DomBridge/JsObjects.NonElementNodes.cs</c> is the other caller.
     /// </remarks>
     internal static JsValue FromEngineResult(JsValue value) => value.IsObject ? value : JsValue.Null;
 }
 
 public static partial class DomBridgeUtils
 {
-    internal static DomShadowRoot? FindContainingShadowRoot(DomNode? node) =>
-        node?.GetRootNode(composed: false) as DomShadowRoot;
-
     internal static bool SlotAcceptsNode(DomElement slot, DomNode node) =>
         DomSlotting.SlotAcceptsNode(slot, node);
 }

@@ -282,7 +282,7 @@ internal sealed partial class TraversalBinding
 
         // Only the range this selection is actually holding; another range with the same boundaries
         // is a different range, and removing it removes nothing. JsValue's `==` is JavaScript's
-        // `===`, which for two object handles is the reference test this used to spell out.
+        // `===`, which for two object handles is a reference test.
         if (state.RangeObject is { } held && held == call[0])
             state.Clear();
         return JsValue.Undefined;

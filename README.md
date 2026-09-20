@@ -17,8 +17,9 @@ about *being a browser*. The browser is now one embedder among the possible ones
 
 ## Status
 
-**Preview.** The bridge is real and heavily exercised — 895 passing tests at `Release`,
-950 at `Release-VM` (23 skipped in each, measured on 2026-09-19) — but the *named control surface* described in
+**Preview.** The bridge is real and heavily exercised — 911 passing tests and 22 skipped at
+`Release`, and 966 passing with 22 skipped at `Release-VM`, which runs that suite plus the cases
+that only compile under it (both measured on 2026-09-20) — but the *named control surface* described in
 [docs/html-control.md](docs/html-control.md) is not written yet. Today a host composes
 `DomBridge`, `ScriptEngine` and a layout view itself, which is what
 `Broiler.Browser.Core` does. That document is the plan for closing the gap, feature by
@@ -30,7 +31,7 @@ feature, against what WebView2 and MSHTML actually offer.
 | --- | --- |
 | `Broiler.HtmlBridge.Core` | Shared models with no engine in them: CSP, origins, the microtask queue, navigation requests, the render logger, fetch timing. |
 | `Broiler.HtmlBridge.DomBridgeUtils` | The bridge's static helpers that need no bridge instance: tree, attribute, CSS, layout-geometry and serialization utilities. Sits *below* `Dom`. |
-| `Broiler.HtmlBridge.Dom` | The DOM bridge itself: tree building, the ~300 files of DOM/CSSOM/canvas/forms/frames/workers bindings, and the polyfills shipped as embedded JavaScript. |
+| `Broiler.HtmlBridge.Dom` | The DOM bridge itself: tree building, the 227 files of DOM/CSSOM/canvas/forms/frames/workers bindings, and the polyfills shipped as embedded JavaScript. |
 | `Broiler.HtmlBridge.Scripting` | `IScriptEngine` and the interactive session: script extraction, module roots, evaluation policy. References `Broiler.JSeal.BroilerJs`. |
 | `Broiler.HtmlBridge.Scripting.Vm` | An `IScriptEngine` on the same profile, selected by the `Debug-VM` / `Release-VM` configurations. References `Broiler.JSeal.Vm`. |
 
@@ -56,7 +57,7 @@ Four build types, and the `-VM` pair is not cosmetic — it changes the project 
 | Configuration | JavaScript engine | Notes |
 | --- | --- | --- |
 | `Debug` / `Release` | Broiler.JS | The default test and scripting configuration. |
-| `Debug-VM` / `Release-VM` | Broiler.VM JavaScript profile | Adds `Scripting.Vm` and `Jseal.Vm`, defines `BROILER_VM_JS`, and gains the ~120 tests that only exist under it. |
+| `Debug-VM` / `Release-VM` | Broiler.VM JavaScript profile | Adds `Scripting.Vm` and the `Broiler.JSeal.Vm` package, defines `BROILER_VM_JS`, and gains the ~120 tests that only exist under it. |
 
 Either engine can also be selected without changing configuration:
 `dotnet build … -p:BroilerJavaScriptEngine=Vm`.
@@ -67,14 +68,16 @@ feed, which requires authentication even for public packages. Configure credenti
 for the `github` source before a fresh restore; CI supplies its `GITHUB_TOKEN` through
 `NuGetPackageSourceCredentials_github`.
 
-The solution builds all eight shipping assemblies in every configuration. The `-VM`
+The solution builds all five shipping assemblies in every configuration. The `-VM`
 configurations additionally link the VM provider into the test suite and compile its
-engine-specific cases. No external component checkout is required.
+engine-specific cases. This repository has no submodules: every Broiler component outside
+it arrives as a NuGet package, so no external component checkout is required.
 
 ## Packaging
 
-Every shipping project carries NuGet metadata and `eng/pack.ps1` builds and validates
-all eight packages, including symbols, metadata and internal dependency versions.
+Every shipping project carries NuGet metadata and `eng/pack.ps1` builds and validates every
+packable project in the solution — five today, the test project setting `IsPackable=false` —
+including symbols, metadata and internal dependency versions.
 
 CI follows Broiler.JS and Broiler.VM: .NET 10 and Node.js 24, Release builds and tests on
 Linux and Windows, preview-version tests, and package artifacts from Windows. HtmlBridge

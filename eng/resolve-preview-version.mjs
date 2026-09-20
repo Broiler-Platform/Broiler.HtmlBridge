@@ -105,8 +105,7 @@ async function main() {
   });
   console.log(`Version: ${version} -> ${target} (${packageIds.length} packages; dry-run: ${process.env.DRY_RUN ?? 'true'})`);
   if (process.env.GITHUB_OUTPUT) {
-    appendFileSync(process.env.GITHUB_OUTPUT,
-      `version=${version}\nversion_args=-p:Version=${version} -p:PackageVersion=${version}\n`);
+    appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
   }
 }
 

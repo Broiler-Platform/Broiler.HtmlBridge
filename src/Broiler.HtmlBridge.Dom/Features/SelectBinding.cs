@@ -5,11 +5,10 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The HTMLSelectElement / HTMLOptionElement feature binding (HtmlBridge complexity-reduction
-/// roadmap Phase 3, P3.8) — <c>select.add</c>/<c>options</c>/<c>selectedIndex</c>/<c>size</c> and its
+/// The HTMLSelectElement / HTMLOptionElement feature binding —
+/// <c>select.add</c>/<c>options</c>/<c>selectedIndex</c>/<c>size</c> and its
 /// value resolution, plus <c>option.defaultSelected</c> and <c>option.text</c>. The option-collection,
-/// selected-index and value algorithms (previously scattered as static helpers in
-/// <c>LayoutMetrics.cs</c>, though never used by layout) move here; the per-element form-control state
+/// selected-index and value algorithms live here; the per-element form-control state
 /// they touch is reached through the narrow <see cref="ISelectHost"/> contract as named primitives,
 /// and neutral tree/attribute work uses the assembly's static <c>DomBridge</c> helpers. The shared
 /// <c>value</c> property stays a bridge form-control handler that delegates its select branch to
@@ -20,13 +19,6 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): every member is minted by the
 /// realm and every body runs on a <see cref="JsCall"/>, so no part of this file names an engine
 /// type.
-/// </para>
-/// <para>
-/// The file carried one engine-typed adapter until 5282d02, and it was pinned by its caller rather
-/// than by anything here: <c>DomBridge/NodeInterfaces.cs</c> installed these members onto an engine
-/// wrapper it held, so <c>Install</c> took that wrapper and handed it on through
-/// <see cref="Runtime.JsInterop"/>. That file passes the handle it already has, so there is one
-/// installer again.
 /// </para>
 /// </remarks>
 internal sealed class SelectBinding(ISelectHost host)

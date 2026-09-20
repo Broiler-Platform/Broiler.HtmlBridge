@@ -14,8 +14,7 @@ internal sealed partial class AttributesBinding
     // Element.prototype by DomBridge/ElementInterface.cs; they delegate the write and Attr-node
     // construction into this module).
     //
-    // Every argument read is the realm's ECMAScript conversion rather than the handle's rendering,
-    // because that is what the engine frame these bodies used to take was performing:
+    // Every argument read is the realm's ECMAScript conversion rather than the handle's rendering:
     // `el.getAttribute({toString(){…}})` has always run the object's own toString here. --------
 
     internal JsValue GetAttribute(DomElement element, in JsCall call)
@@ -32,10 +31,10 @@ internal sealed partial class AttributesBinding
     /// <c>InvalidCharacterError</c> when it does not.
     /// </summary>
     /// <remarks>
-    /// Every invalid name used to be written through silently, so <c>setAttribute('@click', …)</c>
-    /// and <c>setAttribute('foo bar', …)</c> produced an attribute a browser refuses to create — and
-    /// the one name that did fail, the empty string, threw a bare <c>Error</c> with no <c>name</c> or
-    /// <c>code</c> for a caller to branch on rather than a <c>DOMException</c>.
+    /// The validation is not optional: written through silently, <c>setAttribute('@click', …)</c>
+    /// and <c>setAttribute('foo bar', …)</c> would produce an attribute a browser refuses to create,
+    /// and an empty name must raise a <c>DOMException</c> a caller can branch on by <c>name</c> and
+    /// <c>code</c> rather than a bare <c>Error</c>.
     /// </remarks>
     internal JsValue SetAttribute(DomElement element, in JsCall call)
     {
@@ -201,10 +200,8 @@ internal sealed partial class AttributesBinding
             var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
             var qName = call.Realm.ToJsString(call[1]);
             var val = call.Realm.ToJsString(call[2]);
-            // The realm of the call rather than the host's, and the null check that used to
-            // guard this went with it: a JsCall exists only because guest code is running, so the
-            // realm it carries cannot be absent. What the old guard tolerated was a null script
-            // CONTEXT on an unattached bridge, which this path could never reach.
+            // The realm of the call rather than the host's, and unguarded: a JsCall exists only
+            // because guest code is running, so the realm it carries cannot be absent.
             DomBridgeUtils.ValidateQualifiedName(qName, ns, call.Realm);
             var localName = qName.Contains(':') ? qName[(qName.IndexOf(':') + 1)..] : qName;
             SetAttributeLikeSetAttributeNS(element, ns, qName, localName, val);

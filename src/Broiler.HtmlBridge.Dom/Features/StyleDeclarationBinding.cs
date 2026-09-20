@@ -5,8 +5,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The CSSOM <c>CSSStyleDeclaration</c> feature binding (HtmlBridge complexity-reduction roadmap Phase 3,
-/// P3.14) — the JS style-declaration object in its three flavours: the writable <c>element.style</c>
+/// The CSSOM <c>CSSStyleDeclaration</c> feature binding — the JS style-declaration object in its
+/// three flavours: the writable <c>element.style</c>
 /// (backed by the element's inline-style map), the writable rule declaration (<c>rule.style</c>, backed
 /// by a <see cref="RuleDeclarationStore"/> — the rule in its sheet for a style rule, a plain property map for
 /// the declaration blocks that are not written through) and the read-only <c>getComputedStyle</c> result

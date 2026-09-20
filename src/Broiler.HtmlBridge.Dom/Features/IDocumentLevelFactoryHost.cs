@@ -13,15 +13,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// The validations are on the contract rather than called as statics. The bridge's helpers take the
 /// realm to raise their <c>DOMException</c> against, and the bridge's side of this contract hands them
-/// its own (this said they took the script context, which the module would have had to be handed).
-/// What the module wants is "reject this name", which is what it asks for.
+/// its own. What the module wants is "reject this name", which is what it asks for.
 /// </remarks>
 internal interface IDocumentLevelFactoryHost
 {
     /// <summary>
     /// The single JS wrapper identity for <paramref name="node"/>, as the JSEAL handle the bridge
-    /// caches for it. The registry's reverse table keys on <see cref="JsValue.ObjectIdentity"/>, not on
-    /// an engine object, which is what this used to say of the wrapper tables.
+    /// caches for it. The registry's reverse table keys on <see cref="JsValue.ObjectIdentity"/>.
     /// </summary>
     JsValue ToJsObject(DomNode node);
 

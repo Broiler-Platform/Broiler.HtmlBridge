@@ -79,7 +79,7 @@ internal static class DatasetBinding
     /// <remarks>
     /// The source is this repository's own, not the page's, so it goes through
     /// <see cref="IJsSource.EvaluateHostScript"/> — the one member of the source contract exempt
-    /// from the page's content policy. A failure is not cached, exactly as before: a realm that
+    /// from the page's content policy. A failure is not cached: a realm that
     /// answered nothing once is asked again rather than remembered as broken.
     /// </remarks>
     private static JsValue FactoryFor(IJsRealm realm)
@@ -156,7 +156,7 @@ internal static class DatasetBinding
             return call.Realm.NewArray([.. names]);
         }, 0);
 
-        // The factory is called with undefined as its receiver, as it was before; it closes over the
+        // The factory is called with undefined as its receiver; it closes over the
         // four callbacks and returns the proxy.
         var map = realm.Invoke(factory, JsValue.Undefined, [get, set, del, keys]);
         return map.IsObject ? map : JsValue.Undefined;

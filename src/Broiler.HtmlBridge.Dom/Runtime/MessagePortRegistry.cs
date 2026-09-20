@@ -3,11 +3,9 @@
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// The single owner of a document's <c>MessageChannel</c>/<c>MessagePort</c> state (HtmlBridge
-/// complexity-reduction roadmap Phase 2, P2.6 — the ports slice of the browsing-context state): the
+/// The single owner of a document's <c>MessageChannel</c>/<c>MessagePort</c> state: the
 /// entangled port peers, which ports are closed, which are started (their queue is draining), and the
-/// per-port queue of messages awaiting a started port. It replaces the four port maps that were
-/// scattered across the messaging code.
+/// per-port queue of messages awaiting a started port.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -16,12 +14,11 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// scoped to the owning bridge/document; <see cref="Clear"/> runs on re-parse and disposal.
 /// </para>
 /// <para>
-/// <b>The key is a <see cref="JsValue"/> handle and the comparer went away with the engine type.</b>
-/// The maps used to be built with <c>ReferenceEqualityComparer.Instance</c> over the engine's own
-/// object type, because a port's identity is the object and not anything it holds. A handle answers
-/// exactly that question already — <see cref="JsValue.Equals(JsValue)"/> compares the engine's own
-/// instance by reference for every object kind — so the default comparer is the reference comparer
-/// for the values this type stores, and asking for one explicitly would only restate it.
+/// <b>The key is a <see cref="JsValue"/> handle and the maps take no explicit comparer.</b> A port's
+/// identity is the object and not anything it holds, and a handle answers exactly that question —
+/// <see cref="JsValue.Equals(JsValue)"/> compares the engine's own instance by reference for every
+/// object kind — so the default comparer is the reference comparer for the values this type stores,
+/// and asking for one explicitly would only restate it.
 /// </para>
 /// </remarks>
 internal sealed class MessagePortRegistry

@@ -4,13 +4,12 @@ using Broiler.HtmlBridge.Logging;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// <c>navigator.sendBeacon(url, data)</c>, co-located as an HtmlBridge feature module (Phase 3).
+/// <c>navigator.sendBeacon(url, data)</c>, co-located as an HtmlBridge feature module.
 /// It queues a keep-alive <c>POST</c> by delegating to the window's own <c>fetch</c>, returning
 /// <c>false</c> (never throwing) when the request cannot be queued — per the Beacon spec. It reads
 /// only the supplied <c>window</c> object and routes errors to <see cref="RenderLogger"/>, touching
 /// no bridge instance state, so — like <c>ConsoleBinding</c> / <c>CryptoBinding</c> — it is a pure
-/// static class with no host contract. Previously the bridge's
-/// <c>JsRegistrationSendBeacon124Core</c> in the shared JsFunctionCallbacks/Registration.cs grab-bag.
+/// static class with no host contract.
 /// </summary>
 internal static class BeaconBinding
 {
@@ -35,10 +34,9 @@ internal static class BeaconBinding
             if (!currentFetch.IsFunction)
                 return JsValue.False;
 
-            // Ordinary [[Set]]s, as before, rather than property definitions: an options bag is a
-            // plain object the page never sees, and the two differ only if something on
-            // Object.prototype intercepts one of these names — which is the page's business, and was
-            // its business before this migration too.
+            // Ordinary [[Set]]s rather than property definitions: an options bag is a plain object
+            // the page never sees, and the two differ only if something on Object.prototype
+            // intercepts one of these names — which is the page's business.
             var options = realm.NewObject();
             realm.SetProperty(options, "method", JsValue.String("POST"));
             realm.SetProperty(options, "keepalive", JsValue.True);

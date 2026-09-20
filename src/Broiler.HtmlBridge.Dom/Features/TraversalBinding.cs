@@ -5,20 +5,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The DOM traversal / Range feature binding — <c>TreeWalker</c>, <c>NodeIterator</c>,
-/// <c>Range</c>, the node-filter machinery and <c>document.createComment</c>. This is the first
-/// co-located feature module of the HtmlBridge complexity-reduction roadmap Phase 3: the
-/// registration for the feature and every handler that implements it now live together in one file
+/// <c>Range</c>, the node-filter machinery and <c>document.createComment</c>. The
+/// registration for the feature and every handler that implements it live together in one file
 /// with semantic names, reachable and testable without loading the whole <c>DomBridge</c>
 /// implementation. The module owns the traversal-scoped state (the weak range and selection
 /// registries) and depends only on the narrow <see cref="ITraversalHost"/> contract plus the
-/// assembly's neutral static DOM-tree helpers on <c>DomBridge</c> (which Phase 4 promotes to
-/// <c>Broiler.Dom</c>).
+/// assembly's neutral static DOM-tree helpers on <c>DomBridge</c>.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): objects and functions are minted
 /// through the realm, an argument frame arrives as a <see cref="JsCall"/>, and a <c>DOMException</c>
 /// is raised with <see cref="IJsCalls.DomError"/> rather than by hand-constructing one against the
-/// context's <c>DOMException</c> global — which is what the provider now does on this module's
+/// context's <c>DOMException</c> global — the provider does that on this module's
 /// behalf, with the identical fallback.
 /// </remarks>
 internal sealed partial class TraversalBinding(ITraversalHost host)
@@ -204,9 +202,8 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
         return tw;
     }
 
-    // RF-BRIDGE-1c Phase F (F3c part 2c): a TreeWalker/NodeIterator result may be a text/comment
-    // node (SHOW_TEXT/SHOW_COMMENT), so convert any non-null node — not just elements — to its JS
-    // wrapper.
+    // A TreeWalker/NodeIterator result may be a text/comment node (SHOW_TEXT/SHOW_COMMENT), so
+    // convert any non-null node — not just elements — to its JS wrapper.
     private JsValue ToTraversalJsValue(DomNode? node) => node is not null ? _host.WrapNode(node) : JsValue.Null;
 
     /// <summary>Builds a DOM <c>NodeIterator</c> object.</summary>
@@ -253,7 +250,7 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
     /// <c>AbstractRange.prototype</c>, and its boundaries are held in
     /// <see cref="_rangeStates"/> under the object itself — see
     /// <see cref="RegisterRangeInterface"/>. So <c>Object.getOwnPropertyNames</c> of a range is
-    /// empty, as it is in a browser, and the 29 own properties this used to install are gone.
+    /// empty, as it is in a browser.
     /// </remarks>
     internal JsValue BuildRange(DomNode? documentRoot = null)
     {
@@ -277,13 +274,11 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
     /// The identity a weak per-object registry keys on: the reference the handle carries.
     /// </summary>
     /// <remarks>
-    /// <b>This used to unwrap to the engine's own object, on the reasoning that a
-    /// <see cref="JsValue"/> is a struct and so cannot be a
-    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/> key.</b> The
+    /// A <see cref="JsValue"/> is a struct and so cannot itself be a
+    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/> key. The
     /// struct is not the key; the reference it carries is, and
-    /// <see cref="JsValue.ObjectIdentity"/> is that reference. It is the same instance this table
-    /// was keyed on before, under the one provider that could reach it - so nothing about the
-    /// answers changes - and it is now an instance every provider supplies. The keys stay weak, so a
+    /// <see cref="JsValue.ObjectIdentity"/> is that reference — an instance every provider supplies.
+    /// The keys stay weak, so a
     /// range or a selection the page has dropped is not kept alive by the registry, nor is its
     /// mutation subscription.
     /// </remarks>
@@ -298,8 +293,8 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
     /// fragments and clones that carry host runtime state, all registered so the host's
     /// <c>WrapNode</c> can wrap them. Constructed <c>trackMutations: true</c> — the range
     /// self-subscribes to its document's <see cref="DomDocument.Mutated"/> and runs the DOM
-    /// "removing steps" (boundary adjustment) itself, uniformly with NodeIterator, now that the
-    /// bridge no longer drives a separate notification channel.
+    /// "removing steps" (boundary adjustment) itself, uniformly with NodeIterator; the bridge drives
+    /// no separate notification channel.
     /// </summary>
     private sealed class BridgeDomRange(ITraversalHost host, DomNode root)
         : DomRange(root, trackMutations: true), IRangeBoundaries

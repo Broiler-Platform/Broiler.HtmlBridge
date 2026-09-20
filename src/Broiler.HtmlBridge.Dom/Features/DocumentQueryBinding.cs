@@ -5,13 +5,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The <c>document</c> element-query methods — <c>getElementById</c>, <c>getElementsByTagName</c>,
 /// <c>getElementsByClassName</c>, <c>querySelector</c>, <c>querySelectorAll</c> — co-located as an
-/// HtmlBridge feature module (Phase 3). Each searches the document tree and returns the matching
+/// HtmlBridge feature module. Each searches the document tree and returns the matching
 /// element's JS wrapper (or a live collection of wrappers). The document root, element list, wrapper
 /// factory, selector validation and the collection factories are reached through the narrow
 /// <see cref="IDocumentQueryHost"/> contract; sub-tree search (<c>FindInSubTree</c>) and attribute
 /// reads (<c>TryGetAttribute</c>) are the bridge's neutral <c>internal static</c> helpers, called
-/// directly. Previously the bridge's <c>JsRegistrationGetElementById006Core</c> etc. in the shared
-/// JsFunctionCallbacks/Registration.cs grab-bag. Hit-testing
+/// directly. Hit-testing
 /// (<c>elementFromPoint</c>/<c>elementsFromPoint</c>), the structural accessors
 /// (<c>body</c>/<c>head</c>/<c>title</c>) and the live collections
 /// (<c>forms</c>/<c>images</c>/<c>links</c>/<c>styleSheets</c>) are separate concerns, not part of

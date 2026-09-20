@@ -8,8 +8,8 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> (Phase 3 ratchet, 2026-07-17) to keep it
-/// under the 750-line guard: SVG geometry/text-metric resolution, element zoom / transform-scale
+/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> to keep it
+/// under the 750-line guideline: SVG geometry/text-metric resolution, element zoom / transform-scale
 /// resolution, and the border-box size helpers. Pure partial-class relocation — no signature,
 /// accessibility, or logic change.
 /// </summary>
@@ -240,7 +240,7 @@ public sealed partial class DomBridge
              + ParseCssLengthToPixelsWithViewport(props.GetValueOrDefault("border-bottom-width"), element);
     }
 
-    // CreateSvgLengthValue moved to the SvgElementBinding feature module (Phase 3 P3.50) — its only
+    // CreateSvgLengthValue moved to the SvgElementBinding feature module — its only
     // consumer (the SVGAnimatedLength stub) moved there too.
 }
 

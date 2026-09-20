@@ -6,19 +6,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The Web Animations <c>Animation</c> object surface built by <c>BuildAnimationObject</c> — its
 /// <c>currentTime</c> get/set and its <c>ready</c>-promise <c>then</c> — co-located as an HtmlBridge
-/// feature module (Phase 3). <c>currentTime</c> reads/writes the element's animation timeline on the
-/// per-bridge <see cref="AnimationRuntimeState"/> the bridge resolves and hands in (Phase 2 item 4
-/// de-globalization — was the process-static <c>GetElementRuntimeState(element).Animation</c> slot);
+/// feature module. <c>currentTime</c> reads/writes the element's animation timeline on the
+/// per-bridge <see cref="AnimationRuntimeState"/> the bridge resolves and hands in;
 /// <c>then</c> is a synchronous promise shim that invokes its callback immediately and returns the
 /// <c>ready</c> object (touching no bridge state). These are pure static callbacks (the animation object
-/// is built in a static context), so the module has no host contract. Previously the bridge's
-/// <c>JsRegistrationGetCurrentTime152Core</c>/<c>SetCurrentTime153Core</c>/<c>Then154Core</c> in the
-/// shared JsFunctionCallbacks/Registration.cs grab-bag.
+/// is built in a static context), so the module has no host contract.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type;
 /// the realm arrives on the call frame, and the callbacks stay static with their state — the animation
-/// state and the <c>ready</c> object — captured by the bridge's closures exactly as before.
+/// state and the <c>ready</c> object — captured by the bridge's closures.
 /// </remarks>
 internal static class AnimationObjectBinding
 {

@@ -4,28 +4,24 @@ using Broiler.Dom;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The narrow set of bridge services the <see cref="TraversalBinding"/> feature module needs
-/// (HtmlBridge complexity-reduction roadmap Phase 3, first vertical slice). It replaces the
-/// former direct reach into <c>DomBridge</c> private state from the traversal callbacks with a
-/// small, named contract: the realm, JS-wrapper identity, node lookup, the range geometry helpers
-/// that still live in the bridge (Phase 5 relocates geometry to Layout), and the range-scoped
+/// The narrow set of bridge services the <see cref="TraversalBinding"/> feature module needs, in place
+/// of a direct reach into <c>DomBridge</c> private state from the traversal callbacks: the realm,
+/// JS-wrapper identity, node lookup, the range geometry helpers
+/// that live in the bridge, and the range-scoped
 /// node-construction seams the <c>Range</c> content operations mint bridge nodes through. No member
 /// exposes arbitrary bridge feature state, so the module never holds a god-object back-reference.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's: a wrapper is a <see cref="JsValue"/> and errors are raised
 /// through <see cref="IJsRealm"/>, so nothing here names an engine type. The bridge's implementation
-/// (<c>DomBridge/Hosts.Nodes.cs</c>) used to be where the handles met the engine objects the
-/// unmigrated half of the bridge held; it meets none now — both lookups forward the handle.
+/// (<c>DomBridge/Hosts.Nodes.cs</c>) meets no engine object — both lookups forward the handle.
 /// </remarks>
 internal interface ITraversalHost
 {
     /// <summary>
     /// The realm the traversal objects are built in, and through which this module raises a
     /// <c>DOMException</c>. Never null while a document is attached; the traversal APIs are only
-    /// reachable from an attached document. It replaces the former <c>JsContext</c> seam, which
-    /// existed for exactly one purpose — DOMException plumbing — that <see cref="IJsCalls.DomError"/>
-    /// now owns.
+    /// reachable from an attached document.
     /// </summary>
     IJsRealm Realm { get; }
 
@@ -41,8 +37,7 @@ internal interface ITraversalHost
     /// <summary>Resolves the canonical element behind a JS wrapper, or null.</summary>
     DomElement? FindElement(JsValue wrapper);
 
-    /// <summary>The used-value client rectangles covering the range's content (bridge geometry;
-    /// Phase 5 moves this to Layout).</summary>
+    /// <summary>The used-value client rectangles covering the range's content (bridge geometry).</summary>
     IReadOnlyList<(double Left, double Top, double Width, double Height)> GetClientRectsForRange(DomRange range);
 
     /// <summary>Builds a CSSOM-View <c>DOMRect</c>-shaped JS object from a used-value rectangle.</summary>

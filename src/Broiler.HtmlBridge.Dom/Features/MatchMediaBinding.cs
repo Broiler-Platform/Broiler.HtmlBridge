@@ -4,18 +4,16 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// <c>window.matchMedia(query)</c>, co-located as an HtmlBridge feature module (Phase 3). It
+/// <c>window.matchMedia(query)</c>, co-located as an HtmlBridge feature module. It
 /// evaluates the query against the current viewport via the canonical
 /// <see cref="CssStyleEngine.MatchesMediaQuery"/> and returns a <c>MediaQueryList</c>-shaped object
 /// (<c>matches</c>/<c>media</c> plus no-op legacy <c>addListener</c>/<c>removeListener</c> stubs).
 /// The only bridge coupling is the live viewport, reached through the narrow
-/// <see cref="IMatchMediaHost"/> contract. Previously the bridge's
-/// <c>JsRegistrationMatchMedia069Core</c> in the shared JsFunctionCallbacks/Registration.cs grab-bag,
-/// with its media-query evaluation in the (now removed) <c>DomBridge.EvaluateMediaQuery</c> wrapper.
+/// <see cref="IMatchMediaHost"/> contract.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the realm arrives on the call frame,
-/// so nothing here names an engine type. The media-query evaluation never was engine-coupled.
+/// so nothing here names an engine type.
 /// </remarks>
 internal static class MatchMediaBinding
 {

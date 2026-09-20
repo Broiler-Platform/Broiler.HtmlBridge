@@ -7,8 +7,7 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The co-located nested-browsing-context <c>window</c> (sub-window) feature (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.17 — the residual Frames surface P3.13 deferred). Owns the
+/// The co-located nested-browsing-context <c>window</c> (sub-window) feature. Owns the
 /// sub-window JS object built for an <c>&lt;iframe&gt;</c>/<c>&lt;object&gt;</c>/<c>&lt;frame&gt;</c> —
 /// its <c>document</c>/<c>location</c>/<c>self</c>/<c>window</c>/<c>parent</c>/<c>top</c> wiring, the
 /// scroll surface (<c>scrollX</c>/<c>scrollY</c>/<c>pageXOffset</c>/<c>pageYOffset</c> +
@@ -18,7 +17,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The state authority (JS-object identity, location/base-URL caches) is the P3.16
+/// The state authority (JS-object identity, location/base-URL caches) is
 /// <see cref="BrowsingContextManager"/>, which the module holds a reference to (as it does the shared
 /// <see cref="EventTargetRegistry"/> and <see cref="MessagingBinding"/> it installs on the sub-window).
 /// Everything else — the sub-document builder it wraps, sub-resource URL resolution, scroll geometry,
@@ -27,14 +26,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// The window object is minted and populated through the realm, so nothing here spells a member
-/// installation in engine terms, and NO collaborator holds it as an engine value. This paragraph
-/// named four, then one; the one was the browsing-context cache, whose sub-window maps key on
-/// <c>JsValue</c> now. What held that cache engine-typed was its own class remark, which named this
-/// binding as a reader holding the window engine-typed, when the only unwrap here was the one made
-/// to reach that cache. The four collaborators the window is handed to below (the cache, the
-/// event-target registry, and the messaging module twice) all file the one handle the realm minted,
-/// so <c>frames[0].window</c> is the same object it always was. Nothing in this file converts
-/// anything.
+/// installation in engine terms, and NO collaborator holds it as an engine value. The four
+/// collaborators the window is handed to below (the browsing-context cache, whose sub-window maps
+/// key on <c>JsValue</c>, the event-target registry, and the messaging module twice) all file the
+/// one handle the realm minted, so <c>frames[0].window</c> is one object. Nothing in this file
+/// converts anything.
 /// </para>
 /// </remarks>
 internal sealed class SubWindowBinding(
@@ -54,9 +50,9 @@ internal sealed class SubWindowBinding(
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A sub-window used to carry <c>document</c>, <c>location</c> and the event constructors and
-    /// nothing else, so <c>iframe.contentWindow.String</c> — and <c>Object</c>, <c>Array</c>,
-    /// <c>Function</c>, <c>JSON</c>, <c>Math</c>, every one of them — read as <c>undefined</c>. In a
+    /// A sub-window carrying <c>document</c>, <c>location</c> and the event constructors and
+    /// nothing else would answer <c>undefined</c> for <c>iframe.contentWindow.String</c> — and for
+    /// <c>Object</c>, <c>Array</c>, <c>Function</c>, <c>JSON</c>, <c>Math</c>, every one of them. In a
     /// browser a nested browsing context is a full global object, and script reaches for exactly
     /// these: taking a reference to a built-in from a fresh frame, rather than from the current
     /// global, is the standard way to get one that page script has not patched. Google Search's
@@ -80,7 +76,7 @@ internal sealed class SubWindowBinding(
     /// </remarks>
     private static readonly string[] MirroredGlobals =
     [
-        // Event constructors — mirrored since P3.17.
+        // Event constructors.
         "Event", "CustomEvent", "MouseEvent", "FocusEvent", "KeyboardEvent",
         "WheelEvent", "UIEvent", "MessageChannel",
 
@@ -164,9 +160,8 @@ internal sealed class SubWindowBinding(
         // All four take the handle, so the one object the realm minted above is what the sub-window
         // identity cache, the owner-window map and both messaging installations file, which is what
         // `frame.contentWindow === frame.contentWindow` and the owner-window lookup both depend on.
-        // The unwrap that stood here was the last conversion in this file and it served the first
-        // call alone; the cache keys on the handle now (Runtime/BrowsingContextManager.cs) and refuses
-        // one that is not an object.
+        // The cache keys on the handle (Runtime/BrowsingContextManager.cs) and refuses one that is
+        // not an object.
         _browsingContexts.SetSubWindow(containerElement, window);
         _eventTargets.SetOwnerWindow(window, window);
         _messaging.InstallEventTargetApi(window, "DomBridge.subWindow.dispatchEvent");
@@ -296,8 +291,8 @@ internal sealed class SubWindowBinding(
     private JsValue GetParentWindowForSubDocument(DomElement containerElement)
     {
         // The container's owning document is a severed sub-document DomDocument when the container is
-        // itself nested in another frame; recover that frame via the reverse map (P4.4c: the owning
-        // document comes from the canonical tree, was OwnerDocRoot / ParentEl(#subdoc-root)).
+        // itself nested in another frame; recover that frame via the reverse map (the owning
+        // document comes from the canonical tree).
         var parentFrame = _host.GetFrameForContentDocument(DomBridgeUtils.GetOwningDocument(containerElement));
         if (parentFrame != null)
             return Build(parentFrame);

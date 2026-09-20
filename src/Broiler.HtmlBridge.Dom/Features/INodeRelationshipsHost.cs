@@ -9,20 +9,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>isEqualNode</c> all take another wrapper), the tree-root walk (<c>getRootNode</c>), the
 /// character-data-aware <c>normalize()</c>, the root-node wrapper factory, the deep/shallow clone and
 /// the plain JS-wrapper factory. Pure tree operations (<c>IsDescendantOf</c>, <c>IsEqualNode</c>,
-/// <c>CompareDocumentPosition</c>) live on <see cref="DomNode"/>; the shadow-root walk
-/// (<c>FindContainingShadowRoot</c>) is the bridge's <c>internal static</c> helper, called directly.
+/// <c>CompareDocumentPosition</c>) live on <see cref="DomNode"/>, and so does the composed tree-root
+/// walk <c>GetRootNode(composed)</c>; only its wrapper comes from <see cref="WrapRootNode"/>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The contract names no engine type, and it no longer carries a script context: that seam existed
-/// for exactly one purpose — raising the <c>DOMException</c> a document clone must throw — which
-/// <see cref="IJsCalls.DomError"/> now owns, reached from the call frame the operation already has.
+/// The contract names no engine type, and it carries no script context: the <c>DOMException</c> a
+/// document clone must throw is raised through <see cref="IJsCalls.DomError"/>, reached from the call
+/// frame the operation already has.
 /// </para>
 /// <para>
 /// The three wrapper members are <see cref="WrapNode"/>, <see cref="WrapRootNode"/> and
-/// <see cref="FindNode"/> now, the way <c>ITraversalHost</c> already spells them. They were named
-/// after the engine type they took or answered, and a member named after an engine type is an engine
-/// reference too — it could never be migrated away while the name survived. Same wrappers and the same
+/// <see cref="FindNode"/>. Same wrappers and the same
 /// identity: a JSEAL object handle carries the engine's own object.
 /// </para>
 /// </remarks>

@@ -64,7 +64,7 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
     }
 }
 
-// Explicit IMatchMediaHost implementation for the MatchMediaBinding feature module (Phase 3):
+// Explicit IMatchMediaHost implementation for the MatchMediaBinding feature module:
 // the bridge exposes only the live viewport dimensions, via explicit interface members so the
 // module never reaches an arbitrary bridge private field and the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IMatchMediaHost
@@ -74,8 +74,8 @@ public sealed partial class DomBridge : Dom.Features.IMatchMediaHost
     int Dom.Features.IMatchMediaHost.ViewportHeight => _viewportHeight;
 }
 
-// Explicit IWindowDocumentMiscHost implementation for the WindowDocumentMiscBinding feature module
-// (Phase 3): the bridge exposes the current page URL and the visual-viewport scale setter via explicit
+// Explicit IWindowDocumentMiscHost implementation for the WindowDocumentMiscBinding feature module:
+// the bridge exposes the current page URL and the visual-viewport scale setter via explicit
 // interface members, so the module never reaches an arbitrary bridge private field and the public
 // surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IWindowDocumentMiscHost
@@ -86,16 +86,10 @@ public sealed partial class DomBridge : Dom.Features.IWindowDocumentMiscHost
         => SetVisualViewportScale(scale);
 }
 
-// Explicit IWindowEventTargetHost implementation for the WindowEventTargetBinding feature module
-// (Phase 3): the bridge exposes the window's per-type listener store (from the P2.5 EventTargetRegistry)
-// and the window-scoped dispatch via explicit interface members, so the module never reaches an
-// arbitrary bridge private field and the public surface is unchanged.
-//
-// This file used to carry ToEngineListenerValue, the one place a JSEAL handle became the engine value
-// the listener record held: an unwrap for an object, and a freshly minted engine primitive for
-// anything else. The element, document and window contracts' registration members all called it. The
-// record holds a handle now, so the converter went with those members rather than moving, and
-// WindowEventTargetBinding calls Features/EventListenerBinding.cs itself with its call frame's realm.
+// Explicit IWindowEventTargetHost implementation for the WindowEventTargetBinding feature module:
+// the bridge exposes the window's per-type listener store (EventTargetRegistry) and the
+// window-scoped dispatch via explicit interface members, so the module never reaches an arbitrary
+// bridge private field and the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IWindowEventTargetHost
 {
     List<EventListenerRegistration> Dom.Features.IWindowEventTargetHost.WindowListenersForAdd(string type)
@@ -108,7 +102,7 @@ public sealed partial class DomBridge : Dom.Features.IWindowEventTargetHost
         => JsValue.Boolean(DispatchWindowEvent(evt));
 }
 
-// Explicit IWindowScrollHost implementation for the WindowScrollBinding feature module (Phase 3):
+// Explicit IWindowScrollHost implementation for the WindowScrollBinding feature module:
 // the bridge exposes the document (scrolling) element, the JS scroll-argument parser and the scroll
 // primitive via explicit interface members, so the module never reaches an arbitrary bridge private
 // field and the public surface is unchanged.
@@ -132,8 +126,8 @@ public sealed partial class DomBridge : Dom.Features.IWindowScrollHost
 }
 
 // Explicit IVisualViewportEventTargetHost implementation for the VisualViewportEventTargetBinding
-// feature module (Phase 3): the bridge exposes the visual-viewport scroll listener store (from the
-// P2.5 EventTargetRegistry) via explicit interface members, so the module never reaches an arbitrary
+// feature module: the bridge exposes the visual-viewport scroll listener store (from the
+// EventTargetRegistry) via explicit interface members, so the module never reaches an arbitrary
 // bridge private field and the public surface is unchanged.
 //
 // The contract is spelled in JSEAL handles, and so is the store behind it: Runtime/EventTargetRegistry.cs
@@ -141,17 +135,8 @@ public sealed partial class DomBridge : Dom.Features.IWindowScrollHost
 // that handle through the realm, so nothing in the bridge between the page's addEventListener argument
 // and that call names an engine type.
 //
-// This file used to unwrap every listener to the engine's function type, and its comment gave the two
-// files either side of it as the reason: the registry "stores the listeners as engine functions", and
-// LayoutMetrics.Scrolling.cs "invokes them directly". The first was so only because this file fed the
-// registry engine functions. The second was true when it was written and stopped being true a little
-// over two hours later, when the dispatcher began converting every listener back into a handle to
-// invoke it through the realm — from then on the unwrap here bought that round trip and nothing else.
-// The comment also called this "the one place that still has to name the engine's function type",
-// while the registry it pointed at spelled that type four times.
-//
-// The IsFunction test is the half of the old conversion that was a decision rather than a change of
-// type, and it stays. VisualViewportEventTargetBinding.IsScrollListener makes the same test first and
+// The IsFunction test is a decision rather than a change of type, and it stays.
+// VisualViewportEventTargetBinding.IsScrollListener makes the same test first and
 // is this contract's only caller, so it cannot fail today; but the dispatcher invokes whatever the
 // store holds, and with every element kind Function, JsValue's kind-then-reference equality asks
 // List.Contains and List.Remove exactly what they asked of the engine's functions.
@@ -172,17 +157,14 @@ public sealed partial class DomBridge : Dom.Features.IVisualViewportEventTargetH
 
 /// <summary>
 /// <see cref="DomBridge"/>'s implementation of <see cref="IWindowContextHost"/>, the contract the
-/// <see cref="WindowContextManager"/> owner consumes (HtmlBridge complexity-reduction roadmap Phase 3,
-/// P3.18). Explicit interface members, so these realm seams do not widen the public
+/// <see cref="WindowContextManager"/> owner consumes. Explicit interface members, so these realm seams do not widen the public
 /// <c>DomBridge</c> surface — and <see cref="DomBridge.Realm"/> is internal, so an implicit
 /// implementation of <see cref="IWindowContextHost.Realm"/> would not compile.
 /// </summary>
 /// <remarks>
 /// Nothing here converts. The window and document are the bridge's roots, which are the handles the
 /// realm minted, and the sub-document builder answers a handle of its own, so the window the manager
-/// compares against is the same instance by construction rather than by a cast. (This used to call
-/// the file the seam's engine-typed half and say all three were wrapped as handles here; the
-/// sub-document builder was already forwarded as it stands.)
+/// compares against is the same instance by construction rather than by a cast.
 /// </remarks>
 public sealed partial class DomBridge : IWindowContextHost
 {
@@ -200,35 +182,16 @@ public sealed partial class DomBridge : IWindowContextHost
 }
 
 /// <summary>
-/// Thin bridge delegators for the browsing-context window-resolution behaviour, which now lives in the
-/// single <see cref="Broiler.HtmlBridge.Dom.Runtime.WindowContextManager"/> owner (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.18 — the last Frames residue; the owner reads the sub-window
-/// state from the P3.16 <c>BrowsingContextManager</c>). These forwarders keep the callers unchanged: the
-/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.MessagingBinding"/> reaches them through the
+/// Thin bridge delegators for the browsing-context window-resolution behaviour, which lives in the
+/// single <see cref="Broiler.HtmlBridge.Dom.Runtime.WindowContextManager"/> owner; that owner reads
+/// the sub-window state from <c>BrowsingContextManager</c>. The
+/// <see cref="Broiler.HtmlBridge.Dom.Features.MessagingBinding"/> reaches these through the
 /// <see cref="Broiler.HtmlBridge.Dom.Features.IMessagingHost"/> contract, and the sub-document script
 /// runner calls <c>RunWithWindowContext</c> directly.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <b>Every delegator here speaks JSEAL now, and the last one that did not was held open by a
-/// comment naming a caller it did not have.</b> Several of these used to take or answer the engine's
-/// own object while both the manager below them and the callers above them held handles, so a window
-/// was converted out and converted straight back for no reader. The last of them was a second
-/// <c>RunWithWindowContext</c> overload taking the engine's object, and the remarks that kept it said
-/// its caller was the sub-document script runner in <c>DomBridge/SubDocuments.cs</c>. It was not:
-/// that call site is one unchanged line, and it has bound to the overload below ever since
-/// <c>SubWindowBinding.GetOrCreate</c> was re-typed to answer a handle — which
-/// <c>FrameScriptExecutionTests</c> states in its own header, having been written to cover exactly
-/// that rebinding.
-/// </para>
-/// <para>
-/// The only caller the deleted overload had was the <see cref="IMessagingHost"/> implementation below, which unwrapped a
-/// handle to an engine object so that the overload could wrap the same object straight back before
-/// handing it to the manager, whose own <c>RunWithWindowContext</c> has taken a handle all along.
-/// All three callers of <see cref="RunWithWindowContext(JsValue, Action)"/> — that host,
-/// <c>DomBridge/SubDocuments.Loading.cs</c> and <c>DomBridge/SubDocuments.cs</c> — already hold
-/// one, so there is nothing left for an engine-typed spelling to save any of them.
-/// </para>
+/// Forwards to <see cref="Broiler.HtmlBridge.Dom.Runtime.WindowContextManager"/>; every caller
+/// already holds a <see cref="JsValue"/>.
 /// </remarks>
 public sealed partial class DomBridge
 {
@@ -249,17 +212,15 @@ public sealed partial class DomBridge
 
 /// <summary>
 /// <see cref="DomBridge"/>'s implementation of <see cref="IMessagingHost"/>, the narrow contract the
-/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.MessagingBinding"/> feature module consumes
-/// (HtmlBridge complexity-reduction roadmap Phase 3, P3.10). Each member is an explicit interface
-/// implementation, so these seams do not widen the public <c>DomBridge</c> surface. They forward to
-/// the browsing-context machinery: top-window dispatch, frame-action queueing, and the window
-/// resolution and window-context switch that the delegators above hand to
-/// <c>WindowContextManager</c>. (This said "pending a future <c>BrowsingContextManager</c>".)
+/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.MessagingBinding"/> feature module consumes.
+/// Each member is an explicit interface implementation, so these seams do not widen the public
+/// <c>DomBridge</c> surface. They forward to the browsing-context machinery: top-window dispatch,
+/// frame-action queueing, and the window resolution and window-context switch that the delegators
+/// above hand to <c>WindowContextManager</c>.
 /// </summary>
 /// <remarks>
 /// Nothing here converts. The contract speaks in <see cref="JsValue"/> handles and the window is the
-/// bridge's root, which is one. (This used to describe the file as the half of the seam where a cast
-/// carried the window across.) A window that does not exist yet crosses as JavaScript <c>null</c>, not
+/// bridge's root, which is one. A window that does not exist yet crosses as JavaScript <c>null</c>, not
 /// as the <see cref="JsValue.Missing"/> the root holds, and that is kept rather than collapsed: the
 /// module asks <c>IsObject</c> in most places, which reads the two alike, but it also compares a
 /// target window against this member with handle equality, and there null and Missing are different
@@ -274,15 +235,11 @@ public sealed partial class DomBridge : IMessagingHost
 
     string IMessagingHost.PageOrigin => _pageOrigin;
 
-    // Both answer JsValue.Null for "no window" themselves now, so this is the delegation it reads
-    // as rather than a conversion around one.
+    // Both answer JsValue.Null for "no window" themselves, so this is a plain delegation.
     JsValue IMessagingHost.ResolveCurrentWindow() => ResolveCurrentWindow();
 
     JsValue IMessagingHost.ResolveOwnerWindow(JsValue target) => ResolveOwnerWindow(target);
 
-    // The unwrap this used to do bought one thing: it picked the engine-typed overload, which
-    // wrapped the same object straight back. That overload is gone and the handle travels as it
-    // stands, which is what the manager below has always taken.
     void IMessagingHost.RunWithWindowContext(JsValue targetWindow, Action callback) =>
         RunWithWindowContext(targetWindow, callback);
 
@@ -393,19 +350,10 @@ public sealed partial class DomBridge : IWorkerHost
 
 /// <summary>
 /// <see cref="DomBridge"/>'s implementation of <see cref="IFetchHost"/>, the narrow contract the
-/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.FetchBinding"/> feature module consumes
-/// (HtmlBridge complexity-reduction roadmap Phase 3, P3.11). Every member is an explicit interface
-/// implementation, so none of them widens the public <c>DomBridge</c> surface.
+/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.FetchBinding"/> feature module consumes.
+/// Every member is an explicit interface implementation, so none of them widens the public
+/// <c>DomBridge</c> surface.
 /// </summary>
-/// <remarks>
-/// <b>There was never an engine reference here, and the sentence that used to stand in this place
-/// counted wrong.</b> It said one was left and that the wrapper registry pinned it. What was left was
-/// a <c>JsInterop</c> crossing, and a crossing names no engine type: <c>eng/jseal-budget.json</c>
-/// counts the engine's namespace as text, and this file has never contributed a single occurrence of
-/// it. The crossing is gone too — the wrapper-to-node lookup takes the handle now, and the registry
-/// behind it is keyed on <see cref="JsValue.ObjectIdentity"/> rather than on an engine object — and
-/// nothing in <c>FetchBinding</c> changed when it went.
-/// </remarks>
 public sealed partial class DomBridge : IFetchHost
 {
     /// <inheritdoc />
@@ -450,13 +398,14 @@ public sealed partial class DomBridge : IFetchHost
 // The JavaScript vocabulary here is JSEAL's. A script element's program text is a CLASSIC SCRIPT,
 // so it is evaluated through IJsSource.EvaluateClassicScript.
 //
-// It used to go through the eval-gated member, and the argument for that was provenance: the text is
-// the page's and not this repository's, which is true and is not what decides the member. What
-// decides it is which Content-Security-Policy directive governs the source. A script element is
-// script-src's -- per script, satisfied by 'unsafe-inline', a nonce or a hash -- and the decision has
-// already been taken, by ScriptInsertionRunner, before this is called. 'unsafe-eval' governs eval and
-// new Function and has nothing to say about this text, so routing it through the eval-gated member
-// would have refused, on a realm narrowed by a restrictive policy, a script every browser runs.
+// It deliberately does NOT go through the eval-gated member. The argument for that would be
+// provenance -- the text is the page's and not this repository's -- which is true and is not what
+// decides the member. What decides it is which Content-Security-Policy directive governs the source.
+// A script element is script-src's -- per script, satisfied by 'unsafe-inline', a nonce or a hash --
+// and the decision has already been taken, by ScriptInsertionRunner, before this is called.
+// 'unsafe-eval' governs eval and new Function and has nothing to say about this text, so routing it
+// through the eval-gated member would refuse, on a realm narrowed by a restrictive policy, a script
+// every browser runs.
 //
 // The dispatch call is not engine-typed either: FireSimpleEvent builds its event through the realm,
 // and Features/EventDispatchBinding.cs's DispatchEventOnElement takes that handle as it is.
@@ -511,15 +460,12 @@ public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
 /// <summary>
 /// <see cref="DomBridge"/>'s implementation of <see cref="IMutationObserverHost"/>, the narrow
 /// contract the extracted <see cref="Broiler.HtmlBridge.Dom.Features.MutationObserverBinding"/>
-/// feature module consumes (HtmlBridge complexity-reduction roadmap Phase 3). Explicit interface
-/// members, so these seams do not widen the public <c>DomBridge</c> surface.
+/// feature module consumes. Explicit interface members, so these seams do not widen the public
+/// <c>DomBridge</c> surface.
 /// </summary>
 /// <remarks>
-/// <b>The wrapper cache the bridge keys on is not an engine one, and this said it was.</b>
-/// <c>Runtime/JsObjectRegistry</c> was re-typed onto <see cref="JsValue"/> and keys on
-/// <see cref="JsValue.ObjectIdentity"/>; with the reverse lookup taking a handle as well there is no
-/// cast left in this file. A record's <c>target</c> is the same wrapper instance a page already
-/// holds because it is the same handle, not because one was unwrapped and re-wrapped around it.
+/// <c>Runtime/JsObjectRegistry</c> keys on <see cref="JsValue.ObjectIdentity"/>. A record's
+/// <c>target</c> is the same wrapper instance a page already holds because it is the same handle.
 /// </remarks>
 public sealed partial class DomBridge : IMutationObserverHost
 {
@@ -563,15 +509,14 @@ public sealed partial class DomBridge : IMutationObserverHost
 /// <summary>
 /// <see cref="DomBridge"/>'s implementation of <see cref="IEventDispatchHost"/>, the narrow contract
 /// the extracted <see cref="Broiler.HtmlBridge.Dom.Features.EventDispatchBinding"/> feature module
-/// consumes (HtmlBridge complexity-reduction roadmap Phase 3, P3.3). Explicit interface members, so
+/// consumes. Explicit interface members, so
 /// these seams do not widen the public <c>DomBridge</c> surface.
 /// </summary>
 /// <remarks>
 /// The module speaks JSEAL, and so does every member here. The wrapper cache answers handles,
 /// and the document and window wrappers are the bridge's roots, which are the handles the realm
 /// minted, so all three forward without converting and <c>event.target === el</c> is the same
-/// question it always was. (This used to call all three engine objects, with a cast between them.)
-/// <c>InlineEventHandler</c> below reads a map of handles too; this called it the one crossing left.
+/// question it always was. <c>InlineEventHandler</c> below reads a map of handles too.
 /// </remarks>
 public sealed partial class DomBridge : IEventDispatchHost
 {
@@ -589,34 +534,22 @@ public sealed partial class DomBridge : IEventDispatchHost
         GetEventListeners(node);
 
     // The inline on* store holds handles, so the callability test is a read of the stored handle's kind
-    // and the module is handed that handle, not a second one minted over the same object. This comment
-    // used to say the test had to stay on the engine side because the store was a dictionary of engine
-    // values in a file this round did not own. The store's only other readers and writers were
-    // DomBridge/Events.cs and the IEventHandlerReflectorHost implementation below, and all three moved
-    // together. Anything that is not callable still answers Missing, as the failed type pattern did —
-    // and nothing stored can fail it, because both writers (CompileInlineEventAttribute, and the
-    // reflector's setter through its one caller) store only a handle that has answered IsFunction.
+    // and the module is handed that handle, not a second one minted over the same object. Anything
+    // that is not callable answers Missing — and nothing stored can fail the test, because both
+    // writers (CompileInlineEventAttribute, and the reflector's setter through its one caller) store
+    // only a handle that has answered IsFunction.
     JsValue IEventDispatchHost.InlineEventHandler(DomNode node, string eventType) =>
         GetInlineEventHandlers(node).TryGetValue(eventType, out var handler) && handler.IsFunction
             ? handler
             : JsValue.Missing;
 }
 
-// Explicit IEventTargetHost implementation for the EventTargetBinding feature module (Phase 3): the
-// bridge exposes the realm, the per-node listener store, the propagation engine and the window JS
-// object via explicit interface members, so the module reaches no arbitrary bridge private field and
-// the public surface is unchanged.
-//
-// A registration pair used to sit here too, and it was the seam the document and window contracts
-// shared: a registration's listener field was an engine value, so a handle became one here, through
-// ToEngineListenerValue in the IWindowEventTargetHost implementation. The record holds a handle now, so the
-// pair and the converter are deleted and EventTargetBinding calls Features/EventListenerBinding.cs
-// with its call frame's realm. The store GetEventListeners hands out has that record as its element
-// type, and the record no longer holds an engine value.
-//
-// An engine-typed DispatchEventOnElement sat beside the migrated one until this file said it was
-// what "the pre-realm wrapper path in DomBridge/JsObjects.cs still needs". That path does not name
-// this contract at all, and the member had no caller anywhere; it is deleted rather than ported.
+// Explicit IEventTargetHost implementation for the EventTargetBinding feature module: the bridge
+// exposes the realm, the per-node listener store, the propagation engine and the window JS object via
+// explicit interface members, so the module reaches no arbitrary bridge private field and the public
+// surface is unchanged. EventTargetBinding calls Features/EventListenerBinding.cs with its call
+// frame's realm; the store GetEventListeners hands out holds EventListenerRegistration, whose
+// listener field is a handle.
 public sealed partial class DomBridge : Dom.Features.IEventTargetHost
 {
     IJsRealm Dom.Features.IEventTargetHost.Realm => Realm;
@@ -637,33 +570,25 @@ public sealed partial class DomBridge : Dom.Features.IEventTargetHost
         => _formState.SetDirtyChecked(element, value);
 }
 
-// Explicit IEventHandlerReflectorHost implementation for the EventHandlerReflectorBinding feature module
-// (Phase 3): the bridge exposes the three things the reflector does to the live inline on* handler map
+// Explicit IEventHandlerReflectorHost implementation for the EventHandlerReflectorBinding feature module:
+// the bridge exposes the three things the reflector does to the live inline on* handler map
 // via explicit interface members, so the reflector module never reaches an arbitrary bridge private
 // field and the public surface is unchanged.
 //
-// The map holds JSEAL handles, and nothing here converts. This paragraph used to say the map held the
-// engine's own value type because three unowned files decided it — the declaration in
-// DomBridge/RuntimeStates.cs, the accessor in DomBridge.cs and the dispatch read in
-// the IEventDispatchHost implementation — and that the two casts in this file would go "when the record
-// moves". Those three, with DomBridge/Events.cs and this implementation, are every file that touches the map, so
-// nothing outside the change was deciding anything. It also called DomBridge/Events.cs the only writer
-// that went through the realm, when the setter below stored a realm-minted argument too. And the
-// record it meant, EventListenerRegistration, is a different declaration that shares
-// DomBridge/RuntimeStates.cs with the map; the casts did not wait for it.
+// The map holds JSEAL handles, and nothing here converts. Every file that touches it is in this
+// assembly: the declaration in DomBridge/RuntimeStates.cs, the accessor in DomBridge.cs, the dispatch
+// read in the IEventDispatchHost implementation, DomBridge/Events.cs and this implementation.
 public sealed partial class DomBridge : Dom.Features.IEventHandlerReflectorHost
 {
     JsValue Dom.Features.IEventHandlerReflectorHost.GetInlineEventHandler(DomNode node, string eventName) =>
         // Only functions are ever put in this map. It has two writers: CompileInlineEventAttribute in
         // DomBridge/Events.cs, which stores a compiled handler only when it answered IsFunction, and the
         // setter below, whose one caller, EventHandlerReflectorBinding.SetOn, stores only a handle that
-        // answered IsFunction and clears the entry otherwise. (This used to name the first writer as
-        // CompileInlineEventAttributes, the loop that runs when an element is first wrapped. That is one
-        // of three routes into it; the other two are the attribute-write paths in
-        // Features/AttributesBinding.cs.) So the object test is what turns nothing stored into the IDL
-        // attribute's null. The stored handle is returned as it is. The handle this used to mint over
-        // the same object compared equal to it: the provider and the bridge's seam both give an engine
-        // function kind Function, and a handle compares kind and then reference.
+        // answered IsFunction and clears the entry otherwise. CompileInlineEventAttribute is reached
+        // by three routes: the CompileInlineEventAttributes loop that runs when an element is first
+        // wrapped, and the two attribute-write paths in Features/AttributesBinding.cs. So the object
+        // test is what turns nothing stored into the IDL attribute's null, and the stored handle is
+        // returned as it is.
         GetInlineEventHandlers(node).TryGetValue(eventName, out var handler) && handler.IsObject
             ? handler
             : JsValue.Null;

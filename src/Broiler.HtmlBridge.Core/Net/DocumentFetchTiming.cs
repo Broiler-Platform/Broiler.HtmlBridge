@@ -12,16 +12,16 @@ namespace Broiler.HtmlBridge.Net;
 /// <para>
 /// It exists because <b>nothing below the CLI can measure this</b>. The document is retrieved by the
 /// capture host and handed to <c>DomBridge</c> as a string, so by the time the bridge — let alone the
-/// <c>performance</c> object — exists, the fetch is over. Those marks therefore reported <c>0</c>,
-/// which in Navigation Timing means "not observed" rather than "instantaneous"; the RUM arithmetic
-/// built on them yielded a number, but not a measurement.
+/// <c>performance</c> object — exists, the fetch is over. Without this type those marks report
+/// <c>0</c>, which in Navigation Timing means "not observed" rather than "instantaneous"; RUM
+/// arithmetic built on them yields a number, but not a measurement.
 /// </para>
 /// <para>
 /// <b>The time origin is the point of this type, not a detail of it.</b> A mark is a
 /// <c>DOMHighResTimeStamp</c> — milliseconds since the document's time origin — and the origin is the
-/// navigation's start (HR-Time §5). The bridge used to stamp its origin when it built the
-/// <c>performance</c> object, which is already <em>after</em> the fetch, so every real network mark
-/// would have been negative and clamped to the specification's floor of 0. Handing the host's origin
+/// navigation's start (HR-Time §5). A bridge that stamped its own origin when it built the
+/// <c>performance</c> object — already <em>after</em> the fetch — would make every real network mark
+/// negative and clamped to the specification's floor of 0. Handing the host's origin
 /// across is what makes the phases expressible at all; a bridge given one measures
 /// <c>performance.now()</c> and its lifecycle marks from the same instant, so a page comparing a
 /// network mark with a <c>now()</c> reading gets two points on one timeline.

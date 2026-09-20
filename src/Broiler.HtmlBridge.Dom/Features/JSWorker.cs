@@ -12,9 +12,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>This file used to be the one the messaging/worker group could not express, and the five things
-/// it said a contract would have to decide have each been decided.</b> They are recorded here because
-/// the answers are the interesting part, not the rename:
+/// <b>Five things a worker contract has to decide, and the answers this file gives:</b>
 /// </para>
 /// <list type="number">
 /// <item><description>
@@ -54,15 +52,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </description></item>
 /// </list>
 /// <para>
-/// <b>No engine type is named here at all.</b> The last one was an adapter that reached
-/// <c>DomBridge.RegisterDOMException</c> through the worker realm's own script context; that
-/// installer takes an <see cref="IJsRealm"/> now and is handed this worker's realm directly, which is
-/// also the more honest call — the constructor belongs to the realm it is installed in, and a worker
-/// has its own on its own thread.
+/// <b>No engine type is named here at all.</b> <c>DomBridge.RegisterDOMException</c> takes an
+/// <see cref="IJsRealm"/> and is handed this worker's realm directly, which is also the more honest
+/// call — the constructor belongs to the realm it is installed in, and a worker has its own on its
+/// own thread.
 /// </para>
 /// <para>
-/// <b>One thread, one realm, for the thread's whole life.</b> That is item #15's rule kept rather
-/// than bent: the realm is created on the worker thread, every script and every handler runs on that
+/// <b>One thread, one realm, for the thread's whole life.</b> The realm is created on the worker
+/// thread, every script and every handler runs on that
 /// thread, and it is disposed there. Nothing outside ever evaluates in it. The page and the worker
 /// meet only at two concurrent queues.
 /// </para>

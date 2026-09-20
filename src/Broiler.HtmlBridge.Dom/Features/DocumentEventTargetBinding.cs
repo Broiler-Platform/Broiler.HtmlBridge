@@ -5,21 +5,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The <c>document</c> EventTarget methods — <c>document.addEventListener</c>,
 /// <c>document.removeEventListener</c>, <c>document.dispatchEvent</c> — co-located as an HtmlBridge
-/// feature module (Phase 3). Each resolves the document node's per-type listener store and applies the
-/// add/remove via the P3.4 <see cref="EventListenerBinding"/> operations, or runs the capture→target→
+/// feature module. Each resolves the document node's per-type listener store and applies the
+/// add/remove via the <see cref="EventListenerBinding"/> operations, or runs the capture→target→
 /// bubble dispatch via the bridge's shared algorithm. The document node, listener store and dispatch
-/// are reached through the <see cref="IDocumentEventTargetHost"/> contract.
-/// Previously the bridge's <c>JsRegistrationAddEventListener060Core</c>/<c>RemoveEventListener061Core</c>/<c>DispatchEvent062Core</c>
-/// in the shared JsFunctionCallbacks/Registration.cs grab-bag. (The window and visualViewport EventTarget
-/// wiring, which use different listener stores and dispatch paths, are separate concerns.)
+/// are reached through the <see cref="IDocumentEventTargetHost"/> contract. (The window and
+/// visualViewport EventTarget wiring, which use different listener stores and dispatch paths, are
+/// separate concerns.)
 /// </summary>
 /// <remarks>
 /// The call frame is JSEAL's -- <c>DomBridge/Registration/Document.cs</c> mints all three through the
-/// realm -- and so is everything behind it now. The add/remove semantics take the realm the frame
-/// carries and a listener record that holds a <see cref="JsValue"/>. They used to be reached through the
-/// contract, whose implementation converted a handle into the engine value that record held, and that
-/// pair of members is deleted. The event-type coercion below is the realm's <c>ToJsString</c>, which is
-/// the observable ECMAScript <c>ToString</c> the engine's <c>a[0].ToString()</c> ran here before.
+/// realm -- and so is everything behind it. The add/remove semantics take the realm the frame
+/// carries and a listener record that holds a <see cref="JsValue"/>. The event-type coercion below is
+/// the realm's <c>ToJsString</c>, the observable ECMAScript <c>ToString</c>.
 /// </remarks>
 internal static class DocumentEventTargetBinding
 {

@@ -16,16 +16,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>One vocabulary now, because both consumers speak it.</b> The three <c>ParentNode</c> members are
+/// <b>One vocabulary, because both consumers speak it.</b> The three <c>ParentNode</c> members are
 /// installed on <c>Element.prototype</c> by <c>DomBridge/ElementInterface.cs</c> and the five
 /// <c>Node</c> members stay each wrapper's own property, installed by <c>DomBridge/JsObjects.cs</c>;
 /// both mint through the realm, so every operation arrives on a <see cref="JsCall"/> and reads its
-/// arguments through <see cref="BuildChildNodeArgumentNodes"/>. The three members that existed only
-/// for the engine frame — a script context for the DOM-exception thrower, a wrapper resolver taking
-/// the engine's object, and a second argument reading over the engine's own frame — are gone with it.
-/// <see cref="FindNode"/> is the surviving resolver, named for what it answers rather than for the
-/// engine type it used to take, the way <c>INodeRelationshipsHost</c> and <c>ITraversalHost</c> spell
-/// it.
+/// arguments through <see cref="BuildChildNodeArgumentNodes"/>. <see cref="FindNode"/> is the one
+/// resolver, and there is one argument reading.
 /// </para>
 /// </remarks>
 internal interface ITreeMutationHost

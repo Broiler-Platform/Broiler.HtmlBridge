@@ -5,17 +5,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The Web Crypto <c>crypto</c> object — the <c>getRandomValues</c> and <c>randomUUID</c> subset —
-/// co-located as an HtmlBridge feature module (Phase 3). It fills a caller-supplied typed array
+/// co-located as an HtmlBridge feature module. It fills a caller-supplied typed array
 /// with random bytes and mints v4-style UUIDs, touching no bridge instance state, so — like
 /// <c>ConsoleBinding</c> / <c>ClassListBinding</c> — it is a pure static class with no host
-/// contract. Previously the <c>crypto</c> object was built inline in the bridge's
-/// <c>RegisterSecurityAndConstructorPolyfills</c> and its <c>getRandomValues</c> callback lived in
-/// the shared JsFunctionCallbacks/Registration.cs grab-bag.
+/// contract.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the caller's array is reached
-/// through the realm's ordinary property get and set, which is the same <c>[[Get]]</c>/<c>[[Set]]</c>
-/// path the engine indexer took, so a typed array's element writes still land where they did.
+/// through the realm's ordinary property get and set — the ECMAScript <c>[[Get]]</c>/<c>[[Set]]</c>
+/// path — so a typed array's element writes land on its elements.
 /// </remarks>
 internal static class CryptoBinding
 {

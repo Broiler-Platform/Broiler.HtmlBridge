@@ -4,7 +4,7 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The narrow surface the co-located sub-window feature (<see cref="SubWindowBinding"/>, P3.17) needs
+/// The narrow surface the co-located sub-window feature (<see cref="SubWindowBinding"/>) needs
 /// from the bridge: the realm, the top-level window object, the sub-document builder it wraps (mutual
 /// recursion), the browsing-context tree/link queries, sub-resource URL resolution, the scroll-geometry
 /// read/write helpers, computed-style construction, and the parent realm's globals. Implemented by
@@ -15,7 +15,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The contract names no engine type: a JS object is a <see cref="JsValue"/> and the scroll arguments
-/// arrive as the migrated call frame's own values. One member <em>name</em> still carries the
+/// arrive as the call frame's own values. One member <em>name</em> still carries the
 /// engine's word for a frame; see the remarks on it.
 /// </remarks>
 internal interface ISubWindowHost

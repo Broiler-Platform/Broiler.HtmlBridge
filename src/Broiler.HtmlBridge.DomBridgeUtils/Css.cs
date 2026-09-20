@@ -43,11 +43,10 @@ public static partial class DomBridgeUtils
     /// facade's <c>LegacyChildList</c> projection, since removed, failed a second
     /// way as well: its <c>Count</c>-sized <c>CopyTo</c> overflowed when another
     /// thread appended in between, throwing <see cref="ArgumentException"/>
-    /// ("Destination array was not long enough" — signature
-    /// <c>DomBridge.CollectStyleElementsInTree</c>). Either previously aborted
-    /// style collection for the whole tree, leaving the document unstyled; both
-    /// are still caught. Retry a bounded number of times, then fall back to a
-    /// tolerant index walk.
+    /// ("Destination array was not long enough"). Either previously aborted style
+    /// collection for the whole tree, leaving the document unstyled; both are still
+    /// caught.
+    /// Retry a bounded number of times, then fall back to a tolerant index walk.
     /// </remarks>
     internal static List<DomElement> SnapshotChildren(DomElement root)
     {
@@ -135,10 +134,8 @@ public static partial class DomBridgeUtils
     /// <summary>
     /// Expands CSS shorthand properties into individual longhand properties (e.g.
     /// <c>margin: 10px 5px</c> → <c>margin-top/right/bottom/left</c>), only setting longhands
-    /// not already present. DOM/CSS promotion Phase 2: this now delegates to the single canonical
-    /// <see cref="CssStyleEngine.ExpandShorthands"/> — the bridge's own copy (which
-    /// had drifted to a narrower subset: no <c>outline</c>, no <c>font</c> slash line-height, and a
-    /// single-layer <c>background</c> parser) is deleted so it can no longer drift from the engine.
+    /// not already present. Delegates to the single canonical
+    /// <see cref="CssStyleEngine.ExpandShorthands"/>, so the expansion cannot drift from the engine's.
     /// </summary>
     internal static void ExpandCssShorthands(Dictionary<string, string> computed)
         => CssStyleEngine.ExpandShorthands(computed);
@@ -158,11 +155,11 @@ public static partial class DomBridgeUtils
     /// length.
     /// </summary>
     /// <remarks>
-    /// This used to search the raw <c>style</c> text for the first occurrence of the name and read
-    /// up to the next <c>;</c>. That found <c>width</c> inside <c>max-width</c> and
-    /// <c>border-width</c> and <c>height</c> inside <c>line-height</c>, read declarations out of
-    /// comments, took the first of two declarations where CSS takes the last, and read
-    /// <c>450px !important</c> as no length at all. The map is the one the element's own inline style
+    /// Searching the raw <c>style</c> text for the first occurrence of the name and reading up to the
+    /// next <c>;</c> would find <c>width</c> inside <c>max-width</c> and <c>border-width</c> and
+    /// <c>height</c> inside <c>line-height</c>, read declarations out of comments, take the first of
+    /// two declarations where CSS takes the last, and read <c>450px !important</c> as no length at
+    /// all. The map is the one the element's own inline style
     /// is built from, so the declarations are parsed and validated exactly as that style's are, and a
     /// declaration the renderer drops is not read here either. <see cref="ParseStyle"/> keeps
     /// <c> !important</c> on the value, hence the strip.

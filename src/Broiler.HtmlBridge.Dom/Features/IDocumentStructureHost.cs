@@ -16,8 +16,7 @@ internal interface IDocumentStructureHost
     /// </summary>
     /// <remarks>
     /// The bridge answers the handle it caches for the node, and that handle carries the same object on
-    /// every call, so <c>document.body === document.body</c> is the same question it was before this
-    /// contract changed vocabulary. (This said the wrapper was an engine object.)
+    /// every call, so <c>document.body === document.body</c>.
     /// </remarks>
     JsValue ToJsObject(DomNode node);
 

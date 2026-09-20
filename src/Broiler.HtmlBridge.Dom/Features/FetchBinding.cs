@@ -7,31 +7,28 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The networking feature binding module (HtmlBridge complexity-reduction roadmap Phase 3, P3.11).
+/// The networking feature binding module.
 /// It co-locates the whole <c>fetch</c> / <c>XMLHttpRequest</c> surface: the <c>fetch</c> polyfill and
 /// its <c>Headers</c>/<c>Request</c>/<c>Response</c>/<c>FormData</c>/<c>Blob</c>/<c>AbortController</c>
 /// helper objects, the <c>Response</c> static factories and the <c>XMLHttpRequest</c> polyfill. Host
-/// I/O goes through the injected Phase 2 <see cref="ResourceLoader"/> — the "no feature callback
-/// constructs an <c>HttpClient</c>" seam Phase 7 builds on — and the other bridge couplings (the page
-/// URL used to resolve <c>Response.redirect</c> relative URLs, the realm, and the blob/stream objects
-/// other modules own) are reached through the narrow <see cref="IFetchHost"/> contract. The
-/// non-networking registrations that historically lived in this method (<c>MessageChannel</c>,
-/// <c>getComputedStyle</c>) were moved back to the window-globals registration site.
+/// I/O goes through the injected <see cref="ResourceLoader"/> — the "no feature callback constructs
+/// an <c>HttpClient</c>" seam — and the other bridge couplings (the page URL used to resolve
+/// <c>Response.redirect</c> relative URLs, the realm, and the blob/stream objects other modules own)
+/// are reached through the narrow <see cref="IFetchHost"/> contract.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), <c>ArrayBuffer</c> included: the
 /// body readers mint one with <see cref="IJsValues.NewArrayBuffer"/>, as <c>StreamsBinding</c> and
-/// <c>BlobBinding</c> do. (This said <see cref="IJsValues"/> had no member for one.)
+/// <c>BlobBinding</c> do.
 /// </para>
 /// <para>
 /// <b>Every member of these objects is installed as a constructable function, and that is preserved
-/// rather than fixed.</b> The surface was built with <c>JSFunction</c> throughout — not the bridge's
-/// <c>DomFunction</c> — so <c>headers.get.prototype</c> is an object and <c>new headers.get()</c>
-/// does not throw, where a browser's <c>Headers.prototype.get</c> is not constructable. That is a
-/// pre-existing deviation, and <see cref="IJsValues.NewConstructor"/> is the faithful spelling of it;
-/// migrating it to <see cref="IJsValues.NewMethod"/> would have been a behaviour change smuggled into
-/// a refactor.
+/// rather than fixed.</b> The surface is built with plain functions throughout, so
+/// <c>headers.get.prototype</c> is an object and <c>new headers.get()</c> does not throw, where a
+/// browser's <c>Headers.prototype.get</c> is not constructable. That is a long-standing deviation,
+/// and <see cref="IJsValues.NewConstructor"/> is the faithful spelling of it; switching to
+/// <see cref="IJsValues.NewMethod"/> would be a behaviour change, not a tidy-up.
 /// </para>
 /// </remarks>
 internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resources)
@@ -44,11 +41,10 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
     /// installed.
     /// </summary>
     /// <remarks>
-    /// The two were the engine's <c>JSJSON</c> statics, which are the intrinsics and cannot be
-    /// reached through the page's <c>globalThis.JSON</c>. Reading them at registration — before a
-    /// page's first script runs — is what keeps that true through a contract that has no JSON
-    /// member: a page that later replaces <c>JSON</c> changes what its own code sees and not what a
-    /// <c>response.json()</c> does, exactly as before.
+    /// These are the intrinsics, not whatever the page's <c>globalThis.JSON</c> holds. Reading them
+    /// at registration — before a page's first script runs — is what keeps that true through a
+    /// contract that has no JSON member: a page that later replaces <c>JSON</c> changes what its own
+    /// code sees and not what a <c>response.json()</c> does.
     /// </remarks>
     private JsValue _jsonParse;
 
@@ -241,7 +237,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         if (string.IsNullOrWhiteSpace(redirectUrl))
             throw realm.Error(JsErrorKind.Error, "Failed to execute 'redirect' on 'Response': Invalid URL");
 
-        // fetch adopts the one shared resolver (Phase 7 item 4) — absolute stays, relative resolves
+        // fetch uses the one shared resolver — absolute stays, relative resolves
         // against the page URL; an unresolvable URL is the spec's "Invalid URL" TypeError.
         return (UrlResolver.Resolve(redirectUrl, _host.PageUrl)
                 ?? throw realm.Error(JsErrorKind.Error, "Failed to execute 'redirect' on 'Response': Invalid URL"))

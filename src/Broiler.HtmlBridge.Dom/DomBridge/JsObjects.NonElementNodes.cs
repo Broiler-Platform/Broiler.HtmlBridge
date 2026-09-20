@@ -6,8 +6,8 @@ using static Broiler.HtmlBridge.DomBridgeHostUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Sibling partial peeled out of <c>JsObjects.cs</c> (Phase 3 ratchet, 2026-07-17) to keep it under
-/// the 750-line guard: the non-element node JS-wrapper populators. Builds the minimal JS surface for
+/// Sibling partial peeled out of <c>JsObjects.cs</c> to keep it under
+/// the 750-line guideline: the non-element node JS-wrapper populators. Builds the minimal JS surface for
 /// canonical character-data nodes (<c>DomText</c>/<c>DomComment</c>), <c>DocumentType</c>, and
 /// <c>DocumentFragment</c> — the counterparts to the element wrapper that <see cref="WrapNode"/>
 /// (still in <c>JsObjects.cs</c>) dispatches to for these node kinds. Pure partial-class
@@ -31,24 +31,20 @@ namespace Broiler.HtmlBridge;
 /// and unwraps nothing.
 /// </para>
 /// <para>
-/// <c>ChildNodeBinding</c>, the variadic <c>append</c>/<c>prepend</c> reader and
-/// <c>FindInDescendants</c> have all migrated: the search answers a handle, so the fragment's two
-/// selector members are the realm's over it. (This said the search had not, and was engine-typed.)
+/// <c>FindInDescendants</c> answers a handle, so the fragment's two selector members are the realm's
+/// over it.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
 {
     /// <summary>
-    /// RF-BRIDGE-1c Phase F (F3c): the JS wrapper for a canonical <c>DomText</c>/<c>DomComment</c>,
-    /// which every text and comment node has been since construction flipped — the members a
-    /// character-data node exposes (no tagName/style/attributes/querySelector/form/iframe surface).
+    /// The JS wrapper for a canonical <c>DomText</c>/<c>DomComment</c> — the members a character-data
+    /// node exposes (no tagName/style/attributes/querySelector/form/iframe surface).
     /// Populated onto the already-cached <paramref name="handle"/> (the caller registers it in the
     /// <c>JsObjectRegistry</c> before calling, so re-entrant <see cref="WrapNode"/> lookups resolve).
     /// With the interfaces registered it installs nothing: the Node, CharacterData, Text and ChildNode
     /// members are inherited, and <c>EventTarget.prototype</c> routes the three listener methods. Only a
-    /// wrapper minted before that installs them, and the Node constants, as its own. (This listed the
-    /// ChildNode and EventTarget members as the wrapper's, called it dead code until the F3c flip, and
-    /// said it did not yet expose <c>surroundContents</c>-style element-only range members.)
+    /// wrapper minted before that installs them, and the Node constants, as its own.
     /// </summary>
     private void PopulateCharacterDataWrapper(JsValue handle, DomNode node)
     {
@@ -220,7 +216,7 @@ public sealed partial class DomBridge
 
         // -- ChildNode mixin --
         // The realm's: ChildNodeBinding reads a JsCall frame at one entry point per operation, which
-        // this file, NodeInterfaces.cs and ElementInterface.cs all share. (This named two.)
+        // this file, NodeInterfaces.cs and ElementInterface.cs all share.
         Realm.DefineValue(handle, "remove",
             Realm.NewMethod("remove",
                 (in call) => Dom.Features.ChildNodeBinding.Remove(this, node, in call)));
@@ -243,7 +239,7 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Builds the JS wrapper for a canonical <see cref="DomDocumentType"/> node (Phase 4 item 1).
+    /// Builds the JS wrapper for a canonical <see cref="DomDocumentType"/> node.
     /// A DocumentType is a leaf Node with the ChildNode mixin and DocumentType-specific
     /// <c>name</c>/<c>publicId</c>/<c>systemId</c>/<c>internalSubset</c> — it deliberately does NOT get
     /// the element surface (attributes/style/children) it inherited while it was a <c>#doctype</c>
@@ -276,8 +272,7 @@ public sealed partial class DomBridge
         Realm.DefineAccessor(handle, "systemId",
             (in call) => Dom.Features.NodeAccessorsBinding.GetSystemId(node, in call), null);
 
-        // internalSubset is always null — this parser keeps no subset. It was the bridge's shared
-        // NullFunction factory, which mints a constructable engine function; the realm's accessor is
+        // internalSubset is always null — this parser keeps no subset. The realm's accessor is
         // non-constructable, which is what WebIDL says an attribute getter is.
         Realm.DefineAccessor(handle, "internalSubset", (in _) => JsValue.Null, null);
 
@@ -351,9 +346,7 @@ public sealed partial class DomBridge
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
         // routed by receiver (DomBridge/Events.cs) — one function for every target, as
         // in a browser. A wrapper minted before the realm carried it installs its own, through the
-        // realm, exactly as the routed path does. (This said the three were "the engine's, because
-        // EventTargetBinding reads the engine's argument frame". It does not: that binding's
-        // AddListener takes a handle on both sides.)
+        // realm, exactly as the routed path does.
         if (!_eventTargetRoutingReady)
         {
 
@@ -377,7 +370,7 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Builds the JS wrapper for a canonical <see cref="DomDocumentFragment"/> (Phase 4 item 1). A
+    /// Builds the JS wrapper for a canonical <see cref="DomDocumentFragment"/>. A
     /// fragment is a non-element container: it gets the Node base + ParentNode mixin + child-
     /// manipulation surface, but NOT the element-only surface (attributes/style/tagName) it inherited
     /// while it was a <c>#document-fragment</c> sentinel element. Node-generic members reuse the same
@@ -513,8 +506,7 @@ public sealed partial class DomBridge
             }, 2));
         // append/prepend read the whole variadic list — nodes and strings alike — through the bridge's
         // ISubDocumentHost reading of it, which every other host's BuildChildNodeArgumentNodes forwards
-        // to and which coerces each non-node argument with the realm's ToString as `value.ToString()`
-        // did. (This named an engine-framed BuildChildNodeArgumentNodes beside it; none is left.)
+        // to and which coerces each non-node argument with the realm's ToString.
         Realm.DefineValue(handle, "append",
             Realm.NewMethod("append", (in call) =>
             {
@@ -541,9 +533,8 @@ public sealed partial class DomBridge
         // -- Query --
         // The descendant search answers a handle — a wrapper, a static NodeList, or null — and
         // FromEngineResult, the object-or-null filter the element forms share, passes it through as it
-        // is. (This said the search answered an engine value because DomBridge/Utilities.cs had not
-        // migrated.) The selector is read with the realm's ToString, which is what the engine frame's
-        // `a[0].ToString()` performed: a selector object runs its own toString.
+        // is. The selector is read with the realm's ToString, so a selector object runs its own
+        // toString.
         Realm.DefineValue(handle, "querySelector",
             Realm.NewMethod("querySelector",
                 (in call) => FromEngineResult(FindInDescendants(

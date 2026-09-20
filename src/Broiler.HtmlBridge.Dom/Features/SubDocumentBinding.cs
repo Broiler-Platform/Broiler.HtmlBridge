@@ -4,8 +4,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The nested-browsing-context <c>document</c> object feature binding (HtmlBridge complexity-reduction
-/// roadmap Phase 3, P3.13) — the JS <c>document</c> surface built over a sub-document root node
+/// The nested-browsing-context <c>document</c> object feature binding — the JS <c>document</c>
+/// surface built over a sub-document root node
 /// (an <c>&lt;iframe&gt;</c>/<c>&lt;object&gt;</c>/<c>&lt;frame&gt;</c> content document, a
 /// <c>createDocument</c>/<c>createHTMLDocument</c> result, or the <c>DOMImplementation</c> factories on
 /// the main document): documentElement/body/head/title/forms/childNodes, getElementById/
@@ -13,12 +13,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// ElementNS/Event, open/write, images/links/styleSheets, appendChild/removeChild/append/prepend,
 /// <c>document.implementation</c> and createRange/TreeWalker/NodeIterator.
 /// <para>
-/// This slice is what P4.4b unblocked: after the <c>#subdoc-root</c> sentinel was severed, a
-/// sub-document root is a canonical <see cref="Broiler.Dom.DomNode"/>/<see cref="Broiler.Dom.DomDocument"/>,
+/// A sub-document root is a canonical <see cref="Broiler.Dom.DomNode"/>/<see cref="Broiler.Dom.DomDocument"/>,
 /// so the whole surface operates cleanly over a <c>DomNode docRoot</c>. The browsing-context
-/// state (the sub-document/-window caches and the content-document maps) is the P3.16
+/// state (the sub-document/-window caches and the content-document maps) is
 /// <c>BrowsingContextManager</c>'s and the sub-<em>window</em> object <c>SubWindowBinding</c>'s; resource
-/// loading and onload dispatch stay bridge-owned (this said all of it did, pending that manager);
+/// loading and onload dispatch stay bridge-owned;
 /// the module reaches the bridge only through the explicit <see cref="ISubDocumentHost"/> contract and
 /// the assembly's neutral static <c>DomBridge</c> tree/selector helpers.
 /// </para>
@@ -165,9 +164,9 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         realm.DefineValue(doc, "open",
             realm.NewMethod("open", (in _) => Open(doc, docRoot), 0));
 
-        // document.close() — a no-op, and constructable: the shared `UndefinedFunction` helper it was
-        // built by minted plain function objects rather than bridge methods, so `new document.close()`
-        // does not throw. A pre-existing deviation from the interface, spelled faithfully.
+        // document.close() — a no-op, and constructable: it is minted as a plain function object
+        // rather than a bridge method, so `new document.close()` does not throw. A pre-existing
+        // deviation from the interface, spelled faithfully.
         realm.DefineValue(doc, "close",
             realm.NewConstructor("close", (in _) => JsValue.Undefined, 0));
 
@@ -423,8 +422,8 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     /// containing document's is.
     /// </summary>
     /// <remarks>
-    /// It includes every node type, notably the canonical <see cref="DomDocumentType"/> — which is no
-    /// longer a <see cref="DomElement"/> after Phase 4 item 1, so <c>ChildElements</c> would wrongly
+    /// It includes every node type, notably the canonical <see cref="DomDocumentType"/> — which is not
+    /// a <see cref="DomElement"/>, so <c>ChildElements</c> would wrongly
     /// drop it. That matches the sub-document's <c>firstChild</c> (the raw first child) and the main
     /// document's <c>childNodes</c>.
     /// </remarks>
@@ -576,9 +575,8 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
     /// </summary>
     /// <remarks>
     /// The realm's <c>ToNumber</c>, not the handle's <c>AsNumber</c>: <c>elementFromPoint("10", "20")</c>
-    /// is a page passing strings, and the engine's own numeric view of an argument — which the shared
-    /// <c>GetCoordinateArgument</c> this replaces read directly — is that coercion. It is spelled here
-    /// rather than on the host because it reads nothing but the call frame.
+    /// is a page passing strings, and the realm's coercion is the one ECMAScript performs. It is
+    /// spelled here rather than on the host because it reads nothing but the call frame.
     /// </remarks>
     private static double Coordinate(in JsCall call, int index) =>
         call.Length > index && !call[index].IsNullish ? call.Realm.ToNumber(call[index]) : double.NaN;

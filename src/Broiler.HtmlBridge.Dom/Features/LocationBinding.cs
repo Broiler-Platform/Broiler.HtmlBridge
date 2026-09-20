@@ -2,8 +2,7 @@
 using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 
-// Nothing here is engine-typed. This said the Build(string) overload and the installer beneath it
-// were, for one caller asking for an engine object from a static; both are gone, and so is that call.
+// Nothing here is engine-typed.
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -70,11 +69,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>Registration/Window.cs</c> builds the top-level Location through the realm and passes both to
 /// <see cref="AddNavigationSurface(IJsRealm, JsValue, string, ILocationHost?)"/>, which is the whole of
 /// that path. A frame's Location, asked for by <c>SubWindowBinding</c>, is
-/// <see cref="Build(IJsRealm, string)"/>, which takes the realm and is entirely realm-framed. This
-/// paragraph said an engine-typed <c>Build(string)</c> survived beneath it, because that one caller
-/// still asked for an engine object and a static has no realm to conjure. The overload is gone, the
-/// caller passes the realm it already held, and nothing in this file is left in engine terms.
-/// The <em>logic</em> is not
+/// <see cref="Build(IJsRealm, string)"/>, which takes the realm and is entirely realm-framed.
+/// Nothing in this file is left in engine terms. The <em>logic</em> is not
 /// duplicated either way: every installer hands the same <see cref="DocumentUrl"/> to the same
 /// <see cref="NavigateTo"/>/<see cref="Request"/> pair, and only the six installations and the two
 /// argument reads differ.
@@ -94,8 +90,7 @@ internal static class LocationBinding
         internal DocumentUrl(string href)
         {
             Href = href;
-            // The fragment of an absolute URL and nothing at all otherwise — matching what the two
-            // call sites defined for `hash` before this class held it.
+            // The fragment of an absolute URL and nothing at all otherwise.
             Fragment = Uri.TryCreate(href, UriKind.Absolute, out var uri) ? uri.Fragment : string.Empty;
         }
 
@@ -112,8 +107,7 @@ internal static class LocationBinding
 
     /// <summary>
     /// Builds the Location for a document at <paramref name="href"/>. The components are derived
-    /// from the URL when it is absolute; when it is not, only what can be known is defined —
-    /// matching what the two call sites did before this module existed.
+    /// from the URL when it is absolute; when it is not, only what can be known is defined.
     /// </summary>
     /// <remarks>
     /// No host is passed on to the navigation surface: this builds a <em>frame's</em> Location, and

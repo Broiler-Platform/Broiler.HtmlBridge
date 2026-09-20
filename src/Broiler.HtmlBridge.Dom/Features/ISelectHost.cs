@@ -4,23 +4,19 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The narrow bridge services the <see cref="SelectBinding"/> feature module needs (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.8). The select algorithms (option collection, selected
-/// index and value resolution) move into the module, but the per-element form-control state they
+/// The narrow bridge services the <see cref="SelectBinding"/> feature module needs. The select
+/// algorithms (option collection, selected
+/// index and value resolution) live in the module, but the per-element form-control state they
 /// read/write — the select's dirty selected index, an option's IDL value, an option's
 /// default-selected flag — lives in the bridge's <c>FormControlRuntimeState</c> table. It is
-/// exposed here as named primitives (the P3.7 pattern) so the module never touches the runtime-state
+/// exposed here as named primitives so the module never touches the runtime-state
 /// object, plus the realm and JS-wrapper identity/lookup for the <c>add()</c> and <c>options</c>
 /// members.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. <see cref="WrapNode"/> and <see cref="FindElement"/> were <c>ToJSObject</c> and
-/// <c>FindDomElementByJSObject</c>, and this used to call the second of those "an engine reference
-/// too". It is not one the ratchet can see: <c>eng/jseal-budget.json</c> counts the engine's namespace
-/// as text, and a method name spells no namespace — the bridge-side member still carries the old name,
-/// still takes what it now takes, and measures zero either way. The renames were worth making for what
-/// a reader takes from them, which is the honest argument and a different one.
+/// type. The rename is contract-side only: the bridge member behind <see cref="FindElement"/> is
+/// still spelled <c>FindDomElementByJSObject</c>, and takes what it takes here.
 /// </remarks>
 internal interface ISelectHost
 {

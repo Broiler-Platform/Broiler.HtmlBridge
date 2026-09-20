@@ -5,15 +5,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The <c>document</c> structural accessors — <c>document.body</c>, <c>document.head</c> (getters
 /// returning the first matching child of the documentElement) and <c>document.title</c> (get/set) —
-/// co-located as an HtmlBridge feature module (Phase 3). The document root, wrapper factory and title
+/// co-located as an HtmlBridge feature module. The document root, wrapper factory and title
 /// are reached through the narrow <see cref="IDocumentStructureHost"/> contract; child enumeration
-/// uses the bridge's neutral <c>internal static</c> <c>ChildElements</c> directly. Previously the
-/// bridge's <c>JsRegistrationGetBody002Core</c>/<c>GetHead003Core</c>/<c>SetTitle005Core</c> (and the
-/// inline title getter) in the shared JsFunctionCallbacks/Registration.cs grab-bag.
+/// uses the bridge's neutral <c>internal static</c> <c>ChildElements</c> directly.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type: the realm arrives on the call frame, and the host hands back the wrapper it has always cached
+/// type: the realm arrives on the call frame, and the host hands back the wrapper it caches
 /// for the node, as a <see cref="JsValue"/> handle.
 /// </remarks>
 internal static class DocumentStructureBinding

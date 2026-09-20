@@ -5,18 +5,15 @@ using Broiler.Layout.Net;
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// The document's host resource loader (HtmlBridge complexity-reduction roadmap Phase 2, P2.6): the
+/// The document's host resource loader: the
 /// one place that performs sub-resource HTTP requests and knows the optional local base path for
-/// resolving relative URLs to files. It replaces the process-static <c>HttpClient</c> that feature
-/// callbacks reached into directly, so — per the roadmap's dependency rules — a feature callback no
-/// longer constructs or references an <c>HttpClient</c>; it asks the loader.
+/// resolving relative URLs to files. A feature callback does not construct or reference an
+/// <c>HttpClient</c>; it asks the loader.
 /// </summary>
 /// <remarks>
-/// The <c>HttpClient</c> is shared across the process (as the bridge's static client was) so many
+/// The <c>HttpClient</c> is shared across the process so many
 /// documents do not each open a socket pool; the per-document loader instance carries only the local
-/// base path. This is the seam Phase 7 builds on to route scripts, stylesheets, fetch, XHR and frames
-/// through one loader with explicit file/data/http policy, CSP and cancellation — none of which lives
-/// here yet.
+/// base path.
 /// </remarks>
 internal sealed class ResourceLoader
 {
@@ -62,15 +59,14 @@ internal sealed class ResourceLoader
 
     /// <summary>
     /// Loads an absolute <paramref name="url"/> as text, applying the file/http dispatch policy in one
-    /// place (Phase 7 item 4): a <c>file://</c> URL is read from disk, <c>http(s)</c> is fetched via the
+    /// place: a <c>file://</c> URL is read from disk, <c>http(s)</c> is fetched via the
     /// shared client. Returns <c>null</c> for a non-absolute URL, an unsupported scheme, or a missing
-    /// file. I/O exceptions propagate so the caller can log with its own context. This replaces the
-    /// file/http switch that stylesheet/sub-resource feature callbacks used to inline.
+    /// file. I/O exceptions propagate so the caller can log with its own context.
     /// </summary>
     public string? LoadText(string url) =>
-        // Consume side of the prefetch/consume split (multithreading roadmap item #2): identical
-        // policy and identical result, but a URL that was prefetched has been in flight since the
-        // document named it rather than starting its round trip here.
+        // Consume side of the prefetch/consume split: identical policy and identical result, but a
+        // URL that was prefetched has been in flight since the document named it rather than
+        // starting its round trip here.
         _prefetcher is { } prefetcher && prefetcher.IsPending(url)
             ? prefetcher.Consume(url)
             : LoadTextDirect(url);
@@ -121,7 +117,6 @@ internal sealed class ResourceLoader
     /// <summary>
     /// Issues concurrent requests for text sub-resources this document is going to load — external
     /// stylesheets, above all — so <see cref="LoadText"/> blocks on a request already in flight.
-    /// Multithreading roadmap item #2.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -134,7 +129,7 @@ internal sealed class ResourceLoader
     /// <paramref name="minimumToOverlap"/> is how many URLs make the call worth making, and the
     /// answer depends on what the requests are being overlapped <em>with</em>. The post-parse
     /// caller (the collected sheet list) overlaps them only with each other, so one URL buys
-    /// nothing and the default is two. The speculative preload scan (item #17) overlaps them with
+    /// nothing and the default is two. The speculative preload scan overlaps them with
     /// the parse itself, which has not started when it calls, so there one URL is worth issuing and
     /// it passes 1.
     /// </para>
@@ -155,10 +150,10 @@ internal sealed class ResourceLoader
     /// The document's prefetcher, created on first use.
     /// </summary>
     /// <remarks>
-    /// <b>Published atomically, because the callers are no longer all on one thread.</b> Item #17's
+    /// <b>Published atomically, because the callers are not all on one thread.</b> The speculative
     /// scan calls <see cref="Prefetch"/> from a worker while the parse it overlaps may reach the
-    /// post-parse stylesheet call on the main thread, so <c>??=</c> here would be the exact lazy-init
-    /// race the Phase 2 findings record (§1): two prefetchers built, one published, and every
+    /// post-parse stylesheet call on the main thread, so <c>??=</c> here would be a lazy-init
+    /// race: two prefetchers built, one published, and every
     /// request issued into the one that lost. The loser is discarded before it has issued anything —
     /// <see cref="SubResourcePrefetcher"/> starts requests in <c>Prefetch</c>, not in its
     /// constructor — so the cost of losing is an allocation.
@@ -181,7 +176,7 @@ internal sealed class ResourceLoader
 
     /// <summary>
     /// Reads a local file <paramref name="path"/> as a sub-resource, applying the file read + MIME policy
-    /// in one place (Phase 7 item 4) so a sub-document/object feature callback no longer inlines a
+    /// in one place, so a sub-document/object feature callback does not inline a
     /// <c>File.Exists</c>/<c>File.ReadAllText</c> switch. Returns:
     /// <list type="bullet">
     /// <item><c>(null, "")</c> when the file is missing — the caller treats this as an empty document, not

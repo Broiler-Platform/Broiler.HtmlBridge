@@ -45,8 +45,8 @@ So the work is split, and the split is the design:
   URL and hands the host a `NavigationRequest` — the URL and which method was called. Then it
   returns. Returning rather than throwing is the original point of these methods existing at all:
   a throw aborts the caller exactly as `undefined is not a function` did.
-- **The host decides and performs.** `IDomBridgeRuntime.PendingNavigation` carries the request out;
-  `InteractiveSession.PendingNavigation` is where a browser reads it. Following is policy, and
+- **The host decides and performs.** `IDomBridgeRuntime.TakePendingNavigation` carries the request
+  out; `InteractiveSession.TakePendingNavigation` is where a browser reads it. Following is policy, and
   policy differs: an interactive browser navigates, a capture pinned to one document may not.
 
 A **fragment** navigation never reaches the host. It is same-document — no fetch, just a moved
@@ -205,7 +205,7 @@ guards above without knowing they exist — a refresh loop is bounded by the sam
 stopped the search re-submission.
 
 **It does not come through the bridge, and that is the point.** `MetaRefreshDiscovery` reads the
-fetched markup directly, because `ExecuteScriptsInteractive` returns `null` for a page with no
+fetched markup directly, because `ExecuteInteractive` returns `null` for a page with no
 scripts and a refresh interstitial is usually exactly that page. Discovering it on the bridge would
 have missed every document that actually uses it. A script navigation found later supersedes it —
 both are this document asking to leave, and the script asked second.
@@ -226,8 +226,8 @@ Two things are specific to it:
 ## Still not wired
 
 **The non-interactive `ScriptEngine.Execute` path.** It returns serialized HTML with nowhere to put
-a pending navigation. A host on that path reads `IDomBridgeRuntime.PendingNavigation` directly,
-which is why the property is on the runtime interface rather than only on `InteractiveSession`.
+a pending navigation. A host on that path calls `IDomBridgeRuntime.TakePendingNavigation` directly,
+which is why the member is on the runtime interface rather than only on `InteractiveSession`.
 
 **Frames.** A frame's Location gets no host (`LocationBinding.Build`), so a framed page's navigation
 is logged and dropped. Navigating a frame replaces the frame, not the page — a different operation
@@ -272,13 +272,3 @@ contents fragment instead of its own empty child list.
 An option is the awkward one: `select.value = x` writes an index on the *select*, so which option
 that makes selected is a question only the select can answer. The option is asked about its
 ancestor, through the same option walk the select binding selects with.
-
-Reflection ran only onto an input that had **no `value` attribute**, and only for a **non-empty**
-string. So an author's `value="…"` outlived every script that overwrote it, and clearing a prefilled
-field left the old text in the markup. Since a submission is built by re-parsing that markup, what
-went to the server was the value the page shipped with rather than the one on screen — silently, and
-looking entirely correct.
-
-`RuntimeValue.TryGet` already answers "did a script set this", which is the only condition the
-reflection ever needed. Both extra guards are gone, and the attribute enumeration now skips the stale
-attribute instead of emitting it alongside the new one.

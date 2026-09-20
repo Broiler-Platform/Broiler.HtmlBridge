@@ -21,8 +21,8 @@ namespace Broiler.HtmlBridge;
 /// DIAGNOSTIC NOTE (WPT issue #1491, problem 25):
 /// <c>the-link-element/stylesheet-with-base.html</c> sets
 /// <c>&lt;base href="resources/"&gt;</c> and links <c>stylesheet.css</c>, with a
-/// red sibling sheet next to the test as the trap. <c>e4cc5e9</c> taught the
-/// DomBridge transform to honour the base, but the WPT runner inlines linked
+/// red sibling sheet next to the test as the trap. The
+/// DomBridge transform honours the base, but the WPT runner inlines linked
 /// sheets from disk <em>before</em> that transform runs — resolving against the
 /// test's own directory, so it inlined the trap and the test rendered 100% red.
 /// If a third site needs base resolution, route it here rather than adding a

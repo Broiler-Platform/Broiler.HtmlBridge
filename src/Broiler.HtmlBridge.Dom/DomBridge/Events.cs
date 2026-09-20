@@ -45,24 +45,17 @@ namespace Broiler.HtmlBridge;
 /// where the copies advertised <c>3</c>, <c>3</c>, <c>1</c>.
 /// </para>
 /// <para>
-/// <b>The routing table names no engine type, and the fallback is the part that had to be shown to be
-/// expressible.</b> It used to read "JSEAL cannot say: the function that was there before I replaced
-/// it, called with exactly these arguments and this receiver", and that is no longer true — a JSEAL
+/// <b>The routing table names no engine type, and the fallback is expressible in JSEAL.</b> A JSEAL
 /// call frame exposes the arguments it was supplied as a span, and <c>Invoke(function, thisValue,
-/// arguments)</c> takes one, so handing the call back to the engine's own function is a single line.
-/// The other half was the callees: a routed method can only be realm-minted if every body it reaches
-/// takes a JSEAL frame, so the three window operations and the three node ones had to migrate in the
-/// same change as this file. They did.
+/// arguments)</c> takes one, so handing the call back to the function that was there before is a
+/// single line. A routed method can only be realm-minted if every body it reaches takes a JSEAL
+/// frame, which the three window operations and the three node ones do.
 /// </para>
 /// <para>
-/// <b>The receiver resolution moved as well, and this remark said it had not.</b> It said the
-/// node-wrapper registry and the window wrapper field were keyed on the engine's own object, that the
-/// receiver was unwrapped to ask them, and that the same pin kept an engine-framed twin of each of the
-/// three below in <c>Dom.Features.EventTargetBinding</c>. The registry is asked with the handle and the
-/// window test is handle equality (<see cref="RouteEventTargetMethod"/>). The per-wrapper copies
-/// <c>DomBridge/JsObjects.cs</c> and <c>JsObjects.NonElementNodes.cs</c> still install are
-/// realm-minted over the same <see cref="JsCall"/> bodies the routed methods call, and there is no
-/// twin.
+/// The receiver resolution is JSEAL too: the registry is asked with the handle and the window test is
+/// handle equality (<see cref="RouteEventTargetMethod"/>). The per-wrapper copies
+/// <c>DomBridge/JsObjects.cs</c> and <c>JsObjects.NonElementNodes.cs</c> install are realm-minted
+/// over the same <see cref="JsCall"/> bodies the routed methods call, so there is no twin.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -134,9 +127,7 @@ public sealed partial class DomBridge
             // window test is handle equality, which for an object compares the kind and then the
             // reference the handle carries. The receiver and the window root come out of the same
             // provider wrapping the same engine object, so their kinds cannot differ, and this asks
-            // exactly what comparing the two unwrapped references asked. (This used to say both
-            // tables were keyed on the engine's own object; the node registry has keyed on the handle
-            // since it was re-typed, and the unwrap that fed the window test is gone with the test.)
+            // exactly what comparing the two underlying references asks.
             if (call.This.IsObject)
             {
                 if (call.This == WindowHandle)
@@ -158,10 +149,10 @@ public sealed partial class DomBridge
 public sealed partial class DomBridge
 {
     // addEventListener/removeEventListener registration semantics (option parsing, the
-    // duplicate-registration check and match-by-listener+capture removal) moved to the Phase 3
+    // duplicate-registration check and match-by-listener+capture removal) live in the
     // EventListenerBinding feature module (Broiler.HtmlBridge.Dom.Features).
 
-    // Constraint validation (checkValidity/reportValidity) moved to the Phase 3 FormBinding feature
+    // Constraint validation (checkValidity/reportValidity) moved to the FormBinding feature
     // module (Broiler.HtmlBridge.Dom.Features).
 
     /// <summary>
@@ -196,14 +187,11 @@ public sealed partial class DomBridge
     /// the Content-Security-Policy check stays where it is and the evaluation here is unconditional.
     /// </para>
     /// <para>
-    /// <b>THIS USED TO SAY <see cref="IJsSource.EvaluateHostScript"/>, AND HALF OF WHY WAS WRONG.</b>
-    /// The argument had two limbs: that the directive decides, which is right and is the reason the
-    /// contract now has a member for exactly this; and that the wrapper around the page's statements
-    /// is this repository's, which made the host member's promise — "JavaScript this repository
-    /// authored" — read as literally true. It is not a promise about who typed the punctuation. The
-    /// wrapper is a pair of parentheses and a parameter list; if that converted a page's program into
-    /// this repository's, the promise would have no content at all, since any call site could satisfy
-    /// it by wrapping. The statements inside are the page's and the page can tell.
+    /// <b>Not <see cref="IJsSource.EvaluateHostScript"/>, deliberately.</b> The host member's promise
+    /// is "JavaScript this repository authored", and the wrapper this builds around the page's
+    /// statements — a pair of parentheses and a parameter list — does not make the program this
+    /// repository's. If it did, the promise would have no content at all, since any call site could
+    /// satisfy it by wrapping. The statements inside are the page's and the page can tell.
     /// </para>
     /// <para>
     /// <b>It is not a cosmetic re-labelling on every engine.</b> On a provider whose only compiler is
@@ -217,12 +205,9 @@ public sealed partial class DomBridge
     /// it the mark, as <c>broiler:window-onload</c> does with the page's <c>onload</c>.
     /// </para>
     /// <para>
-    /// The handle is stored as it is. This remark used to say it had to be unwrapped first because the
-    /// map was typed over the engine's value, "declared in the unowned <c>DomBridge/RuntimeStates.cs</c>
-    /// and read by the equally unowned dispatch path". The dispatch path is
-    /// <c>Features/EventDispatchBinding.cs</c>, which already spoke JSEAL and was handed a handle minted
-    /// back over the very object unwrapped here, so this unwrap and that wrap were one round trip. The
-    /// function dispatch runs is still the one compiled here.
+    /// The handle is stored as it is: the map in <c>DomBridge/RuntimeStates.cs</c> holds handles and
+    /// the dispatch path (<c>Features/EventDispatchBinding.cs</c>) takes the handle as it is, so the
+    /// function dispatch runs is the one compiled here.
     /// </para>
     /// </remarks>
     internal void CompileInlineEventAttribute(DomElement element, string attrName, string code)

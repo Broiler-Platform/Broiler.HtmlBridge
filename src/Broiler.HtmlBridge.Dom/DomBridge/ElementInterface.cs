@@ -5,11 +5,6 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
-// No engine namespace is imported here. This said the engine namespaces were here for animate(),
-// whose body read the engine's argument frame, and named AddPrototypeMethod as the helper lent to
-// the HTMLElement partial below for click/focus/blur. ElementAnimate takes a JsCall now, and
-// click/focus/blur are installed with AddInterfaceMethod, which mints through the realm.
-
 /// <summary>
 /// <c>Element</c> as a real interface: its members on <c>Element.prototype</c>, found through the
 /// receiver, rather than copied onto every element wrapper in the document.
@@ -56,11 +51,7 @@ namespace Broiler.HtmlBridge;
 /// its body, <c>DomBridge/Animations.cs</c>'s <see cref="ElementAnimate"/>, takes a
 /// <see cref="JsCall"/> and reads the keyframes and the options object through the realm, and it is
 /// installed with <see cref="AddInterfaceMethod"/>, minted through the realm like every other member.
-/// This remark said <c>animate</c> was the one member left in the engine's vocabulary, minted with the
-/// engine's argument frame and asking an engine-receiver helper for its element; that helper no longer
-/// exists. The four <c>ChildNode</c> members and the fullscreen pair were engine-framed too — the
-/// <c>ChildNode</c> bodies read that frame, and the fullscreen pair was minted with it because its
-/// element source was — and all six are realm-minted now.
+/// The four <c>ChildNode</c> members and the fullscreen pair are realm-minted the same way.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -121,8 +112,7 @@ public sealed partial class DomBridge
     private DomElement RequireElementReceiver(in JsCall call, string member)
     {
         // The wrapper registry keys on JsValue.ObjectIdentity, so the receiver is looked up as it
-        // stands; this said the registry had not migrated and the handle was unwrapped. A non-object
-        // receiver answers the same TypeError the engine-object test used to, without a lookup.
+        // stands. A non-object receiver answers the TypeError without a lookup.
         if (call.This.IsObject &&
             _jsObjects.TryGetNode(call.This, out var node) &&
             node is DomElement element)
@@ -389,15 +379,9 @@ public sealed partial class DomBridge
 /// <c>el.dataset === el.dataset</c> hold while the element itself carries neither.
 /// </para>
 /// <para>
-/// <b>The installer speaks JSEAL, all of it.</b> This remark said <c>click</c>, <c>focus</c> and
-/// <c>blur</c> were what was left of the engine vocabulary: that
-/// <see cref="Dom.Features.EventTargetBinding"/> read the engine's own argument frame, so the three
-/// were minted with that frame and asked an engine-receiver helper for their element. They are
-/// installed like every other member here, and the comment at their site gives the circle that kept
-/// them; the helper no longer exists. The form-control reflectors beside them were a fourth case and
-/// are not any more. Every member is minted through <see cref="Realm"/> onto the handle the installer
-/// is given, and nothing converts it on the way (this called that handle a cast rather than a
-/// conversion), so every member lands in the order it is written in.
+/// <b>The installer speaks JSEAL, all of it.</b> Every member is minted through <see cref="Realm"/>
+/// onto the handle the installer is given, and nothing converts it on the way, so every member lands
+/// in the order it is written in.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -496,10 +480,7 @@ public sealed partial class DomBridge
             (in call) => DatasetFor(element(in call, "dataset")), null);
 
         // click/focus/blur are EventTargetBinding's, and they are installed the way attachInternals
-        // is below -- same object, same position, same element source. Their pin used to read that
-        // "that module's bodies read the engine frame because unmigrated files install the same
-        // members elsewhere", which was circular: the bodies took a frame because this installer
-        // minted an engine function, and this installer minted one because the bodies took a frame.
+        // is below -- same object, same position, same element source.
         AddInterfaceMethod(target, "click", 0,
             (in call) => Dom.Features.EventTargetBinding.Click(this, element(in call, "click"), in call));
         AddInterfaceMethod(target, "focus", 0,
@@ -631,13 +612,10 @@ public sealed partial class DomBridge
 /// has deleted its own five and its constants; the rest of its surface, bar the routed
 /// <c>EventTarget</c> three, stays its own. A doctype and a fragment still install most of the
 /// <c>Node.prototype</c> members on themselves (<c>DomBridge/JsObjects.NonElementNodes.cs</c>).
-/// (This said an element and a document still installed their whole interface, 166 members for
-/// an element.)
 /// </para>
 /// <para>
-/// Linking the prototype was a real gain on its own even before any member moved: a page that
-/// extends <c>Text.prototype</c> — the ordinary polyfill idiom — reaches instances, where before the
-/// assignment went to an object nothing inherited from.
+/// Linking the prototype is a gain on its own, independently of which members moved: a page that
+/// extends <c>Text.prototype</c> — the ordinary polyfill idiom — reaches instances.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -647,12 +625,9 @@ public sealed partial class DomBridge
     /// otherwise, and for a node kind this does not name.
     /// </summary>
     /// <remarks>
-    /// It was engine-typed because the wrapper factories that call it were: each held the wrapper it
-    /// had just minted as the engine's own object. Both callers hold a handle now:
-    /// <c>DomBridge/JsObjects.cs</c> mints one through the realm and passes it straight here, and
-    /// the re-link sweep at the end of <c>DomBridge/Registration/Registration.cs</c> reads them
-    /// out of a registry that stores handles. <c>LinkToInterface</c> below is the only one there
-    /// is; the engine-typed overload it used to sit beside is gone.
+    /// Both callers hold a handle: <c>DomBridge/JsObjects.cs</c> mints one through the realm and
+    /// passes it straight here, and the re-link sweep at the end of
+    /// <c>DomBridge/Registration/Registration.cs</c> reads them out of a registry that stores handles.
     /// </remarks>
     internal void ApplyInterfacePrototype(JsValue wrapper, DomNode node)
     {

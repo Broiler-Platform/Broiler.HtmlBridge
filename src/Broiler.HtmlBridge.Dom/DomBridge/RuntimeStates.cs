@@ -25,12 +25,12 @@ internal sealed class EventListenerRegistration(JsValue listener, bool capture, 
 ///
 /// Formerly <c>ElementRuntimeState</c>, the catch-all node-runtime-state composite; every other concern
 /// (form control, scroll, dialog, shadow, stylesheet, document, animation — the classes below) has since
-/// been split into its own per-bridge instance table (Phase 2 items 3/4), leaving only the inline-style
+/// been split into its own per-bridge instance table, leaving only the inline-style
 /// concern here. The node model deliberately does not own this state.
 /// </summary>
 internal sealed class InlineStyleRuntimeState
 {
-    // P2.5: addEventListener listeners moved off this table into the instance-scoped EventTargetRegistry;
+    // addEventListener listeners moved off this table into the instance-scoped EventTargetRegistry;
     // only the inline on* handlers remain node-runtime state here. (The table was process-global when that
     // happened. It is per-bridge now, as the note at the end of this class records, and this comment used
     // to call it process-global in the present tense.)
@@ -46,14 +46,14 @@ internal sealed class InlineStyleRuntimeState
     /// <summary>
     /// Inline-style property names last written through the JS <c>element.style</c> /
     /// <c>setAttribute("style", …)</c> path, tracked so serialization and computed-style
-    /// invalidation preserve author-set intent. Relocated off the <c>Broiler.Dom.DomElement</c> facade
-    /// (RF-BRIDGE-1c Phase A — the node model does not own this bridge state).
+    /// invalidation preserve author-set intent. Relocated off the <c>Broiler.Dom.DomElement</c> facade —
+    /// the node model does not own this bridge state.
     /// </summary>
     public HashSet<string> JsSetStyleProps { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    // Phase 4 item 1 (P4.4c): the OwnerDocRoot parallel-state field is deleted. A node's owning
+    // The OwnerDocRoot parallel-state field is deleted. A node's owning
     // (sub-)document is now derived from the canonical tree (a connected node's absolute root is a
-    // Broiler.Dom.DomDocument after the P4.4b sever) or the node's canonical OwnerDocument when
+    // Broiler.Dom.DomDocument after the sever) or the node's canonical OwnerDocument when
     // detached — see DomBridge.GetOwningDocument. Sub-document createElement nodes are adopted into
     // their content document (DomDocument.AdoptNode) so their detached OwnerDocument is correct.
 
@@ -61,7 +61,7 @@ internal sealed class InlineStyleRuntimeState
     /// The node's inline style in CSS kebab-case — the authoritative in-memory inline
     /// style (mutated by JS <c>element.style</c>, the anchor resolver, and synthetic
     /// form-control styling; synced back to the <c>style=</c> attribute at serialization).
-    /// Relocated off the <c>Broiler.Dom.DomElement</c> facade (RF-BRIDGE-1c Phase B); reached through
+    /// Relocated off the <c>Broiler.Dom.DomElement</c> facade; reached through
     /// <c>DomBridge.InlineStyle(element)</c>, which lazily seeds it from the <c>style=</c>
     /// attribute on first access (see <see cref="StyleSeeded"/>).
     /// </summary>
@@ -74,7 +74,7 @@ internal sealed class InlineStyleRuntimeState
     /// </summary>
     public bool StyleSeeded { get; set; }
 
-    // Phase 2 items 3/4 (de-globalization, 2026-07-17): the former ElementRuntimeState composite's other
+    // The former ElementRuntimeState composite's other
     // concerns — FormControl, Scroll, Dialog, Shadow, StyleSheet, Document and Animation — were each split
     // into their own per-bridge instance table (DomBridge._formControlRuntimeStates via FormControlStateFor,
     // _scrollRuntimeStates via ScrollStateFor, _dialogRuntimeStates via DialogStateFor, _shadowRuntimeStates
@@ -83,7 +83,7 @@ internal sealed class InlineStyleRuntimeState
     // remained was itself de-globalized to a per-bridge table (DomBridge._inlineStyleStates via
     // InlineStyleStateFor) and this composite renamed to InlineStyleRuntimeState — no process-static
     // per-element runtime table remains. See the *RuntimeState classes below (still used by those tables).
-    // Phase 4 item 5 (2026-07-19): each table's cloneNode copy is now a per-class CopyTo, aggregated by
+    // each table's cloneNode copy is now a per-class CopyTo, aggregated by
     // DomBridge.CopyBridgeRuntimeStateTo (a single authority, replacing the scattered per-field CopyTo list
     // the earlier de-globalization had inlined into CloneDomElement).
 }
@@ -144,7 +144,7 @@ internal sealed class StyleSheetRuntimeState
     /// The live, mutable CSSOM rule list backing this style element's stylesheet —
     /// the single source of truth shared by the CSSOM (<c>cssRules</c>/<c>insertRule</c>/
     /// <c>deleteRule</c> and rule <c>style</c> writes), the renderer/legacy-cascade text, and the
-    /// <c>getComputedStyle</c> engine sheet (Phase 6 store unification). <c>null</c>
+    /// <c>getComputedStyle</c> engine sheet. <c>null</c>
     /// until first materialized from <see cref="RulesSourceText"/>.
     /// </summary>
     public List<CssRule>? Rules

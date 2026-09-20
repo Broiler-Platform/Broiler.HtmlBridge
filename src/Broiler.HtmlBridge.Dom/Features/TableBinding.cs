@@ -5,8 +5,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The HTML table DOM interfaces feature binding (HtmlBridge complexity-reduction roadmap Phase 3,
-/// P3.5) — <c>HTMLTableElement</c> (caption/tHead/tFoot/tBodies/rows plus the create*/delete*/
+/// The HTML table DOM interfaces feature binding —
+/// <c>HTMLTableElement</c> (caption/tHead/tFoot/tBodies/rows plus the create*/delete*/
 /// insertRow/deleteRow methods), <c>HTMLTableSectionElement</c> (rows/insertRow) and
 /// <c>HTMLTableRowElement</c> (rowIndex/sectionRowIndex/cells/insertCell/deleteCell). It is pure
 /// canonical-tree manipulation: it depends only on the narrow <see cref="ITableHost"/> contract
@@ -17,13 +17,6 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): every member is minted by the
 /// realm and every body runs on a <see cref="JsCall"/>, so this file names no engine type at all.
-/// </para>
-/// <para>
-/// It named one until its caller stopped handing it an engine object. The remark here used to say
-/// <c>DomBridge/NodeInterfaces.cs</c> "installs these members onto an engine wrapper it holds and
-/// is not migrated"; it holds a handle, and the engine object it used to pass was derived from that
-/// handle one line earlier only so that the adapter could derive the handle back. Both halves are
-/// gone and the caller passes what it has.
 /// </para>
 /// </remarks>
 internal sealed class TableBinding(ITableHost host)
@@ -82,13 +75,10 @@ internal sealed class TableBinding(ITableHost host)
     /// methods are.
     /// </summary>
     /// <remarks>
-    /// It was the bridge's <c>UndefinedFunction</c> helper, which minted a plain <em>constructable</em>
-    /// engine function carrying a <c>prototype</c>. <see cref="IJsMembers.DefineAccessor"/> mints both
-    /// halves of an accessor non-constructable — deliberately, because
-    /// <c>new el.__lookupSetter__('caption')()</c> is a <c>TypeError</c> in a browser — so the setter
-    /// function object loses a <c>prototype</c> a page could never legitimately have used. Every other
-    /// accessor in the bridge crosses the same way; it is the one difference this file's migration
-    /// makes, and it moves towards what a browser answers rather than away from it.
+    /// <see cref="IJsMembers.DefineAccessor"/> mints both halves of an accessor non-constructable —
+    /// deliberately, because <c>new el.__lookupSetter__('caption')()</c> is a <c>TypeError</c> in a
+    /// browser — so this setter function object carries no <c>prototype</c>. Every accessor in the
+    /// bridge crosses the same way.
     /// </remarks>
     private static JsValue IgnoredSetter(in JsCall call) => JsValue.Undefined;
 

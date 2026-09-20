@@ -449,12 +449,7 @@ public sealed partial class DomBridge
 /// <see cref="ParseAnimationKeyframes"/>, <see cref="DomBridgeUtils.ParseAnimationTiming"/> and
 /// <see cref="DomBridgeUtils.ParseAnimationPseudoElement"/> read the keyframes and the options object through the
 /// realm. The Animation it hands back is built through the realm by <c>BuildAnimation</c>
-/// (<c>DomBridge/Registration/Window.cs</c>) and returned as built. This remark said the file was
-/// engine-typed end to end: that the installer used the engine's own <c>AddPrototypeMethod</c> and
-/// handed <see cref="ElementAnimate"/> an engine argument frame no <c>JsCall</c> could be made from,
-/// so the parsing had to move with the installation, and that the result was unwrapped at the
-/// return. Both moved, and the unwrap went with the callback's engine return type, as the comment at
-/// the end of <see cref="ElementAnimate"/> records.
+/// (<c>DomBridge/Registration/Window.cs</c>) and returned as built.
 /// </remarks>
 public sealed partial class DomBridge
 {
@@ -494,9 +489,8 @@ public sealed partial class DomBridge
             // Web Animations must not break the page: a bad animate() call is inert.
         }
 
-        // Realm-built and returned as built. This used to unwrap, because the callback's return
-        // type was the engine's; the Animation a page gets from animate() and the one it finds in
-        // getAnimations() were always the same object either way.
+        // Realm-built and returned as built: the Animation a page gets from animate() and the one it
+        // finds in getAnimations() are the same object.
         return BuildAnimation(element);
     }
 

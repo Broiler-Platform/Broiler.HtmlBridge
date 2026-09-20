@@ -48,7 +48,7 @@ internal static class DomBridgeHostUtils
     /// <para>
     /// A failure here is thrown rather than tolerated. A bridge with no realm would build its
     /// bindings' objects nowhere and register a document missing every global they install — a page
-    /// loading with no <c>console</c> and no error. (This said "whichever globals had already moved".)
+    /// loading with no <c>console</c> and no error.
     /// The diagnosis is short and worth stating in the message: nothing linked an engine provider.
     /// </para>
     /// <para>
@@ -65,8 +65,7 @@ internal static class DomBridgeHostUtils
     /// <param name="options">
     /// What scripts in the realm are allowed to do, mapped by the caller from the policy that governs them
     /// (<see cref="RealmOptionsFor"/>): the bridge's <c>Csp</c> on a document path, <c>ScriptEngine.Csp</c>
-    /// on a document-free one. An adopted realm is bound by this exactly as a created one is; it used to be
-    /// bound by nothing.
+    /// on a document-free one. An adopted realm is bound by this exactly as a created one is.
     /// </param>
     internal static IJsRealm AdoptRealm(JSContext context, JsRealmOptions options)
     {
@@ -101,7 +100,7 @@ internal static class DomBridgeHostUtils
     /// <summary>
     /// Searches descendants of an element using a CSS selector.
     /// </summary>
-    // Phase 4 item 1: root widened DomElement -> DomNode so querySelector/querySelectorAll work over a
+    // The root is a DomNode, not a DomElement, so querySelector/querySelectorAll work over a
     // canonical DomDocumentFragment. A fragment cannot itself match a selector, so the :scope-root
     // self-match is guarded to element roots and the descendant scope is null for a fragment root.
     internal static JsValue FindInDescendants(DomNode root, string selector, bool all, DomBridge bridge)
@@ -160,11 +159,9 @@ internal static class DomBridgeHostUtils
     /// </summary>
     internal static void CollectDescendantsByTag(DomElement root, string tagName, List<JsValue> results, DomBridge bridge)
     {
-        // Phase 4 item 4/5: reuse canonical Descendants() (public, document-order, level-snapshotted —
-        // the bridge's own WPT #1143 defensive idiom promoted to canonical, operating on the real child
-        // list so it also avoids the LegacyChildList projection overflow) instead of a hand-rolled
-        // depth-first ChildElements recursion. Same element set + pre-order; mutation-safe where the old
-        // live ChildElements iteration was not.
+        // Canonical Descendants() is document-order and level-snapshotted (WPT #1143: it operates on
+        // the real child list, so it avoids the LegacyChildList projection overflow and is
+        // mutation-safe where a live ChildElements iteration is not).
         foreach (var element in root.Descendants().OfType<DomElement>())
         {
             if (tagName == "*" || string.Equals(element.TagName, tagName, StringComparison.OrdinalIgnoreCase))
@@ -229,7 +226,7 @@ internal static class DomBridgeHostUtils
     /// <c>ImageData</c> readback, the view transition and the 2D context, plain objects no link reaches.
     /// <c>HTMLElement</c> is the exception: <c>RegisterCustomElements</c> replaces that global with a
     /// constructible one that keeps the prototype but not the hook, so <c>instanceof HTMLElement</c>
-    /// walks the chain. (This said per-interface chains would subsume the hooks as a larger change.)
+    /// walks the chain.
     /// </para>
     /// </remarks>
     internal static void RegisterDomInterfaceConstructors(IJsRealm realm)
@@ -426,10 +423,7 @@ internal static class DomBridgeHostUtils
         // The five collection interfaces DomCollectionBinding defines — NodeList, HTMLCollection,
         // StyleSheetList, NamedNodeMap and FileList — are the exception to everything above: they get
         // real prototypes with real methods, and their instances really are instances of them, rather
-        // than an @@hasInstance hook over a foreign object. (This named NodeList and HTMLCollection
-        // alone.) They are track 6 action 1's "establish real interface prototypes and Web IDL
-        // collection behavior before adding more compatibility-only constructor globals", so adding
-        // them in the shape this file otherwise uses would have been the thing that action rules out.
+        // than an @@hasInstance hook over a foreign object.
         // Handed to the custom-elements registration so its constructible HTMLElement can keep
         // this exact prototype object — every element wrapper is linked to it, so replacing it
         // with a fresh one would orphan them all.

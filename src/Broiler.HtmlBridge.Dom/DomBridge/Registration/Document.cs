@@ -65,7 +65,7 @@ public sealed partial class DomBridge
         realm.DefineAccessor(document, "readyState", (in _) => JsValue.String(_documentReadyState), null);
 
         // document structural accessors — body/head/title, co-located in the DocumentStructureBinding
-        // feature module (Phase 3), and written against JSEAL.
+        // feature module, and written against JSEAL.
         realm.DefineAccessor(
             document, "body", (in c) => Dom.Features.DocumentStructureBinding.GetBody(this, in c), null);
         realm.DefineAccessor(
@@ -77,7 +77,7 @@ public sealed partial class DomBridge
 
         // document element-query methods — getElementById/getElementsByTagName/getElementsByClassName/
         // getElementsByName/querySelector/querySelectorAll, co-located in the DocumentQueryBinding
-        // feature module (Phase 3). The six keep the name, arity and constructable shape they had.
+        // feature module. The six keep the name, arity and constructable shape they had.
         realm.DefineValue(document, "getElementById", realm.NewConstructor("getElementById", (in c) => Dom.Features.DocumentQueryBinding.GetElementById(this, in c), 1));
         realm.DefineValue(document, "getElementsByTagName", realm.NewConstructor("getElementsByTagName", (in c) => Dom.Features.DocumentQueryBinding.GetElementsByTagName(this, in c), 1));
         realm.DefineValue(document, "getElementsByClassName", realm.NewConstructor("getElementsByClassName", (in c) => Dom.Features.DocumentQueryBinding.GetElementsByClassName(this, in c), 1));
@@ -85,7 +85,7 @@ public sealed partial class DomBridge
         realm.DefineValue(document, "querySelector", realm.NewConstructor("querySelector", (in c) => Dom.Features.DocumentQueryBinding.QuerySelector(this, in c), 1));
         realm.DefineValue(document, "querySelectorAll", realm.NewConstructor("querySelectorAll", (in c) => Dom.Features.DocumentQueryBinding.QuerySelectorAll(this, in c), 1));
         // document.elementFromPoint / elementsFromPoint (hit-testing), co-located in the HitTestBinding
-        // feature module (Phase 3). The two keep the name, arity and constructable shape they had, and
+        // feature module. The two keep the name, arity and constructable shape they had, and
         // the module coerces its two coordinates through the realm.
         realm.DefineValue(document, "elementFromPoint", realm.NewConstructor("elementFromPoint", (in c) => Dom.Features.HitTestBinding.ElementFromPoint(this, in c), 2));
         realm.DefineValue(document, "elementsFromPoint", realm.NewConstructor("elementsFromPoint", (in c) => Dom.Features.HitTestBinding.ElementsFromPoint(this, in c), 2));
@@ -94,9 +94,9 @@ public sealed partial class DomBridge
         realm.DefineValue(document, "getAnimations", realm.NewConstructor("getAnimations", (in _) => BuildAnimationList(null), 0));
 
         // document node factories — createElement/createTextNode/createAttribute/createDocumentFragment,
-        // co-located in the DocumentFactoryBinding feature module (Phase 3). The script context that
-        // used to travel with each call is gone: the name validations are on the module's host
-        // contract, and its DOM exceptions are minted through the call's own realm.
+        // co-located in the DocumentFactoryBinding feature module. No script context travels with a
+        // call: the name validations are on the module's host contract, and its DOM exceptions are
+        // minted through the call's own realm.
         realm.DefineValue(document, "createElement", realm.NewConstructor("createElement", (in c) => Dom.Features.DocumentFactoryBinding.CreateElement(this, in c), 1));
         realm.DefineValue(document, "createTextNode", realm.NewConstructor("createTextNode", (in c) => Dom.Features.DocumentFactoryBinding.CreateTextNode(this, in c), 1));
         realm.DefineValue(document, "createAttribute", realm.NewConstructor("createAttribute", (in c) => Dom.Features.DocumentFactoryBinding.CreateAttribute(this, in c), 1));
@@ -106,7 +106,7 @@ public sealed partial class DomBridge
         // cannot do and the one a custom element hears as adoptedCallback.
         realm.DefineValue(document, "adoptNode", realm.NewConstructor("adoptNode", (in c) => Dom.Features.DocumentFactoryBinding.AdoptNode(this, in c), 1));
 
-        // document.createEvent(type) — DOM Events Level 3 (Phase 3: co-located LegacyEventBinding module)
+        // document.createEvent(type) — DOM Events Level 3 — co-located LegacyEventBinding module
         realm.DefineValue(document, "createEvent", realm.NewConstructor("createEvent", Dom.Features.LegacyEventBinding.Create, 1));
 
         // document.startViewTransition(updateCallback | { update, types }) — CSS View Transitions
@@ -120,8 +120,8 @@ public sealed partial class DomBridge
     {
         var realm = Realm;
 
-        // document.write(html) — parse and insert at the current script position (Phase 3:
-        // co-located DocumentWriteBinding feature module, migrated to JSEAL).
+        // document.write(html) — parse and insert at the current script position (the
+        // co-located DocumentWriteBinding feature module).
         var writeFn = realm.NewConstructor("write", (in c) => Dom.Features.DocumentWriteBinding.Write(this, in c), 1);
         realm.DefineValue(document, "write", writeFn);
 
@@ -154,7 +154,7 @@ public sealed partial class DomBridge
             (in _) => _document.ChildNodes.Count > 0 ? WrapNode(ChildAt(_document, ^1)) : JsValue.Null, null);
 
         // document-node mutation — childNodes/removeChild/appendChild/insertBefore, co-located in the
-        // NodeMutationBinding feature module (Phase 3). The module raises its DOM exceptions through
+        // NodeMutationBinding feature module. The module raises its DOM exceptions through
         // the call's own realm now, so it takes no script context.
         realm.DefineAccessor(document, "childNodes", (in c) => Dom.Features.NodeMutationBinding.GetChildNodes(this, in c), null);
         realm.DefineValue(document, "removeChild", realm.NewConstructor("removeChild", (in c) => Dom.Features.NodeMutationBinding.RemoveChild(this, in c), 1));
@@ -175,10 +175,10 @@ public sealed partial class DomBridge
         // document.doctype/dir/designMode — the metadata accessors DOM §4.5 and HTML §3.2 name.
         RegisterDocumentMetadata(document);
 
-        // document.createElementNS(namespace, tagName)  — DocumentFactoryBinding (Phase 3)
+        // document.createElementNS(namespace, tagName)  — DocumentFactoryBinding
         realm.DefineValue(document, "createElementNS", realm.NewConstructor("createElementNS", (in c) => Dom.Features.DocumentFactoryBinding.CreateElementNS(this, in c), 2));
 
-        // document.createAttributeNS(namespace, qualifiedName)  — DocumentFactoryBinding (Phase 3)
+        // document.createAttributeNS(namespace, qualifiedName)  — DocumentFactoryBinding
         realm.DefineValue(document, "createAttributeNS", realm.NewConstructor("createAttributeNS", (in c) => Dom.Features.DocumentFactoryBinding.CreateAttributeNS(this, in c), 2));
 
         // document.currentScript — the <script> element being executed, null when none is. The
@@ -213,7 +213,7 @@ public sealed partial class DomBridge
         realm.DefineValue(implementation, "hasFeature", TrueMember("hasFeature", 2));
 
         // document.implementation factories — createDocumentType/createDocument/createHTMLDocument,
-        // co-located in the DocumentLevelFactoryBinding feature module (Phase 3).
+        // co-located in the DocumentLevelFactoryBinding feature module.
         realm.DefineValue(implementation, "createDocumentType", realm.NewConstructor("createDocumentType", (in c) => Dom.Features.DocumentLevelFactoryBinding.CreateDocumentType(this, in c), 3));
 
         // implementation.createDocument(namespace, qualifiedName, doctype)
@@ -230,7 +230,7 @@ public sealed partial class DomBridge
         var realm = Realm;
 
         // document-level addEventListener / removeEventListener / dispatchEvent, co-located in the
-        // DocumentEventTargetBinding feature module (Phase 3).
+        // DocumentEventTargetBinding feature module.
         // On EventTarget.prototype now, routed by receiver — the document's wrapper is registered
         // as its node's and its listener store is the same per-node one, so the routed method
         // reaches exactly what these did (DomBridge/Events.cs).
@@ -298,8 +298,7 @@ public sealed partial class DomBridge
         // and the idiom scripts spell it with is a loose comparison: Google Search's bot-check VM
         // gates its "may I yield to the event loop?" predicate on `document.hidden == 0`, which is
         // true for `false` and false for `undefined`. A missing property does not read as
-        // "not hidden"; it reads as a third state no page has a branch for. See
-        // docs/google-search-post-consent-challenge.md.
+        // "not hidden"; it reads as a third state no page has a branch for.
         realm.DefineAccessor(document, "hidden", (in _) => JsValue.False, null);
         realm.DefineAccessor(document, "visibilityState", (in _) => JsValue.String("visible"), null);
 
@@ -509,7 +508,7 @@ public sealed partial class DomBridge
     /// Re-pointing its prototype at <c>new.target.prototype</c> keeps what it inherits from
     /// <c>EventTarget</c>, <c>Node</c>, <c>Element</c> and <c>HTMLElement</c> reachable: the class chain
     /// reaches <c>HTMLElement.prototype</c>, which its hyphenated tag linked it to, and what it still
-    /// owns stays put. (This said all its members were its own.)
+    /// owns stays put.
     /// </para>
     /// <para>
     /// <b>The JavaScript below is host script</b> — authored in this repository and shipped with it —

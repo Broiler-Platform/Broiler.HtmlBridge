@@ -24,32 +24,19 @@ namespace Broiler.HtmlBridge;
 /// is forwarded verbatim to the Broiler.JS engine passed to the constructor.
 /// </para>
 /// <para>
-/// <b>The delegation is a property of THIS repository's DOM bridge, and this paragraph used to
-/// blame the VM for it.</b> What it said was that a host capability of the JavaScript profile is a
-/// call over opaque bytes, that a DOM is not a byte string, and that therefore no surface on the
-/// profile could carry one. Every clause of that is true and the conclusion does not follow: it
-/// assumes a host object has to travel through the capability channel, and it does not. The
-/// profile publishes an in-realm host surface, and <c>Broiler.JSeal.Vm</c> is a JSEAL
-/// provider over it that declares <c>JsCapabilities.Document</c> and passes the conformance suite
-/// in full. <c>docs/jseal.md</c> records the mistake, which this file made a third time.
-/// </para>
-/// <para>
-/// <b>What actually keeps the document-bearing overloads here is the bridge's own signature.</b>
+/// <b>What keeps the document-bearing overloads here is the bridge's own signature.</b>
 /// <c>IDomBridgeRuntime.Attach</c> takes a <c>JSContext</c>, and <c>Broiler.HtmlBridge.Dom</c> uses
 /// that context itself: it adopts its realm from it, swaps its code cache while registering a
 /// document and runs sub-document module roots on it — so a page can only be attached to a realm of
-/// that engine, whatever a second engine is now able to express. (This blamed unmigrated bindings.)
-/// <see cref="InteractiveSession"/> used to say the same thing in one line — its constructor took a
-/// <c>JSContext</c> — and it no longer does: it takes an <c>IDisposable</c>, because the context was
-/// read exactly once in that class and only to dispose it. So <c>Attach</c> is now the whole of the
-/// reason rather than half of it. When it takes an <c>IJsRealm</c>, these overloads stop being
-/// delegations; until then the delegation is the honest behaviour and not a shortcut.
+/// that engine, whatever a second engine is now able to express. When <c>Attach</c> takes an
+/// <c>IJsRealm</c>, these overloads stop being delegations; until then the delegation is the honest
+/// behaviour and not a shortcut.
 /// </para>
 /// <para>
 /// <b>So Broiler.JS is in the graph under the VM configurations too, and this class does not
 /// pretend otherwise.</b> What <c>Debug-VM</c> changes is which engine the browser instantiates
 /// and therefore which engine runs a page's script when no document is required. See
-/// <c>docs/vm-javascript-profile.md</c>.
+/// Broiler.Browser's <c>docs/vm-javascript-profile.md</c>.
 /// </para>
 /// <para>
 /// <b>One artifact, one instance, one realm per call.</b> A document's scripts are compiled into a
@@ -89,13 +76,9 @@ public sealed class VmScriptEngine : IScriptEngine
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>SEPARATING IT IS A POLICY CHOICE AND NOT A CORRECTNESS FIX, which is worth saying first
-    /// because the reasons below would otherwise read as safety.</b> Sharing it would be sound: the
-    /// provider is a pure function of the payload and its constants, nothing in a
-    /// <c>VmArtifactRequest</c> — requesting runtime, operation, nesting depth, remaining allowance
-    /// — reaches the compiled bytes, and the contract explicitly endorses a host caching a
-    /// provider's answers (ADR 0008: "The compile cost is still paid once: the code cache is the
-    /// host-keyed persisted envelope ... and only verification repeats"). The rule that does
+    /// <b>SEPARATING IT IS A POLICY CHOICE AND NOT A CORRECTNESS FIX.</b> Sharing it would be
+    /// sound: the provider is a pure function of the payload and its constants, and the contract
+    /// explicitly endorses a host caching a provider's answers (ADR 0008). The rule that does
     /// restrict reuse is about HANDLES, and this caches bytes that are re-verified into a fresh
     /// handle under the requesting operation's own allowance every time.
     /// </para>
@@ -111,7 +94,7 @@ public sealed class VmScriptEngine : IScriptEngine
     /// <b>A timing signal is the second and weaker reason.</b> The realm installs <c>Date</c> with a
     /// working <c>now</c>, so a page can time its own <c>eval</c> and, from a shared cache, learn
     /// whether another page had already evaluated a given string. Real rather than theoretical —
-    /// but the clock is milliseconds, there is no <c>performance</c>, no timer, and no
+    /// but the clock is milliseconds, there is no <c>performance</c>, no timer and no
     /// <c>SharedArrayBuffer</c> to build a better one, and the attacker must guess the other page's
     /// source byte for byte. It supports the decision; it does not carry it.
     /// </para>
@@ -119,12 +102,7 @@ public sealed class VmScriptEngine : IScriptEngine
     /// <b>THE ISOLATION IS PER NAVIGATION CHAIN, NOT PER PAGE.</b> <c>BrowserApp</c> builds one
     /// engine before its hop loop and reuses it across meta-refresh and script-initiated
     /// navigations, which can cross origins — so two documents in one redirect chain do share this.
-    /// Clearing it per hop is the fix if the VM engine ever reaches that path; it is stated rather
-    /// than quietly assumed away.
-    /// </para>
-    /// <para>
-    /// What is given up is a repeat across navigations. What is kept is the pattern that repeats:
-    /// one <c>new Function</c> body called from a loop, or a template evaluated once per row.
+    /// Clearing it per hop is the fix if the VM engine ever reaches that path.
     /// </para>
     /// <para>
     /// The byte bound matches <see cref="Cache"/>'s rather than being smaller, because
@@ -313,12 +291,6 @@ public sealed class VmScriptEngine : IScriptEngine
     /// It logs at debug rather than warning: this is the designed behaviour of the configuration
     /// and not a fault, but a reader looking at a <c>Debug-VM</c> session and wondering which
     /// engine rendered the page is entitled to find the answer in the log rather than in this file.
-    /// </para>
-    /// <para>
-    /// <b>The message used to say the profile cannot host a document, and that is no longer the
-    /// reason.</b> It is the sentence a reader of a <c>-VM</c> session log would have taken away,
-    /// so it names the bridge's signature now — which is what actually decides this — rather than
-    /// a limit of the engine it is not serving.
     /// </para>
     /// </remarks>
     private IScriptEngine Delegated(string member)

@@ -6,25 +6,24 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The shadow-DOM JS-binding members — the <c>element.shadowRoot</c> getter and
 /// <c>element.attachShadow()</c> method — registered on every element wrapper, co-located as an
-/// HtmlBridge feature module (Phase 3). The getter exposes an attached root only when its mode is
+/// HtmlBridge feature module. The getter exposes an attached root only when its mode is
 /// <c>open</c>; <c>attachShadow</c> rejects a second attachment (<c>NotSupportedError</c>), normalizes
 /// the requested mode to <c>open</c>/<c>closed</c>, and creates + links the root through the
 /// <see cref="IShadowDomHost"/> contract — the per-element shadow linkage stays in the bridge's
-/// <c>ShadowRuntimeState</c> table (reached only through named primitives, the P3.7 pattern). Was
-/// the bridge's <c>JsJsObjectsGetShadowRoot019Core</c> / <c>AttachShadow087Core</c>.
+/// <c>ShadowRuntimeState</c> table (reached only through named primitives).
 /// </summary>
 /// <remarks>
 /// <para>
 /// Both operations are spelled in JSEAL (<see cref="IJsRealm"/>) and this file names no engine type.
-/// The engine call frame is gone from both: <c>shadowRoot</c> never read one, and
+/// Neither takes a call frame: <c>shadowRoot</c> reads no argument, and
 /// <c>attachShadow</c> reads only its options argument, which it takes as a <see cref="JsValue"/> —
 /// so the registration site hands over that one argument rather than a whole frame, and the
 /// <c>mode</c> read with its <c>toString</c> coercion happens here, through the realm.
 /// </para>
 /// <para>
-/// The script context this module used to take was there for one thing — raising the
-/// <c>NotSupportedError</c> a second <c>attachShadow</c> gets — and <see cref="IJsCalls.DomError"/>
-/// owns that now, which is why the host contract carries a realm and nothing else engine-shaped.
+/// The <c>NotSupportedError</c> a second <c>attachShadow</c> gets is raised through
+/// <see cref="IJsCalls.DomError"/>, which is why the host contract carries a realm and nothing else
+/// engine-shaped.
 /// </para>
 /// </remarks>
 internal static class ShadowDomBinding
@@ -45,9 +44,8 @@ internal static class ShadowDomBinding
     /// </summary>
     /// <param name="options">
     /// The init dictionary, or anything that is not an object — including nothing passed at all,
-    /// which is <see cref="JsValue.Missing"/>. Only an object carries a <c>mode</c>: that is the test
-    /// the engine frame applied before this took a handle, and it is why a page calling
-    /// <c>attachShadow('closed')</c> still gets an open root.
+    /// which is <see cref="JsValue.Missing"/>. Only an object carries a <c>mode</c>, which is why a
+    /// page calling <c>attachShadow('closed')</c> gets an open root.
     /// </param>
     public static JsValue AttachShadow(IShadowDomHost host, DomElement element, JsValue options)
     {

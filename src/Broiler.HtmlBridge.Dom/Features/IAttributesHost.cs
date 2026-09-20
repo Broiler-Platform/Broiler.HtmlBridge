@@ -4,8 +4,8 @@ using Broiler.Dom;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The narrow bridge services the <see cref="AttributesBinding"/> feature module needs (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.12). The attribute write path
+/// The narrow bridge services the <see cref="AttributesBinding"/> feature module needs. The
+/// attribute write path
 /// (<c>setAttribute</c>/<c>removeAttribute</c> and their <c>NS</c> variants) coordinates several
 /// subsystems beyond the canonical attribute set: it re-applies the <c>style</c> attribute to the
 /// element's inline style, compiles an <c>on*</c> inline event handler, and invalidates the style
@@ -16,21 +16,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal interface IAttributesHost
 {
     /// <summary>
-    /// The realm the <c>Attr</c> wrappers are built in. It is what the module's migrated half —
-    /// the <c>Attr</c> object model — creates and reads members through.
+    /// The realm the <c>Attr</c> wrappers are built in. It is what the module's <c>Attr</c> object
+    /// model creates and reads members through.
     /// </summary>
     IJsRealm Realm { get; }
-
-    // THE JSCONTEXT MEMBER IS GONE, AND ITS OWN DOC COMMENT SAID WHEN IT WOULD BE.
-    //
-    // It read: "One consumer keeps it: the InvalidCharacterError an invalid setAttribute,
-    // setAttributeNS or toggleAttribute name must throw (DOM 4.9.1). The bridge's name validators
-    // -- DomBridge/Utilities.cs, which this group does not own -- mint that
-    // DOMException from a context rather than from a realm, so a caller has to hold one. It goes
-    // when they take an IJsRealm and reach IJsCalls.DomError instead."
-    //
-    // They do, so it went. This contract now has no engine reference of any kind, which is the
-    // state the note was written to be able to describe rather than to defer.
 
     /// <summary>Applies a <c>style</c> attribute value to the element's inline style declaration
     /// (clearing and reparsing it) and invalidates the element's style scope.</summary>

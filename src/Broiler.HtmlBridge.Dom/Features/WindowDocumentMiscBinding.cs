@@ -5,8 +5,7 @@ using Broiler.HtmlBridge.Logging;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The residual thin window/document singletons (Phase 3) — the last callbacks peeled out of the
-/// JsFunctionCallbacks/Registration.cs grab-bag so that file carries no loose JS callback. These are
+/// The residual thin window/document singletons. These are
 /// genuinely independent one-offs (each ≤10 lines) that do not individually warrant their own feature
 /// module, so they are collected here — <b>not</b> a god-object grab-bag: there is no shared mutable
 /// state, and the two that touch the bridge do so only through the narrow
@@ -19,8 +18,6 @@ namespace Broiler.HtmlBridge.Dom.Features;
 ///   <item><c>document.contentType</c> getter (XHTML vs HTML by page URL).</item>
 ///   <item><c>document.cookie</c> setter (simplified append; the getter lives elsewhere).</item>
 /// </list>
-/// Previously the bridge's <c>JsRegistrationAlert076Core</c>/<c>Now122Core</c>/<c>SetScale143Core</c>/
-/// <c>GetContentType063Core</c>/<c>SetCookie149Core</c>.
 /// </summary>
 /// <remarks>
 /// Every one of these reads its arguments off a <see cref="JsCall"/>, and its installer in
@@ -46,13 +43,13 @@ internal static class WindowDocumentMiscBinding
     /// fractional milliseconds.
     /// </summary>
     /// <remarks>
-    /// It used to be <c>Date.now() - timeOrigin</c>: whole-millisecond wall-clock arithmetic, so it
-    /// had no sub-millisecond resolution and — being wall time — could run backwards when the system
-    /// clock was stepped (NTP, a manual change), which HR-Time forbids ("MUST be monotonically
-    /// increasing and not subject to system clock adjustments"). It now measures a
-    /// <see cref="Stopwatch"/> from the timestamp captured at the time origin, so it is monotonic and
+    /// <c>Date.now() - timeOrigin</c> would be whole-millisecond wall-clock arithmetic: no
+    /// sub-millisecond resolution, and — being wall time — able to run backwards when the system
+    /// clock is stepped (NTP, a manual change), which HR-Time forbids ("MUST be monotonically
+    /// increasing and not subject to system clock adjustments"). Measuring a
+    /// <see cref="Stopwatch"/> from the timestamp captured at the time origin is monotonic and
     /// carries the clock's real resolution. (Privacy coarsening of that resolution is a separate
-    /// decision; this only removes the whole-millisecond, wall-clock behavior.) The
+    /// decision.) The
     /// <paramref name="monotonicOriginTimestamp"/> is a <see cref="Stopwatch.GetTimestamp"/> value
     /// taken at the same instant as the wall-clock <c>timeOrigin</c>.
     /// </remarks>

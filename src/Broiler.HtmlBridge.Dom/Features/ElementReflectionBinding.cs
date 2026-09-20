@@ -6,7 +6,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// Reflected content-attribute IDL accessors for various HTML element interfaces, co-located as an
-/// HtmlBridge feature module (Phase 3): the plain string reflectors (<c>label.htmlFor</c> ↔ <c>for</c>,
+/// HtmlBridge feature module: the plain string reflectors (<c>label.htmlFor</c> ↔ <c>for</c>,
 /// <c>meta.httpEquiv</c> ↔ <c>http-equiv</c>, <c>.type</c>, and the generic named string / numeric
 /// dimension setters) and the URL-typed getters (<c>&lt;object&gt;.data</c>,
 /// <c>&lt;a&gt;/&lt;area&gt;/&lt;base&gt;/&lt;link&gt;.href</c> and
@@ -14,10 +14,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// resolve their relative content
 /// attribute against the live page URL. Content-attribute reads/writes use the bridge's neutral
 /// <c>internal static</c> <c>TryGetAttribute</c>/<c>SetAttr</c> helpers directly; only the page URL — read
-/// at call time — comes through the one-member <see cref="IElementReflectionHost"/> contract. Was the
-/// bridge's <c>JsElementInterfacesSetHtmlFor047Core</c>/<c>SetHttpEquiv049Core</c>/<c>GetData050Core</c>/
-/// <c>SetType053Core</c>/<c>GetHref056/060Core</c>/<c>SetHref057/061Core</c>/<c>Callback059/063Core</c>
-/// (the byte-identical href get/set pairs are deduplicated here).
+/// at call time — comes through the one-member <see cref="IElementReflectionHost"/> contract. The
+/// byte-identical href get/set pairs are deduplicated here.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -123,7 +121,7 @@ internal static class ElementReflectionBinding
     /// wrote — or <paramref name="missing"/> when the setter was called with no argument at all.
     /// </summary>
     /// <remarks>
-    /// The arity test is on the count rather than on the handle, exactly as before: a setter reached
+    /// The arity test is on the count rather than on the handle: a setter reached
     /// through <c>Reflect.set</c> with no value is the one call that has no argument zero, and it
     /// writes the default rather than the string <c>"undefined"</c>.
     /// </remarks>

@@ -43,9 +43,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// <para>
 /// <b>A timer's callback is an <see cref="Action"/>, so this scheduler names no JavaScript at all.</b>
-/// It used to hold the engine's function object and invoke it, which coupled a queue of deadlines to
-/// an engine for the sake of one call. What a timer owes its owner is "run this when it is due", and
-/// that is what an <see cref="Action"/> says; the caller — <see cref="JSWorker"/>, which still owns the
+/// Holding a JavaScript function object here would couple a queue of deadlines to an engine for the
+/// sake of one call. What a timer owes its owner is "run this when it is due", and
+/// that is what an <see cref="Action"/> says; the caller — <see cref="JSWorker"/>, which owns the
 /// worker's realm — supplies a closure that makes the JavaScript call. The one cost is a closure
 /// allocation per registration, which the page's <c>BrowserEventLoop</c> deliberately avoids because a
 /// busy page registers timers constantly; a worker registers a handful, so the trade goes the other way

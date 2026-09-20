@@ -6,18 +6,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>document.createEvent(type)</c> — the legacy DOM Events Level 3 factory that returns a plain
 /// event object pre-populated with the union of UI/Mouse/Keyboard/Wheel/Custom event fields and
 /// the legacy <c>init*Event</c> / propagation-control methods. Co-located as an HtmlBridge feature
-/// module (Phase 3). It builds a self-contained JS object with closures over its own state and
+/// module. It builds a self-contained JS object with closures over its own state and
 /// touches no bridge instance state, so — like ConsoleBinding / CryptoBinding — it is a pure static
-/// class with no host contract. Previously the bridge's JsRegistrationCreateEvent033Core in the
-/// shared JsFunctionCallbacks/Registration.cs grab-bag.
+/// class with no host contract.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. The event object and the flag behind <c>cancelBubble</c> are still captured by the operation
-/// closures exactly as before; what changed is that the object is minted by the realm, its members are
-/// installed through <see cref="IJsMembers"/>, and its own fields are read and written through the
-/// realm rather than through the engine's indexer.
+/// type. The event object and the flag behind <c>cancelBubble</c> are captured by the operation
+/// closures; the object is minted by the realm, its members are installed through
+/// <see cref="IJsMembers"/>, and its own fields are read and written through the realm.
 /// </para>
 /// <para>
 /// <b>Every numeric argument goes through the realm's <c>ToNumber</c>, not the handle's

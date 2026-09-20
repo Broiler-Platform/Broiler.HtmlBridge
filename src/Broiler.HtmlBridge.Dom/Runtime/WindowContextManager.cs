@@ -4,45 +4,34 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// The single owner of a document's browsing-context window-resolution behaviour (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.18 — the last Frames residue): canonicalising a window
+/// The single owner of a document's browsing-context window-resolution behaviour: canonicalising a
+/// window
 /// candidate against the sub-window state, resolving the current/owner window, and temporarily switching
 /// the global <c>window</c>/<c>document</c>/<c>location</c>/<c>parent</c>/<c>postMessage</c>/<c>self</c>/
 /// <c>top</c> bindings into another browsing context while a callback runs. It reads the sub-window
-/// identity from the P3.16 <see cref="BrowsingContextManager"/> and the owner-window map from the shared
+/// identity from the <see cref="BrowsingContextManager"/> and the owner-window map from the shared
 /// <see cref="EventTargetRegistry"/> (both held directly), and reaches the realm and the sub-document
 /// builder through the narrow <see cref="IWindowContextHost"/> contract.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The bridge's window-context methods in <c>DomBridge/Hosts.Window.cs</c> are now thin delegators to this owner (the same
-/// P2.4/P2.5/P2.6 "state/behaviour owner, bridge forwards" shape), so the callers — <c>MessagingBinding</c>
-/// via <c>IMessagingHost</c> and the sub-document script runner — are unchanged.
+/// The bridge's window-context methods in <c>DomBridge/Hosts.Window.cs</c> are thin delegators to this
+/// owner ("state/behaviour owner, bridge forwards"), reached by <c>MessagingBinding</c> via
+/// <c>IMessagingHost</c> and by the sub-document script runner.
 /// </para>
 /// <para>
 /// <b>A window is a <see cref="JsValue"/> here, and the seven globals are saved and restored through the
 /// realm.</b> The seven evaluations below are host script by the contract's definition — this repository
 /// authored every one of them, they read a global and nothing else, and none is subject to the page's
-/// content policy — so they go through <see cref="IJsSource.EvaluateHostScript"/>. Nothing here is left
-/// engine-typed. The sub-window <em>identity</em> state is still <see cref="BrowsingContextManager"/>'s
-/// alone, and it holds <see cref="JsValue"/> handles now, so the four members of it read below take and
-/// answer the handles this file already holds. This paragraph used to say that state was keyed on the
-/// engine's own object and that the handle was unwrapped at that boundary and nowhere else. The
-/// boundary was real, and it cost five crossings — three unwraps and two re-wraps, in three private
-/// adapters and one loop — every one of them there for that state's engine type alone.
+/// content policy — so they go through <see cref="IJsSource.EvaluateHostScript"/>. Nothing here is
+/// engine-typed. The sub-window <em>identity</em> state is <see cref="BrowsingContextManager"/>'s
+/// alone, and it holds <see cref="JsValue"/> handles, so the four members of it read below take and
+/// answer the handles this file already holds.
 /// </para>
 /// <para>
-/// <b><see cref="EventTargetRegistry"/> was named alongside it here, and had already stopped keying on
-/// the engine's object when this file said so.</b> That sentence was true when it was written and was
-/// falsified by the commit that re-typed the listener stores onto <see cref="JsValue"/>; what survived
-/// it was an engine-typed owner-window accessor whose own doc comment justified itself by pointing back
-/// at this file. Both sides are handles now, and the two conversions this file made around that call
-/// are gone.
-/// </para>
-/// <para>
-/// <b>An absent window is <see cref="JsValue.Missing"/> where it used to be a CLR <see langword="null"/>.</b>
-/// Every place that tested for one now asks <see cref="JsValue.IsObject"/>, which is the same question:
-/// the old code's narrowing cast answered null for a primitive as well as for nothing at all.
+/// <b>An absent window is <see cref="JsValue.Missing"/>, never a CLR <see langword="null"/>.</b>
+/// Every place that tests for one asks <see cref="JsValue.IsObject"/>, which answers false for a
+/// primitive as well as for nothing at all.
 /// </para>
 /// </remarks>
 internal sealed class WindowContextManager(
@@ -60,8 +49,7 @@ internal sealed class WindowContextManager(
         if (!candidate.IsObject)
         {
             // `window` on the global object, when the page (or a nested context switch) put one
-            // there; the bridge's own top-level window otherwise. A non-object answer is no answer,
-            // exactly as the former narrowing cast to the engine's object type made it.
+            // there; the bridge's own top-level window otherwise. A non-object answer is no answer.
             var declared = GetGlobal("window");
             candidate = declared.IsObject ? declared : _host.WindowObject;
         }
@@ -106,9 +94,7 @@ internal sealed class WindowContextManager(
     /// browsing context — <c>Features/SubWindowBinding.cs</c> files a frame's window as its own owner, and
     /// <c>Features/MessagingBinding.cs</c> files a port transferred into a frame under that frame's window
     /// — and then assert that the listener ran against the frame's document rather than the containing
-    /// page's. <c>OwnerWindowRoutingTests</c> is that test. This paragraph used to end by saying nothing
-    /// under <c>src/Broiler.Browser.Core.Tests</c> named an owner window at all, and the commit after the
-    /// one that wrote it added that file.
+    /// page's. <c>OwnerWindowRoutingTests</c> is that test.
     /// </para>
     /// </remarks>
     public JsValue ResolveOwnerWindow(JsValue target)
@@ -141,9 +127,8 @@ internal sealed class WindowContextManager(
             if (!string.Equals(candidateHref, subWindowHref, StringComparison.Ordinal))
                 continue;
 
-            // Two non-object parents count as the same parent, which is what the former
-            // reference-equality of the two `parent` reads after narrowing each to an object
-            // said: anything that is not an object narrowed to null on both sides.
+            // Two non-object parents count as the same parent: ObjectOrNone collapses anything that
+            // is not an object to one value on both sides.
             if (ObjectOrNone(realm.GetProperty(candidate, "parent"))
                 == ObjectOrNone(realm.GetProperty(subWindow, "parent")))
                 return subWindow;
@@ -173,8 +158,7 @@ internal sealed class WindowContextManager(
         }
 
         // Undefined rather than "unset": an evaluation below that throws leaves its slot at this
-        // value, and the restore then clears the binding — which is what the former null-coalescing
-        // restore did with a slot that was never filled.
+        // value, and the restore then clears the binding.
         var previousWindow = JsValue.Undefined;
         var previousDocument = JsValue.Undefined;
         var previousLocation = JsValue.Undefined;
@@ -248,8 +232,8 @@ internal sealed class WindowContextManager(
     public JsValue GetWindowParent(JsValue targetWindow)
     {
         // The main window's parent is itself, and under an engine whose global object *is* the window
-        // that is what `this` evaluates to at the top level — the same object the former Eval("this")
-        // produced, asked for directly rather than compiled for.
+        // that is what `this` evaluates to at the top level — asked for directly rather than
+        // compiled for.
         if (IsMainWindow(targetWindow))
             return _host.Realm is { } mainRealm ? mainRealm.Global : targetWindow;
 

@@ -12,15 +12,15 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> (Phase 3 ratchet, 2026-07-17) to keep it
-/// under the 750-line guard: the scrolling behaviour surface — <c>scrollIntoView</c> option/argument
+/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> to keep it
+/// under the 750-line guideline: the scrolling behaviour surface — <c>scrollIntoView</c> option/argument
 /// parsing, element scroll-offset get/set with behaviour, scroll-event dispatch, visual-viewport
 /// scroll/scale, and programmatic-scrollability / overflow analysis. Pure partial-class relocation —
 /// no signature, accessibility, or logic change.
 /// </summary>
 public sealed partial class DomBridge
 {
-    // Phase 2 item 4 (de-globalization, 2026-07-17): the per-element JS-visible scroll offset was
+    // The per-element JS-visible scroll offset was
     // the Scroll slot of the process-static ElementRuntimeState table; it is now a per-bridge
     // instance table, so the scroll memo is owned by the session's bridge rather than the process.
     // Still an element-keyed ConditionalWeakTable, so a detached element's offset GCs with it, and
@@ -79,24 +79,12 @@ public sealed partial class DomBridge
     // observes when it writes `scrollTo({ left: "100" })`. The handle's own rendering deliberately does
     // not run a page's toString, so it cannot be used here.
     //
-    // WHAT STOOD HERE NAMED CALLERS IT DID NOT HAVE, WHICH IS WHY THE ADAPTERS BELOW IT SURVIVED THREE
-    // MIGRATIONS. It said these are "shared by every scrolling entry point the bridge has: the
-    // element-geometry contract, the window scroll contract and the sub-window one". They are shared
-    // with nothing. DomBridge/Hosts.Elements.cs is the only caller in the tree; the window and
-    // sub-window contracts read their own options through ScrollCoordinateOption/ScrollBehaviorOption in
-    // DomBridge/Hosts.Documents.cs, which is a second copy of this reading rather than a use of it. The
-    // same comment said all six members are instance rather than static "for one reason: the JSEAL
-    // readers need the bridge's realm, and a static has no way to obtain one" -- that pair is static and
-    // takes the realm as a parameter, so it is a preference here, not a constraint.
-    //
-    // The three engine-typed adapters that sat below these are gone. Each took the engine object its one
-    // caller had just unwrapped out of a handle and wrapped it straight back into a handle to do the
-    // read; the caller passes the handle it was given.
-    //
-    // The whole-argument-list reading that used to sit above these -- GetScrollArguments(in Arguments),
-    // for the window scroll contract -- is gone: window.scroll/scrollTo/scrollBy are minted through the
-    // realm now, so DomBridge/Hosts.Window.cs forwards to the one JSEAL reading in
-    // DomBridge/Hosts.Documents.cs rather than this file keeping a second copy of it.
+    // NOTE: these are NOT shared with the other scrolling entry points. DomBridge/Hosts.Elements.cs is
+    // the only caller in the tree; the window and sub-window contracts read their own options through
+    // ScrollCoordinateOption/ScrollBehaviorOption in DomBridge/Hosts.Documents.cs, which is a second
+    // copy of this reading rather than a use of it. DomBridge/Hosts.Window.cs forwards to that copy.
+    // These members are instance rather than static by preference, not by constraint -- the pair in
+    // Hosts.Documents.cs is static and takes the realm as a parameter.
 
     private double? ReadScrollCoordinateOption(JsValue options, string propertyName)
     {
@@ -408,9 +396,9 @@ public sealed partial class DomBridge
 
         // The target is the visualViewport root (DomBridge.cs), the handle the registration hub minted,
         // so the object the listeners see is the one they registered on with no conversion. The listener
-        // list holds handles too, so no listener crosses below; this said the registry held engine
-        // values. IsMissing replaces a null test that, against a handle, would have compiled, been false
-        // forever, and run the listeners against an absent target.
+        // list holds handles too, so no listener crosses below. IsMissing rather than a null test:
+        // against a handle a null test compiles, is false forever, and runs the listeners against an
+        // absent target.
         var evt = Realm.NewObject();
         Realm.DefineValue(evt, "type", JsValue.String("scroll"));
         Realm.DefineValue(evt, "target", target);

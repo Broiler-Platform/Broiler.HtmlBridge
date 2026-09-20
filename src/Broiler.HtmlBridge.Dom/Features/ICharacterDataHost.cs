@@ -14,9 +14,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The contract names no engine type, and it carries no script context: that seam existed for one
 /// purpose — constructing the <c>DOMException</c> an out-of-bounds offset must throw — and
 /// <see cref="IJsCalls.DomError"/> owns that now, reached from the call frame each operation already
-/// has. The wrapper factory is <see cref="WrapNode"/> for the same reason the rest of the migration
-/// renames such members: it was named after the engine type it answered, and a member named after an
-/// engine type is an engine reference too.
+/// has.
 /// </remarks>
 internal interface ICharacterDataHost
 {

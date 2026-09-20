@@ -4,17 +4,16 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The <c>&lt;object&gt;</c>-element sub-document IDL accessors, co-located as an HtmlBridge feature module
-/// (Phase 3): the <c>data</c> content-attribute <b>setter</b> (which invalidates the cached sub-document so a
+/// The <c>&lt;object&gt;</c>-element sub-document IDL accessors, co-located as an HtmlBridge feature module:
+/// the <c>data</c> content-attribute <b>setter</b> (which invalidates the cached sub-document so a
 /// new <c>data</c> URL reloads), and the <c>contentDocument</c> getter / <c>getSVGDocument()</c> method,
 /// which resolve to the lazily-built sub-document when the resource is same-origin (and, for
 /// <c>contentDocument</c>, actually loaded — otherwise <c>null</c>, so the element's fallback content shows).
-/// The plain reflected <c>data</c> getter and the <c>type</c> get/set live in <see cref="ElementReflectionBinding"/>
-/// (P3.49); this module owns only the parts coupled to the sub-document / browsing-context machinery, reached
+/// The plain reflected <c>data</c> getter and the <c>type</c> get/set live in <see cref="ElementReflectionBinding"/>;
+/// this module owns only the parts coupled to the sub-document / browsing-context machinery, reached
 /// through the narrow <see cref="IObjectElementHost"/> contract. The content-attribute write and the
 /// same-origin test use the bridge's neutral <c>internal static</c> <c>SetAttr</c>/<c>TryGetAttribute</c>/
-/// <c>IsCrossOrigin</c> helpers directly. Was the bridge's
-/// <c>JsElementInterfacesSetData051Core</c>/<c>GetContentDocument054Core</c>/<c>GetSVGDocument055Core</c>.
+/// <c>IsCrossOrigin</c> helpers directly.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -23,12 +22,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// member that reads an argument, and no frame at all for the two that do not.
 /// </para>
 /// <para>
-/// <b>The call frame has moved too.</b> All three members are registered from
-/// <c>DomBridge/NodeInterfaces.cs</c>, which minted them as engine functions until 5282d02; the
-/// three one-line adapters that took the engine's argument frame and handed back an engine value are
-/// deleted, and that file calls the operations above directly. The one difference the deletion makes
-/// is where the <c>data</c> setter's <c>ToString</c> comes from — the engine's own coercion before,
-/// the realm's now — and those are the same ECMAScript operation, so a page observes no change.
+/// <b>The call frame is JSEAL's too.</b> All three members are registered from
+/// <c>DomBridge/NodeInterfaces.cs</c>, which mints them through the realm and calls the operations
+/// above directly. The <c>data</c> setter's <c>ToString</c> is the realm's, which is the same
+/// ECMAScript operation an engine's own coercion performs.
 /// </para>
 /// </remarks>
 internal static class ObjectElementBinding

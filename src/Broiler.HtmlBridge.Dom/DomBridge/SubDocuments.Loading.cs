@@ -10,8 +10,8 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Sibling partial peeled out of <c>SubDocuments.cs</c> (Phase 3 ratchet, 2026-07-17) to keep it
-/// under the 750-line guard: XML/XHTML/SVG sub-document construction and sub-document script
+/// Sibling partial peeled out of <c>SubDocuments.cs</c> to keep it
+/// under the 750-line guideline: XML/XHTML/SVG sub-document construction and sub-document script
 /// execution. Builds a canonical <see cref="DomDocument"/> tree from XML content
 /// (<see cref="BuildSubDocumentFromXml"/> / <see cref="BuildDomElementFromXElement"/>), and — for
 /// correctly-namespaced XHTML — collects and runs embedded <c>&lt;script&gt;</c> content in the

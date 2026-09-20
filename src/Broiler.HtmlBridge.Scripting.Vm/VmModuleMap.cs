@@ -47,8 +47,6 @@ internal sealed class VmModuleMap
         }
     }
 
-    internal bool IsEmpty => _byKey.Count == 0;
-
     /// <summary>
     /// Resolves what <paramref name="specifier"/> names when imported from <paramref name="referrer"/>.
     /// </summary>

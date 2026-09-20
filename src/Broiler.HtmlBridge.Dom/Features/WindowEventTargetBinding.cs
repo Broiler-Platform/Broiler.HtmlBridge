@@ -5,21 +5,19 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The <c>window</c> EventTarget methods — <c>window.addEventListener</c>,
 /// <c>window.removeEventListener</c>, <c>window.dispatchEvent</c> — co-located as an HtmlBridge feature
-/// module (Phase 3), the symmetric counterpart to <see cref="DocumentEventTargetBinding"/>. Each
-/// resolves the window's per-type listener store and applies the add/remove via the P3.4
+/// module, the symmetric counterpart to <see cref="DocumentEventTargetBinding"/>. Each
+/// resolves the window's per-type listener store and applies the add/remove via the
 /// <see cref="EventListenerBinding"/> operations, or runs the window-scoped dispatch. The listener
 /// store and dispatch are reached through the
-/// <see cref="IWindowEventTargetHost"/> contract. Previously the bridge's
-/// <c>JsRegistrationAddEventListener136Core</c>/<c>RemoveEventListener137Core</c>/
-/// <c>DispatchEvent138Core</c> in the shared JsFunctionCallbacks/Registration.cs grab-bag.
+/// <see cref="IWindowEventTargetHost"/> contract.
 /// </summary>
 /// <remarks>
 /// The call frame is JSEAL's -- <c>DomBridge/Registration/Window.cs</c> and
 /// <c>DomBridge/Events.cs</c> both mint these through the realm -- and nothing on the
-/// registration side is behind the contract any more: the listener record holds a
+/// registration side sits behind the contract: the listener record holds a
 /// <see cref="JsValue"/>, and <see cref="EventListenerBinding"/> is called directly with the realm the
-/// frame carries. The event-type coercion is the realm's <c>ToJsString</c>, the same observable
-/// ECMAScript <c>ToString</c> as before.
+/// frame carries. The event-type coercion is the realm's <c>ToJsString</c>, the observable
+/// ECMAScript <c>ToString</c>.
 /// </remarks>
 internal static class WindowEventTargetBinding
 {

@@ -7,7 +7,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="SubDocumentBinding"/> — the <c>document.implementation</c> factories
 /// (<c>createDocumentType</c>/<c>createDocument</c>/<c>createHTMLDocument</c>) and the sub-document's
 /// <c>createTreeWalker</c>/<c>createNodeIterator</c>. The created documents are canonical
-/// <see cref="DomDocument"/> browsing-context roots (P4.4a) wrapped by <see cref="Build"/>.
+/// <see cref="DomDocument"/> browsing-context roots wrapped by <see cref="Build"/>.
 /// </summary>
 internal sealed partial class SubDocumentBinding
 {
@@ -40,9 +40,8 @@ internal sealed partial class SubDocumentBinding
         var doctypeArg = call[2];
         if (!string.IsNullOrEmpty(qName))
             _host.ValidateQualifiedName(qName, ns);
-        // Phase 4 item 1 (P4.4a): a createDocument root is a canonical DomDocument (was a #subdoc-root).
-        // Phase 4 item 1 (P4.4c): structural nodes are appended under subDocRoot (a canonical
-        // DomDocument), so GetOwningDocument derives their owner from tree position — no OwnerDocRoot.
+        // A createDocument root is a canonical DomDocument, and structural nodes are appended under
+        // it, so GetOwningDocument derives their owner from tree position — no OwnerDocRoot.
         var subDocRoot = _host.CreateBrowsingContextDocument();
         if (doctypeArg.IsObject && _host.FindNode(doctypeArg) is { } dtNode)
             subDocRoot.AppendChild(dtNode);
@@ -61,10 +60,9 @@ internal sealed partial class SubDocumentBinding
     private JsValue CreateHTMLDocument(in JsCall call)
     {
         var subTitle = call.Length > 0 && !call[0].IsNullish ? call.Realm.ToJsString(call[0]) : null;
-        // Phase 4 item 1 (P4.4a): a createHTMLDocument root is a canonical DomDocument (was a
-        // #subdoc-root); doctype + <html> are appended as canonical document children.
-        // Phase 4 item 1 (P4.4c): structural nodes are appended under subDocRoot (a canonical
-        // DomDocument), so GetOwningDocument derives their owner from tree position — no OwnerDocRoot.
+        // A createHTMLDocument root is a canonical DomDocument; doctype + <html> are appended as
+        // canonical document children, so GetOwningDocument derives their owner from tree position
+        // — no OwnerDocRoot.
         var subDocRoot = _host.CreateBrowsingContextDocument();
         var dt = _host.CreateDocumentType("html", string.Empty, string.Empty);
         subDocRoot.AppendChild(dt);

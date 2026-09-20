@@ -46,11 +46,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// content type gives the result an <em>empty</em> type rather than inheriting the source's.
 /// </para>
 /// <para>
-/// <b>No engine type survives the JSEAL migration here.</b> The blob store is keyed on
-/// <see cref="JsValue.ObjectIdentity"/>, the reference a handle carries, which a weak table can hold —
-/// object identity is the whole of what makes a blob a blob. (This said the store was keyed on the
-/// engine object, because a struct handle could not key a weak table and JSEAL exposed no identity to
-/// hold; the struct was never the key, and that member is the identity.)
+/// The blob store is keyed on <see cref="JsValue.ObjectIdentity"/>, the reference a handle carries,
+/// which a weak table can hold — object identity is the whole of what makes a blob a blob.
 /// </para>
 /// <para>
 /// <b>The binary-data gap this file specified is closed, and the specification is worth keeping
@@ -76,8 +73,7 @@ internal sealed class BlobBinding
     /// <remarks>
     /// Keyed on <see cref="JsValue.ObjectIdentity"/> - the reference the handle carries, which a
     /// provider is already required to make canonical per object because handle equality is defined
-    /// by it. This table used to name the engine's own type, on the reasoning that a struct cannot be
-    /// a weak-table key; the struct is not the key.
+    /// by it. The struct handle is not the key.
     /// </remarks>
     private readonly ConditionalWeakTable<object, BlobData> _blobs = new();
 
@@ -87,7 +83,7 @@ internal sealed class BlobBinding
     /// <remarks>
     /// See <see cref="JsValue.ObjectIdentity"/>. A provider is required to make this canonical per
     /// object because handle equality is defined by it, which is exactly the promise a per-object
-    /// store needs and the one this file used to reach through the engine's own type.
+    /// store needs.
     /// </remarks>
     private static object IdentityOf(JsValue value) =>
         value.ObjectIdentity ?? throw new InvalidOperationException(
@@ -121,14 +117,13 @@ internal sealed class BlobBinding
     /// the other interface constructors.
     /// </summary>
     /// <remarks>
-    /// <b>The realm is the bridge's own, and the overload that used to make one here is gone.</b>
-    /// This module is built as <c>new BlobBinding()</c> rather than against a host contract, so it
-    /// used to be handed the script context and adopt it — which minted a <em>second</em>
-    /// <see cref="IJsRealm"/> over the one context, with a job queue of its own that nothing drained.
-    /// The objects were the right ones (a handle carries the engine's own value), but a promise
-    /// settled through the second realm reported to a queue no event loop pumped. The call site in
-    /// <c>DomBridge/Registration/Registration.cs</c> passes the bridge's realm now, so there is one
-    /// realm and one queue.
+    /// The realm is the bridge's own. This module is built as <c>new BlobBinding()</c> rather than
+    /// against a host contract, so handing it the script context and adopting that here would mint a
+    /// <em>second</em> <see cref="IJsRealm"/> over the one context, with a job queue of its own that
+    /// nothing drains: the objects would be the right ones (a handle carries the engine's own value),
+    /// but a promise settled through the second realm reports to a queue no event loop pumps. The
+    /// call site in <c>DomBridge/Registration/Registration.cs</c> passes the bridge's realm, so there
+    /// is one realm and one queue.
     /// </remarks>
     internal void RegisterInterfaces(IJsRealm realm)
     {
@@ -284,8 +279,7 @@ internal sealed class BlobBinding
     }
 
     /// <summary>
-    /// The one seam other bindings mint blobs through — today <c>response.blob()</c>, which used to
-    /// hand back a plain object of its own making.
+    /// The one seam other bindings mint blobs through — today <c>response.blob()</c>.
     /// </summary>
     /// <param name="realm">The realm the blob object is minted in — the caller's, since it is the
     /// one whose <c>Blob</c> the page will compare against.</param>
@@ -452,18 +446,6 @@ internal sealed class BlobBinding
         if (call.Length > 0)
             _objectUrls.Remove(call.Realm.ToJsString(call[0]));
         return JsValue.Undefined;
-    }
-
-    /// <summary>The blob a live object URL names, for a fetch or a navigation that resolves one.
-    /// <see langword="null"/> once revoked, or for a URL this document never minted.</summary>
-    internal bool TryGetObjectUrlText(string url, out string text)
-    {
-        text = string.Empty;
-        if (!_objectUrls.TryGetValue(url, out var blob) || !TryDataFor(blob, out var data))
-            return false;
-
-        text = DecodeUtf8(data.Bytes);
-        return true;
     }
 
     // -------- Plumbing --------

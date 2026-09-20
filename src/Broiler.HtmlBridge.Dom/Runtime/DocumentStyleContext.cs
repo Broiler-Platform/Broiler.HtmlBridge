@@ -5,8 +5,8 @@ using Broiler.Dom;
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// The single authority for a document's computed-style machinery (HtmlBridge complexity-reduction
-/// roadmap Phase 2, P2.3): the per-document-root <see cref="CssStyleEngine"/> scopes, the bridge's
+/// The single authority for a document's computed-style machinery: the per-document-root
+/// <see cref="CssStyleEngine"/> scopes, the bridge's
 /// <c>GetComputedProps</c> memo (plus its re-entrancy in-progress map), and the style-invalidation
 /// batch state. Consolidating these means there is one place that clears computed style and one
 /// invalidation route — <see cref="InvalidateComputedStyle"/> — so an inline-style mutation and a

@@ -56,27 +56,14 @@ public sealed partial class DomBridge
     /// HTML compares it. A trim here found a meta the discovery had ignored, so a header policy stayed in
     /// force while every block before that meta was exempted from it.
     /// </summary>
-    private DomElement? FindCspMetaElement(DomElement element)
-    {
-        if (!IsText(element) &&
-            element.TagName.Equals("meta", StringComparison.OrdinalIgnoreCase) &&
-            TryGetAttribute(element, "http-equiv", out var httpEquiv) &&
+    private DomElement? FindCspMetaElement(DomElement element) =>
+        FindInTree(element, e =>
+            !IsText(e) &&
+            e.TagName.Equals("meta", StringComparison.OrdinalIgnoreCase) &&
+            TryGetAttribute(e, "http-equiv", out var httpEquiv) &&
             string.Equals(httpEquiv, "Content-Security-Policy", StringComparison.OrdinalIgnoreCase) &&
-            TryGetAttribute(element, "content", out var content) &&
-            !string.IsNullOrWhiteSpace(content))
-        {
-            return element;
-        }
-
-        foreach (var child in ChildElements(element))
-        {
-            var found = FindCspMetaElement(child);
-            if (found != null)
-                return found;
-        }
-
-        return null;
-    }
+            TryGetAttribute(e, "content", out var content) &&
+            !string.IsNullOrWhiteSpace(content));
 
     /// <summary>
     /// Walks the document in parse order applying the style-src family. <paramref name="enforcing"/>

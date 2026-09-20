@@ -6,11 +6,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The <c>form.submit()</c> action, registered on every element wrapper, co-located as an HtmlBridge
-/// feature module (Phase 3). On a <c>&lt;form&gt;</c> it builds a synthetic cancelable <c>submit</c>
+/// feature module. On a <c>&lt;form&gt;</c> it builds a synthetic cancelable <c>submit</c>
 /// event and fires the form's registered <c>submit</c> listeners; if a listener calls
 /// <c>preventDefault()</c> the default action is suppressed, and otherwise the submission is handed
-/// to the host. The default action used to be nothing at all, which made <c>preventDefault()</c> a
-/// no-op cancelling a no-op; it is now the difference between the form going and staying.
+/// to the host — so <c>preventDefault()</c> is the difference between the form going and staying.
 /// <para>
 /// The bridge names the form and resolves its <c>action</c>, and the host builds the data set —
 /// serializing a form is something it already does for keyboard and mouse submissions, and doing it
@@ -18,7 +17,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </para>
 /// The listener store and the submission handover are the
 /// <see cref="IFormSubmitHost"/> contract; the listener invoker and the render logger are the
-/// bridge's static helpers, called directly. Was the bridge's <c>JsJsObjectsSubmit125Core</c>.
+/// bridge's static helpers, called directly.
 /// </summary>
 internal static class FormSubmitBinding
 {
@@ -56,11 +55,10 @@ internal static class FormSubmitBinding
 
             realm.DefineValue(submitEvt, "preventDefault", realm.NewMethod("preventDefault", PreventDefault, 0));
 
-            // stopPropagation is minted as a *constructor* only because it always has been: it came
-            // from the bridge's UndefinedFunction helper (since removed), which built a plain engine
-            // function — one that carries a prototype object and so passes the engine's constructor
-            // test — rather than the non-constructable shape WebIDL gives an operation. Correcting
-            // that is a behaviour change and belongs with the other members that helper used to build.
+            // stopPropagation is minted as a *constructor* only because it always has been: a plain
+            // function carries a prototype object and so passes the engine's constructor test, rather
+            // than taking the non-constructable shape WebIDL gives an operation. Correcting that is a
+            // behaviour change, so it is kept and reported rather than fixed in passing.
             realm.DefineValue(submitEvt, "stopPropagation",
                 realm.NewConstructor("stopPropagation", static (in _) => JsValue.Undefined, 0));
 

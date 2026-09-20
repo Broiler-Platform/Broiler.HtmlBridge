@@ -29,7 +29,7 @@ public sealed partial class DomBridge
         //
         // The storage areas are exotic objects: WebStorageBinding mints all six members of each through
         // the realm onto an area whose handler completes its own lookup and, through IJsExoticDelete,
-        // its own deletion. (This said deletion was the one thing IJsExotic could not yet express.)
+        // its own deletion.
         realm.DefineValue(window, "localStorage", Dom.Features.WebStorageBinding.BuildStorage(realm));
         realm.DefineValue(window, "sessionStorage", Dom.Features.WebStorageBinding.BuildStorage(realm));
 
@@ -70,10 +70,10 @@ public sealed partial class DomBridge
         // failed once `top` resolved.
         realm.DefineValue(document, "location", location);
 
-        // window timers / animation frames — thin adapters over the P2.4 BrowserEventLoop, co-located
-        // in the TimerBinding feature module (Phase 3). The realm mints all six with the names and
+        // window timers / animation frames — thin adapters over the BrowserEventLoop, co-located
+        // in the TimerBinding feature module. The realm mints all six with the names and
         // arities they had, and the binding reads its arguments off the call frame. The event loop
-        // they queue into holds the handles the realm minted; this said it held engine functions.
+        // they queue into holds the handles the realm minted.
         realm.DefineValue(window, "setTimeout", realm.NewMethod("setTimeout", (in a) => Dom.Features.TimerBinding.SetTimeout(_eventLoop, _windowContext, in a), 2));
         realm.DefineValue(window, "clearTimeout", realm.NewMethod("clearTimeout", (in a) => Dom.Features.TimerBinding.ClearTimeout(_eventLoop, in a), 1));
         realm.DefineValue(window, "setInterval", realm.NewMethod("setInterval", (in a) => Dom.Features.TimerBinding.SetInterval(_eventLoop, _windowContext, in a), 2));
@@ -182,7 +182,7 @@ public sealed partial class DomBridge
         var realm = Realm;
 
         // ---------------------------------------------------------------
-        //  Google Search Compliance: Phase 1 (P0) — Critical polyfills
+        //  Google Search Compliance — critical polyfills
         // ---------------------------------------------------------------
 
         // TODO-G2: performance object with performance.now() and timeOrigin.
@@ -449,18 +449,18 @@ public sealed partial class DomBridge
         // the geometry above because it is the last member of that same audited block.
         realm.DefineAccessor(window, "offscreenBuffering", (in _) => JsValue.True, null);
 
-        // window scroll / scrollTo / scrollBy, co-located in the WindowScrollBinding feature module
-        // (Phase 3). The reading that tells scrollTo(x, y) from scrollTo({ left, top }) is the one
+        // window scroll / scrollTo / scrollBy, co-located in the WindowScrollBinding feature module.
+        // The reading that tells scrollTo(x, y) from scrollTo({ left, top }) is the one
         // the sub-window contract already performs, shared rather than copied.
         realm.DefineValue(window, "scroll", realm.NewMethod("scroll", (in c) => Dom.Features.WindowScrollBinding.Scroll(this, in c), 2));
         realm.DefineValue(window, "scrollTo", realm.NewMethod("scrollTo", (in c) => Dom.Features.WindowScrollBinding.ScrollTo(this, in c), 2));
         realm.DefineValue(window, "scrollBy", realm.NewMethod("scrollBy", (in c) => Dom.Features.WindowScrollBinding.ScrollBy(this, in c), 2));
         // window addEventListener / removeEventListener / dispatchEvent, co-located in the
-        // WindowEventTargetBinding feature module (Phase 3). These reach the global object — so
+        // WindowEventTargetBinding feature module. These reach the global object — so
         // the idiomatic unqualified `addEventListener("load", …)` registers a window listener,
         // as it does in a browser — through MirrorWindowMembersOntoGlobal, which shares the
         // identical function objects so the two spellings address one listener store. It holds
-        // handles, and the host contract converts nothing. (This said the store held engine values.)
+        // handles, and the host contract converts nothing.
         realm.DefineValue(window, "addEventListener", realm.NewMethod("addEventListener", (in c) => Dom.Features.WindowEventTargetBinding.AddEventListener(this, in c), 3));
         realm.DefineValue(window, "removeEventListener", realm.NewMethod("removeEventListener", (in c) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c), 3));
         realm.DefineValue(window, "dispatchEvent", realm.NewMethod("dispatchEvent", (in c) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c), 1));
@@ -501,11 +501,8 @@ public sealed partial class DomBridge
         realm.SetProperty(realm.Global, "screen", screenObj);
 
         var visualViewport = realm.NewObject();
-        // The visualViewport root (DomBridge.cs) is this handle as minted. It used to be converted to
-        // the engine's own object here, under a comment calling that conversion "the one engine
-        // reference left in this file" and saying DomBridge/LayoutMetrics.Scrolling.cs read the root as
-        // one. This file held no counted engine reference, and that file read the root through `var`
-        // and wrapped it straight back into a handle.
+        // The visualViewport root (DomBridge.cs) is this handle as minted — no conversion to an
+        // engine object happens here.
         VisualViewportHandle = visualViewport;
         realm.DefineAccessor(visualViewport, "width", (in _) => JsValue.Number(GetVisualViewportWidth()), null);
         realm.DefineAccessor(visualViewport, "height", (in _) => JsValue.Number(GetVisualViewportHeight()), null);
@@ -519,7 +516,7 @@ public sealed partial class DomBridge
         realm.DefineAccessor(visualViewport, "pageTop", (in _) => JsValue.Number(GetVisualViewportPageOffset(vertical: true)), null);
 
         // visualViewport addEventListener / removeEventListener (scroll), co-located in the
-        // VisualViewportEventTargetBinding feature module (Phase 3).
+        // VisualViewportEventTargetBinding feature module.
         realm.DefineValue(visualViewport, "addEventListener", realm.NewMethod("addEventListener", (in a) => Dom.Features.VisualViewportEventTargetBinding.AddEventListener(this, in a), 2));
         realm.DefineValue(visualViewport, "removeEventListener", realm.NewMethod("removeEventListener", (in a) => Dom.Features.VisualViewportEventTargetBinding.RemoveEventListener(this, in a), 2));
 
@@ -531,12 +528,11 @@ public sealed partial class DomBridge
 
 public sealed partial class DomBridge
 {
-    // Phase 2 item 4 (de-globalization, 2026-07-17): the per-element Web Animations timeline
-    // (currentTime) was the Animation slot of the process-static ElementRuntimeState table; it is now
-    // a per-bridge instance table, owned by the session's bridge. Still an element-keyed
-    // ConditionalWeakTable, so it GCs with the element and the cloneNode copy (see CloneDomElement) is
-    // preserved. The one static caller (the AnimationObjectBinding currentTime get/set feature
-    // callbacks) is threaded the resolved AnimationRuntimeState by the now-instance BuildAnimation.
+    // The per-element Web Animations timeline (currentTime) lives in a per-bridge instance table
+    // owned by the session's bridge. It is an element-keyed ConditionalWeakTable, so it GCs with the
+    // element and the cloneNode copy (see CloneDomElement) is preserved. The AnimationObjectBinding
+    // currentTime get/set feature callbacks are threaded the resolved AnimationRuntimeState by
+    // BuildAnimation.
     private readonly ConditionalWeakTable<DomElement, AnimationRuntimeState> _animationRuntimeStates = [];
 
     private AnimationRuntimeState AnimationStateFor(DomElement element) =>
@@ -623,7 +619,7 @@ public sealed partial class DomBridge
     /// pair and the <c>ready</c> thenable.
     /// </summary>
     /// <remarks>
-    /// The surface is the co-located AnimationObjectBinding feature module (Phase 3), written against
+    /// The surface is the co-located AnimationObjectBinding feature module, written against
     /// JSEAL — so the object, its accessor pair and the two ready-promise methods are minted by the
     /// realm, which names the accessors "get/set currentTime" and makes every function
     /// non-constructable exactly as the bridge's own native-callable type did. currentTime reads and writes

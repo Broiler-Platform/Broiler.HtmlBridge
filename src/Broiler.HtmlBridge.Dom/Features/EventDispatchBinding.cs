@@ -5,7 +5,7 @@ using Broiler.Dom;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The DOM event dispatch feature binding (HtmlBridge complexity-reduction roadmap Phase 3, P3.3) —
+/// The DOM event dispatch feature binding —
 /// the capture → target → bubble propagation algorithm (DOM Events Level 3), the event object's
 /// propagation-control methods (<c>stopPropagation</c>/<c>stopImmediatePropagation</c>/
 /// <c>preventDefault</c>/<c>cancelBubble</c>/<c>returnValue</c>) and <c>composedPath()</c>. It reads
@@ -22,12 +22,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the same dispatch-local flags they closed over before.
 /// </para>
 /// <para>
-/// <b>No engine-typed strand survives.</b> A registered listener is an
-/// <c>EventListenerRegistration</c>, whose listener field is a <see cref="JsValue"/>, and it is invoked
-/// through <c>DomBridge.InvokeEventListener</c>, which the window, form-submit and messaging firing
-/// paths share and which is where a listener turn is bracketed for the entry trace. That invoker calls
-/// through the realm, in the shape <see cref="FireListeners"/> already used for the inline <c>on*</c>
-/// handler, so the line below hands over the listener and the event exactly as this module holds them.
+/// A registered listener is an <c>EventListenerRegistration</c>, whose listener field is a
+/// <see cref="JsValue"/>, and it is invoked through <c>DomBridge.InvokeEventListener</c>, which the
+/// window, form-submit and messaging firing paths share and which is where a listener turn is
+/// bracketed for the entry trace. That invoker calls through the realm, in the same shape
+/// <see cref="FireListeners"/> uses for the inline <c>on*</c> handler.
 /// </para>
 /// </remarks>
 internal sealed class EventDispatchBinding(IEventDispatchHost host)
@@ -43,15 +42,14 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         var realm = _host.Realm;
         var documentNode = _host.DocumentNode;
 
-        // The document/window globals are read once per dispatch, as they were: a wrapper that is not
-        // an object is one that has not been installed yet, and the path substitutes JS null for it
-        // exactly where the `?? JSNull.Value` coalesces did.
+        // The document/window globals are read once per dispatch: a wrapper that is not an object is
+        // one that has not been installed yet, and the path substitutes JS null for it.
         var documentWrapper = _host.DocumentWrapper;
         var documentValue = documentWrapper.IsObject ? documentWrapper : JsValue.Null;
 
         var typeVal = realm.GetProperty(evt, "type");
         // Only a string type names the event; anything else — including an object with a toString —
-        // was "unknown" before and stays "unknown", so no coercion runs here.
+        // is "unknown", so no coercion runs here.
         var eventType = typeVal.IsString ? typeVal.AsString! : "unknown";
 
         // Build the path from the root to the target
@@ -106,7 +104,7 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         {
             if (stopped) break;
             realm.SetProperty(evt, "currentTarget", WrapPathNode(ancestor));
-            FireListeners(ancestor, eventType, evt, capturePhase: true, ref stopped, ref immediateStopped, ref currentListenerPassive);
+            FireListeners(ancestor, eventType, evt, capturePhase: true, ref immediateStopped, ref currentListenerPassive);
         }
 
         // Phase 2: Target — fire capture listeners first, then non-capture listeners.
@@ -114,8 +112,8 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         {
             realm.SetProperty(evt, "eventPhase", JsValue.Number(2));
             realm.SetProperty(evt, "currentTarget", WrapPathNode(target));
-            FireListeners(target, eventType, evt, capturePhase: true, ref stopped, ref immediateStopped, ref currentListenerPassive);
-            FireListeners(target, eventType, evt, capturePhase: false, ref stopped, ref immediateStopped, ref currentListenerPassive);
+            FireListeners(target, eventType, evt, capturePhase: true, ref immediateStopped, ref currentListenerPassive);
+            FireListeners(target, eventType, evt, capturePhase: false, ref immediateStopped, ref currentListenerPassive);
         }
 
         // Phase 3: Bubble (parent of target → root) — only if event.bubbles is true
@@ -127,7 +125,7 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
             {
                 if (stopped) break;
                 realm.SetProperty(evt, "currentTarget", WrapPathNode(path[i]));
-                FireListeners(path[i], eventType, evt, capturePhase: false, ref stopped, ref immediateStopped, ref currentListenerPassive);
+                FireListeners(path[i], eventType, evt, capturePhase: false, ref immediateStopped, ref currentListenerPassive);
             }
         }
 
@@ -141,10 +139,9 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
     /// Fires registered listeners for the given event type on a single element.
     /// When <paramref name="capturePhase"/> is <c>true</c>, only capture listeners fire.
     /// When <c>false</c>, only bubble listeners fire.
-    /// When <c>null</c> (unused), all listeners fire in registration order plus the inline handler.
     /// </summary>
     private void FireListeners(DomNode el, string eventType, JsValue evt,
-        bool? capturePhase, ref bool stopped, ref bool immediateStopped, ref bool currentListenerPassive)
+        bool capturePhase, ref bool immediateStopped, ref bool currentListenerPassive)
     {
         if (_host.GetEventListeners(el).TryGetValue(eventType, out var listeners))
         {
@@ -155,14 +152,14 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
 
         // Fire inline event handler (on* property) — fires after addEventListener listeners on the target,
         // and during bubble phase on ancestors (like a bubble listener).
-        if (!immediateStopped && (capturePhase == null || capturePhase == false))
+        if (!immediateStopped && !capturePhase)
         {
             var inlineHandler = _host.InlineEventHandler(el, eventType);
             if (inlineHandler.IsObject)
             {
                 // Inline on* handlers behave like regular non-passive listeners.
                 currentListenerPassive = false;
-                // The handler is its own receiver, as it was when the engine was invoked directly.
+                // The handler is its own receiver.
                 try { _host.Realm.Invoke(inlineHandler, inlineHandler, [evt]); }
                 catch (Exception ex) { RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.dispatchEvent", $"Inline handler error: {ex.Message}", ex); }
             }

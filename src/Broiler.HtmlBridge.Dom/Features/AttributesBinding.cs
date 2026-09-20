@@ -4,7 +4,7 @@ using Broiler.Dom;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The attributes feature binding module (HtmlBridge complexity-reduction roadmap Phase 3, P3.12). It
+/// The attributes feature binding module. It
 /// co-locates the DOM attribute object model — the <c>element.attributes</c> <c>NamedNodeMap</c> and
 /// its <c>Attr</c> nodes — together with the attribute write path
 /// (<c>setAttribute</c>/<c>removeAttribute</c> and their <c>NS</c> variants), which applies the change
@@ -14,29 +14,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// members in the bridge) delegate their write and Attr-node construction here. The
 /// low-level, engine-neutral attribute scans (<c>TryGetAttribute</c>/<c>SetAttr</c>/<c>RemoveAttr</c>/
 /// <c>AttributeNames</c>/<c>TryGetNsAttribute</c>) stay shared static helpers on <c>DomBridge</c> and
-/// are called qualified (Phase 4 promotes them to Broiler.Dom).
+/// are called qualified.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>The module is JSEAL throughout — the <c>Attr</c> object model, the live <c>NamedNodeMap</c> and
-/// its six element-dependent operations, the write path and the element operations alike.</b> The two
-/// installers that used to hand it an engine argument frame both mint through the realm now:
-/// <c>DomBridge/JsObjects.cs</c> for <c>removeAttributeNodeNS</c>, the one attribute member that stays
-/// each wrapper's own property, and <see cref="DomCollectionBinding"/> for the map operations, whose
-/// contract is <see cref="JsNativeFunction"/> since its own migration.
-/// </para>
-/// <para>
-/// <b>No engine reference remains, and the last two went one commit apart.</b>
-/// <see cref="BuildStandaloneAttrNode"/> answered an engine object for
-/// <c>DomBridge/Hosts.Documents.cs</c>, which reaches it for
-/// <c>document.createAttribute</c> and converted it straight back — the shell is a handle either
-/// way, so the conversion named one <c>Attr</c> twice.
-/// <para>
-/// The second used to be the <c>InvalidCharacterError</c> that <c>setAttribute</c> and
-/// <c>toggleAttribute</c> must throw, which the bridge's name validator minted from a script context
-/// this contract had to carry. The validator takes a realm now, so the contract member is gone and
-/// the three call sites use <c>call.Realm</c> — the realm the call arrived through.
-/// </para>
+/// its six element-dependent operations, the write path and the element operations alike.</b> Both
+/// installers mint through the realm: <c>DomBridge/JsObjects.cs</c> for <c>removeAttributeNodeNS</c>,
+/// the one attribute member that stays each wrapper's own property, and
+/// <see cref="DomCollectionBinding"/> for the map operations, whose contract is
+/// <see cref="JsNativeFunction"/>. The <c>InvalidCharacterError</c> that <c>setAttribute</c> and
+/// <c>toggleAttribute</c> must throw is minted by the name validator against <c>call.Realm</c> — the
+/// realm the call arrived through.
 /// </para>
 /// </remarks>
 internal sealed partial class AttributesBinding(IAttributesHost host)
@@ -51,22 +40,17 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
     /// </summary>
     /// <remarks>
     /// <para>
-    /// It used to be a fresh plain object per read, with the same three faults the document
-    /// collections had before they were moved onto <see cref="DomCollectionBinding"/>: no interface
-    /// (<c>constructor.name</c> was <c>"Object"</c> and the bare name <c>NamedNodeMap</c> was a
-    /// <c>ReferenceError</c>, which aborts the script that named it), no identity, and no named
-    /// access — <c>el.attributes.id</c> was <c>undefined</c> where DOM §4.9.1 makes a qualified name
-    /// a supported property name.
+    /// A fresh plain object per read would have four faults: no interface (<c>constructor.name</c>
+    /// <c>"Object"</c>, and the bare name <c>NamedNodeMap</c> a <c>ReferenceError</c>, which aborts
+    /// the script that named it); no identity; no named access, where DOM §4.9.1 makes a qualified
+    /// name a supported property name; and — the dangerous one, because it makes the idiomatic loop
+    /// throw rather than answer wrongly — a live <c>length</c> over indices materialized once at
+    /// build time, so a map held across a <c>setAttribute</c> reports the new count with nothing at
+    /// the new index and <c>for (var i = 0; i &lt; m.length; i++) m[i].name</c> reads
+    /// <c>undefined.name</c> and throws. Both halves are live, from the same contents function.
     /// </para>
     /// <para>
-    /// The fourth fault was the dangerous one, because it made the idiomatic loop throw rather than
-    /// answer wrongly. <c>length</c> was a live getter while the indices were materialized once at
-    /// build time, so a map held across a <c>setAttribute</c> reported the new count with nothing at
-    /// the new index: <c>for (var i = 0; i &lt; m.length; i++) m[i].name</c> read <c>undefined.name</c>
-    /// and threw. Both halves are live now, from the same contents function.
-    /// </para>
-    /// <para>
-    /// The caller, the middle and the answer are all JSEAL now: <see cref="DomCollectionBinding"/>
+    /// The caller, the middle and the answer are all JSEAL: <see cref="DomCollectionBinding"/>
     /// mints the collection in this host's realm, the contents function answers with handles, and the
     /// six operations receive a <see cref="JsCall"/>. Nothing on this path converts.
     /// </para>
@@ -177,8 +161,8 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
     /// at the old value where a browser returns the live node.
     /// <para>
     /// "The same node" is <c>===</c>, which <see cref="JsValue"/>'s <c>==</c> is: for two object
-    /// handles it is the reference test this used to spell out, because a handle carries the
-    /// engine's own object rather than a copy of it.
+    /// handles it is a reference test, because a handle carries the engine's own object rather than
+    /// a copy of it.
     /// </para>
     /// </remarks>
     private JsValue ReplacedAttrNode(DomElement element, string name, JsValue incoming, JsValue ownerObj)
@@ -196,9 +180,8 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
 
     // -------- NamedNodeMap operations --------
     //
-    // Every argument read is the realm's ECMAScript conversion rather than the handle's rendering,
-    // because that is what the engine frame these bodies used to take was performing: passing an object
-    // with its own toString to getNamedItem has always run it.
+    // Every argument read is the realm's ECMAScript conversion rather than the handle's rendering:
+    // passing an object with its own toString to getNamedItem has always run it.
 
     private JsValue GetNamedItem(DomElement element, JsValue ownerObj, in JsCall call)
     {
@@ -297,11 +280,6 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
     /// <summary>
     /// A parentless <c>Attr</c> (<c>document.createAttribute</c>).
     /// </summary>
-    /// <remarks>
-    /// It answered an engine object until its caller stopped asking for one. The shell it builds is
-    /// a handle either way — <c>DomBridge/Hosts.Documents.cs</c> converted it back on receipt —
-    /// so the conversion named one <c>Attr</c> twice and is gone.
-    /// </remarks>
     internal JsValue BuildStandaloneAttrNode(string qualifiedName, string? namespaceUri) =>
         BuildAttrNodeShell(qualifiedName, JsValue.Null, namespaceUri, null, JsValue.String(string.Empty), null);
 
@@ -310,10 +288,10 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
     /// reads through to the element and writing it writes back.
     /// </summary>
     /// <remarks>
-    /// A live accessor rather than the captured string this used to store. With the wrapper now
-    /// cached per attribute rather than minted per read, a snapshot would be worse than it was:
-    /// the one surviving object would go on reporting whatever the value happened to be when it was
-    /// first asked for. A browser's <c>value</c> tracks the element in both directions —
+    /// A live accessor rather than a captured string. The wrapper is cached per attribute rather
+    /// than minted per read, so a snapshot would be worse still: the one surviving object would go
+    /// on reporting whatever the value happened to be when it was first asked for. A browser's
+    /// <c>value</c> tracks the element in both directions —
     /// <c>attr.value = 'x'</c> is another spelling of <c>setAttribute</c> — and both directions are
     /// pinned.
     /// </remarks>
@@ -357,7 +335,7 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
         var attr = realm.NewObject();
         // An attribute is not a DomNode in the canonical DOM, so its wrapper never reaches the node
         // choke point where every other wrapper is linked to its interface — hence the explicit
-        // call. Without it an Attr reported constructor.name of 'Object' like the rest used to.
+        // call. Without it an Attr would report a constructor.name of 'Object'.
         _host.LinkToInterface(attr, "Attr");
         var colonIdx = name.IndexOf(':');
         var localName = explicitLocalName ?? (colonIdx >= 0 ? name[(colonIdx + 1)..] : name);
@@ -390,10 +368,9 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
 
     private static bool TryGetAttachedAttrNamespace(DomElement element, string qualifiedName, out string? namespaceUri, out string localName)
     {
-        // Match a genuinely namespaced attribute (non-null namespace) by qualified name —
-        // the set NsAttrMap used to track. No-namespace attributes are skipped so the
-        // colon-split fallback below governs their local name, exactly as before: a
-        // prefixed qualified name can only carry a namespace, so this never drops one.
+        // Match a genuinely namespaced attribute (non-null namespace) by qualified name.
+        // No-namespace attributes are skipped so the colon-split fallback below governs their local
+        // name: a prefixed qualified name can only carry a namespace, so this never drops one.
         foreach (var attribute in element.Attributes.Values)
         {
             if (attribute.NamespaceUri is null || !string.Equals(attribute.QualifiedName, qualifiedName, StringComparison.OrdinalIgnoreCase))

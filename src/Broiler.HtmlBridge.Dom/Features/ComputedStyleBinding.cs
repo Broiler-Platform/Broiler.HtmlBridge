@@ -1,31 +1,25 @@
 ﻿using Broiler.Dom;
 using Broiler.JSeal;
 
-// No engine namespace. This said one adapter at the foot of this file stayed engine-typed for
-// DomBridge/NodeInterfaces.cs's <img>.width/.height; that file mints the pair through the realm
-// and its getter calls GetUsedDimension, and the member at the foot takes a JsCall.
-
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The computed-style reads, co-located as an HtmlBridge feature module (Phase 3): the CSSOM entry point
+/// The computed-style reads, co-located as an HtmlBridge feature module: the CSSOM entry point
 /// <c>window.getComputedStyle(element, pseudoElement?)</c> (which resolves an element's used-value style
 /// declaration), and the <c>&lt;img&gt;.width</c>/<c>&lt;img&gt;.height</c> IDL getters, which report the
 /// element's used (rendered) dimension by reading it out of the same computed-style object, falling back to
 /// the content attribute and then <c>0</c>. Both reach the used-value engine through the narrow
 /// <see cref="IComputedStyleHost"/> contract; the content-attribute fallback and CSS-length parse use the
 /// bridge's neutral <c>internal static</c> <c>TryGetAttribute</c>/<c>ParseCssLengthToPixels</c> helpers
-/// directly. <c>GetComputedStyle</c> was the bridge's <c>JsRegistrationGetComputedStyle121Core</c>;
-/// <c>GetUsedDimension</c> was <c>JsElementInterfacesCallback062Core</c>.
+/// directly.
 /// </summary>
 /// <remarks>
-/// The JavaScript vocabulary is JSEAL's, so the bodies name no engine type. <c>getComputedStyle</c> now
+/// The JavaScript vocabulary is JSEAL's, so the bodies name no engine type. <c>getComputedStyle</c>
 /// reads its own call frame — its installer mints it through the realm — and the coercion of the
-/// pseudo-element argument is the realm's <c>ToJsString</c>, which is the same observable ECMAScript
-/// <c>ToString</c> the engine's <c>ToString()</c> ran there. <c>&lt;img&gt;.width</c>/<c>.height</c>
+/// pseudo-element argument is the realm's <c>ToJsString</c>, the observable ECMAScript
+/// <c>ToString</c>. <c>&lt;img&gt;.width</c>/<c>.height</c>
 /// need no frame: <c>DomBridge/NodeInterfaces.cs</c> mints that accessor pair through the realm and
-/// its getter calls <c>GetUsedDimension</c> with the element and dimension name. (This said that file
-/// still handed over an engine argument frame, which an adapter at the foot of this file unwrapped.)
+/// its getter calls <c>GetUsedDimension</c> with the element and dimension name.
 /// </remarks>
 internal static class ComputedStyleBinding
 {

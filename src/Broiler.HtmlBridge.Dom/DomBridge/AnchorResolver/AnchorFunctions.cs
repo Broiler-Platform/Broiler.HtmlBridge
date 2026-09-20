@@ -14,7 +14,7 @@ public sealed partial class DomBridge
     // -----------------------------------------------------------------
 
     // The anchor()/anchor-size() grammar (token matching + typed extraction) is the
-    // canonical Broiler.CSS.AnchorFunction model (Phase 5 item 4). These callbacks
+    // canonical Broiler.CSS.AnchorFunction model. These callbacks
     // keep only the used-value geometry; AnchorFunction.Rewrite/RewriteSize supply
     // the parsed AnchorFunctionRef/AnchorSizeFunctionRef.
     private void ResolveAnchorFunctions(DomElement element, Dictionary<string, AnchorInfo> anchorRegistry,
@@ -41,9 +41,7 @@ public sealed partial class DomBridge
         // A box that uses both anchor-size() and anchor() insets is handed off as a unit — the
         // engine sizes then places it in one post-pass. Neither pure gate admits it (each excludes
         // the other function), so this single flag drives both the inset-skip below and the
-        // size-skip further down, keeping the two halves' bake/handoff decision in lockstep. The
-        // NativeAnchorPlacement flag check is dropped in Phase 4 item-2 step 5 (a provable no-op on
-        // the native default path, where it was already true).
+        // size-skip further down, keeping the two halves' bake/handoff decision in lockstep.
         bool combinedMvp = hasAnchorRef && hasAnchorSizeRef &&
             IsMvpNativeAnchorCombinedBox(element, cssProps, anchorRegistry);
 
@@ -129,7 +127,7 @@ public sealed partial class DomBridge
 
                     // Edge coordinate math (anchor edge − scroll adjustment, plus the
                     // right/bottom opposite-edge flip) is the canonical
-                    // Broiler.Layout.AnchorGeometry model (Phase 5 item 3).
+                    // Broiler.Layout.AnchorGeometry model.
                     double value = AnchorGeometry.ResolveEdge(
                         anchor.Left, anchor.Top, anchor.Right, anchor.Bottom,
                         r.Side, adjX, adjY, MapAnchorInsetProperty(propName), cbW, cbH);
@@ -161,8 +159,7 @@ public sealed partial class DomBridge
         // Skip baking for the MVP subset so the box's `width/height: anchor-size(...)` survives to
         // the engine's sizing pass (CssBox.TryApplyNativeAnchorSizing). The combined-box flag skips
         // the size bake too, so a box that also has anchor() insets keeps both halves un-baked for
-        // the engine. The NativeAnchorPlacement flag check is dropped in Phase 4 item-2 step 5 (a
-        // provable no-op on the native default path, where it was already true).
+        // the engine.
         if (hasAnchorSizeRef &&
             !(combinedMvp || IsMvpNativeAnchorSizeBox(element, cssProps, anchorRegistry)))
         {
@@ -297,14 +294,14 @@ public sealed partial class DomBridge
 
 }
 
-// Native anchor()/anchor-size() handoff gating (Phase 5, P5.8d.2b). These predicates
+// Native anchor()/anchor-size() handoff gating. These predicates
 // decide whether an anchored box is the MVP subset the layout engine reproduces
 // natively (so the bridge skips pre-baking).
 public sealed partial class DomBridge
 {
     /// <summary>
     /// Whether an element's <c>anchor()</c> insets are the MVP subset the engine's native
-    /// placement post-pass reproduces (P5.8d.2b), so the bridge can hand them off instead of
+    /// placement post-pass reproduces, so the bridge can hand them off instead of
     /// pre-baking (see <see cref="Broiler.Layout.Engine.CssBox.TryApplyAnchorInsetPlacement"/>).
     /// Requires: every <c>anchor()</c> reference is in a physical inset (<c>left</c>/<c>right</c>/
     /// <c>top</c>/<c>bottom</c>) and names a registered, accessible anchor; no <c>anchor-size()</c>;
@@ -329,18 +326,18 @@ public sealed partial class DomBridge
             && string.IsNullOrWhiteSpace(element.TextContent);
 
         // position-try is admitted only for the subset the engine's native fallback pass
-        // reproduces (P5.8d.2b position-try expansion): the @position-try rule bodies must be
+        // reproduces: the @position-try rule bodies must be
         // available to the engine (the channel) and the box's base must be a size the engine can
         // reproduce for its overflow test — a definite-size single-inset reposition, or a
-        // childless opposing-inset auto base (P5.8d.2b opposing-inset position-try expansion).
+        // childless opposing-inset auto base.
         // Otherwise the box (base + fallback) stays fully baked on the bridge path.
         if ((merged.ContainsKey("position-try-fallbacks") || merged.ContainsKey("position-try"))
             && !NativePositionTryHandoffSupported(merged, positionTryRules, childless))
             return false;
 
         // A NON-modal fixed target gets a document-scroll adjustment the engine MVP does not
-        // apply — keep it baked. A MODAL dialog (top-layer, UA position:fixed) IS handed off
-        // (P5.8d.2b modal-dialog anchor() expansion): on an anchor page document scroll uses
+        // apply — keep it baked. A MODAL dialog (top-layer, UA position:fixed) IS handed off:
+        // on an anchor page document scroll uses
         // the bridge DOM-shift (DocumentHasAnchorContent scopes out the native scroll), so the
         // anchor's box geometry the engine reads already reflects the scroll and no adjustment
         // is needed. The engine has no top-layer accessibility model, but it does not need one:
@@ -464,7 +461,7 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Whether an element's <c>anchor-size()</c> sizing is the MVP subset the engine's native
-    /// sizing pass reproduces (P5.8d.2b), so the bridge can hand it off instead of pre-baking
+    /// sizing pass reproduces, so the bridge can hand it off instead of pre-baking
     /// (see <see cref="Broiler.Layout.Engine.CssBox.TryApplyNativeAnchorSizing"/>). Requires: an absolutely
     /// positioned, <b>childless</b> box (the engine only sizes childless boxes without a
     /// re-flow); <c>anchor-size()</c> only in <c>width</c>/<c>height</c>, each naming a
@@ -550,8 +547,8 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Whether a box that uses <b>both</b> <c>anchor-size()</c> (in <c>width</c>/<c>height</c>)
-    /// and <c>anchor()</c> (in a physical inset) is the MVP subset the engine reproduces exactly
-    /// (P5.8d.2b combined expansion). The engine's post-pass sizes the box
+    /// and <c>anchor()</c> (in a physical inset) is the MVP subset the engine reproduces exactly.
+    /// The engine's post-pass sizes the box
     /// (<c>TryApplyNativeAnchorSizing</c>) <em>before</em> it places it
     /// (<c>TryApplyAnchorInsetPlacement</c>), so a right/bottom inset repositions against the
     /// resolved size — the two pure passes compose with no engine change. Neither pure gate

@@ -14,8 +14,8 @@ public sealed partial class DomBridge
 {
     // The nested-browsing-context state — the per-container sub-document/sub-window JS-object identity,
     // location/base-URL caches, object-load-failure and onload-fired marks, the reverse
-    // sub-window→container map, the current-window override, and the P4.4b severed content-document
-    // maps — is owned by _browsingContexts (P3.16 BrowsingContextManager, declared in DomBridge.cs).
+    // sub-window→container map, the current-window override, and the severed content-document
+    // maps — is owned by _browsingContexts (BrowsingContextManager, declared in DomBridge.cs).
     // The builders / resolvers / onload dispatch below stay bridge-owned and reach it through that owner.
 
     private DomDocument? GetContentDocument(DomElement containerElement) =>
@@ -29,7 +29,7 @@ public sealed partial class DomBridge
     private void LinkContentDocument(DomElement containerElement, DomDocument document) =>
         _browsingContexts.LinkContentDocument(containerElement, document);
 
-    /// <summary>The content-document resolver handed to the layout view (P4.4b): maps a
+    /// <summary>The content-document resolver handed to the layout view: maps a
     /// nested-browsing-context container to its severed sub-document so the box builder
     /// projects it as a sub-viewport and composes its geometry into the main frame.</summary>
     private DomDocument? ResolveContentDocumentForRender(DomElement containerElement) =>
@@ -37,7 +37,7 @@ public sealed partial class DomBridge
 
     private void InvalidateCachedSubDocument(DomElement containerElement)
     {
-        // Order preserved from the pre-P3.16 code: release the old content document's element
+        // Order preserved from the earlier code: release the old content document's element
         // runtime state while the maps still reference it, then unlink and drop the per-container caches.
         if (_browsingContexts.GetContentDocument(containerElement) is { } existingDocument)
         {
@@ -75,7 +75,7 @@ public sealed partial class DomBridge
         try
         {
             // The event object is minted through the realm, and the dispatcher takes that handle as
-            // it is. (This said the dispatcher was unmigrated and JsInterop cast the handle for it.)
+            // it is.
             var evt = Realm.NewObject();
             Realm.DefineValue(evt, "type", JsValue.String("load"));
             Realm.DefineValue(evt, "bubbles", JsValue.False);
@@ -147,12 +147,6 @@ public sealed partial class DomBridge
     /// Everything inside is JSEAL: the document object is built through the realm by
     /// <see cref="Dom.Features.SubDocumentBinding.Build"/> and the per-container cache in
     /// <see cref="Dom.Runtime.BrowsingContextManager"/> holds the handle it answered with.
-    /// </para>
-    /// <para>
-    /// The return type used to be the adapter, pinned by four files that each wrapped the answer
-    /// with <c>JsInterop.FromEngineObject</c> before handing it to a JSEAL contract — so the cast
-    /// here was the one they undid. They read the handle directly now, and the cache under this has
-    /// stored a <c>JsValue</c> throughout, so both ends of the round trip are gone.
     /// </para>
     /// </remarks>
     internal JsValue GetOrCreateSubDocument(DomElement containerElement)
@@ -271,7 +265,7 @@ public sealed partial class DomBridge
         if (string.IsNullOrWhiteSpace(resourceUrl))
             return string.Empty;
 
-        // Frames adopt the one shared resolver (Phase 7 item 4) — same absolute-stays / relative-resolves /
+        // Frames adopt the one shared resolver — same absolute-stays / relative-resolves /
         // else-empty behaviour that script and CSP already share via UrlResolver.
         var effectiveBaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? _pageUrl : baseUrl;
         return UrlResolver.Resolve(resourceUrl, effectiveBaseUrl)?.AbsoluteUri ?? string.Empty;
@@ -296,12 +290,10 @@ public sealed partial class DomBridge
         // ScriptExtractionService against the policy set it builds: the deliveredPolicy argument,
         // when there is one, and the first policy the frame's own markup declares.
         //
-        // This used to read that they stayed on the context because JSEAL typed them as guest source
-        // and moving half of one loop would split one path across two vocabularies. The first half
-        // was the misreading the classic member exists to correct: 'unsafe-eval' does not govern a
-        // script element, and a realm narrowed by a policy that forbids evaluation must still run
-        // these. The second half survives and is the reason the MODULE ROOTS below are still on the
-        // context: they need a JSModuleContext the source contract does not describe at all.
+        // 'unsafe-eval' does not govern a script element, and a realm narrowed by a policy that
+        // forbids evaluation must still run these -- which is what the classic member exists to
+        // express. The MODULE ROOTS below stay on the context because they need a JSModuleContext the
+        // source contract does not describe at all.
         var extraction = ScriptExtractionService.ExtractAll(
             html, GetSubDocumentBaseUrl(containerElement), deliveredPolicy);
         if (extraction.Scripts.Count == 0 &&
@@ -372,7 +364,7 @@ public sealed partial class DomBridge
                 }
             }
 
-            // Phase 7 tail: ES modules run last (they are deferred), through the engine's own module
+            // ES modules run last (they are deferred), through the engine's own module
             // machinery — exactly like the main page (ScriptEngine.RunPageScripts). This needs a module
             // realm, so it runs only when the sub-document shares an engine-driven parent context (a
             // JSModuleContext / BridgeModuleContext) and the engine binds static imports. The string-rewriting
@@ -537,7 +529,7 @@ public sealed partial class DomBridge
 
         // Resolve relative URL against page URL. An absolute URL keeps its raw string so the scheme
         // checks below (file:// / http(s)) see the exact original prefix; only the relative case goes
-        // through the shared resolver (Phase 7 item 4).
+        // through the shared resolver.
         string resolvedUrl;
         if (Uri.TryCreate(resourceUrl, UriKind.Absolute, out _))
         {
@@ -592,7 +584,7 @@ public sealed partial class DomBridge
     /// <summary>
     /// Reads a file:// URL from the local filesystem and returns its content with detected MIME type.
     /// The file existence + binary/text read policy lives in the host
-    /// <see cref="Dom.Runtime.ResourceLoader"/> (Phase 7 item 4); this method only maps the URL to a
+    /// <see cref="Dom.Runtime.ResourceLoader"/>; this method only maps the URL to a
     /// path and the loader's I/O exceptions to the empty-document contract.
     /// </summary>
     private (string? content, string contentType) TryReadFileResource(string fileUrl, string extensionMime)
@@ -633,7 +625,7 @@ public sealed partial class DomBridge
 
         try
         {
-            // The existence + binary/text read policy lives in the host loader (Phase 7 item 4); missing
+            // The existence + binary/text read policy lives in the host loader; missing
             // → (null, ""), binary → (null, extensionMime), text → (content, extensionMime).
             var (content, detectedMime) = _resources.LoadLocalResource(localPath, extensionMime);
 

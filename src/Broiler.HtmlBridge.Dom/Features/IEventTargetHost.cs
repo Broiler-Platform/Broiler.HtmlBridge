@@ -13,21 +13,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// UIEvents expose it as <c>view</c>). The listener-registration semantics live in
 /// <see cref="EventListenerBinding"/> and the propagation engine in <see cref="EventDispatchBinding"/>;
 /// node-type/attribute helpers are the bridge's <c>internal static</c> helpers, and the form-control
-/// state and the radio-group mutual-exclusion walk are members of this contract. (This called the
-/// walk a static helper too, and named a no-op function factory that is gone.)
+/// state and the radio-group mutual-exclusion walk are members of this contract.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>There is no registration pair on this contract any more, and it was the seam.</b> Two members
-/// here took a listener and an <c>options</c> argument as handles and converted both into the engine
-/// values an <c>EventListenerRegistration</c> held, through a converter the document and window
-/// contracts shared and the messaging contract reached by forwarding to this one. The record holds a
-/// <see cref="JsValue"/> now, so <see cref="EventTargetBinding"/> calls <see cref="EventListenerBinding"/>
-/// itself with the realm its call frame carries, and the pair is deleted rather than left forwarding.
+/// <b>There is no registration pair on this contract.</b> <see cref="EventTargetBinding"/> calls
+/// <see cref="EventListenerBinding"/> itself, with the realm its call frame carries.
 /// </para>
 /// <para>
-/// <b><see cref="GetEventListeners"/> hands back the store itself</b>, and its element type is that
-/// record's. It was this contract's last engine-typed claim, and it is not one any more.
+/// <b><see cref="GetEventListeners"/> hands back the store itself</b>, whose element type is
+/// <c>EventListenerRegistration</c> — a record that holds a <see cref="JsValue"/>, so this contract
+/// names no engine type.
 /// </para>
 /// </remarks>
 internal interface IEventTargetHost

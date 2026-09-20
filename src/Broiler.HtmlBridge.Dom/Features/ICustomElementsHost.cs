@@ -11,19 +11,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. What used to be the second kind of member on this contract — calling a JavaScript
-/// constructor, calling a reaction, the three promise factories <c>whenDefined</c> needed and
-/// resolving a pending promise — is gone: every one of them was an engine operation with no bridge
-/// state behind it, and <see cref="IJsCalls.Construct"/>, <see cref="IJsCalls.Invoke"/> and
-/// <see cref="IJsJobs.NewPromise"/> are the realm's own. The registry asks the realm directly, which
-/// is why <see cref="Realm"/> is the one member that replaced six.
+/// type. Calling a definition's constructor, calling a reaction and minting a promise are engine
+/// operations with no bridge state behind them, so the registry asks the realm directly through
+/// <see cref="IJsCalls.Construct"/>, <see cref="IJsCalls.Invoke"/> and
+/// <see cref="IJsJobs.NewPromise"/>; <see cref="Realm"/> is the only member this contract needs for
+/// them.
 /// </para>
 /// <para>
-/// <b><c>whenDefined</c>'s pending promise is the case worth naming.</b> It used to be handed a
-/// promise plus a <em>function object</em> wrapping the captured resolve delegate, because the only
-/// way to keep a resolver was to close over an executor that happened to run synchronously.
+/// <b><c>whenDefined</c>'s pending promise is the case worth naming.</b>
 /// <see cref="IJsJobs.NewPromise"/> hands the settle functions back, so the registry stores an
-/// <c>Action</c> and never mints a function no page can reach.
+/// <c>Action</c> and never mints a function no page can reach. The alternative — keeping a resolver
+/// by closing over an executor that happens to run synchronously — costs a function object for
+/// nothing.
 /// </para>
 /// </remarks>
 internal interface ICustomElementsHost

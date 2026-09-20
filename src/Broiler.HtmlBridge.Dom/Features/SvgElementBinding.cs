@@ -5,7 +5,7 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// SVG DOM element interfaces, co-located as an HtmlBridge feature module (Phase 3): the
+/// SVG DOM element interfaces, co-located as an HtmlBridge feature module: the
 /// <c>SVGAnimatedLength</c> stubs for the dimensional presentation attributes
 /// (<c>width</c>/<c>height</c>/<c>x</c>/<c>y</c>/<c>cx</c>/<c>cy</c>/<c>r</c>/<c>rx</c>/<c>ry</c>), the
 /// <c>SVGSVGElement.viewBox</c> <c>SVGAnimatedRect</c>, the <c>SVGTextContentElement</c> text-metric
@@ -15,21 +15,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// animation-element no-ops (<c>beginElement</c>/<c>endElement</c>/<c>getStartTime</c>).
 /// <para>
 /// Every accessor here is an attribute/font-size estimation stub — none reads layout geometry — so the
-/// module is a pure <c>internal static</c> class with <b>no host contract</b> (like <c>ClassListBinding</c>
-/// P3.6 and <c>WebStorageBinding</c> P3.48). It reads content attributes through the bridge's neutral
-/// <c>internal static</c> <c>TryGetAttribute</c> helper and text through the canonical
-/// <see cref="DomNode.TextContent"/>. Was the
-/// bridge's <c>JsElementInterfacesCallback086Core</c>/<c>GetViewBox087Core</c>/
-/// <c>GetNumberOfChars088Core</c>..<c>GetRotationOfChar093Core</c>/<c>SetCurrentTime095Core</c> (and the
-/// private <c>CreateSvgLengthValue</c> helper, moved here since it had no other consumer).
+/// module is a pure <c>internal static</c> class with <b>no host contract</b> (like
+/// <c>ClassListBinding</c> and <c>WebStorageBinding</c>). It reads content attributes through the
+/// bridge's neutral <c>internal static</c> <c>TryGetAttribute</c> helper and text through the
+/// canonical <see cref="DomNode.TextContent"/>.
 /// </para>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type:
 /// objects, accessors and methods come from the realm, which is handed in when the interfaces are
 /// installed and arrives on the call frame for every accessor and method body afterwards. The three
-/// SMIL no-ops used to be built by the bridge's <c>UndefinedFunction</c>/<c>ZeroFunction</c> factories,
-/// which minted a plain <em>constructable</em> engine function; see the remarks on
-/// <see cref="InstallSmilNoOps"/> for why they are asked of the realm as constructors here.
+/// SMIL no-ops are asked of the realm as <em>constructors</em> rather than methods; see the remarks
+/// on <see cref="InstallSmilNoOps"/> for why.
 /// </para>
 /// </summary>
 internal static class SvgElementBinding
@@ -44,7 +40,7 @@ internal static class SvgElementBinding
     /// <param name="tag">The element's lower-cased tag name, which selects the interfaces.</param>
     public static void Install(IJsRealm realm, JsValue obj, DomElement element, string tag)
     {
-        // -- Phase 6: SVG DOM interfaces --
+        // -- SVG DOM interfaces --
 
         // SVG element properties — provide SVGAnimatedLength stubs for dimensional attributes
         if (!(element.NamespaceUri == "http://www.w3.org/2000/svg" ||
@@ -129,14 +125,13 @@ internal static class SvgElementBinding
     /// <c>getStartTime</c>, which report nothing because Broiler runs no SMIL timeline.
     /// </summary>
     /// <remarks>
-    /// All three are <em>constructable</em>, and only because they always have been: they were built by
-    /// the bridge's <c>UndefinedFunction</c>/<c>ZeroFunction</c> helpers, since removed, which minted a
-    /// plain engine function — one that carries a <c>prototype</c> object and so passes the engine's
-    /// constructor test — rather than the non-constructable shape WebIDL gives an operation. Under JSEAL
-    /// that distinction is which factory is called, so preserving the behaviour means asking for a
-    /// constructor here. A browser answers <c>undefined</c> for <c>el.beginElement.prototype</c> and
-    /// throws on <c>new el.beginElement()</c>; correcting that is a behaviour change that belongs in its
-    /// own commit alongside the other members those helpers used to build, as
+    /// All three are <em>constructable</em>, deliberately and only for compatibility with the shape
+    /// the bridge has always published: a plain function — one that carries a <c>prototype</c> object
+    /// and so passes the engine's constructor test — rather than the non-constructable shape WebIDL
+    /// gives an operation. Under JSEAL that distinction is which factory is called, so preserving the
+    /// behaviour means asking for a constructor here. A browser answers <c>undefined</c> for
+    /// <c>el.beginElement.prototype</c> and throws on <c>new el.beginElement()</c>; correcting that is
+    /// a behaviour change that belongs in its own commit, as
     /// <see cref="ScreenOrientationBinding"/> records for <c>screen.orientation.unlock</c>.
     /// </remarks>
     private static void InstallSmilNoOps(IJsRealm realm, JsValue obj)

@@ -166,13 +166,12 @@ internal static class NavigatorCapabilityBinding
     }
 
     /// <summary>
-    /// The realm's spelling of <c>DomBridge.NullFunction</c>/<c>UndefinedFunction</c>, both since
-    /// removed: an inert member answering <c>null</c> or <c>undefined</c>.
+    /// An inert member answering <c>null</c> or <c>undefined</c>.
     /// </summary>
     /// <remarks>
-    /// <c>NewConstructor</c> rather than <c>NewMethod</c> because the engine-built pair carried a
-    /// prototype object and was therefore constructable, and preserving that is what makes this a
-    /// refactor rather than a change. (WebIDL says an operation should not be constructable; that is
+    /// <c>NewConstructor</c> rather than <c>NewMethod</c>: these members carry a <c>prototype</c>
+    /// object and are therefore constructable, which is the shape the bridge has always published.
+    /// (WebIDL says an operation should not be constructable; that is
     /// a pre-existing deviation, and correcting it belongs in its own change.)
     /// </remarks>
     private static JsValue NullMember(IJsRealm realm, string name, int length = 0) =>

@@ -7,8 +7,7 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 // No engine namespace at all. The two wrapper-cache reverse lookups below take a JSEAL handle, which
-// is what all fifteen of their callers already held; they stopped unwrapping it at their own seams in
-// the same commit that re-typed these, and the using that comment described went with them.
+// is what all fifteen of their callers already hold.
 
 /// <summary>
 /// Internal helper methods — string conversions, DOM tree utilities,
@@ -24,14 +23,12 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>The parameter is the handle every caller already held.</b> Fifteen files across the
-    /// assembly call this pair, and each of them used to unwrap its handle at its own seam only for
-    /// this pair to wrap it straight back up before asking
-    /// <see cref="Dom.Runtime.JsObjectRegistry"/> — which has been keyed on
-    /// <see cref="JsValue.ObjectIdentity"/> since it was re-typed, so the round trip resolved to the
-    /// same lookup it started from. The <em>names</em> still spell the type they no longer take;
-    /// renaming them is a separate change, and nothing the neutrality ratchet measures depends on it,
-    /// because that check counts the engine's namespace as text and a method name spells none.
+    /// <b>The parameter is the handle every caller already holds.</b> Fifteen files across the
+    /// assembly call this pair, and it asks <see cref="Dom.Runtime.JsObjectRegistry"/>, which is keyed
+    /// on <see cref="JsValue.ObjectIdentity"/>. The <em>names</em> still spell an engine type they do
+    /// not take; renaming them is a separate change, and nothing the neutrality ratchet measures
+    /// depends on it, because that check counts the engine's namespace as text and a method name
+    /// spells none.
     /// </para>
     /// <para>
     /// <b>A handle that is not an object answers <see langword="null"/> rather than throwing.</b>
@@ -46,19 +43,17 @@ public sealed partial class DomBridge
         FindDomNodeByJSObject(wrapper) as DomElement;
 
     /// <summary>
-    /// Finds the canonical <see cref="DomNode"/> a wrapper handle stands for, in constant time
-    /// (the reverse map is a hash lookup, not the scan this used to describe). Unlike
-    /// <see cref="FindDomElementByJSObject"/> this also resolves text/comment nodes
-    /// (RF-BRIDGE-1c Phase F), which ranges need now that they carry canonical char-data nodes.
+    /// Finds the canonical <see cref="DomNode"/> a wrapper handle stands for, in constant time (the
+    /// reverse map is a hash lookup). Unlike <see cref="FindDomElementByJSObject"/> this also resolves
+    /// text/comment nodes, which ranges need because they carry canonical char-data nodes.
     /// </summary>
     /// <inheritdoc cref="FindDomElementByJSObject" path="/remarks" />
     private DomNode? FindDomNodeByJSObject(JsValue wrapper) =>
         _jsObjects.TryGetNode(wrapper, out var node) ? node : null;
 
-    // Phase 4 item 5: the bridge's IsDescendant(ancestor, candidate) copy is deleted; call sites use
-    // the canonical Broiler.Dom.DomNode.IsDescendantOf(ancestor) instance method (identical ancestor
-    // walk; every bridge call site passes a non-null ancestor, so canonical's null-ancestor throw is
-    // unreachable).
+    // Call sites use the canonical Broiler.Dom.DomNode.IsDescendantOf(ancestor) instance method.
+    // Every bridge call site passes a non-null ancestor, so canonical's null-ancestor throw is
+    // unreachable.
 
     /// <summary>
     /// Clones a <see cref="DomElement"/>. When <paramref name="deep"/> is true,
@@ -66,7 +61,7 @@ public sealed partial class DomBridge
     /// </summary>
     private DomNode CloneDomElement(DomNode source, bool deep)
     {
-        // Phase 4 item 5: delegate the tree + attribute clone to canonical DomNode.CloneNode (spec §4.4)
+        // Delegate the tree + attribute clone to canonical DomNode.CloneNode (spec §4.4)
         // instead of the bridge's hand-rolled per-node-kind rebuild. Canonical CloneShallow handles every
         // node kind — element (namespace + attribute set verbatim), text/comment (data), doctype
         // (name/publicId/systemId) and fragment — and, when deep, recurses the child list in order. This
@@ -80,7 +75,7 @@ public sealed partial class DomBridge
         // Canonical CloneNode knows nothing about the bridge's parallel per-element runtime state (inline
         // style + baked overlay, form control, scroll, dialog/popover, shadow, stylesheet, document
         // viewport, animation, position-area memo), so copy it onto every element in the cloned subtree
-        // through the single CopyBridgeRuntimeStateTo authority (P4.13 / P4.14-inc3).
+        // through the single CopyBridgeRuntimeStateTo authority.
         CopyRuntimeStateForClonedSubtree(source, clone, deep);
         return clone;
     }
@@ -106,7 +101,7 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Phase 4 item 5 (CloneDomElement de-risk): the single authority that copies every bridge
+    /// The single authority that copies every bridge
     /// per-element runtime-state table from a source element onto its <c>cloneNode</c> copy.
     /// Canonical <c>DomNode.CloneNode</c> clones the tree and attributes but knows nothing about
     /// the bridge's parallel per-element state (inline style, form control, scroll, dialog/popover
@@ -119,7 +114,7 @@ public sealed partial class DomBridge
     /// </summary>
     private void CopyBridgeRuntimeStateTo(DomElement source, DomElement clone)
     {
-        // Inline style (RF-BRIDGE-1c Phase B): copy the source's live style dict — which may hold
+        // Inline style: copy the source's live style dict — which may hold
         // JS `element.style` mutations not yet synced to the `style=` attribute — over the clone's
         // lazily-seeded attribute values. `InlineStyle(clone)` seeds from the (already-copied)
         // `style=` attribute before the Clear, so the copy is authoritative.
@@ -128,7 +123,7 @@ public sealed partial class DomBridge
         foreach (var kv in InlineStyle(source))
             cloneStyle[kv.Key] = kv.Value;
 
-        // Per-bridge instance tables (Phase 2 items 3/4 de-globalization) — each owns its CopyTo.
+        // Per-bridge instance tables — each owns its CopyTo.
         _formState.CopyControlState(source, clone);
         ScrollStateFor(source).CopyTo(ScrollStateFor(clone));
         DialogStateFor(source).CopyTo(DialogStateFor(clone));
@@ -140,7 +135,7 @@ public sealed partial class DomBridge
         // PositionAreaResolutions cache — see AnchorResolver/ScrollPositioning.cs).
         CopyPositionAreaResolution(source, clone);
 
-        // Baked-style overlay (Phase 4 item 2 increment 3): serialize-time bakes now live off the
+        // Baked-style overlay: serialize-time bakes now live off the
         // inline-style dict, so copy the overlay too. A no-op unless the source was cloned after baking.
         CopyBakedStyleOverlay(source, clone);
 
@@ -148,27 +143,10 @@ public sealed partial class DomBridge
         // node); the serialization pass reads them off the projected element, so they travel here.
         CopyAnimatedPseudoStyles(source, clone);
     }
-
-    // form.elements collection (indexed + named access) moved to the Phase 3 FormBinding feature
-    // module (Broiler.HtmlBridge.Dom.Features).
-
-    // classList / DOMTokenList moved to the Phase 3 ClassListBinding feature module
-    // (Broiler.HtmlBridge.Dom.Features).
-    // style / CSSStyleDeclaration (element.style, rule.style, getComputedStyle result) moved to the
-    // Phase 3 (P3.14) StyleDeclarationBinding feature module (Broiler.HtmlBridge.Dom.Features).
-    // canvas.getContext("2d") + BuildCanvas2DContext moved to the Phase 3 (P3.64) CanvasBinding feature
-    // module (Broiler.HtmlBridge.Dom.Features), unblocked once Phase 6/P8.9 dissolved
-    // Broiler.HtmlBridge.Rendering into Dom.
-
 }
 
-// NO ENGINE NAMESPACE. This part, once a file of its own, used to open with four of them, all for ThrowDOMException and the
-// validators that forward to it, and a note saying the parameter type could not change until the
-// five files handing it a context asked with a realm instead. They now do, so the four usings are
-// gone and this part is the realm's throughout.
-//
-// What made it a single commit rather than five is that the parameter is load-bearing in one
-// direction only: nothing here reads the context except to reach the page's DOMException
+// NO ENGINE NAMESPACE. ThrowDOMException and the validators that forward to it are the realm's
+// throughout. Nothing here reads a script context except to reach the page's DOMException
 // constructor, and IJsCalls.DomError reaches the same global on the same realm with the same
 // fallback. See the remarks on ThrowDOMException for why that is a rename and not a behaviour
 // change.

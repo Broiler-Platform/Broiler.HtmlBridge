@@ -321,7 +321,7 @@ public sealed class ContentSecurityPolicy
     public static ContentSecurityPolicy? FromHtml(string html)
     {
         // Discovery (where is the policy in the document) is CspMetaDiscovery's job; this method only
-        // composes it with parsing (what the policy allows). Phase 7 item 1.
+        // composes it with parsing (what the policy allows).
         var content = CspMetaDiscovery.FindPolicyContent(html);
         if (string.IsNullOrWhiteSpace(content))
             return null;

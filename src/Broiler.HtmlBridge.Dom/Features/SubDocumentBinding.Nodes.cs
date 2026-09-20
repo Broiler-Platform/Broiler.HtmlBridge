@@ -136,7 +136,7 @@ internal sealed partial class SubDocumentBinding
         foreach (var child in DomBridgeUtils.ChildElements(docRoot).ToList())
         {
             // Wrapper identity, not node identity: two handles compare equal when they carry the same
-            // underlying object, which is the same reference test this used to perform directly.
+            // underlying object.
             if (_host.TryGetNodeWrapper(child, out var cached) && cached == childObj)
             {
                 var idx = DomBridgeUtils.ChildIndexOf(docRoot, child);
@@ -160,8 +160,8 @@ internal sealed partial class SubDocumentBinding
         if (!call[0].IsObject)
             return call[0];
         var childObj = call[0];
-        // Phase 4 item 1: match any DomNode so a canonical DomDocumentType / DomDocumentFragment can be
-        // appended to a sub-document root (was `is DomElement`, which skipped them).
+        // Match any DomNode, not just DomElement, so a canonical DomDocumentType /
+        // DomDocumentFragment can be appended to a sub-document root.
         if (_host.FindNode(childObj) is { } child)
         {
             if (DomBridgeUtils.ParentEl(child) != null)

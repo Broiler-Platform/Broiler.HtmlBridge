@@ -15,8 +15,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// The contract names no engine type. <see cref="Realm"/> is here only because
 /// <see cref="ElementContentBinding.InstallTextContent"/> reads the realm off the host instead of taking
-/// one like its two siblings; its caller, WrapNode, holds that same realm, as the factory before it did.
-/// (This said the caller was an engine-typed wrapper factory with no realm to hand over.)
+/// one like its two siblings; its caller, WrapNode, holds that same realm.
 /// </remarks>
 internal interface IElementContentHost
 {

@@ -5,36 +5,30 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// The single owner of a document's event-listener stores (HtmlBridge complexity-reduction roadmap
-/// Phase 2, P2.5): the per-node <c>addEventListener</c> listeners, the window listeners, the generic
+/// The single owner of a document's event-listener stores: the per-node
+/// <c>addEventListener</c> listeners, the window listeners, the generic
 /// JS-target (message port / sub-window) listeners, the target→owner-window map used to route generic
-/// dispatch, and the visual-viewport <c>scroll</c> listeners. It replaces the listener dictionaries
-/// that were spread across the bridge and — for node listeners — moves them off the process-global
-/// <c>ElementRuntimeState</c> table onto an instance-scoped store.
+/// dispatch, and the visual-viewport <c>scroll</c> listeners.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Node listeners use a <see cref="ConditionalWeakTable{TKey,TValue}"/> so a detached node's listeners
-/// are collected with the node (matching the prior ElementRuntimeState semantics) while staying scoped
+/// are collected with the node, while staying scoped
 /// to this document rather than a static table. The dispatch algorithms (building the JS event object,
 /// walking the tree, invoking listeners) stay in the bridge and read/write listeners through here.
 /// Instance-scoped to the owning bridge/document; <see cref="Clear"/> runs on re-parse and disposal.
 /// </para>
 /// <para>
-/// <b>The two object-keyed maps are keyed on <see cref="JsValue"/>, and the move was checked rather
-/// than hoped for.</b> Both were keyed on the engine's own object type under
-/// <see cref="ReferenceEqualityComparer"/>, which asks two questions of a key:
-/// <c>ReferenceEquals</c> and <c>RuntimeHelpers.GetHashCode</c>.
+/// <b>The two object-keyed maps are keyed on <see cref="JsValue"/> under the default comparer.</b>
 /// <c>JsValue.Equals</c>'s arm for every object kind is <c>ReferenceEquals</c> over the engine object
 /// the handle carries and <c>JsValue.GetHashCode</c>'s is <c>RuntimeHelpers.GetHashCode</c> of that
-/// same reference, so the default comparer asks exactly those two questions about exactly those
-/// instances — a port or sub-window is found under the handle it was filed under, and identity is
-/// untouched. The one thing the handle adds is that its <em>kind</em> takes part in equality; every
+/// same reference, so a port or sub-window is found under the handle it was filed under and identity
+/// is untouched. The one thing the handle adds is that its <em>kind</em> takes part in equality; every
 /// key here is an ordinary object (a message port and a sub-window are both <c>NewObject</c>, and a
 /// window crossing the seam wraps as one), so two handles over one key always agree on kind.
 /// </para>
 /// <para>
-/// <b>Nothing in this store is engine-typed any more.</b> The listener lists hold
+/// <b>Nothing in this store is engine-typed.</b> The listener lists hold
 /// <c>EventListenerRegistration</c>, whose listener field is a <see cref="JsValue"/>, and the
 /// visual-viewport list holds <see cref="JsValue"/> too, so no list here names an engine type however
 /// its map is keyed.
@@ -104,30 +98,10 @@ internal sealed class EventTargetRegistry
 
     /// <summary>The window that owns <paramref name="target"/>, if one was recorded.</summary>
     /// <remarks>
-    /// <para>
-    /// <b>This is the store's own lookup, and the adapter it replaces converted a handle into a key
-    /// the map does not hold and back again.</b> <c>_ownerWindows</c> has been keyed on
-    /// <see cref="JsValue"/> since the listener stores were re-typed, and <see cref="SetOwnerWindow"/>
-    /// files a handle. The engine-typed accessor that stood here unwrapped the caller's handle, minted
-    /// a second handle over the same object to look the entry up under, and unwrapped the stored window
-    /// so the caller could wrap it a third time — four crossings on a round trip whose two ends were
-    /// already handles.
-    /// </para>
-    /// <para>
-    /// <b>The reason recorded here for keeping the engine signature was not true on the day it was
-    /// written.</b> It said the only caller, <c>Runtime/WindowContextManager.cs</c>, held the engine's
-    /// own object on both sides of the call. That file has taken and answered <see cref="JsValue"/>
-    /// since the commit before the one that wrote the sentence, so the conversions this signature was
-    /// said to be sparing were conversions it was causing.
-    /// </para>
-    /// <para>
-    /// A miss now leaves <paramref name="window"/> at <see cref="JsValue.Missing"/> rather than at a
-    /// CLR <see langword="null"/>, which is the same answer in the type the caller already tests:
-    /// <c>Missing</c> is <c>default</c>, so the dictionary's own miss writes it and the out parameter
-    /// needs no null-forgiving operator, and every window <c>WindowContextManager</c> holds is tested
-    /// with <see cref="JsValue.IsObject"/>, which <c>Missing</c> fails. Identity is untouched: the map
-    /// is now asked about the handle the caller holds instead of about a re-minted copy of it.
-    /// </para>
+    /// A miss leaves <paramref name="window"/> at <see cref="JsValue.Missing"/>, which is
+    /// <c>default</c>: the dictionary's own miss writes it, so the out parameter needs no
+    /// null-forgiving operator, and every window <c>WindowContextManager</c> holds is tested with
+    /// <see cref="JsValue.IsObject"/>, which <c>Missing</c> fails.
     /// </remarks>
     public bool TryGetOwnerWindow(JsValue target, out JsValue window) => _ownerWindows.TryGetValue(target, out window);
 
@@ -146,8 +120,7 @@ internal sealed class EventTargetRegistry
 
     /// <summary>The registered visual-viewport scroll listeners: the list itself, not a snapshot.</summary>
     /// <remarks>
-    /// This summary used to say "snapshot the caller may iterate", over a property that returns the
-    /// field. Taking the snapshot is the reader's job, and the only reader does it:
+    /// Taking a snapshot is the reader's job, and the only reader does it:
     /// <c>DispatchVisualViewportScrollEvent</c> in <c>DomBridge/LayoutMetrics.Scrolling.cs</c> copies
     /// the list before invoking anything, which is what lets a listener remove itself mid-dispatch
     /// without changing the list the loop is walking.

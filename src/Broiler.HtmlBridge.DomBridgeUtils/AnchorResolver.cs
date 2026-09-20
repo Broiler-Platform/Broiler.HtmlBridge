@@ -174,9 +174,9 @@ public static partial class DomBridgeUtils
     /// laid-out extent (<c>Bounds.Width</c>) for its overflow test, so the box is handed off (the
     /// engine's size is at least as correct as — and, where the bridge's crude
     /// <c>EstimateMinContentWidth</c> heuristic mis-measures a max/fit box <em>as</em> min-content,
-    /// more correct than — the baked estimate). All three go through the identical engine mechanism
-    /// (P5.8d.2b validated <c>min-content</c>; <c>max-content</c>/<c>fit-content</c> differ only in
-    /// the laid-out size the engine already computes). The functional <c>fit-content(&lt;length&gt;)</c>
+    /// more correct than — the baked estimate). All three go through the identical engine mechanism:
+    /// <c>max-content</c>/<c>fit-content</c> differ from <c>min-content</c> only in the laid-out size
+    /// the engine already computes. The functional <c>fit-content(&lt;length&gt;)</c>
     /// form is intentionally excluded (it is not a bare keyword).
     /// </summary>
     internal static bool IsEngineSizedIntrinsic(string? value)
@@ -223,12 +223,11 @@ public static partial class DomBridgeUtils
     // Containing block establishment (shared helper)
     // -----------------------------------------------------------------
     //
-    // The bridge's EnsureContainingBlockPositioning pre-bake (which added position:relative to
-    // transform/contain/will-change CB establishers so the static renderer treated them as CBs)
-    // was deleted in Phase 4 item-2 step 3 — the Broiler.Layout engine resolves these containing
-    // blocks natively (CssBox.EstablishesNonPositionAbsPosContainingBlock, the engine mirror of
-    // the helper below). EstablishesContainingBlock stays: PositionArea / InlineContainingBlocks /
-    // AnchorRegistry / Visibility still use it.
+    // The bridge does not pre-bake position:relative onto transform/contain/will-change containing-
+    // block establishers: the Broiler.Layout engine resolves these containing blocks natively
+    // (CssBox.EstablishesNonPositionAbsPosContainingBlock, the engine mirror of the helper below).
+    // EstablishesContainingBlock is used by PositionArea / InlineContainingBlocks / AnchorRegistry /
+    // Visibility.
 
     /// <summary>
     /// Determines whether an element with the given CSS properties
@@ -325,7 +324,7 @@ public static partial class DomBridgeUtils
             return "0px";
 
         // Edge coordinate math (no scroll adjustment on the fallback path) is the
-        // canonical Broiler.Layout.AnchorGeometry model (Phase 5 item 3).
+        // canonical Broiler.Layout.AnchorGeometry model.
         double value = AnchorGeometry.ResolveEdge(
             anchor.Left, anchor.Top, anchor.Right, anchor.Bottom,
             reference.Side, 0, 0, MapAnchorInsetProperty(contextProp), cbWidth, cbHeight);

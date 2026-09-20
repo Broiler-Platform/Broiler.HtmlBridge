@@ -7,7 +7,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The <c>document</c> collection accessors — <c>forms</c>, <c>images</c>, <c>links</c>,
 /// <c>anchors</c>, <c>scripts</c>, <c>embeds</c>, <c>plugins</c> and <c>styleSheets</c> — plus
 /// <c>document.currentScript</c>, which names one element out of the same set, co-located as an
-/// HtmlBridge feature module (Phase 3).
+/// HtmlBridge feature module.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,10 +18,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// named getter rather than properties copied onto a snapshot.
 /// </para>
 /// <para>
-/// They used to be JavaScript arrays built fresh per read, which was wrong three ways at once. An
-/// array is not live, so a page that held <c>document.forms</c> across a <c>appendChild</c> read a
-/// stale length; it has <c>map</c> and <c>filter</c> but no <c>item</c> or <c>namedItem</c>, the
-/// opposite of a browser in both directions; and a fresh object per read made
+/// A JavaScript array built fresh per read would be wrong three ways at once. An array is not live,
+/// so a page that held <c>document.forms</c> across an <c>appendChild</c> would read a stale length;
+/// it has <c>map</c> and <c>filter</c> but no <c>item</c> or <c>namedItem</c>, the opposite of a
+/// browser in both directions; and a fresh object per read makes
 /// <c>document.forms === document.forms</c> <see langword="false"/>, where every browser hands back
 /// one cached object per document. The last one is why the collections are built once at
 /// registration and closed over: identity is part of the contract, and
@@ -29,17 +29,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// are specified to return the same object, not merely equal ones.
 /// </para>
 /// <para>
-/// <c>anchors</c>, <c>embeds</c> and <c>plugins</c> did not exist at all, so each read was
-/// <c>undefined</c> and the idiomatic <c>document.embeds.length</c> a <c>TypeError</c>.
+/// Without this registration <c>anchors</c>, <c>embeds</c> and <c>plugins</c> would not exist at
+/// all: each read would be <c>undefined</c> and the idiomatic <c>document.embeds.length</c> a
+/// <c>TypeError</c>.
 /// </para>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): a wrapper is a
-/// <see cref="JsValue"/>, and the script context this module used to take beside its host is gone.
-/// It was there for one thing — being handed straight back to the collection builder so it could
-/// find the interface prototypes — and the builder now asks the host's realm for those. The seven
-/// engine-typed adapters that stood at the foot of this file went with it: their one caller, the
-/// frame projection in <c>DomBridge/Hosts.Documents.cs</c>, asks for the same seven collections in
-/// handles now, so the file names no engine type at all.
+/// <see cref="JsValue"/>, the collection builder asks the host's realm for the interface prototypes,
+/// and the frame projection in <c>DomBridge/Hosts.Documents.cs</c> asks for these collections in
+/// handles, so the file names no engine type at all.
 /// </para>
 /// </remarks>
 internal static class DocumentCollectionBinding

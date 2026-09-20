@@ -5,12 +5,7 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 // No engine namespace, and no engine object either: the wrapper arrives as a handle and every
-// installation below takes it as one. What stood here said "the two engine
-// namespaces left, and one member decides both", naming <img>.width/height's used-dimension getter
-// as the member and _tables and FormAssociationBinding as passengers on it. There were no engine
-// namespaces: Features/ComputedStyleBinding.cs migrated, the getter has been the realm's since, and
-// the only thing keeping the claim half-true was a ToEngineObject feeding two installers that
-// undid it.
+// installation below takes it as one.
 
 public sealed partial class DomBridge
 {
@@ -27,27 +22,27 @@ public sealed partial class DomBridge
     /// </remarks>
     private void AddElementSpecificMembers(JsValue handle, Broiler.Dom.DomElement element)
     {
-        // -- Phase 5: HTML DOM Interfaces --
+        // -- HTML DOM Interfaces --
 
         var tag = element.TagName.ToLowerInvariant();
 
-        // HTMLTableElement / HTMLTableSectionElement / HTMLTableRowElement interfaces (Phase 3 P3.5:
-        // extracted into the co-located TableBinding feature module).
+        // HTMLTableElement / HTMLTableSectionElement / HTMLTableRowElement interfaces (the
+        // co-located TableBinding feature module).
         _tables.Install(handle, element, tag);
 
-        // HTMLFormElement interface (Phase 3 P3.9: extracted into the co-located FormBinding module).
+        // HTMLFormElement interface (extracted into the co-located FormBinding module).
         _forms.Install(handle, element, tag);
 
         // HTMLDetailsElement.open, HTMLDialogElement (showModal/show/close/open/returnValue) and the
-        // popover API (Phase 3 P3.7: extracted into the co-located DialogBinding feature module).
+        // popover API (extracted into the co-located DialogBinding feature module).
         _dialogs.Install(handle, element, tag, HasAttr(element, "popover"));
 
-        // HTMLSelectElement / HTMLOptionElement (Phase 3 P3.8: extracted into the co-located
+        // HTMLSelectElement / HTMLOptionElement (extracted into the co-located
         // SelectBinding feature module).
         _select.Install(handle, element, tag);
 
         // HTMLMediaElement.canPlayType() on <video>/<audio> — the capability question a media player
-        // asks before it commits to a source (Phase 3 co-located MediaCapabilityBinding module,
+        // asks before it commits to a source (co-located MediaCapabilityBinding module,
         // shared with the MediaSource.isTypeSupported that answers it statically).
         Dom.Features.MediaCapabilityBinding.Install(Realm, handle, tag);
 
@@ -75,9 +70,9 @@ public sealed partial class DomBridge
         // HTMLObjectElement — data property with URI resolution + contentDocument + getSVGDocument + type
         if (tag == "object")
         {
-            // data get (reflected URL) + type get/set are in ElementReflectionBinding (P3.49); the data
+            // data get (reflected URL) + type get/set are in ElementReflectionBinding; the data
             // setter, contentDocument getter and getSVGDocument() are sub-document-coupled and live in the
-            // ObjectElementBinding feature module (Phase 3 P3.52).
+            // ObjectElementBinding feature module.
             // Both modules are migrated now, so the pair is the realm's: it names the two functions
             // "get data"/"set data" as the engine-typed installation spelled out, and the setter's
             // ToString is the realm's — the same ECMAScript coercion on the same value.
@@ -110,7 +105,7 @@ public sealed partial class DomBridge
                 (in call) => Dom.Features.ElementReflectionBinding.SetHref(element, in call));
         }
 
-        // -- Phase 7: HTMLAreaElement properties --
+        // -- HTMLAreaElement properties --
         if (tag == "area")
         {
             // shape, coords, alt, target — simple reflected attributes
@@ -215,9 +210,9 @@ public sealed partial class DomBridge
                 });
         }
 
-        // HTMLImageElement — height/width return computed CSS value or HTML attribute (Phase 3 P3.53:
-        // the used-dimension getter moved to the ComputedStyleBinding feature module alongside
-        // getComputedStyle; the reflected-dimension setter is in ElementReflectionBinding, P3.49).
+        // HTMLImageElement — height/width return computed CSS value or HTML attribute. The
+        // used-dimension getter is in the ComputedStyleBinding feature module alongside
+        // getComputedStyle; the reflected-dimension setter is in ElementReflectionBinding.
         if (tag == "img")
         {
             foreach (var dim in new[] { "height", "width" })
@@ -285,7 +280,7 @@ public sealed partial class DomBridge
             }
         }
 
-        // The bridge's own scrollParent — Phase 3 P3.51: extracted into the co-located
+        // The bridge's own scrollParent — extracted into the co-located
         // ElementGeometryBinding feature module. It reads the live layout, so the module reaches the
         // bridge through the wide IElementGeometryHost contract (DomBridge/Hosts.Elements.cs).
         // The two interface halves of that module are on their prototypes: Element's client*/scroll*
@@ -296,11 +291,9 @@ public sealed partial class DomBridge
         Dom.Features.ElementGeometryBinding.InstallBridgeMembers(this, Realm, handle, element);
 
         // SVG DOM interfaces — SVGAnimatedLength/Rect stubs, SVGTextContentElement text metrics, the
-        // SVGSVGElement animation timeline and the SMIL animation-element no-ops (Phase 3 P3.50:
-        // extracted into the co-located SvgElementBinding feature module). The module is migrated to
-        // JSEAL and the wrapper is a handle, so it is passed straight through; the note that used to
-        // stand here called this call a JsInterop.FromEngineObject seam over a "still-engine-typed
-        // wrapper", and it has been neither for some time.
+        // SVGSVGElement animation timeline and the SMIL animation-element no-ops (the co-located
+        // SvgElementBinding feature module). The module speaks JSEAL and the wrapper is a handle, so
+        // it is passed straight through.
         Dom.Features.SvgElementBinding.Install(Realm, handle, element, tag);
     }
 }
@@ -348,7 +341,7 @@ public sealed partial class DomBridge
 /// The document kept its own — separate implementations, not copies: <c>nodeType</c> a literal
 /// <c>9</c>, <c>childNodes</c> a different binding — so each was checked against the prototype's
 /// answer before <c>DropDocumentNodeMemberCopies</c> deleted it (a sub-document object still installs
-/// its own), and <c>Element</c>'s surface has moved to its prototypes too. (This left both open.)
+/// its own), and <c>Element</c>'s surface has moved to its prototypes too.
 /// </para>
 /// <para>
 /// <b>The three <c>EventTarget</c> members are not here, and not on the instance either.</b> They
@@ -363,12 +356,7 @@ public sealed partial class DomBridge
 /// <b>One vocabulary for installing a prototype member.</b> <see cref="DefinePrototypeMethod"/> and
 /// <see cref="DefinePrototypeAccessor"/> mint through the realm, and every member below uses them —
 /// the <c>ChildNode</c> mixin four included — because every body below calls a binding that reads a
-/// <see cref="JsCall"/> frame. An engine-typed pair stood beside them for
-/// <c>DomBridge/ElementInterface.cs</c> and <c>DomBridge/ElementInterface.cs</c>, whose bodies
-/// took the engine's argument frame; those two files install every member through the realm now, and
-/// the engine-framed helper this said they still kept, for <c>animate</c> and
-/// <c>click</c>/<c>focus</c>/<c>blur</c>, is gone with the frame those bodies read. Nothing here
-/// names an engine type.
+/// <see cref="JsCall"/> frame. Nothing here names an engine type.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -376,7 +364,7 @@ public sealed partial class DomBridge
     /// <summary>
     /// Whether the node interface prototypes carry their members yet, which is what lets a wrapper
     /// stop installing them — a character-data wrapper its whole interface, an element the <c>Node</c>
-    /// members it used to duplicate.
+    /// members it would otherwise duplicate.
     /// </summary>
     /// <remarks>
     /// A wrapper minted before the realm is up has no prototype to inherit from —
@@ -479,8 +467,7 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// Two property reads through the realm: the global's <paramref name="interfaceName"/>, then that
-    /// constructor's <c>prototype</c>. They are the reads the engine-typed <c>PrototypeOfInterface</c>
-    /// (retired in 5282d02) made through the context, which <c>Realm.Global</c> <em>is</em> under Broiler.JS.
+    /// constructor's <c>prototype</c>.
     /// </remarks>
     private JsValue PrototypeHandleOfInterface(string interfaceName)
     {
@@ -495,7 +482,7 @@ public sealed partial class DomBridge
     /// <summary>
     /// <c>Node.prototype</c>: the tree accessors and node operations. Character data, elements (bar
     /// <c>textContent</c>) and the document inherit them; a doctype, fragment or sub-document object
-    /// still shadows those it installs itself. (This said an element or document shadowed each one.)
+    /// still shadows those it installs itself.
     /// </summary>
     private void InstallNodePrototypeMembers(JsValue proto)
     {
@@ -509,11 +496,11 @@ public sealed partial class DomBridge
             (in call) => Dom.Features.NodeAccessorsBinding.SetNodeValue(this, RequireNode(in call, "Node", "nodeValue"), in call));
         DefinePrototypeAccessor(proto, "textContent",
             // JsValue.String turns the "no text at all" null into JavaScript null, which is the
-            // distinction DOM §4.4 draws for a document and a doctype. (This also named an engine-typed
-            // GetNodeTextValue adapter as producing the same value elsewhere; that adapter is gone.)
+            // distinction DOM §4.4 draws for a document and a doctype.
             (in call) => JsValue.String(NodeTextOrNull(RequireNode(in call, "Node", "textContent"))),
-            // The canonical setter, the one every node kind's textContent uses. This was the nodeValue
-            // setter, which coerced null to "null" and wrote nothing but a text or comment node's data.
+            // The canonical setter, the one every node kind's textContent uses. NOT the nodeValue
+            // setter, which coerces null to "null" and writes nothing but a text or comment node's
+            // data.
             (in call) => Dom.Features.NodeAccessorsBinding.SetTextContent(RequireNode(in call, "Node", "textContent"), in call));
 
         DefinePrototypeAccessor(proto, "parentNode", (in call) =>

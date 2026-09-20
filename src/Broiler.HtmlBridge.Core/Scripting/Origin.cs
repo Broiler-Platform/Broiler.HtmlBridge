@@ -5,10 +5,8 @@ namespace Broiler.HtmlBridge.Scripting;
 /// <summary>
 /// The one origin serialization/comparison implementation shared by CSP source matching, cross-origin
 /// checks, <c>postMessage</c> target-origin delivery, and the <c>Location</c> <c>origin</c>/<c>host</c>
-/// projections (Phase 7 item 4 — the "one URL resolution/origin implementation shared by script, CSS,
-/// fetch, XHR and frames" exit criterion, origin half). Before this, the
-/// <c>scheme://host[:port]</c> construction was copy-pasted in five places and the scheme+host+port
-/// comparison in two; this collapses both to a single primitive.
+/// projections: one primitive for the <c>scheme://host[:port]</c> construction and for the
+/// scheme+host+port comparison.
 /// </summary>
 /// <remarks>
 /// This helper is the origin <em>primitive</em> only. Each caller keeps its own surrounding policy —

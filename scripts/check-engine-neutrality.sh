@@ -7,7 +7,7 @@
 # text Broiler.JavaScript across src/ (the root-less spelling counted below was
 # not counted then, and added 16), 16 project references into Broiler.JS/ and
 # Broiler.VM/, and 62 evaluation sites, and scoped the move as a 250-file job.
-# JSEAL (src/Broiler.HtmlBridge.Jseal) is the engine-neutral contract those are
+# JSEAL (the Broiler.JSeal package) is the engine-neutral contract those are
 # being moved onto. Today's counts are in the budget file, not in this comment.
 #
 # A 250-file migration lands one of two ways. As one merge, which nobody can
@@ -27,13 +27,6 @@
 # direction is fixed, and a project already at 0 cannot take a new engine-coupled
 # file at all.
 #
-# It also guards the one claim in this repository the compiler makes rather than
-# the budget: Broiler.HtmlBridge.Jseal.csproj has no ProjectReference and no
-# PackageReference, so that assembly cannot name a Broiler.JavaScript type no
-# matter what any grep says. The counts below are only worth reading while that
-# holds, so a reference of either kind appearing there is a failure ahead of all
-# of them.
-#
 # Three things it deliberately does NOT check.
 #
 # It does not read C#. It counts text, and a file that reaches the engine through
@@ -50,10 +43,9 @@
 # XML and the .cs files as text, so it finishes in under a second and can run
 # before the long jobs rather than after them. The cost is that a ProjectReference
 # injected by a Directory.Build.targets rather than written in the project body is
-# not counted. Today none of the injected ones point at an engine (they collapse
-# the vendored Graphics and Media checkouts), and a check that evaluated projects
-# to find out would cost a restore and a workload to answer a question the project
-# bodies already answer.
+# not counted. No injected reference in this tree points at an engine, and a check
+# that evaluated projects to find out would cost a restore and a workload to answer
+# a question the project bodies already answer.
 #
 # Usage: scripts/check-engine-neutrality.sh
 #        No arguments. Every directory directly under src/ must have an entry in
@@ -223,10 +215,8 @@ for name in on_disk:
         # deliberate bargain the budget file's header already explains.
         #
         # The trailing [A-Z] is not decoration. Without it the pattern matches the last word of
-        # "...source the page supplied, which is JavaScript." -- and it did, in four doc comments,
-        # two of them inside Broiler.HtmlBridge.Jseal, whose whole claim is that it contains no
-        # engine reference at all. A namespace segment never follows the dot with a space; an
-        # English sentence always does.
+        # "...source the page supplied, which is JavaScript." -- and it did, in four doc comments.
+        # A namespace segment never follows the dot with a space; an English sentence always does.
         engine_references += len(RELATIVE_ENGINE_NAMESPACE.findall(text))
         guest_eval_sites += text.count(".Eval(")
 
@@ -269,7 +259,7 @@ for name in on_disk:
         continue
 
     # A PROVIDER IS THE ONE KIND OF PROJECT WHOSE ENGINE REFERENCES ARE SUPPOSED TO GROW.
-    # Naming Broiler.JavaScript is what src/Broiler.HtmlBridge.Jseal.BroilerJs is FOR: every
+    # Naming Broiler.JavaScript is what a JSEAL provider assembly is FOR: every
     # reference in it is one the bridge no longer has to make. Ratcheting its source-reference count
     # to an exact number would fail the build for fixing a bug in it, and the pressure that creates is
     # to make the provider thinner by pushing engine detail back into the bridge -- the exact opposite
@@ -334,7 +324,7 @@ while IFS=$'\t' read -r kind a b c d; do
       status=1
       ;;
     over)
-      annotate "src/$a is over budget: $b is $d, and $c is what eng/jseal-budget.json allows. Port the new coupling onto Broiler.HtmlBridge.Jseal rather than raising the number -- these may fall and may never rise."
+      annotate "src/$a is over budget: $b is $d, and $c is what eng/jseal-budget.json allows. Port the new coupling onto JSEAL rather than raising the number -- these may fall and may never rise."
       status=1
       ;;
     under)

@@ -104,9 +104,9 @@ internal sealed partial class FetchBinding
                 {
                     var name = originalNames.TryGetValue(header.Key, out var originalName) ? originalName : header.Key;
 
-                    // The receiver stays the callback itself, as it was: the frame this used to be
-                    // built with passed the function as `this`, which is not what the
-                    // specification says and is not this migration's to change.
+                    // The receiver is the callback itself. That is not what the specification says,
+                    // but it is what this surface has always done, so correcting it is a behaviour
+                    // change rather than a tidy-up.
                     realm.Invoke(callback, callback,
                         [JsValue.String(header.Value), JsValue.String(name), headersObject]);
                 }

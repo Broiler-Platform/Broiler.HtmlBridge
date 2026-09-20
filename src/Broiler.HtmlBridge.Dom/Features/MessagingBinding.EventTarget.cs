@@ -12,8 +12,7 @@ internal sealed partial class MessagingBinding
     // ==================== Generic EventTarget dispatch ====================
     // Installed on message ports and on sub-windows (the two non-node event targets).
     //
-    // THE EVENT, THE TARGET, THE STORE AND THE REGISTRATION ARE ALL THE REALM'S. This note used to say
-    // a registration was still the engine's; its listener is a JsValue now, so everything below --
+    // THE EVENT, THE TARGET, THE STORE AND THE REGISTRATION ARE ALL THE REALM'S. Everything below --
     // reading the event's type, stamping target/currentTarget/eventPhase, installing the propagation
     // operations, filing a target in the listener and owner-window maps, adding and removing a
     // listener, and firing one -- goes through IJsRealm.
@@ -27,11 +26,8 @@ internal sealed partial class MessagingBinding
     /// three operations close over.
     /// </para>
     /// <para>
-    /// <b>This remark said the first two operations kept an engine argument frame, and that an engine
-    /// object was unwrapped here for them.</b> Neither was so: all three are minted below through the
-    /// realm with a JSEAL frame, and nothing here unwraps anything. What the first two did depend on was
-    /// the listener record, whose engine-typed field made the host convert every listener and
-    /// <c>options</c> argument on the way in. The record holds a handle now and the two call
+    /// All three are minted below through the realm with a JSEAL frame, and nothing here unwraps
+    /// anything: the listener record holds a handle and the first two call
     /// <see cref="EventListenerBinding"/> directly. <c>dispatchEvent</c> is installed <em>in its original
     /// position</em>, because property order is what <c>Object.getOwnPropertyNames</c> reports.
     /// </para>

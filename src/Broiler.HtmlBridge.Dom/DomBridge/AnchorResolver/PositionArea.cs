@@ -58,12 +58,10 @@ public sealed partial class DomBridge
                 //
                 // For the MVP subset, skip pre-baking entirely (rect stays null) so the box's
                 // position-area/position-anchor CSS survives to the render and the Broiler.Layout
-                // engine's placement post-pass positions it natively. Every other box is baked
-                // below. The flag check is dropped in Phase 4 item-2 step 5 — the MVP-skip is
-                // unconditional (a provable no-op on the native default path, where the flag was
-                // already true); only the not-yet-native residue is baked.
+                // engine's placement post-pass positions it natively. The MVP-skip is
+                // unconditional; only the not-yet-native residue is baked below.
                 var rect =
-                    IsMvpNativeAnchorBox(element, positionAnchor, cssProps, scrollContainer)
+                    IsMvpNativeAnchorBox(element, positionAnchor, cssProps)
                         ? null
                         : ComputePositionAreaRect(
                             element, anchor, positionArea, scrollContainer);
@@ -72,7 +70,6 @@ public sealed partial class DomBridge
                 // container still needs that scroll container to establish the CB the
                 // engine resolves — the baked path adds position:relative below (inside
                 // the rect!=null block); do the same here so the native CB frame matches.
-                // (P5.8d.2b scroll-simulation expansion.)
                 if (rect == null && scrollContainer != null)
                     scrollContainersNeedingRelative.Add(scrollContainer);
 
@@ -208,7 +205,7 @@ public sealed partial class DomBridge
                     // (inset-modified containing block), the used width/height
                     // (percentages against the cell, explicit lengths clamped to it,
                     // else fill the IMCB) and the alignment-based position — via the
-                    // canonical Broiler.Layout model (Phase 5 item 3). The bridge keeps
+                    // canonical Broiler.Layout model. The bridge keeps
                     // the CSS parsing above and the box-sizing / percentage-box
                     // branches below.
                     string? rawW = cssProps.GetValueOrDefault("width");
@@ -314,7 +311,7 @@ public sealed partial class DomBridge
                         }
 
                         // Content = IMCB minus margin/border/padding on each axis
-                        // (canonical Broiler.Layout used-value math, Phase 5 item 3).
+                        // (canonical Broiler.Layout used-value math).
                         var (contentW, contentH) = PositionAreaGrid.ContentSizeFillingImcb(
                             imcbW, imcbH,
                             new PositionAreaEdges(marginTop2, marginRight2, marginBottom2, marginLeft2),
@@ -363,7 +360,7 @@ public sealed partial class DomBridge
                         double bdrB = CssBorderWidth.Resolve(cssProps, "border-bottom-width", "border");
 
                         // border-box → content-box: subtract border + padding per axis
-                        // (canonical Broiler.Layout used-value math, Phase 5 item 3).
+                        // (canonical Broiler.Layout used-value math).
                         (resolvedW, resolvedH) = PositionAreaGrid.BorderBoxToContentSize(
                             resolvedW, resolvedH,
                             new PositionAreaEdges(bdrT, bdrR, bdrB, bdrL),
@@ -395,9 +392,7 @@ public sealed partial class DomBridge
 
                     // Non-MVP box: this box was just baked into explicit inline pixel values, so
                     // neutralize position-area on it (inline wins the cascade) to stop the engine's
-                    // placement post-pass from repositioning an already-placed box. Stamped
-                    // unconditionally as of Phase 4 item-2 step 5 (harmless on the retired baked
-                    // path, where the engine post-pass does not run).
+                    // placement post-pass from repositioning an already-placed box.
                     BakedInlineStyle(element)["position-area"] = "none";
                 }
             }
@@ -405,8 +400,8 @@ public sealed partial class DomBridge
 
         // Snapshot before the recursive descent: element.Children enumerates the
         // live ChildNodes list, and resolving a child can re-enter anchor
-        // resolution through a lazy offset/box query (ComputeElementBox →
-        // ResolvePositionAreaForElement) or surface a DOM move on a node sharing
+        // resolution through a lazy offset/box query (ComputeElementBox) or
+        // surface a DOM move on a node sharing
         // this parent, mutating the list mid-walk and throwing "Collection was
         // modified" — which aborts position-area resolution for the whole
         // document (WPT issue #1147, signature
@@ -420,7 +415,7 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Decides whether a <c>position-area</c> box belongs to the native-placement MVP
-    /// subset (P5.8d.2b) — the boxes the Broiler.Layout engine's placement post-pass
+    /// subset — the boxes the Broiler.Layout engine's placement post-pass
     /// currently reproduces exactly, so the bridge can hand them off instead of
     /// pre-baking. Requires: an explicit dashed-ident <c>position-anchor</c> that names a
     /// registered anchor, and no <c>position-try</c> or <c>anchor()</c>/<c>anchor-size()</c>
@@ -428,45 +423,42 @@ public sealed partial class DomBridge
     /// expansions). Both block and inline containing blocks (relative or abspos/fixed) are
     /// in the subset — the engine places against the real inline-box geometry the bridge
     /// estimator could not. An intervening scroll container (the anchor's scroll container
-    /// is the box's containing block) is also in the subset (P5.8d.2b scroll-simulation
-    /// expansion): the bridge's <c>ApplyScrollSimulation</c> DOM-shifts the scrolled
-    /// content before render, so the engine reads the already-scrolled anchor geometry.
+    /// is the box's containing block) is also in the subset: the bridge's
+    /// <c>ApplyScrollSimulation</c> hands the scroll offset to the engine before render,
+    /// so the engine reads the already-scrolled anchor geometry.
     /// </summary>
     private bool IsMvpNativeAnchorBox(
-        DomElement element, string positionAnchor, Dictionary<string, string> cssProps,
-        DomElement? scrollContainer)
+        DomElement element, string positionAnchor, Dictionary<string, string> cssProps)
     {
         // An intervening scroll container (the anchor's scroll container is this box's
-        // containing block) is now IN the MVP subset (P5.8d.2b scroll-simulation
-        // expansion). The bridge's ApplyScrollSimulation pre-pass DOM-shifts the scroll
-        // container's content (wrapping it in a position:relative offset div) before the
-        // final render, so the engine's box tree already carries the scrolled anchor
-        // geometry; the native post-pass reads the shifted anchor border box and places
-        // the target against it. The scroll container is still registered as the box's
-        // containing block below (scrollContainersNeedingRelative) in native mode too, so
-        // the CB frame the engine resolves is identical to the baked path — verified
-        // baked-vs-native pixel-identical by ScrollContainerAnchorParityTests (with and
-        // without a scroll offset, positioned and static scroll containers).
+        // containing block) is IN the MVP subset. The bridge's ApplyScrollSimulation
+        // pre-pass hands the scroll container's offset to the engine (data-broiler-scroll-*)
+        // before the final render, so the engine's box tree already carries the scrolled
+        // anchor geometry; the native post-pass reads the shifted anchor border box and
+        // places the target against it. The scroll container is still registered as the
+        // box's containing block by the caller (scrollContainersNeedingRelative) in native
+        // mode too, so the CB frame the engine resolves is identical to the baked path —
+        // verified baked-vs-native pixel-identical by ScrollContainerAnchorParityTests (with
+        // and without a scroll offset, positioned and static scroll containers).
 
         // An explicit, named anchor — a dashed-ident like `--a`, not the default `auto`.
         var anchorName = positionAnchor.Trim();
         if (!anchorName.StartsWith("--", StringComparison.Ordinal))
             return false;
 
-        // The anchor-name must be registered. Shared names are now allowed: the engine's
+        // The anchor-name must be registered. Shared names are allowed: the engine's
         // AnchorRegistry keeps every candidate and binds a query to the one in its own
         // containing-block scope (matching the bridge's ResolveAnchorForElement), so a
-        // duplicate name no longer forces the bridge path.
+        // duplicate name does not force the bridge path.
         if (_layoutAnchors == null || !_layoutAnchors.Contains(anchorName))
             return false;
 
         // An inline containing block — whether relatively or absolutely/fixed positioned —
-        // is now IN the MVP subset (P5.8d.2b inline-CB and abspos-inline-CB expansions): the
-        // engine's abspos layout places a box inside an inline element against the real
-        // inline-box bounding box (CssBox.GetInlineBoundingBox, CSS2.1 §10.1), which the
-        // bridge's estimator could not. The box stays inside the inline CB
-        // (PromoteAbsPosFromInlineCBs skips the whole inline CB in native mode — see
-        // InlineCbHasNativeAnchorBox) so the engine lays out the intact anchor + target
+        // is IN the MVP subset: the engine's abspos layout places a box inside an inline
+        // element against the real inline-box bounding box (CssBox.GetInlineBoundingBox,
+        // CSS2.1 §10.1), which the bridge's estimator could not. The box stays inside the
+        // inline CB (PromoteAbsPosFromInlineCBs skips the whole inline CB in native mode —
+        // see InlineCbHasNativeAnchorBox) so the engine lays out the intact anchor + target
         // subtree.
         //
         // The engine does not blockify an abspos inline element (the cascade's CSS2.1 §9.7
@@ -494,8 +486,8 @@ public sealed partial class DomBridge
     /// <summary>
     /// Whether native mode would hand this element's <c>position-area</c> off to the
     /// engine's placement post-pass instead of pre-baking it — i.e. it satisfies
-    /// <see cref="IsMvpNativeAnchorBox"/> under the same computed-property, anchor and
-    /// scroll-container resolution <see cref="ResolvePositionAreaValues"/> uses. Used by
+    /// <see cref="IsMvpNativeAnchorBox"/> under the same computed-property and anchor
+    /// resolution <see cref="ResolvePositionAreaValues"/> uses. Used by
     /// the inline-CB promotion pass to leave such a box (and its inline containing block's
     /// subtree) intact for the engine rather than DOM-moving it out. Returns
     /// <c>false</c> when the element has no resolvable <c>position-area</c>/anchor.
@@ -515,17 +507,10 @@ public sealed partial class DomBridge
             string.IsNullOrWhiteSpace(positionAnchor))
             return false;
 
-        // The registration check lives in IsMvpNativeAnchorBox (via _anchorCandidates,
-        // which is populated alongside the full anchor registry), so an unregistered
-        // anchor already yields false there — no separate anchor lookup needed.
-        var anchorEl = FindElementByAnchorName(positionAnchor);
-        var rawScrollContainer = anchorEl != null ? FindNearestScrollContainer(anchorEl) : null;
-        var scrollContainer = rawScrollContainer != null &&
-            element.IsDescendantOf(rawScrollContainer)
-                ? rawScrollContainer
-                : null;
-
-        return IsMvpNativeAnchorBox(element, positionAnchor, cssProps, scrollContainer);
+        // The registration check lives in IsMvpNativeAnchorBox (via _layoutAnchors, which is
+        // populated alongside the full anchor registry), so an unregistered anchor already
+        // yields false there — no separate anchor lookup needed here.
+        return IsMvpNativeAnchorBox(element, positionAnchor, cssProps);
     }
 
     /// <summary>
@@ -623,7 +608,7 @@ public sealed partial class DomBridge
                 // own CB. If the anchor's CB is the same as the target's CB,
                 // coordinates are already in the right frame — grid origin is 0.
                 // Otherwise, we need to map the anchor coordinates.
-                var anchorCBEl = FindAnchorContainingBlock(element, cbEl);
+                var anchorCBEl = FindAnchorContainingBlock(element);
                 if (anchorCBEl == cbEl)
                 {
                     // Same CB → anchor coords are CB-relative → grid at origin.
@@ -641,9 +626,9 @@ public sealed partial class DomBridge
         }
 
         // The 3×3 grid geometry (edges from the CB∪anchor union, cell selection per
-        // block/inline span) is the canonical Broiler.Layout.PositionAreaGrid model
-        // (Phase 5 item 3). This method keeps the DOM-dependent resolution of the CB
-        // frame and the anchor's edges above; the neutral grid math is delegated.
+        // block/inline span) is the canonical Broiler.Layout.PositionAreaGrid model.
+        // This method keeps the DOM-dependent resolution of the CB frame and the
+        // anchor's edges above; the neutral grid math is delegated.
         return PositionAreaGrid.ComputeCell(
             cbOffsetX, cbOffsetY, cbWidth, cbHeight,
             anchorLeft, anchorTop, anchorRight, anchorBottom,

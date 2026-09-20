@@ -9,7 +9,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// <c>Worker</c> — a document script running on its own thread, in a realm of its own, exchanging
-/// structured-cloned messages with the page. Multithreading roadmap item #18.
+/// structured-cloned messages with the page.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -38,8 +38,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// which types survive, and it would have drifted.
 /// </para>
 /// <para>
-/// <b>Delivery respects item #15.</b> Each realm is still driven by exactly one thread and one
-/// event loop; nothing here dispatches JavaScript from a foreign thread. A worker's outbound message
+/// <b>Each realm is driven by exactly one thread and one
+/// event loop</b>; nothing here dispatches JavaScript from a foreign thread. A worker's outbound message
 /// is queued onto the page's <c>BrowserEventLoop</c> as a frame action — the queue is a
 /// <c>ConcurrentDictionary</c>, so enqueuing from the worker thread is safe, and the page's own drain
 /// runs the callback. Because pending frame actions count as pending work, a reply in flight keeps

@@ -9,33 +9,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The window timer / animation-frame scheduling API — <c>setTimeout</c>/<c>clearTimeout</c>,
 /// <c>setInterval</c>/<c>clearInterval</c>, <c>requestAnimationFrame</c>/<c>cancelAnimationFrame</c>
 /// and <c>requestIdleCallback</c>/<c>cancelIdleCallback</c> — co-located as an HtmlBridge feature
-/// module (Phase 3). Each entry point is a thin adapter that
-/// unwraps the JS arguments and delegates to the P2.4 <see cref="BrowserEventLoop"/> task-queue
+/// module. Each entry point is a thin adapter that
+/// unwraps the JS arguments and delegates to the <see cref="BrowserEventLoop"/> task-queue
 /// owner. It holds no state of its own, so it takes the owner as a parameter rather than through a
-/// host contract — and, for the three that register a callback, the P3.18
+/// host contract — and, for the three that register a callback, the
 /// <see cref="WindowContextManager"/> as well, because deferred work has to remember which browsing
-/// context handed it over. Previously the bridge's
-/// <c>JsRegistrationSetTimeout070Core</c>..<c>CancelAnimationFrame075Core</c> in the shared
-/// JsFunctionCallbacks/Registration.cs grab-bag.
+/// context handed it over.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The JavaScript vocabulary is JSEAL's, and as of this commit that is the whole of it: arguments are
+/// The JavaScript vocabulary is JSEAL's throughout: arguments are
 /// read off the call frame, the callback wrapper and the <c>IdleDeadline</c> are minted by the realm,
 /// a callback is invoked through it, and a callback handed to <see cref="BrowserEventLoop"/> stays the
 /// handle the realm minted. This file names no engine type.
-/// </para>
-/// <para>
-/// <b>The exception this remark used to describe had already stopped existing.</b> It said
-/// <see cref="BrowserEventLoop"/>'s queues "hold the engine's own function type", and listed what
-/// porting them would take: its <c>TimerEntry.Fn</c>, its <c>_rafCallbacks</c> map and its
-/// registration signatures — three of them, not the four it counted — taking a handle, its
-/// "no callback" test becoming <c>!callback.IsFunction</c>, and its drain invoking through a realm it
-/// would have to be handed. Every one of those is how that class is already written. What was left was
-/// a private <c>ToEngineCallback</c> here unwrapping each handle to the engine's function, and three
-/// overloads there wrapping the same reference straight back into the handle it came from — a round
-/// trip whose two halves were each other's only caller.
-/// </para>
 /// </remarks>
 internal static class TimerBinding
 {
@@ -105,9 +90,8 @@ internal static class TimerBinding
     /// <para>
     /// A value that is not callable is handed back untouched, and the loop reads it as "allocate an id
     /// and queue nothing" on its own: every registration allocates the id first and stores an entry only
-    /// when <c>IsFunction</c> holds. This used to be spelled by narrowing the value to a CLR
-    /// <see langword="null"/> on the way through, which the test at the other end could not tell from
-    /// any other non-function and which cost a crossing into the engine to produce.
+    /// when <c>IsFunction</c> holds. Narrowing the value to a CLR <see langword="null"/> on the way
+    /// through would leave the test at the other end unable to tell it from any other non-function.
     /// </para>
     /// </remarks>
     private static JsValue BindToRegisteringContext(IJsRealm realm, WindowContextManager windows, JsValue callback)
@@ -143,17 +127,17 @@ internal static class TimerBinding
     /// <summary>
     /// <c>requestIdleCallback(callback, { timeout })</c> — Background Tasks §2.3, queued as an
     /// ordinary task because a headless drain has no idle period to wait for. What makes it work is
-    /// the <c>IdleDeadline</c> the callback is handed: it used to be a bare alias of
-    /// <c>setTimeout</c>, so the callback got the timer's zero arguments and the first thing every
-    /// caller does with the parameter — <c>deadline.timeRemaining()</c> — threw "Cannot get property
-    /// timeRemaining of undefined". That is not a peripheral API: MediaWiki's ResourceLoader
+    /// the <c>IdleDeadline</c> the callback is handed: a bare alias of
+    /// <c>setTimeout</c> would give the callback the timer's zero arguments, so the first thing every
+    /// caller does with the parameter — <c>deadline.timeRemaining()</c> — would throw "Cannot get
+    /// property timeRemaining of undefined". That is not a peripheral API: MediaWiki's ResourceLoader
     /// evaluates its module implementations inside one (<c>asyncEvalTask</c> loops until
     /// <c>timeRemaining() &lt;= 0</c>), and its storage store walks localStorage in another.
     /// </summary>
     /// <remarks>
     /// The second argument is an options dictionary, not a delay, so routing it through
-    /// <see cref="ReadDelayMs"/> read <c>NaN</c> off the object and scheduled at 0 regardless of what
-    /// the page asked for; <c>timeout</c> is read out of it properly here.
+    /// <see cref="ReadDelayMs"/> would read <c>NaN</c> off the object and schedule at 0 regardless of
+    /// what the page asked for; <c>timeout</c> is read out of it properly here.
     /// </remarks>
     public static JsValue RequestIdleCallback(BrowserEventLoop loop, WindowContextManager windows, in JsCall call)
     {

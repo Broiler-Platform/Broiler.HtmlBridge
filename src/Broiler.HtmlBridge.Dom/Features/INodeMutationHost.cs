@@ -10,11 +10,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// enumeration) are the bridge's neutral <c>internal static</c> helpers, called directly.
 /// </summary>
 /// <remarks>
-/// The contract names no engine type, and that includes the two members whose old names did: the
-/// wrapper factory is <see cref="WrapNode"/> and the reverse lookup <see cref="FindDomNode"/>, the
-/// shape <c>ITraversalHost</c>, <c>ISubDocumentHost</c> and <c>IDocumentLevelFactoryHost</c> already
-/// took. The script context is gone with them — the DOM exceptions the module raises go through the
-/// call's own realm.
+/// The contract names no engine type, member names included: the wrapper factory is
+/// <see cref="WrapNode"/> and the reverse lookup <see cref="FindDomNode"/>. It carries no script
+/// context either — the DOM exceptions the module raises go through the call's own realm.
 /// </remarks>
 internal interface INodeMutationHost
 {

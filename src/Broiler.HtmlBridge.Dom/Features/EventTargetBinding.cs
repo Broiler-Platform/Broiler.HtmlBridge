@@ -5,34 +5,29 @@ using Broiler.Dom;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// Phase 3 feature module for the DOM <c>EventTarget</c> methods exposed on every node/element wrapper —
+/// The feature module for the DOM <c>EventTarget</c> methods exposed on every node/element wrapper —
 /// <c>addEventListener</c>, <c>removeEventListener</c>, <c>dispatchEvent</c>, and the synthetic-event
-/// convenience methods <c>click</c>, <c>focus</c> and <c>blur</c>. These were the bridge's
-/// <c>JsJsObjectsAddEventListener097Core</c>..<c>Blur103Core</c> callbacks. The registration semantics
+/// convenience methods <c>click</c>, <c>focus</c> and <c>blur</c>. The registration semantics
 /// (option parsing, dedup, match-by-listener+capture) live in <see cref="EventListenerBinding"/> and the
 /// capture→target→bubble engine in <see cref="EventDispatchBinding"/>; this module wires the JS-facing
 /// methods to them, reaching the realm, the per-node listener store, the dispatch engine and the window
 /// JS object through <see cref="IEventTargetHost"/>. Node-type/attribute helpers are the bridge's
 /// <c>internal static</c> helpers, called directly; the form-control state and the radio-group
-/// mutual-exclusion walk (<c>UncheckRadioSiblings</c>) are members of that contract. (This called the
-/// runtime state and the walk static helpers too.)
+/// mutual-exclusion walk (<c>UncheckRadioSiblings</c>) are members of that contract.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Each <c>EventTarget</c> operation has one body, and five installers mint it through the
 /// realm.</b> <c>DomBridge/Events.cs</c> routes <c>EventTarget.prototype</c>'s three by
 /// receiver; <c>DomBridge/JsObjects.cs</c> once and <c>DomBridge/JsObjects.NonElementNodes.cs</c> three
-/// times install per-wrapper copies. All five hand the body a JSEAL call frame. This remark used to say
-/// there were four installers, that the per-wrapper ones used the engine's own function type and
-/// needed an engine argument frame, and that "the pair below" existed because one body could not serve
-/// both. There is no pair and no engine frame.
+/// times install per-wrapper copies. All five hand the body a JSEAL call frame, so one body serves
+/// every installer.
 /// </para>
 /// <para>
 /// <b>Registration is <see cref="EventListenerBinding"/>'s, called directly.</b> Its two operations
 /// take the realm the call frame carries, which is what reading an <c>options</c> object's flags and
-/// coercing anything else need. They used to be reached through a host member that converted a handle
-/// into the engine value the listener record held; the record holds a handle now, and the member is
-/// deleted. The event-type coercion is the realm's <c>ToJsString</c>, the observable ECMAScript
+/// coercing anything else need; the listener record holds a handle, so nothing converts on the way
+/// in. The event-type coercion is the realm's <c>ToJsString</c>, the observable ECMAScript
 /// <c>ToString</c>.
 /// </para>
 /// <para>
@@ -40,8 +35,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// Every event object this module mints -- the <c>click</c>, the <c>submit</c> a submit button
 /// triggers, and the <c>focus</c>/<c>blur</c> UIEvents -- is a <see cref="JsValue"/> assembled on
 /// <see cref="IEventTargetHost.Realm"/>, with the property attributes each member always had.
-/// <c>click</c>, <c>focus</c> and <c>blur</c> were said to keep an engine frame because
-/// <c>DomBridge/ElementInterface.cs</c> had not migrated; it installs all three with
+/// <c>DomBridge/ElementInterface.cs</c> installs <c>click</c>, <c>focus</c> and <c>blur</c> with
 /// <c>AddInterfaceMethod</c> over a JSEAL call frame, and their signatures below say so.
 /// </para>
 /// </remarks>
@@ -198,14 +192,12 @@ internal static class EventTargetBinding
     /// </summary>
     /// <remarks>
     /// <b><see cref="IJsValues.NewConstructor"/>, not <c>NewMethod</c>, and that is faithfulness
-    /// rather than intent.</b> These were minted by <c>DomBridge.UndefinedFunction</c>, which built
-    /// a plain <c>JSFunction</c> — so each carries a <c>prototype</c> object and passes the engine's
-    /// constructor test, which WebIDL says an operation must not. <c>NewMethod</c> would be the right
-    /// shape and a behaviour change (<c>evt.stopPropagation.prototype</c> would become
-    /// <c>undefined</c>), so this refactor keeps the quirk and reports it rather than fixing it in
-    /// passing. Note that the <c>submit</c> event's real <c>preventDefault</c> above was already a
-    /// <c>DomFunction</c> and stays non-constructable — the two were inconsistent before this change
-    /// and still are.
+    /// rather than intent.</b> These are minted as plain functions, so each carries a
+    /// <c>prototype</c> object and passes the engine's constructor test, which WebIDL says an
+    /// operation must not. <c>NewMethod</c> would be the right shape and a behaviour change
+    /// (<c>evt.stopPropagation.prototype</c> would become <c>undefined</c>), so the quirk is kept
+    /// and reported rather than fixed in passing. Note that the <c>submit</c> event's real
+    /// <c>preventDefault</c> above is non-constructable — the two are inconsistent.
     /// </remarks>
     private static JsValue NoOperation(IJsRealm realm, string name) =>
         realm.NewConstructor(name, static (in _) => JsValue.Undefined, 0);

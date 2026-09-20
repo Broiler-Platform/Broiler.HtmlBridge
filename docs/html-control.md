@@ -15,7 +15,7 @@ There is no `HtmlControl` type. A host composes the pieces itself, which is what
 
 ```csharp
 var engine  = new ScriptEngine();                       // Broiler.HtmlBridge.Scripting
-var content = ScriptExtractionService.Extract(html, url); // Broiler.HtmlBridge.Core
+var content = ScriptExtractionService.ExtractAll(html, url); // Broiler.HtmlBridge.Core
 
 using var session = engine.ExecuteInteractive(
     content.Scripts, content.DeferredScripts, html, url, content.ModuleRoots);
@@ -130,8 +130,8 @@ component already does, plus three genuinely new pieces: **host-object projectio
 ## Why the engine choice is the interesting part
 
 Every other HTML control in existence is a control *for one engine*. JSEAL means a host
-can pick: `Broiler.HtmlBridge.Jseal.BroilerJs` runs the page on Broiler.JS,
-`Broiler.HtmlBridge.Jseal.Vm` runs it on the Broiler.VM JavaScript profile, and the DOM
+can pick: the `Broiler.JSeal.BroilerJs` package runs the page on Broiler.JS,
+`Broiler.JSeal.Vm` runs it on the Broiler.VM JavaScript profile, and the DOM
 bindings cannot tell which — that is enforced by
 [`scripts/check-engine-neutrality.sh`](../scripts/check-engine-neutrality.sh) rather than
 hoped for. A control API should surface that as a construction-time choice, not hide it.

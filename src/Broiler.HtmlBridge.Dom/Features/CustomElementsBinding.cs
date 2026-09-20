@@ -67,9 +67,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), and no member here is engine-typed.
 /// <c>DomBridge/Hosts.Documents.cs</c> calls <see cref="CreateDefinedElement"/> directly
-/// for an <c>IDocumentFactoryHost</c> that answers a <see cref="JsValue"/> too. (This named an
-/// engine-typed adapter, <c>CreateDefined</c>, that crossed through <c>JsInterop</c> for that caller;
-/// 751022c deleted it and pointed the caller at <see cref="CreateDefinedElement"/>.)
+/// for an <c>IDocumentFactoryHost</c> that answers a <see cref="JsValue"/> too.
 /// </para>
 /// </remarks>
 internal sealed partial class CustomElementsBinding(ICustomElementsHost host)
@@ -133,10 +131,6 @@ internal sealed partial class CustomElementsBinding(ICustomElementsHost host)
 
     internal static bool IsValidCustomElementName(string name) =>
         DomNameValidation.IsValidCustomElementName(name);
-
-    /// <summary>Whether <paramref name="tagName"/> has a definition — used by the element-wrapper
-    /// interface lookup so a defined element reports its own class.</summary>
-    internal bool IsDefined(string tagName) => _byName.ContainsKey(tagName);
 
     /// <summary>Whether the element is a custom element — the gate <c>attachInternals</c> applies,
     /// which a browser refuses for an ordinary one.</summary>
@@ -251,7 +245,7 @@ internal sealed partial class CustomElementsBinding(ICustomElementsHost host)
 
         // The three reads below happen in this order because a definition's members may be page
         // getters, and Object.defineProperty(X, 'observedAttributes', {get(){…}}) can observe when it
-        // was asked. It is the order the constructor-argument list used to impose.
+        // was asked.
         var observedAttributes = ReadObservedAttributes(realm, constructor);
         var prototype = realm.GetProperty(constructor, "prototype");
         var hasAttributeChangedCallback =

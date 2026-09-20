@@ -4,13 +4,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The <c>window.visualViewport</c> EventTarget methods — <c>addEventListener</c> /
-/// <c>removeEventListener</c> — co-located as an HtmlBridge feature module (Phase 3), completing the
-/// EventTarget-wiring trilogy alongside <see cref="DocumentEventTargetBinding"/> (P3.32) and
-/// <see cref="WindowEventTargetBinding"/> (P3.33). Only the <c>scroll</c> event is supported; a
+/// <c>removeEventListener</c> — co-located as an HtmlBridge feature module, completing the
+/// EventTarget-wiring trilogy alongside <see cref="DocumentEventTargetBinding"/> and
+/// <see cref="WindowEventTargetBinding"/>. Only the <c>scroll</c> event is supported; a
 /// <c>scroll</c> listener is added to / removed from the visual-viewport store through the narrow
-/// <see cref="IVisualViewportEventTargetHost"/> contract (any other type is a no-op). Previously the
-/// bridge's <c>JsRegistrationAddEventListener146Core</c>/<c>RemoveEventListener147Core</c> in the
-/// shared JsFunctionCallbacks/Registration.cs grab-bag.
+/// <see cref="IVisualViewportEventTargetHost"/> contract (any other type is a no-op).
 /// </summary>
 internal static class VisualViewportEventTargetBinding
 {

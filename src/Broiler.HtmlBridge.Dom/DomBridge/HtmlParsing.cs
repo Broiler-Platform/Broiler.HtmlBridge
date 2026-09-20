@@ -6,8 +6,8 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Sibling partial peeled out of <c>DomBridge.cs</c> (Phase 3 ratchet, 2026-07-17) to keep the
-/// facade under the 750-line guard: initial HTML/doctype ingestion and inline-style parsing.
+/// Sibling partial peeled out of <c>DomBridge.cs</c> to keep the
+/// facade under the 750-line guideline: initial HTML/doctype ingestion and inline-style parsing.
 /// <see cref="ParseHtml"/> rebuilds the canonical document from an HTML string (clearing prior
 /// runtime state, parsing the doctype, running the shared tree builder and reparenting into
 /// <c>DocumentElement</c>); <see cref="DomBridgeUtils.ParseStyle"/> / <see cref="DomBridgeUtils.IsAcceptableInlineValue"/> apply
@@ -29,7 +29,7 @@ public sealed partial class DomBridge
         // these are document-construction mutations, not script mutations, so suppress observer
         // delivery for them (matching the prior explicit channel, which parse never drove).
         using var mutationSuppression = SuppressMutationDelivery();
-        // P2.2: one call clears both wrapper maps. Re-parse now also releases stale sub-document
+        // One call clears both wrapper maps. Re-parse now also releases stale sub-document
         // wrappers (keyed by detached roots that no lookup can reach again) — observably
         // equivalent to before, but it stops them lingering until disposal.
         _jsObjects.Clear();
@@ -38,8 +38,7 @@ public sealed partial class DomBridge
         // DomDocument ordering (doctype must precede the document element).
         ClearChildren(_document);
         // A re-parse is a new document generation: drop the prior document's timers, listeners,
-        // observers and message ports so re-attaching leaves no state from the previous document
-        // (HtmlBridge complexity-reduction roadmap Phase 2, P2.1).
+        // observers and message ports so re-attaching leaves no state from the previous document.
         ClearRuntimeSessionState();
         // A re-parsed document is a new generation: release the prior document's headless
         // layout view (and its renderer container) so geometry is document-scoped.
@@ -65,7 +64,7 @@ public sealed partial class DomBridge
             _document.AppendChild(doctype);
         Title = parsed.Title;
         ClearChildren(DocumentElement);
-        // RF-BRIDGE-1c Phase F (F3c part 2d): reparent ALL children (raw ChildNodes) so any
+        // Reparent ALL children (raw ChildNodes) so any
         // text/comment nodes directly under the parsed <html> survive — no-op on the old
         // homogeneous tree where every child was an element.
         foreach (var child in docElement.ChildNodes.ToArray())
@@ -210,9 +209,9 @@ public sealed partial class DomBridge
 /// <b>What it changes, and what it deliberately does not.</b> Item #2 already split every
 /// sub-resource call site into prefetch and consume, so nothing here changes which request is made,
 /// which key it is stored under, or what the consuming site does with the bytes. It changes only
-/// <em>when the request starts</em>: the stylesheet set used to be handed over once the whole
-/// document had been parsed and its <c>&lt;style&gt;</c>/<c>&lt;link&gt;</c> elements collected, and
-/// is now handed over from the source text before the parse begins.
+/// <em>when the request starts</em>: the stylesheet set is handed over from the source text before
+/// the parse begins, rather than after the document has been parsed and its
+/// <c>&lt;style&gt;</c>/<c>&lt;link&gt;</c> elements collected.
 /// </para>
 /// <para>
 /// <b>Only stylesheets are wired to a sink, and the other three families are not an oversight.</b>

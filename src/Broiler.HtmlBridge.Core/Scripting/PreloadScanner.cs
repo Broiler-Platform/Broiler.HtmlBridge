@@ -89,23 +89,22 @@ public sealed class PreloadScanResult
 }
 
 /// <summary>
-/// Finds every sub-resource URL an HTML document names, without building a DOM. Multithreading
-/// roadmap item #17 — the speculative preload scan.
+/// Finds every sub-resource URL an HTML document names, without building a DOM: the speculative
+/// preload scan.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The roadmap's shape for item #17 is "a worker scans raw bytes for <c>src</c>/<c>href</c> while
-/// the main parse runs, feeding #2". This type is the scan; <see cref="SpeculativePreloadScan"/> is
-/// the worker. It exists because the two remaining sub-resource families of item #2 — sub-documents
+/// The shape is a worker scanning raw source for <c>src</c>/<c>href</c> while the main parse runs,
+/// feeding the prefetcher. This type is the scan; <see cref="SpeculativePreloadScan"/> is
+/// the worker. It exists because two sub-resource families — sub-documents
 /// and <c>fetch()</c>/XHR — have no point at which their URL set is known before it is consumed: a
 /// frame's URL becomes known when the element is reached, which is the moment it is loaded. A
-/// speculative scan is the only thing that can produce a URL set earlier than the parse does, which
-/// is why the roadmap calls it their <em>only</em> source of a prefetch trigger rather than an
-/// amplifier.
+/// speculative scan is the only thing that can produce a URL set earlier than the parse does, so for
+/// those two it is their <em>only</em> source of a prefetch trigger rather than an amplifier.
 /// </para>
 /// <para>
-/// <b>It tokenizes rather than pattern-matching bytes.</b> The roadmap says "scans raw bytes", and a
-/// regex over the buffer is what that phrasing suggests, but <see cref="HtmlTokenizer"/> is already
+/// <b>It tokenizes rather than pattern-matching bytes.</b> A regex over the raw buffer is the
+/// obvious reading of "scan the bytes", but <see cref="HtmlTokenizer"/> is already
 /// available, is a pure function of an immutable string, and gets the cases a pattern gets wrong:
 /// a <c>&lt;img src&gt;</c> inside a comment or inside a <c>&lt;script&gt;</c> body is not a
 /// resource, a <c>&gt;</c> inside a quoted attribute does not end a tag, and attribute names are

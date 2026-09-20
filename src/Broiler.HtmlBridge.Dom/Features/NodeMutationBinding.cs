@@ -6,19 +6,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The <c>document</c>-node mutation methods — <c>document.childNodes</c> (getter),
 /// <c>document.removeChild</c>, <c>document.appendChild</c>, <c>document.insertBefore</c> — co-located
-/// as an HtmlBridge feature module (Phase 3). Each resolves its argument node and performs the
+/// as an HtmlBridge feature module. Each resolves its argument node and performs the
 /// structural move on the document node via the bridge's neutral <c>internal static</c> tree helpers.
 /// The document node, wrapper factory and reverse lookup are reached through the
 /// <see cref="INodeMutationHost"/> contract.
-/// Previously the bridge's <c>JsRegistrationGetChildNodes046Core</c>..<c>InsertBefore049Core</c> in the
-/// shared JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
 /// <remarks>
 /// The call frame is JSEAL's: <c>DomBridge/Registration/Document.cs</c> mints all seven members
 /// through the realm. The DOM exceptions go through <c>JsCall.Realm</c>'s own <c>DomError</c>, which
-/// constructs the same object against the same <c>DOMException</c> global the bridge's
-/// <c>ThrowDOMException</c> reached — including its "no constructor yet" fallback, so the
-/// before-attach case the old <c>JsContext</c> null check covered is still covered.
+/// constructs against the same <c>DOMException</c> global the bridge's
+/// <c>ThrowDOMException</c> reaches — including its "no constructor yet" fallback, so the
+/// before-attach case is covered.
 /// </remarks>
 internal static class NodeMutationBinding
 {
@@ -35,12 +33,12 @@ internal static class NodeMutationBinding
     /// a parsed HTML document is the doctype and then <c>&lt;html&gt;</c>.
     /// </summary>
     /// <remarks>
-    /// This filtered to elements, so the doctype was absent from it and
-    /// <c>document.childNodes.length</c> answered 1 where a browser answers 2 — and
-    /// <c>document.firstChild</c>, which does not filter, returned a node
-    /// <c>document.childNodes[0]</c> disagreed with. The list is also live and a real
-    /// <c>NodeList</c> now, for the reasons in <see cref="DomCollectionBinding"/>; it used to be a
-    /// snapshot array.
+    /// It does not filter to elements: that would drop the doctype, so
+    /// <c>document.childNodes.length</c> would answer 1 where a browser answers 2, and
+    /// <c>document.firstChild</c>, which does not filter, would return a node
+    /// <c>document.childNodes[0]</c> disagreed with. The list is live and a real
+    /// <c>NodeList</c> rather than a snapshot array, for the reasons in
+    /// <see cref="DomCollectionBinding"/>.
     /// </remarks>
     public static JsValue GetChildNodes(INodeMutationHost host, in JsCall call) =>
         DomCollectionBinding.NodeList(call.Realm, () =>
@@ -246,10 +244,9 @@ internal static class NodeMutationBinding
         {
             // A reference node WAS supplied, so it must be a child of this parent: DOM §4.2.3
             // pre-insert says "If child is non-null and its parent is not parent, then throw a
-            // NotFoundError DOMException." This used to fall through to the append below, which is
-            // the worst outcome of the three shapes this family had — not a silent no-op but a
-            // silent mutation into a position the caller never asked for, leaving the node at the
-            // end of the document instead of before the reference.
+            // NotFoundError DOMException." Falling through to the append below would be worse than
+            // a silent no-op: a silent mutation into a position the caller never asked for, leaving
+            // the node at the end of the document instead of before the reference.
             var refEl = host.FindDomNode(call[1]);
             var idx = refEl != null ? DomBridgeUtils.ChildIndexOf(doc, refEl) : -1;
             if (idx < 0)
@@ -258,8 +255,8 @@ internal static class NodeMutationBinding
                     "The node before which the new node is to be inserted is not a child of this node.");
             }
 
-            // Single canonical insert (newEl detached above); the prior SetParent-append +
-            // reposition fired spurious add-at-end/remove records.
+            // Single canonical insert (newEl detached above); a SetParent-append plus reposition
+            // would fire spurious add-at-end/remove records.
             DomBridgeUtils.InsertChildAt(doc, idx, newEl);
             return call[0];
         }

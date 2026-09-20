@@ -5,7 +5,7 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The <c>JsStyleSheets*Core</c> callback half of <see cref="StyleSheetBinding"/> (Phase 3, P3.15):
+/// The <c>JsStyleSheets*Core</c> callback half of <see cref="StyleSheetBinding"/>:
 /// the <c>CSSStyleSheet</c>/<c>CSSRuleList</c> <c>length</c>/<c>item</c>/<c>cssRules</c>/<c>insertRule</c>/
 /// <c>deleteRule</c> operations (driven by closures the bridge's <c>BuildStyleSheetObject</c> supplies),
 /// the one parse of the text a page inserts (<see cref="ParseSingleRule"/>) and the per-rule-kind
@@ -137,7 +137,7 @@ internal static partial class StyleSheetBinding
         var count = CssomRuleCount(rules);
         var index = Math.Clamp(IndexArgument(in call, 1, count), 0, count);
         // Route the mutation through the shared model: the inserted text becomes exactly one parsed
-        // CssRule rather than a stored string (Phase 6), and text that is not one rule the CSSOM shows is
+        // CssRule rather than a stored string, and text that is not one rule the CSSOM shows is
         // the SyntaxError Chromium throws rather than an insert of nothing or of its first rule.
         var rule = ParseSingleRule(call.Realm, ruleText);
         if (!IsCssomVisible(rule))

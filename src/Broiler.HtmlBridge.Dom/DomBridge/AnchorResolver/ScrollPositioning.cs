@@ -129,7 +129,7 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A frame's document is severed from the main tree (P4.4b), so walking
+    /// A frame's document is severed from the main tree, so walking
     /// <see cref="DocumentElement"/> never reaches it: a frame whose script had scrolled something
     /// serialized with none of that state, and the capture showed the frame at its initial scroll
     /// position. The scroll offset was recorded correctly — <c>scrollTop</c> read back the value
@@ -196,10 +196,7 @@ public sealed partial class DomBridge
                     // fixed-descendant reparenting (OffsetTop/OffsetLeft skip position:fixed at every
                     // depth, CSS2.1 §9.6.1). The document scrolling element (<html>) is included:
                     // with a scrollable root (tall content) documentElement.scrollTop resolves
-                    // normally and the engine translation matches. The flag check is dropped in
-                    // Phase 4 item-2 step 5 — the handoff is unconditional (a provable no-op on the
-                    // native default path, where the flag was already true); the retired baked
-                    // DOM-shift wrapper (and its scroll-hidden / anchor-cb markers) is deleted.
+                    // normally and the engine translation matches. The handoff is unconditional.
                     if (scrollTop != 0)
                         SetAttr(el, "data-broiler-scroll-top",
                             scrollTop.ToString(CultureInfo.InvariantCulture));
@@ -233,18 +230,10 @@ public sealed partial class DomBridge
     // position-area resolution for JS offset queries
     // -----------------------------------------------------------------
 
-    // RF-BRIDGE-1b (Milestone 2.5): the resolved position-area rect is memoized here
-    // instead of in the retired ElementRuntimeState.Layout (LayoutRuntimeState). It is
-    // both a perf cache — avoids rebuilding the anchor registry on every offset query —
-    // and a re-entrancy guard: ResolvePositionAreaForElement is reachable from the
-    // geometry entry points, so an already-resolved element short-circuits here before
-    // re-entering resolution (rebuilding the registry per call recurses / corrupts shared
-    // state — the failure mode that reverted the naive cache removal). RF-BRIDGE (Phase 2
-    // item 4, 2026-07-17): this memo is now a per-bridge-instance CWT (was process-static),
-    // de-globalizing one of the two remaining process-static per-element runtime tables. It
-    // is still keyed by element identity, so a detached element's memo is collected with it,
-    // and the invalidation (position-area / position-anchor mutation) and clone-copy
-    // semantics are unchanged from the old static table.
+    // The resolved position-area rect is memoized here: a perf cache that avoids rebuilding
+    // the anchor registry on every offset query. The table is a per-bridge-instance CWT keyed
+    // by element identity, so a detached element's memo is collected with it. It is invalidated
+    // on a position-area / position-anchor mutation and copied on clone.
     private readonly ConditionalWeakTable<DomElement, PositionAreaResolution>
         _positionAreaResolutions = [];
 
@@ -302,12 +291,11 @@ public sealed partial class DomBridge
     // Shared anchor-lookup helpers
     // -----------------------------------------------------------------
     //
-    // The bridge's ResolvePositionVisibility pass — which baked display:none onto
-    // anchor-positioned elements whose anchor was scrolled out / invalid — was deleted in
-    // Phase 4 item-2 step 3. The Broiler.Layout engine resolves position-visibility natively
-    // (CssBox.ResolvePositionVisibility), so no bridge pre-bake is needed on the native
-    // (now-default) path. The anchor-lookup helpers below stay: PositionArea / AnchorRegistry
-    // still use them to bind targets to their anchor and containing block.
+    // The Broiler.Layout engine resolves position-visibility natively
+    // (CssBox.ResolvePositionVisibility), so the bridge pre-bakes no display:none onto
+    // anchor-positioned elements whose anchor is scrolled out / invalid. The anchor-lookup
+    // helpers below are still used by PositionArea / AnchorRegistry to bind targets to their
+    // anchor and containing block.
 
     /// <summary>
     /// Finds the <see cref="Broiler.Dom.DomElement"/> that has the given
@@ -358,7 +346,7 @@ public sealed partial class DomBridge
     /// The anchor's CB is typically the same as the target's CB when both are
     /// inside the same positioned ancestor.
     /// </summary>
-    private DomElement? FindAnchorContainingBlock(DomElement target, DomElement targetCB)
+    private DomElement? FindAnchorContainingBlock(DomElement target)
     {
         // Find the anchor element by looking at the target's position-anchor.
         var cssProps = GetComputedProps(target);

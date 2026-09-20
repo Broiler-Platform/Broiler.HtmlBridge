@@ -13,7 +13,7 @@ namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// The HTML5 Canvas 2D context that backs the <c>canvas.getContext("2d")</c> binding (see the
-/// <c>CanvasBinding</c> feature module — Phase 3 P3.64 — which builds the context and its drawing
+/// <c>CanvasBinding</c> feature module — which builds the context and its drawing
 /// callbacks). Internal to the Canvas binding.
 /// </summary>
 /// <remarks>
@@ -23,7 +23,7 @@ namespace Broiler.HtmlBridge;
 /// report what was actually drawn.
 /// </para>
 /// <para>
-/// It has not always. Phase 6 (P6.1) removed a <c>CanvasDrawCommand</c> recorder that no renderer ever
+/// It has not always. An earlier revision removed a <c>CanvasDrawCommand</c> recorder that no renderer ever
 /// read, leaving every drawing method a literal empty body — a style-state stub with no backing store.
 /// The pixel-readback API was then deliberately left <em>absent</em> rather than stubbed, because
 /// returning zeroed pixels would have turned an honest <c>TypeError</c> (which every feature detector on

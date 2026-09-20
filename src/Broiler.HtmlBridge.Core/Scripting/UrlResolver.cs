@@ -3,10 +3,9 @@ using System;
 namespace Broiler.HtmlBridge.Internal.Scripting;
 
 /// <summary>
-/// The one URL-resolution implementation shared by the CSP source matcher and external-script fetching
-/// (Phase 7 item 4 / the "one URL resolution/origin implementation shared by script, CSS, fetch, XHR and
-/// frames" exit criterion). Resolves a possibly-relative URL to an absolute <see cref="Uri"/> against an
-/// optional base URL.
+/// The one URL-resolution implementation shared by the CSP source matcher and external-script
+/// fetching. Resolves a possibly-relative URL to an absolute <see cref="Uri"/> against an optional
+/// base URL.
 /// </summary>
 internal static class UrlResolver
 {

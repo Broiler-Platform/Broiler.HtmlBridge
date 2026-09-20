@@ -177,11 +177,9 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    // The nested-browsing-context `document` object surface (BuildSubDocument + every
-    // JsSubDocumentObjects* callback) was extracted into the co-located
-    // Broiler.HtmlBridge.Dom.Features.SubDocumentBinding module (HtmlBridge complexity-reduction
-    // roadmap Phase 3, P3.13). What remains here are two neutral sub-tree search helpers that are
-    // shared by both that module and non-frame bridge code — FindInSubTree by the main document's
+    // Two neutral sub-tree search helpers, shared by the
+    // Broiler.HtmlBridge.Dom.Features.SubDocumentBinding module (which owns the nested-browsing-
+    // context `document` surface) and non-frame bridge code — FindInSubTree by the main document's
     // getElementById (Registration.cs) and the module's query callbacks; FindInTree by LayoutMetrics
     // (fragment/id lookup) and document.write — so they stay bridge-owned internal statics.
 

@@ -6,9 +6,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The CSSOM style-sheet / CSS-rule <b>object model</b> feature binding (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.15) — the sibling of <see cref="StyleDeclarationBinding"/>
-/// (P3.14). It builds the JS <c>CSSRuleList</c>, the per-rule <c>CSSRule</c> objects (every at-rule
+/// The CSSOM style-sheet / CSS-rule <b>object model</b> feature binding — the sibling of
+/// <see cref="StyleDeclarationBinding"/>. It builds the JS <c>CSSRuleList</c>, the per-rule <c>CSSRule</c> objects (every at-rule
 /// kind plus style/keyframe rules) and their <c>cssText</c>/<c>insertRule</c>/<c>deleteRule</c>
 /// callbacks from the neutral <see cref="Broiler.CSS.CssRule"/> model and the
 /// <see cref="Broiler.CSS.Cssom.CssomRuleMetadata"/> projection.

@@ -9,10 +9,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// front-to-back stack of elements at a document coordinate.
 /// </summary>
 /// <remarks>
-/// The contract names no engine type, and that includes the wrapper factory's own name: it is
-/// <see cref="WrapNode"/> now, for the reason <c>ITraversalHost</c> and <c>ISubDocumentHost</c> renamed
-/// theirs. A member named after an engine type is a reference to that engine at every call site that
-/// mentions it, and retyping the signature does not remove it.
+/// The contract names no engine type, and that includes the wrapper factory's own name
+/// (<see cref="WrapNode"/>). See the remarks on <see cref="ITableHost"/> for why a member name counts.
 /// </remarks>
 internal interface IHitTestHost
 {

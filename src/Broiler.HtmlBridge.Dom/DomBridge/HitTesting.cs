@@ -10,7 +10,7 @@ namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    // Phase 2 item 4 (de-globalization, 2026-07-17): the per-document-root "has an explicit viewport
+    // The per-document-root "has an explicit viewport
     // meta" flag was the Document slot of the process-static ElementRuntimeState table; it is now a
     // per-bridge instance table, owned by the session's bridge. Still an element-keyed
     // ConditionalWeakTable, so it GCs with the document root and the cloneNode copy (see
@@ -27,7 +27,7 @@ public sealed partial class DomBridge
         if (!double.IsFinite(x) || !double.IsFinite(y))
             return [];
 
-        // Phase 4 item 1 (P4.4a): docRoot may be a canonical DomDocument (regime-B) — resolve the
+        // docRoot may be a canonical DomDocument (regime-B) — resolve the
         // documentElement from its element children; only an element docRoot can itself be one.
         var documentElement = docRoot is DomElement docRootElement && IsDocumentElement(docRootElement)
             ? docRootElement
@@ -454,7 +454,7 @@ public sealed partial class DomBridge
     private bool DocumentHasViewport(DomElement documentElement)
     {
         var docRoot = GetOwningDocument(documentElement);
-        // Phase 4 item 1 (P4.4c): the owning document comes from the canonical tree, not OwnerDocRoot.
+        // The owning document comes from the canonical tree, not OwnerDocRoot.
         // The main document and rendered nested browsing contexts (iframe/object/frame — reachable
         // through a container frame in the content-document map) have a viewport. This replaces the
         // former heuristic that relied on regime-A iframe nodes carrying a null OwnerDocRoot: those

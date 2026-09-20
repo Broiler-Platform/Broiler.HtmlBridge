@@ -142,14 +142,11 @@ internal static class NavigatorSurfacesBinding
     /// Installs <c>query()</c> and the two <c>PermissionStatus</c> accessors.
     /// </summary>
     /// <remarks>
-    /// <b>The per-status name is held in a weak table keyed by the status object, and it is weak
-    /// again.</b> It became a plain dictionary on the reasoning that a handle cannot key a
-    /// <c>ConditionalWeakTable</c> - a <see cref="JsValue"/> is a struct, and such a table needs a
-    /// class key - which cost a page that queries permissions in a loop one entry per query for the
-    /// life of its document. The struct was never the key: <see cref="JsValue.ObjectIdentity"/> is
+    /// <b>The per-status name is held in a weak table keyed by the status object.</b> A plain
+    /// dictionary would cost a page that queries permissions in a loop one entry per query for the
+    /// life of its document. The key is not the <see cref="JsValue"/> struct — a
+    /// <c>ConditionalWeakTable</c> needs a class key — but <see cref="JsValue.ObjectIdentity"/>,
     /// the reference the handle carries, which a provider already has to make canonical per object.
-    /// The remark that stood here closed "it goes away when a status can carry host state of its
-    /// own", and this is that, arriving from the other direction.
     /// </remarks>
     private static void InstallPermissions(IJsRealm realm, JsValue prototype, JsValue statusPrototype)
     {

@@ -15,7 +15,7 @@ namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    // RF-BRIDGE-1b increment 6 cutover — the geometry entry points answer *exclusively* from
+    // The geometry entry points answer *exclusively* from
     // the shared snapshot: an element with a shared box reads its real geometry and any
     // snapshot-missing element (detached, display:none/contents, text/comment, or an
     // unmaterialised/cross-origin frame the provider cannot lay out) reports zero. The coarse
@@ -48,7 +48,7 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Looks up real-layout box geometry for <paramref name="element"/> via the injected
-    /// <see cref="ILayoutView"/> (RF-BRIDGE-1b), from the current pass's snapshot (built once
+    /// <see cref="ILayoutView"/>, from the current pass's snapshot (built once
     /// per pass). Returns <c>false</c> when the element produced no box (detached /
     /// <c>display:none</c>); the geometry entry points then report zero, since the coarse
     /// estimators they used to fall back to are gone. Active only when
@@ -190,7 +190,7 @@ public sealed partial class DomBridge
             var projection = CreateRenderProjection();
             var viewport = new SizeF(_viewportWidth, _viewportHeight);
 
-            // Native visual-viewport (Phase 5 endgame, blocker (b)): hand the document-root
+            // Native visual-viewport: hand the document-root
             // pinch-zoom scale to the geometry extraction (CollectLayoutGeometry scales the
             // BoxGeometry rects by it — patch 0006) via the thread-static channel, so the snapshot
             // carries the pinch scale natively instead of the DOM `zoom` bake. Thread-static
@@ -201,7 +201,7 @@ public sealed partial class DomBridge
                 NativeVisualViewport && HasActiveVisualViewport() ? GetVisualViewportScale() : 0.0;
             try
             {
-                // P4.4b: a materialised iframe/object sub-document is no longer an in-tree
+                // A materialised iframe/object sub-document is no longer an in-tree
                 // #subdoc-root child — hand the layout view the resolver so it projects each
                 // referenced content document as a sub-viewport and composes its geometry.
                 var projectedGeometry = LayoutView.GetGeometry(
@@ -265,8 +265,8 @@ public sealed partial class DomBridge
 }
 
 /// <summary>
-/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> (Phase 3 ratchet, 2026-07-17) to keep it
-/// under the 750-line guard: CSS <c>&lt;length&gt;</c> / <c>calc()</c>-style math evaluation against a
+/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> to keep it
+/// under the 750-line guideline: CSS <c>&lt;length&gt;</c> / <c>calc()</c>-style math evaluation against a
 /// viewport/containing-block basis, and the font-size / line-height reference resolution the length
 /// evaluation depends on. Pure partial-class relocation — no signature, accessibility, or logic change.
 /// </summary>

@@ -6,20 +6,17 @@ using Broiler.HtmlBridge.Logging;
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// The single owner of a document's task queues and their drain (HtmlBridge complexity-reduction
-/// roadmap Phase 2, P2.4): <c>setTimeout</c>/<c>setInterval</c> callbacks, <c>requestAnimationFrame</c>
+/// The single owner of a document's task queues and their drain:
+/// <c>setTimeout</c>/<c>setInterval</c> callbacks, <c>requestAnimationFrame</c>
 /// callbacks, and internally-queued frame actions, plus the id counters and the "cleared timer"
-/// set. It replaces the timer lists and the <c>FlushTimerStep</c>/<c>FlushTimers</c> drain that were
-/// spread across the bridge, so there is one place that queues, cancels and runs pending work.
+/// set. It is the one place that queues, cancels and runs pending work.
 /// </summary>
 /// <remarks>
 /// The queues are concurrent because JS Promise/async/generator and scroll/timer continuations are
 /// dispatched on ThreadPool threads, so a continuation may register a timer concurrently with a
 /// drain; <c>ConcurrentDictionary.ToArray()</c> snapshots consistently and <c>TryRemove</c> drains
 /// only the collected entries, so a timer registered mid-drain is carried to the next step rather
-/// than wiped. Defining the single-owner thread-affinity model (rather than relying on concurrent
-/// collections) is the remaining Phase-2 goal this class is the seam for; today it preserves the
-/// existing defensive concurrency. Instance-scoped to the owning bridge/document; <see cref="Clear"/>
+/// than wiped. Instance-scoped to the owning bridge/document; <see cref="Clear"/>
 /// runs on re-parse and disposal and drops pending work without running it.
 /// <para>
 /// <b>A queued page callback is a <see cref="JsValue"/>, and the realm is reached through a function
@@ -30,14 +27,8 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// script registers one, and script needs the realm that is missing.
 /// </para>
 /// <para>
-/// <b>No registration overload takes an engine type any more, and this file names none.</b> There were
-/// three — <c>SetTimeout</c>, <c>SetInterval</c> and <c>RequestAnimationFrame</c> over the engine's own
-/// function or a CLR <see langword="null"/> — and this remark called them two. They existed because
-/// <c>Dom.Features.TimerBinding</c> narrowed a callback before handing it over, and that narrowing
-/// existed because this class used to hold what it narrowed to, which it has not for some time. The two
-/// halves were each other's only caller: the binding unwrapped the realm's handle to the engine's
-/// function, and these adapters wrapped that same reference back into the same handle. Both are gone,
-/// and the queue holds what the realm minted.
+/// <b>No registration overload takes an engine type, and this file names none.</b> The queue holds
+/// what the realm minted.
 /// </para>
 /// </remarks>
 internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)

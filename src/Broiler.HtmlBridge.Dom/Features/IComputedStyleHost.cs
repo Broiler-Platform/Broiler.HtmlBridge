@@ -11,10 +11,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The contract names no engine type. The wrapper lookup takes a <see cref="JsValue"/>, and is named
-/// for what it does rather than for the engine type it used to take: a member named after that type
-/// could never grep to zero, and the round-1 rename of <see cref="ITraversalHost"/>'s lookups is the
-/// pattern this follows.
+/// The contract names no engine type. The wrapper lookup takes a <see cref="JsValue"/> and is named
+/// for what it does rather than for the type it takes.
 /// </para>
 /// <para>
 /// <see cref="Realm"/> is here because <see cref="ComputedStyleBinding.GetUsedDimension"/> reads a

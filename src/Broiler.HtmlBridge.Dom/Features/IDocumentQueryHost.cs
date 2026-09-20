@@ -10,11 +10,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>internal static</c> helper, called directly, so it is not on this contract.
 /// </summary>
 /// <remarks>
-/// The three members below the DOM ones were reached as <c>DomBridge.ValidateSelector(selector,
-/// host.JsContext)</c> and <c>DomCollectionBinding.NodeList(host.JsContext, …)</c> — that is, by
-/// handing the module the bridge's script context so it could pass it straight back. The context was
-/// never the module's to hold: it wanted a <c>SyntaxError</c> raised and a collection built, and both
-/// are now asked for by name. That is what lets this contract, and the module over it, name no engine
+/// The three members below the DOM ones ask for what the module actually wants — a <c>SyntaxError</c>
+/// raised, a collection built — by name, rather than taking the bridge's script context so they can
+/// pass it straight back. That is what lets this contract, and the module over it, name no engine
 /// type at all.
 /// </remarks>
 internal interface IDocumentQueryHost
@@ -28,8 +26,8 @@ internal interface IDocumentQueryHost
     DomElement DocumentElement { get; }
     IReadOnlyList<DomElement> Elements { get; }
 
-    // Selector matching moved onto the host (Phase 2 item 4 de-globalization): it reads the per-bridge
-    // `:checked` state, so it is now a bridge-instance method rather than a static helper.
+    // Selector matching is a host member rather than a static helper: it reads the per-bridge
+    // `:checked` state.
     bool MatchesSelector(DomElement element, string selector, DomElement? scope = null);
 
     /// <summary>

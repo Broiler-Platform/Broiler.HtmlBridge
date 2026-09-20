@@ -12,7 +12,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The HTML <c>canvas.getContext("2d")</c> binding and its 2D drawing context, co-located as an HtmlBridge
-/// feature module (Phase 3): <c>getContext</c> resolves a <c>&lt;canvas&gt;</c> element to a
+/// feature module: <c>getContext</c> resolves a <c>&lt;canvas&gt;</c> element to a
 /// <see cref="CanvasRenderingContext2D"/>-backed JS object exposing the drawing-state properties, the
 /// <c>save</c>/<c>restore</c> state stack, the drawing methods, and the pixel APIs
 /// (<c>getImageData</c>/<c>putImageData</c>/<c>createImageData</c>/<c>toDataURL</c>).
@@ -25,24 +25,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// element rather than off its JS wrapper so it survives the wrapper being rebuilt.
 /// </para>
 /// <para>
-/// The <c>#if BROILER_CLI</c> guard that claimed to make <c>getContext("2d")</c> return <c>null</c> in
-/// the CLI is gone, and removing it changed no behaviour: <c>BROILER_CLI</c> is defined by
-/// <c>Broiler.Cli.csproj</c> for <em>its own</em> compilation, and a <c>DefineConstants</c> does not
-/// reach a referenced project, so the constant was never set while this assembly was compiled and the
-/// guarded branch was unreachable. What it cost was accuracy — it read as a live host difference that
-/// did not exist, which is worse than no comment.
-/// </para>
-/// <para>
 /// <b>The JavaScript vocabulary is JSEAL's</b> (<see cref="IJsRealm"/>): objects, accessors, methods,
 /// coercions and errors all come from the realm, which is handed in when the members are installed and
-/// arrives on the call frame for every body afterwards. <b>The pixel buffer is no longer the
-/// exception.</b> It was the one engine-typed line while JSEAL could mint an object, an array and a
-/// function but not an <c>ArrayBuffer</c>; the contract now has <see cref="IJsValues.NewArrayBuffer"/>,
-/// so <c>ImageData.data</c> is the window's <c>Uint8ClampedArray</c> over a realm-minted copy of the
-/// bytes just read back. The plain array built element by element stays as the fallback below and
-/// costs a 24-byte handle per <em>byte</em>, so it is what a realm without <c>Uint8ClampedArray</c> or
-/// without <see cref="JsCapabilities.BinaryData"/> gets, and not what every <c>getImageData</c> pays.
-/// No contract gap remains here, and no seam.
+/// arrives on the call frame for every body afterwards. <c>ImageData.data</c> is the window's
+/// <c>Uint8ClampedArray</c> over a realm-minted copy of the bytes just read back
+/// (<see cref="IJsValues.NewArrayBuffer"/>). The plain array built element by element stays as the
+/// fallback below and costs a 24-byte handle per <em>byte</em>, so it is what a realm without
+/// <c>Uint8ClampedArray</c> or without <see cref="JsCapabilities.BinaryData"/> gets, and not what
+/// every <c>getImageData</c> pays.
 /// </para>
 /// </remarks>
 internal static class CanvasBinding
@@ -61,10 +51,10 @@ internal static class CanvasBinding
     /// Installs the <c>HTMLCanvasElement</c> members on <paramref name="obj"/>. Called for every
     /// element, so it does nothing unless this one is a <c>&lt;canvas&gt;</c>: these names belong to
     /// that interface, and a page asking <c>'getContext' in el</c> or <c>el.width</c> must not find
-    /// them on a <c>&lt;div&gt;</c>. <c>getContext</c> used to be installed unconditionally and
-    /// answered <c>null</c> from a tag check inside — which made the *call* right and the *name*
-    /// wrong, and <c>width</c>/<c>height</c> could not have been staged that way at all: they would
-    /// have shadowed the reflected dimensions every other element has.
+    /// them on a <c>&lt;div&gt;</c>. A tag check inside the member instead would make the <em>call</em>
+    /// right and the <em>name</em> wrong, and <c>width</c>/<c>height</c> could not be staged that way
+    /// at all: installed unconditionally they would shadow the reflected dimensions every other
+    /// element has.
     /// </summary>
     /// <param name="realm">The realm the installed members and everything they build belong to.</param>
     /// <param name="host">The bridge, for the window the pixel APIs read their constructor off.</param>
@@ -97,8 +87,7 @@ internal static class CanvasBinding
 
     private static void InstallDimension(IJsRealm realm, JsValue obj, DomElement element, string name, int fallback)
     {
-        // The realm mints both accessor functions and names them "get width"/"set width" itself, which
-        // is what the two hand-built native accessors at this site were doing.
+        // The realm mints both accessor functions and names them "get width"/"set width" itself.
         realm.DefineAccessor(obj, name,
             (in _) => JsValue.Number(Dimension(element, name, fallback)),
             (in call) => SetDimension(element, name, in call));
@@ -285,7 +274,7 @@ internal static class CanvasBinding
     private static JsValue SetLineWidth(CanvasRenderingContext2D context2d, in JsCall call)
     {
         // A type test, not a coercion: only an actual JS number moves the pen width, so `ctx.lineWidth
-        // = "4"` is ignored exactly as it was before.
+        // = "4"` is ignored.
         if (call.Length > 0 && call[0].IsNumber)
             context2d.LineWidth = (float)call[0].AsNumber;
         return JsValue.Undefined;
@@ -676,9 +665,8 @@ internal static class CanvasBinding
 
     /// <summary>
     /// An integer argument, truncated the way the canvas APIs take one. <c>Missing</c> is zero without
-    /// entering the engine — the CLR null the argument frame used to answer past the end took the same
-    /// branch, and <c>ToNumber</c> of a value that was never supplied is not a question the realm
-    /// should be asked.
+    /// entering the engine: <c>ToNumber</c> of a value that was never supplied is not a question the
+    /// realm should be asked.
     /// </summary>
     private static int ToInt(IJsRealm realm, JsValue value)
     {

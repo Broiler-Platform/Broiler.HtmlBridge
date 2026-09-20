@@ -8,10 +8,9 @@ namespace Broiler.HtmlBridge.Scripting;
 /// One-time, cached probe for whether the underlying JS engine can actually drive ES modules end-to-end
 /// (a static import binds its value). This is true only once the engine carries the top-level-await codegen
 /// fix (submodule patch 0010) and the module-orchestration completion fix (patch 0011). On an engine
-/// without them a static import resolves to <c>undefined</c> or the module body stalls. Since the
-/// string-rewriting linker fallback was retired (Phase 7 tail), the module-execution surfaces run modules
-/// only when this returns true; otherwise a page's <c>&lt;script type="module"&gt;</c> is left unrun rather
-/// than fed to a fallback.
+/// without them a static import resolves to <c>undefined</c> or the module body stalls. The
+/// module-execution surfaces run modules only when this returns true; otherwise a page's
+/// <c>&lt;script type="module"&gt;</c> is left unrun rather than fed to a fallback.
 ///
 /// The probe runs a real module (a static <c>data:</c> import) through a <see cref="BridgeModuleContext"/>
 /// and checks the binding. It is guarded by a timeout because, on an un-patched engine, the module init can

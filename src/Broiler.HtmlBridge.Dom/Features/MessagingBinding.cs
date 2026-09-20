@@ -4,11 +4,11 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The web-messaging feature binding module (HtmlBridge complexity-reduction roadmap Phase 3, P3.10).
+/// The web-messaging feature binding module.
 /// It co-locates the whole feature: <c>window.postMessage</c>, <c>MessageChannel</c>/<c>MessagePort</c>
 /// (creation, <c>postMessage</c>, <c>start</c>/<c>close</c>/<c>onmessage</c>, the port message queue),
 /// structured-clone/transfer-list handling and <c>MessageEvent</c> construction. It <b>owns</b> the
-/// Phase 2 <see cref="MessagePortRegistry"/> state authority (entangled peers, closed/started marks
+/// <see cref="MessagePortRegistry"/> state authority (entangled peers, closed/started marks
 /// and the per-port pending-message queue).
 ///
 /// It also owns the generic <c>EventTarget</c> dispatch (<c>addEventListener</c>/
@@ -29,8 +29,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The whole feature is migrated to JSEAL, and the last edge was a record rather than a call
-/// frame.</b> Everything that builds or routes a message -- the ports, the channel, the
+/// <b>The whole feature speaks JSEAL.</b> Everything that builds or routes a message -- the ports, the channel, the
 /// <c>MessageEvent</c>, the origin comparison, the pending-message queue, the structured clone, the
 /// transfer list and the whole <see cref="IMessagingHost"/> contract -- speaks <see cref="IJsRealm"/>
 /// and names no engine type. The clone is <see cref="IJsClone.Clone"/>, which is the same engine
@@ -39,15 +38,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// hole-skipping walk expressed as the own-enumerable-index question it always was.
 /// </para>
 /// <para>
-/// <b>What was left was listener registration in the generic <c>EventTarget</c> dispatch, and this
-/// remark had its cause wrong.</b> It said <see cref="AddEventListener"/> and
-/// <see cref="RemoveEventListener"/> kept an engine argument frame. Both take a <see cref="JsCall"/>,
-/// and <see cref="InstallEventTargetApi"/> mints them through the realm. The real pin was
-/// <c>EventListenerRegistration.Listener</c>, an engine value declared in
-/// <c>DomBridge/RuntimeStates.cs</c> and shared with the element, document, window and form-submit
-/// paths, which the host converted for. It holds a <see cref="JsValue"/> now: the two operations call
-/// <see cref="EventListenerBinding"/> with the call frame's realm, the shared listener invoker takes the
-/// handle, and the <c>on…</c> handler is read through the realm.
+/// <see cref="AddEventListener"/> and <see cref="RemoveEventListener"/> both take a
+/// <see cref="JsCall"/>, and <see cref="InstallEventTargetApi"/> mints them through the realm.
+/// <c>EventListenerRegistration.Listener</c>, declared in <c>DomBridge/RuntimeStates.cs</c> and
+/// shared with the element, document, window and form-submit paths, holds a <see cref="JsValue"/>:
+/// the two operations call <see cref="EventListenerBinding"/> with the call frame's realm, the
+/// shared listener invoker takes the handle, and the <c>on…</c> handler is read through the realm.
 /// </para>
 /// </remarks>
 internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetRegistry eventTargets)
@@ -55,8 +51,8 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
     private readonly IMessagingHost _host = host;
     private readonly EventTargetRegistry _eventTargets = eventTargets;
 
-    // P2.6 state authority for MessageChannel/MessagePort (peers, closed/started marks, queued
-    // messages). Owned here now that the whole messaging feature is co-located.
+    // State authority for MessageChannel/MessagePort (peers, closed/started marks, queued
+    // messages). Owned here because the whole messaging feature is co-located.
     private readonly MessagePortRegistry _messagePorts = new();
 
     /// <summary>Releases all message-channel/port state (called by the bridge's session reset).</summary>
@@ -183,9 +179,8 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
     /// raise.
     /// </para>
     /// <para>
-    /// Each failure <see langword="throw"/>s <see cref="IJsCalls.DomError"/> where it used to call the
-    /// bridge's <c>ThrowDOMException</c>, which threw the same <c>DOMException</c> — the difference is
-    /// that the compiler can now see that the path ends, so the unreachable returns are gone.
+    /// Each failure <see langword="throw"/>s <see cref="IJsCalls.DomError"/>; the compiler can see
+    /// that the path ends there, so no unreachable return follows one.
     /// </para>
     /// </remarks>
     private (JsValue Ports, JsValue[] Transfer, List<JsValue> TransferredPorts) ExtractTransferList(JsValue transferValue)
@@ -546,8 +541,8 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
     }
 
     /// <remarks>
-    /// The owner-window branch this used to spell out twice is <see cref="RunInOwnerWindow"/>, which
-    /// is the same two-case decision the listener paths make.
+    /// The owner-window branch is <see cref="RunInOwnerWindow"/>, the same two-case decision the
+    /// listener paths make.
     /// </remarks>
     private void DispatchMessagePortEvent(JsValue targetPort, JsValue evt) =>
         RunInOwnerWindow(targetPort, () =>

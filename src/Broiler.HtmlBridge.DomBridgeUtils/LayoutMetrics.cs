@@ -16,14 +16,9 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    // RF-BRIDGE-1b: when true, element-geometry queries (offset*/client*/
-    // getBoundingClientRect/check-layout) resolve through the renderer's real layout
-    // engine via the injected ILayoutView instead of the coarse LayoutMetrics
-    // estimators. Enabled once increments 1-3 landed (the LayoutMetrics entry points and
-    // the anchor resolver route through the provider, and the Broiler.HTML inline-box
-    // geometry fix is live on CI) and the increment-4 parity gate confirmed the shared
-    // path matches or improves on the estimators — see
-    // SharedLayoutGeometryParityTests.Shared_Geometry_Matches_Or_Beats_Estimator_On_CheckLayout_Corpus.
+    // When true, element-geometry queries (offset*/client*/getBoundingClientRect/check-layout)
+    // resolve through the renderer's real layout engine via the injected ILayoutView instead of the
+    // coarse LayoutMetrics estimators.
     internal static bool UseSharedLayoutGeometry = true;
 
     // The preferred binding is the per-session factory supplied through DomBridgeSessionOptions,
@@ -200,7 +195,7 @@ public static partial class DomBridgeUtils
 
     internal static string GetDirectTextContent(DomElement element)
     {
-        // RF-BRIDGE-1c Phase F (F3c part 2d): a node's direct text is its text-node children.
+        // A node's direct text is its text-node children.
         var sb = new StringBuilder();
         foreach (var child in element.ChildNodes)
         {

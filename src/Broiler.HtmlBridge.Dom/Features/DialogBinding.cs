@@ -4,8 +4,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The dialog / popover / details JS API feature binding (HtmlBridge complexity-reduction roadmap
-/// Phase 3, P3.7) — <c>HTMLDialogElement</c> (<c>showModal</c>/<c>show</c>/<c>close</c>/<c>open</c>/
+/// The dialog / popover / details JS API feature binding —
+/// <c>HTMLDialogElement</c> (<c>showModal</c>/<c>show</c>/<c>close</c>/<c>open</c>/
 /// <c>returnValue</c>), the popover API (<c>showPopover</c>/<c>hidePopover</c> on any element with
 /// the global <c>popover</c> attribute) and <c>HTMLDetailsElement.open</c>. It drives the element's
 /// <c>open</c> attribute and the modal/popover/top-layer/return-value runtime state through the
@@ -16,15 +16,6 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>) throughout: every member is minted by
 /// the realm and every body runs on a <see cref="JsCall"/>, so this file names no engine type at all.
-/// </para>
-/// <para>
-/// It carried two engine-typed adapters until 5282d02, and both were pinned by their caller rather
-/// than by anything here. <see cref="Install(JsValue, DomElement, string, bool)"/> took the wrapper as
-/// an engine object because <c>DomBridge/NodeInterfaces.cs</c> held it as one; it takes the handle
-/// that file already has. <see cref="InstallElementMembers"/> minted its two members with the engine's
-/// argument frame because the <c>ElementSource</c> it was handed read that frame; that delegate is one
-/// JSEAL declaration now (<see cref="JsElementSource"/>), so the two fullscreen methods are the
-/// realm's like the rest.
 /// </para>
 /// </remarks>
 internal sealed class DialogBinding(IDialogHost host)
