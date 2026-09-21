@@ -310,13 +310,54 @@ behind ~94 call sites. `CssValueParser.TryParseNumeric` requires a digit.
 > `calc(1e400px)` — and `Infinityem` and `Infinityrem`, the very spelling this paragraph claims to
 > have removed.
 >
-> Two lessons, both general. First, an exponent overflows a double **without any symbol in it**, so a
-> guard written against the symbolic spellings misses `1e400px` entirely; the test has to be
-> finiteness, not a digit. Second, the fix belongs at the *exit* rather than in each unit's branch,
-> because a guard per branch has to be repeated for every future unit and the `calc()` paths recurse
-> back through the same evaluation. That is how it is now written, and
-> `tests/NonFiniteLengthTests.cs` reads it back through `clientTop` — what a page observes — rather
-> than through the helper.
+> **And that correction was too narrow in its turn.** Four audits since have found **sixteen** routes
+> by which a value this component cannot represent reached a page, in six subsystems that share no
+> code with the length evaluator or with each other, and six more turned up while the sixteen were
+> being closed. What a page actually read back, measured rather than reasoned about:
+>
+> | Where | What a page read |
+> | --- | --- |
+> | The transform pipeline (`DomBridgeUtils/Animations.cs`) — translations, `matrix()` components, angles, scale factors, percentage translations, `transform-origin`, the composition of two representable functions, and an `animate()` keyframe | `getBoundingClientRect()` answering `left === Infinity` **and** `width === NaN` off one declaration; `rotate(1e400deg)` making all four numbers `NaN`, because `Math.Cos` of a non-finite angle is; `transform: translateX(Infinitypx)` written into the serialized document |
+> | SVG geometry attributes (`DomBridge/LayoutMetrics.Svg.cs`) — extents, origins, text coordinates, a `<textPath>` moveto, and the `viewBox` mapping | infinite and `NaN` client rects; and `elementFromPoint` answering a `<rect>` for every point on its row, 580px clear of its right edge, because the candidate test is `x < rect.Left + rect.Width` |
+> | The `line-height` multiplier (`DomBridge/LayoutMetrics.Geometry.cs`) | a list-box `<select>` answering `scrollHeight === Infinity`, and `NaN` for the symbolic spelling |
+> | A frame's `width`/`height` content attribute (same file, and three more parses in `DomBridge/Css.cs` and `DomBridgeUtils/Css.cs`) | the sub-document answering `documentElement.clientWidth === Infinity`, and its media queries matching `(min-width: 2000000000px)` — because `(int)` of an infinity saturates rather than failing |
+> | Used zoom (`DomBridge/LayoutMetrics.Svg.cs`, and the two serialization walks) | `getBoundingClientRect()` answering `NaN`, `offsetWidth` answering `0`, and `style="width: Infinitypx"` baked into the document |
+> | `img.width` / `img.height` (`Dom/Features/ComputedStyleBinding.cs`) | `Infinity` from the CSS branch and from the content attribute alike, and `NaN` from `width="NaN"` |
+>
+> **The rule that would have prevented all of them**, stated once:
+>
+> 1. **Test representability, not spelling.** An exponent overflows a double **without any symbol in
+>    it**, and so does a long enough run of digits, so `1e400px` and a 401-digit coordinate both slip
+>    past every guard written against `NaN` and `Infinity`. `!double.IsNaN(x)` is not that test — it is
+>    true of `+∞` — and neither is `x > 0`, which is false for `NaN` and true for `+∞`, nor a cast to
+>    `int`, which saturates. `double.IsFinite(x)` is.
+> 2. **Refuse where the value comes into existence, not where its parts were read.** Half of these
+>    cannot be caught at a parse at all, because both operands are representable and the arithmetic is
+>    not: `scale(1e200) scale(1e200)`, `line-height: 1e307` times a `16px` font, an SVG rect mapped
+>    through a `viewBox` scale, two nested zooms. So the test goes on the assembled matrix, the
+>    resolved rect, the resolved line height, the used zoom — one exit each, covering every unit and
+>    every function a later round adds.
+> 3. **Unless the read's own fallback is the grammar's.** Where a reader already has a defined answer
+>    for a value it cannot *read* — an SVG attribute falling to its lacuna chain, `img.width` falling
+>    to the content attribute and then to `0`, a frame falling to the default viewport — refusing at
+>    the read gives the same answer and a better one, and `DomBridgeUtils.TryParseFiniteScalar` is the
+>    one helper that does it. Where the reader's fallback would be a *substitution* — `0` for a length
+>    or `1` for a scale factor, in the middle of an expression the page wrote — it must not be used,
+>    because `translate(1e400px, 20px)` becoming `translate(0, 20px)` invents a number too.
+> 4. **Do not clamp.** `double.MaxValue`, `int.MaxValue` and `0` are all numbers the page never wrote.
+>    What cannot be represented is not a length, not an angle, not a matrix — it takes the same path a
+>    value that cannot be *parsed* takes, refused at the level the CSS grammar would refuse it.
+>
+> Each route has a test file that argues its own case and says which of its cases failed at HEAD:
+> `tests/NonFiniteLengthTests.cs`, `NonFiniteTransformTests.cs`,
+> `NonFiniteKeyframeInterpolationTests.cs`, `NonFiniteSvgGeometryTests.cs`,
+> `NonFiniteLineHeightTests.cs`, `NonFiniteFrameViewportTests.cs`, `NonFiniteUsedZoomTests.cs` and
+> `NonFiniteImageDimensionTests.cs`. Every one of them reads its route back the way a page does —
+> `clientTop`, `getBoundingClientRect()`, `scrollHeight`, `clientWidth`, `img.width`,
+> `elementFromPoint`, the serialized document — and never through the helper that was changed.
+> `tests/NonFiniteValueSurfaceTests.cs` is the net over all of them: one class, one question per
+> route, and a roster whose count is asserted so that a seventeenth route has to be added to it
+> deliberately.
 
 ### Reverted after review: the selector matcher (A7)
 
@@ -562,3 +603,18 @@ Not cross-component, but found while looking and worth keeping:
 - **`HUMAN_REVIEW.md` is stale** — its dependency table still describes Broiler.JS and Broiler.VM as
   submodules, with links to paths that do not exist. Left untouched deliberately: it is an
   attestation record, and correcting it is its owner's call.
+- **`img.width`/`.height` read their content attribute in the *current* culture**, with
+  `AllowThousands` — `Dom/Features/ComputedStyleBinding.cs`. On a German-locale machine
+  `<img width="1.5">` answers `15` and `<img width="1,5">` answers `1.5`, where HTML parses that
+  attribute culture-invariantly and as an integer. Left alone by the non-finite round deliberately:
+  it is a locale defect rather than a representability one, and fixing it changes what a page reads
+  for values that are perfectly representable. Every other numeric read in these files goes through
+  `InvariantCulture`.
+- **A frame dimension a double holds is still truncated by a cast to `int`** —
+  `DomBridgeUtils.ParseViewportDimensionAttribute` and `CascadedFrameViewport.ResolveFrameLength`.
+  `<iframe width="1e30">` is a number the page wrote and this component can represent, and it still
+  reaches the frame's media queries as `int.MaxValue`. Only the *unrepresentable* half was closed;
+  the viewport being an `int` at all is the wider question.
+- **`ParseKeyframeEntries` admits a non-finite `@keyframes` selector percentage** —
+  `DomBridgeUtils/Animations.cs`. Recorded by the transform round, which could not reach the CSS
+  animation bake from a page at all and so declined to change it without a test. Still open.
