@@ -1065,3 +1065,105 @@ public class DependencyAlignmentShadowScopeTests
         return html[(start + 1)..end];
     }
 }
+
+/// <summary>
+/// The document mode a serialized page carries out, now that the doctype is read as the whole
+/// name/public-id/system-id triple the HTML Standard's condition is written over.
+/// <para>
+/// Nothing downstream is handed this component's document; it is handed a STRING, and re-derives
+/// the mode from it with <c>DocumentModeContext.IsQuirksHtml</c> — the same predicate the parse
+/// applied to the markup on the way in. So the property that has to hold is that the two agree:
+/// a page that parsed in quirks mode must serialise to a string that parses in quirks mode.
+/// </para>
+/// <para>
+/// It did not hold for a legacy doctype. <c>SelectsStandardsMode</c> tested that the doctype's NAME
+/// was <c>html</c>, which <c>&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"&gt;</c>
+/// is — so the bare <c>&lt;!DOCTYPE html&gt;</c> went out and the document came back standards. The
+/// predicate over a parsed triple is <c>DocumentModeContext.IsQuirksDoctype</c>, new in
+/// <c>Broiler.Layout 0.1.0-preview.5</c>; the identifiers are still dropped from the emitted text,
+/// which they always were, because it is the mode and not the spelling that has to survive.
+/// </para>
+/// </summary>
+public class DependencyAlignmentDocumentModeTests
+{
+    private const string PageUrl = "https://example.test/pages/document-mode.html";
+
+    /// <summary>The two legacy doctypes, one reached through each identifier.</summary>
+    private const string Html4Transitional =
+        "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0 Transitional//EN\">";
+
+    private const string SystemIdentifierOnly =
+        "<!DOCTYPE html SYSTEM \"http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd\">";
+
+    /// <summary>
+    /// FIXED: a doctype named <c>html</c> that selects quirks anyway, through its public identifier
+    /// and through its system identifier. Neither may serialise as standards.
+    /// </summary>
+    [Theory]
+    [InlineData(Html4Transitional)]
+    [InlineData(SystemIdentifierOnly)]
+    public void ALegacyDoctypeDoesNotSerializeAsStandardsMode(string doctype)
+    {
+        var html = Serialize(doctype);
+
+        Assert.DoesNotContain("<!DOCTYPE", html, StringComparison.OrdinalIgnoreCase);
+        Assert.True(DocumentModeContext.IsQuirksHtml(html));
+    }
+
+    /// <summary>
+    /// PRESERVED: the doctypes that do select standards, including the limited-quirks XHTML 1.0
+    /// Transitional the CSS2.1 <c>.xht</c> tests carry — limited quirks is not quirks, and reading
+    /// the identifiers must not start treating it as such.
+    /// </summary>
+    [Theory]
+    [InlineData("<!DOCTYPE html>")]
+    [InlineData("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\" \"http://www.w3.org/TR/html4/strict.dtd\">")]
+    [InlineData("<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" " +
+                "\"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">")]
+    public void ADoctypeThatSelectsStandardsModeStillSerializesAsOne(string doctype)
+    {
+        var html = Serialize(doctype);
+
+        Assert.StartsWith("<!DOCTYPE html>", html, StringComparison.Ordinal);
+        Assert.False(DocumentModeContext.IsQuirksHtml(html));
+    }
+
+    /// <summary>
+    /// PRESERVED: no doctype at all, and a doctype by another name. Both selected quirks under the
+    /// name test and still do.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("<!DOCTYPE foo>")]
+    public void ADocumentWithNoHtmlDoctypeStillSerializesWithoutOne(string doctype)
+    {
+        var html = Serialize(doctype);
+
+        Assert.DoesNotContain("<!DOCTYPE", html, StringComparison.OrdinalIgnoreCase);
+        Assert.True(DocumentModeContext.IsQuirksHtml(html));
+    }
+
+    /// <summary>
+    /// The property the two cases above are halves of, stated over every doctype in this class: the
+    /// mode the page parsed in is the mode the serialized string parses in.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("<!DOCTYPE html>")]
+    [InlineData("<!DOCTYPE foo>")]
+    [InlineData(Html4Transitional)]
+    [InlineData(SystemIdentifierOnly)]
+    [InlineData("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\" \"http://www.w3.org/TR/html4/strict.dtd\">")]
+    [InlineData("<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" " +
+                "\"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">")]
+    public void TheDocumentModeSurvivesSerialization(string doctype) =>
+        Assert.Equal(
+            DocumentModeContext.IsQuirksHtml(Page(doctype)),
+            DocumentModeContext.IsQuirksHtml(Serialize(doctype)));
+
+    private static string Page(string doctype) =>
+        doctype + "<html><body><p>t</p><div id=\"out\"></div></body></html>";
+
+    private static string Serialize(string doctype) =>
+        PageProbe.Render([PageProbe.Probe("'ok'")], Page(doctype), PageUrl);
+}

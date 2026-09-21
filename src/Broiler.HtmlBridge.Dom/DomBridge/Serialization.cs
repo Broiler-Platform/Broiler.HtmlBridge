@@ -54,16 +54,24 @@ public sealed partial class DomBridge
     /// `quirks/` directory is doctype-less by construction.
     /// </para>
     /// <para>
-    /// The mode is what round-trips, not the doctype's text: <c>IsQuirksHtml</c> keys off the
-    /// doctype's *name* alone, so a public/system identifier (the XHTML doctypes the CSS2.1
-    /// <c>.xht</c> tests carry) selects standards through the bare form just as it did through the
-    /// original — those identifiers were already dropped here and still are. A doctype whose name
-    /// is not <c>html</c> selects quirks, so it is correctly serialised as no doctype at all.
+    /// The mode is what round-trips, not the doctype's text — the identifiers themselves are
+    /// dropped here and always were. But the mode is the HTML Standard's condition over the whole
+    /// name/public-id/system-id triple, not over the name: a legacy identifier such as
+    /// <c>-//W3C//DTD HTML 4.0 Transitional//EN</c> selects quirks on a doctype still named
+    /// <c>html</c>. Testing the name alone re-emitted the bare <c>&lt;!DOCTYPE html&gt;</c> for
+    /// exactly those, so the one kind of document a legacy doctype exists to describe was the one
+    /// kind that came back out in standards mode.
+    /// </para>
+    /// <para>
+    /// <c>IsQuirksDoctype</c> is the same predicate <c>IsQuirksHtml</c> applies to the raw markup
+    /// on the way in, so the parse and the serialisation cannot disagree about a document. A
+    /// limited-quirks doctype (the XHTML 1.0 Transitional the CSS2.1 <c>.xht</c> tests carry) still
+    /// serialises as standards, because full quirks is what it does not select.
     /// </para>
     /// </remarks>
     private bool SelectsStandardsMode() =>
         _document.DocumentType is { } doctype
-        && doctype.Name.Equals("html", StringComparison.OrdinalIgnoreCase);
+        && !Layout.DocumentModeContext.IsQuirksDoctype(doctype.Name, doctype.PublicId, doctype.SystemId);
 
     /// <summary>
     /// The document's current element child — what the canvas actually renders — or
