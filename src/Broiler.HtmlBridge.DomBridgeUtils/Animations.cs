@@ -334,7 +334,23 @@ public static partial class DomBridgeUtils
         else
             return false; // incompatible units (e.g. px vs %); no conversion here
 
+        // The interpolator's exit, and the same rule the transform matrix is refused by one level
+        // down: a value that cannot be represented is refused where it is composed, not where its
+        // parts were read. Either endpoint can be an infinity without a symbol in it — the scan
+        // above takes digits, and 401 of them overflow a double — and `progress` can arrive as
+        // NaN, and in every one of those cases this arithmetic answers an infinity or a NaN.
+        // Formatted back out, that became `translateX(Infinitypx)` in the element's baked style: a
+        // value the page never wrote, invented here, and then handed to whatever reads the
+        // serialized document.
+        //
+        // A pair that cannot be interpolated is not new — mismatched units above return false the
+        // same way — and the caller already has the answer for it: the whole transform steps
+        // discretely between the two keyframes instead, so the page gets one of the two values it
+        // actually wrote.
         var value = fromNumber + (toNumber - fromNumber) * progress;
+        if (!double.IsFinite(value))
+            return false;
+
         result = value.ToString("0.#####", CultureInfo.InvariantCulture) + unit;
         return true;
     }
