@@ -1,6 +1,7 @@
 # Where the bridge's work belongs — an audit against Broiler.DOM, CSS, Layout and HTML
 
-Audited 2026-09-21, from `62fda21`.
+Audited 2026-09-21, from `62fda21`. Tier B and tier C were filed upstream the same day, against each
+target repository's `main` rather than against the pinned package; the table below links them.
 
 This component's job is to project a live document into a JavaScript realm. It is not supposed to
 own DOM, CSS or Layout semantics — those have components of their own. This document records where
@@ -34,6 +35,61 @@ Pinned at the time of audit:
 `Broiler.HTML` is **not referenced by this component at all**. Anything the two share is parallel
 evolution between components that cannot see each other, which is why those findings are written as
 recommendations rather than substitutions.
+
+## Filed upstream
+
+Every tier B and tier C finding was re-verified against the target repository's **current `main`**
+before filing — not against the pinned package, and not against this document. Four were dropped at
+that point and two of this document's own claims were corrected; both are recorded below.
+
+| Issue | Tier |
+| --- | --- |
+| [Broiler.Layout#4](https://github.com/Broiler-Platform/Broiler.Layout/issues/4) — `ILayoutView`'s documented implementation was deleted | D |
+| [Broiler.Layout#5](https://github.com/Broiler-Platform/Broiler.Layout/issues/5) — no scrollable overflow region in the read model | C |
+| [Broiler.Layout#6](https://github.com/Broiler-Platform/Broiler.Layout/issues/6) — no point query over the layout result | C |
+| [Broiler.Layout#7](https://github.com/Broiler-Platform/Broiler.Layout/issues/7) — `transform` is carried as an unresolved string | C |
+| [Broiler.Layout#8](https://github.com/Broiler-Platform/Broiler.Layout/issues/8) — the inline containing block is computed but not surfaced | B |
+| [Broiler.Layout#9](https://github.com/Broiler-Platform/Broiler.Layout/issues/9) — quirks mode can only be asked about a raw HTML string | B |
+| [Broiler.Layout#10](https://github.com/Broiler-Platform/Broiler.Layout/issues/10) — the `viewBox` mapping is implemented but not exposed | C |
+| [Broiler.CSS#53](https://github.com/Broiler-Platform/Broiler.CSS/issues/53) — `TryParseNumeric` rejects exponents and accepts a trailing dot | A-gap |
+| [Broiler.CSS#54](https://github.com/Broiler-Platform/Broiler.CSS/issues/54) — `FindMatching` returns `text.Length - 1` on no match | A-gap |
+| [Broiler.CSS#55](https://github.com/Broiler-Platform/Broiler.CSS/issues/55) — `CssSelector` exposes no structural model | C |
+| [Broiler.CSS#56](https://github.com/Broiler-Platform/Broiler.CSS/issues/56) — `CssSelectorMatcher` has no strict mode | A7 |
+| [Broiler.DOM#21](https://github.com/Broiler-Platform/Broiler.DOM/issues/21) — the parser does not attach declarative shadow roots | C |
+| [Broiler.DOM#22](https://github.com/Broiler-Platform/Broiler.DOM/issues/22) — no `<template>` contents model | C |
+| [Broiler.HTML#228](https://github.com/Broiler-Platform/Broiler.HTML/issues/228) — `CorrectProgressBoxes` overwrites the cascaded box | C |
+| [Broiler.HTML#229](https://github.com/Broiler-Platform/Broiler.HTML/issues/229) — `<base href>` is ignored when resolving resources | C |
+
+### Dropped when re-verified against `main`
+
+- **`url()` rebasing on `@import` (Broiler.CSS).** The claim assumed this component runs its own
+  import pass that adopting `CssImportResolver` would retire. It already adopted it: it rebases
+  inside the `ICssStyleSheetLoader` seam the package provides, before the text reaches the resolver
+  (`StyleSheets.Imports.cs`). Filing it would have told a maintainer their API breaks a caller that
+  in fact ships it working.
+- **A used-value `line-height` resolver (Broiler.CSS).** Broiler.CSS resolves no `url()` and carries
+  no used-value layer at all; the cascade passes these through as opaque strings. Resolving
+  `line-height` three times remains this component's own problem — see the open items below.
+- **Meta-refresh content parsing (Broiler.DOM).** That repository has already decided the question in
+  writing: its `docs/roadmap.md` tells `HtmlMetaScanner` to return directive strings and leave
+  parsing to the consumer, and names `MetaRefreshDiscovery` as needing only a package bump. The two
+  spec departures found while checking are **this** component's bugs, in
+  `Core/Dom/MetaRefreshDiscovery.cs`.
+- **The `<progress>`/`<meter>` duplication, as a duplication.** Re-reading turned it into something
+  sharper — a cascade bug in the other component, where author declarations on those elements are
+  overwritten — and it was filed as that instead.
+
+### Corrections to this document
+
+- **`CssValueParser.TryParseNumeric` is wrong in *both* directions**, not only on exponents: it also
+  accepts `1.px` as `1px`, because the `NumberStyles.Float` parse tolerates a trailing dot that
+  css-syntax-3 forbids. `CssLengthParser` in the same package answers both cases correctly, so the
+  package disagrees with itself. `TryParseNumeric` also backs that file's `TryParsePercentage`, so
+  `hsl(120, 5e1%, 50%)` does not parse as a colour there either.
+- **`DocumentModeContext.IsQuirksHtml(string)` is public**, contrary to "not public in any version"
+  below. The gap is narrower than recorded: the predicate is reachable, but only over *raw markup*.
+  `SelectsQuirksMode(publicId, systemId)` — the part a caller holding a parsed doctype needs — is
+  private, as is `ReadDoctype`.
 
 ## Tier A — done
 
@@ -86,7 +142,7 @@ would attach that animation document-wide. The bridge's stub answers `false` for
 understand, which is the safer error for this use.
 
 Taking it needs one of: a strict-matching option on `CssSelectorMatcher`, or a way to ask whether a
-selector is fully modelled. Until then the stub stays, and the real cost is recorded: it answers
+selector is fully modelled — filed as [Broiler.CSS#56](https://github.com/Broiler-Platform/Broiler.CSS/issues/56). Until then the stub stays, and the real cost is recorded: it answers
 `false` for compounds, combinators, `*`, attribute and functional selectors, so animation
 declarations on any rule but the simplest are silently dropped today.
 
@@ -95,18 +151,19 @@ declarations on any rule but the simplest are silently dropped today.
 `CssValueParser.TryParseNumeric` does not scan an exponent, so `1e2px` — valid `<length>` per
 css-syntax-3 §4.3.12, and accepted by `CssLengthParser` in the same package — does not parse.
 `DomBridgeUtils.TryParseExponentNumber` covers exactly that shape so no valid length regressed. When
-`TryParseNumeric` learns exponents the fallback becomes dead rather than wrong. Worth reporting to
-Broiler.CSS.
+`TryParseNumeric` learns exponents the fallback becomes dead rather than wrong. Filed as
+[Broiler.CSS#53](https://github.com/Broiler-Platform/Broiler.CSS/issues/53), which also covers the opposite error found while writing
+it up: `1.px` parses *successfully* as `1px`.
 
 `CssSyntax.FindMatching` answers `text.Length - 1` when nothing matches, not `-1`, so a caller must
 test the landing character rather than the sign. An unterminated `translateY(` otherwise takes the
-rest of the string as its argument.
+rest of the string as its argument. Filed as [Broiler.CSS#54](https://github.com/Broiler-Platform/Broiler.CSS/issues/54).
 
 ## Tier B — real, but not reachable from here
 
 Neither a call nor a package bump fixes these. They need a change in the dependency first.
 
-### A hand-rolled line-box layout (~187 lines)
+### A hand-rolled line-box layout (~187 lines) — [Broiler.Layout#8](https://github.com/Broiler-Platform/Broiler.Layout/issues/8)
 
 `DomBridge/AnchorResolver/InlineContainingBlocks.cs:175`. `EstimateInlineContentWidth` and
 `EstimatePrecedingInlineWidth` measure inline runs as `charCount * fontSize` — the comment at :202
@@ -119,7 +176,7 @@ Layout's own HEAD**, not merely absent from the pinned package. Exposing them is
 
 Until then the estimator is a documented fallback rather than a defect, but it should not grow.
 
-### The doctype decides standards mode by name alone (0 lines today)
+### The doctype decides standards mode by name alone (0 lines today) — [Broiler.Layout#9](https://github.com/Broiler-Platform/Broiler.Layout/issues/9)
 
 `DomBridge/Serialization.cs:64`. `SelectsStandardsMode` tests only that the doctype's *name* is
 `html`, so a doctype carrying a legacy public or system identifier — the ones that put a real browser
@@ -136,12 +193,12 @@ not: re-implementing them better here would deepen the mislayering rather than f
 
 ### Broiler.Layout
 
-| What the bridge owns | Where | Lines |
-| --- | --- | --- |
-| The CSS Overflow 3 §3.1 scrollable overflow region, walked and unioned per element | `DomBridge/LayoutMetrics.cs:355` | ~170 |
-| A complete CSS Transforms 1 used-value engine — a transform list folded into an affine matrix | `DomBridgeUtils/Animations.cs:408` | ~158 |
-| `elementFromPoint`/`elementsFromPoint` paint-order hit testing, recursing the DOM in reverse child order | `DomBridge/HitTesting.cs:74` | ~40 |
-| The SVG `viewBox` user-space mapping, hardcoded to the default `preserveAspectRatio` | `DomBridge/LayoutMetrics.Svg.cs:450` | ~3 |
+| What the bridge owns | Where | Lines | Filed |
+| --- | --- | --- | --- |
+| The CSS Overflow 3 §3.1 scrollable overflow region, walked and unioned per element | `DomBridge/LayoutMetrics.cs:355` | ~170 | [Broiler.Layout#5](https://github.com/Broiler-Platform/Broiler.Layout/issues/5) |
+| A complete CSS Transforms 1 used-value engine — a transform list folded into an affine matrix | `DomBridgeUtils/Animations.cs:408` | ~158 | [Broiler.Layout#7](https://github.com/Broiler-Platform/Broiler.Layout/issues/7) |
+| `elementFromPoint`/`elementsFromPoint` paint-order hit testing, recursing the DOM in reverse child order | `DomBridge/HitTesting.cs:74` | ~40 | [Broiler.Layout#6](https://github.com/Broiler-Platform/Broiler.Layout/issues/6) |
+| The SVG `viewBox` user-space mapping, hardcoded to the default `preserveAspectRatio` | `DomBridge/LayoutMetrics.Svg.cs:450` | ~3 | [Broiler.Layout#10](https://github.com/Broiler-Platform/Broiler.Layout/issues/10) |
 
 The transform engine is the clearest case: Layout already has a transform model
 (`IR.TransformItem.Matrix`, `AffineLayerMap`, `SvgTransform`) and the bridge has built a second one
@@ -151,11 +208,11 @@ and no amount of exposing existing members substitutes for a Layout point-query 
 
 ### Broiler.CSS
 
-| What the bridge owns | Where | Lines |
-| --- | --- | --- |
-| Selector scoping into a shadow tree — parsing selector lists into compounds and combinators | `DomBridgeUtils/Selectors.cs:186` | ~120 |
-| `url()` tokenising and rebasing a sheet's relative URLs against its own base | `DomBridgeUtils/Css.cs:240` | ~33 |
-| The used value of `line-height`, resolved three independent times and never shared | `DomBridgeUtils/AnchorResolver.cs:290` | ~27 |
+| What the bridge owns | Where | Lines | Filed |
+| --- | --- | --- | --- |
+| Selector scoping into a shadow tree — parsing selector lists into compounds and combinators | `DomBridgeUtils/Selectors.cs:186` | ~120 | [Broiler.CSS#55](https://github.com/Broiler-Platform/Broiler.CSS/issues/55) |
+| `url()` tokenising and rebasing a sheet's relative URLs against its own base | `DomBridgeUtils/Css.cs:240` | ~33 | dropped — see above |
+| The used value of `line-height`, resolved three independent times and never shared | `DomBridgeUtils/AnchorResolver.cs:290` | ~27 | dropped — see above |
 
 The selector one is blocked by a shape, not a gap: `CssSelectorParser.Parse` is public but
 `CssSelector` exposes only `Text` and `Specificity` — no compounds, no combinators, no offsets — so
@@ -167,11 +224,11 @@ where it eventually lives; see the open items below.
 
 ### Broiler.DOM
 
-| What the bridge owns | Where | Lines |
-| --- | --- | --- |
-| Declarative shadow roots: a post-parse pass finding `<template shadowrootmode>` and attaching | `DomBridge/HtmlParsing.cs:127` | ~70 |
-| The `<template>` contents model (HTML §4.12.3), held as a side table keyed on the element | `DomBridge/HtmlParsing.cs:305` | ~65 |
-| Parsing a `<meta http-equiv=refresh>` content value | `Core/Dom/MetaRefreshDiscovery.cs:59` | ~40 |
+| What the bridge owns | Where | Lines | Filed |
+| --- | --- | --- | --- |
+| Declarative shadow roots: a post-parse pass finding `<template shadowrootmode>` and attaching | `DomBridge/HtmlParsing.cs:127` | ~70 | [Broiler.DOM#21](https://github.com/Broiler-Platform/Broiler.DOM/issues/21) |
+| The `<template>` contents model (HTML §4.12.3), held as a side table keyed on the element | `DomBridge/HtmlParsing.cs:305` | ~65 | [Broiler.DOM#22](https://github.com/Broiler-Platform/Broiler.DOM/issues/22) |
+| Parsing a `<meta http-equiv=refresh>` content value | `Core/Dom/MetaRefreshDiscovery.cs:59` | ~40 | dropped — see above |
 
 The first two are tree-construction output. Template contents is part of a node's data model, and the
 bridge keeping it in a `Dictionary<DomElement, DomDocumentFragment>` beside the tree is a workaround
@@ -185,9 +242,13 @@ see each other:
 
 - `<progress>`/`<meter>` UA chrome is generated in `DomBridge/Serialization.cs:413` (~81 lines) and
   again in `Broiler.HTML`'s `DomParser.CorrectProgressBoxes`. Two components independently decide
-  what a progress bar looks like.
+  what a progress bar looks like — **and they disagree**: that one overwrites the cascaded box, so an
+  author's `width`, `border` and even `display: none` are discarded, where this one keeps a computed
+  `width`/`height` that is not `auto`. Filed as [Broiler.HTML#228](https://github.com/Broiler-Platform/Broiler.HTML/issues/228).
 - Rebasing `url()` in the render projection (`DomBridge/StyleSheets.cs:226`) overlaps the painting
-  component's own resource resolution.
+  component's own resource resolution — which turns out not to read `<base href>` on the render path
+  at all, so this component's pre-pass is the only thing applying it, and only for the two URL kinds
+  it knows about. Filed as [Broiler.HTML#229](https://github.com/Broiler-Platform/Broiler.HTML/issues/229).
 
 ## Tier D — blocked
 
@@ -196,12 +257,31 @@ layout written over computed style: it resolves four insets and derives width fr
 against the containing block.
 
 The obvious answer is `Broiler.Layout.BoxGeometry.BorderBox` through `ILayoutView.GetGeometry`, and
-it does not work: **the pinned `Broiler.Layout` ships only the `ILayoutView` contract.** No
-implementation exists in this repository's dependency closure, so there is nothing to ask. A host
-supplies one, and the bridge's estimator is the documented fallback for when none does.
+it does not work. The reason is worse than "not in the pinned package", which is what this document
+claimed before the finding was filed: **no implementation of `ILayoutView` exists on any main branch
+of any component.**
 
-This is the seam worth understanding before any further Layout work: the bridge is not choosing to
-compute boxes, it is coping with a contract that has no implementation on this side.
+| repository | what implements `ILayoutView` |
+| --- | --- |
+| Broiler.Layout (`a261826`) | nothing — three textual mentions, no implementors |
+| Broiler.HTML (`cce61ad`) | nothing — `Broiler.HTML.Headless` was **deleted** on 2026-09-15 in `603c808` |
+| this repository (`2212008`) | nothing in `src/`; the only `LayoutViewFactory` assignments anywhere are the fake views in `tests/DependencyAlignmentTests.cs` |
+
+`Broiler.Layout/ILayoutView.cs:18-19` still names `Broiler.HTML.Headless.HeadlessLayoutView` as "the
+concrete implementation", its README repeats it, and its `.csproj` still grants that assembly
+`InternalsVisibleTo`. The deletion commit is candid about why the project went — unreferenced, absent
+from the solution, and unable to build after the move to packages — and notes in passing that
+"nothing assigns the bridge's `LayoutViewFactory`, so the aggregate always ran its null layout view
+regardless."
+
+So `_layoutView ??= _layoutViewFactory?.Invoke() ?? LayoutViewFactory?.Invoke() ?? NullLayoutView.Instance`
+(`DomBridge/LayoutMetrics.Geometry.cs:30`) always lands on `NullLayoutView`. Every geometry answer
+this component gives comes from its own estimators — `ComputeElementBox` here, and the
+`charCount * fontSize` line-box measurement in tier B.
+
+That is the correction worth carrying forward: **those estimators are not a fallback for when no host
+supplies a view. They are the only code path that runs.** Filed as
+[Broiler.Layout#4](https://github.com/Broiler-Platform/Broiler.Layout/issues/4).
 
 ## Claims that were refuted — do not re-raise without new evidence
 
