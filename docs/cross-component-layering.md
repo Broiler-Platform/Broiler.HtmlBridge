@@ -62,8 +62,8 @@ that point and two of this document's own claims were corrected; both are record
 
 ### Where the work landed
 
-Thirteen of the fifteen are implemented, each on a branch in the component that owns it, with tests and
-green CI:
+Thirteen of the fifteen are implemented and **merged**, one pull request per component, each green on
+both platforms before it landed:
 
 | Pull request | Closes | Tests |
 | --- | --- | --- |
