@@ -558,8 +558,13 @@ public sealed partial class DomBridge
             {
                 if (!props.TryGetValue(property, out var value) || string.IsNullOrWhiteSpace(value))
                     return 0;
+                // IsFinite, not !IsNaN: the conversion to int saturates rather than failing, so a
+                // frame whose cascaded width overflowed a double used to size its document's
+                // viewport at int.MaxValue — a number the page never wrote, which then matched
+                // every min-width query the frame could ask. A length this component cannot
+                // represent is no length, and the caller's default covers that already.
                 var px = ParseCssLengthToPixels(value.Trim(), outerWidth, outerHeight);
-                return !double.IsNaN(px) && px > 0 ? (int)px : 0;
+                return double.IsFinite(px) && px > 0 ? (int)px : 0;
             }
         }
         finally

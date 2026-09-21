@@ -175,16 +175,28 @@ public static partial class DomBridgeUtils
             return 0;
 
         var px = ParseCssLengthToPixels(CssPriority.Strip(value));
-        return !double.IsNaN(px) ? (int)px : 0;
+        return double.IsFinite(px) ? (int)px : 0;
     }
 
+    /// <summary>
+    /// The frame's viewport dimension named by its <c>width</c>/<c>height</c> content attribute, or
+    /// <c>0</c> when the attribute is absent or is not a dimension this component can represent.
+    /// </summary>
+    /// <remarks>
+    /// The finiteness test is not decoration. A double-to-int conversion <em>saturates</em> rather
+    /// than failing, so <c>+∞</c> used to arrive here, pass <c>&gt; 0</c>, and leave as
+    /// <c>int.MaxValue</c> — a viewport 2 147 483 647 px wide that the page never wrote, matching
+    /// every <c>min-width</c> media query the frame's document could ask. That is the clamp this
+    /// round exists to remove, performed by the cast instead of by a guard. An unrepresentable
+    /// dimension is no dimension, which is what the caller already does with an unreadable one.
+    /// </remarks>
     internal static int ParseViewportDimensionAttribute(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return 0;
 
         var px = ParseCssLengthToPixels(value.Trim());
-        return !double.IsNaN(px) && px > 0 ? (int)px : 0;
+        return double.IsFinite(px) && px > 0 ? (int)px : 0;
     }
 }
 

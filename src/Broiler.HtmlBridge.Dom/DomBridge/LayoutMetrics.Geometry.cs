@@ -516,9 +516,15 @@ public sealed partial class DomBridge
                 if (frameLength > 0)
                     return frameLength;
 
+                // TryParseFiniteScalar, not a bare NumberStyles.Float parse: the CSS spelling above
+                // reaches the length evaluator's finiteness exit and this one does not, so the
+                // attribute was the open half. `> 0` is not that test — it is false for NaN but true
+                // for +Infinity, which became the frame's viewport length and answered
+                // documentElement.clientWidth === Infinity inside the sub-document. A number this
+                // component cannot represent is not a dimension, and a frame with no readable
+                // dimension already falls through to the default viewport below.
                 if (TryGetAttribute(frameElement, vertical ? "height" : "width", out var frameAttribute) &&
-                    double.TryParse(frameAttribute, NumberStyles.Float,
-                        CultureInfo.InvariantCulture, out frameLength) &&
+                    TryParseFiniteScalar(frameAttribute, out frameLength) &&
                     frameLength > 0)
                 {
                     return frameLength;
