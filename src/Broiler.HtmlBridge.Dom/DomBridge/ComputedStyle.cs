@@ -531,7 +531,6 @@ public sealed partial class DomBridge
             var css = string.Join("\n", rules.Select(CssSerializer.Serialize));
             var styleElement = CreateBridgeElement("style");
             styleElement.TextContent = css;
-            SetParent(styleElement, container);
             container.AppendChild(styleElement);
         }
     }

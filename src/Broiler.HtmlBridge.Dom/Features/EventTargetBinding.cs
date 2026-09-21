@@ -45,32 +45,13 @@ internal static class EventTargetBinding
     //  EventTarget.prototype's three, routed by receiver — the JSEAL frame
     // ------------------------------------------------------------------
 
-    public static JsValue AddEventListener(IEventTargetHost host, DomNode element, in JsCall call)
-    {
-        if (call.Length < 2)
-            return JsValue.Undefined;
-        var type = call.Realm.ToJsString(call[0]);
-        if (!host.GetEventListeners(element).TryGetValue(type, out var listeners))
-        {
-            listeners = [];
-            host.GetEventListeners(element)[type] = listeners;
-        }
+    // The arity guard comes first so that a one-argument call materialises no listener store: the
+    // store is created on demand, and a page can reach this on every element it can name.
+    public static JsValue AddEventListener(IEventTargetHost host, DomNode element, in JsCall call) =>
+        call.Length < 2 ? JsValue.Undefined : EventListenerBinding.AddTo(host.GetEventListeners(element), in call);
 
-        EventListenerBinding.AddListener(call.Realm, listeners, call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
-        return JsValue.Undefined;
-    }
-
-    public static JsValue RemoveEventListener(IEventTargetHost host, DomNode element, in JsCall call)
-    {
-        if (call.Length < 2)
-            return JsValue.Undefined;
-        var type = call.Realm.ToJsString(call[0]);
-        EventListenerBinding.RemoveListener(
-            call.Realm,
-            host.GetEventListeners(element).TryGetValue(type, out var listeners) ? listeners : null,
-            call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
-        return JsValue.Undefined;
-    }
+    public static JsValue RemoveEventListener(IEventTargetHost host, DomNode element, in JsCall call) =>
+        call.Length < 2 ? JsValue.Undefined : EventListenerBinding.RemoveFrom(host.GetEventListeners(element), in call);
 
     public static JsValue DispatchEvent(IEventTargetHost host, DomNode element, in JsCall call)
     {

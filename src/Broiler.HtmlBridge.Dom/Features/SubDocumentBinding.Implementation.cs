@@ -70,47 +70,48 @@ internal sealed partial class SubDocumentBinding
         var subHtml = _host.CreateElement("html");
         subDocRoot.AppendChild(subHtml);
         var subHead = _host.CreateElement("head");
-        DomBridgeUtils.SetParent(subHead, subHtml);
         subHtml.AppendChild(subHead);
         if (subTitle != null)
         {
             var subTitleEl = _host.CreateElement("title");
-            DomBridgeUtils.SetParent(subTitleEl, subHead);
             subHead.AppendChild(subTitleEl);
             var subTitleText = _host.CreateTextNode(subTitle);
-            DomBridgeUtils.SetParent(subTitleText, subTitleEl);
             subTitleEl.AppendChild(subTitleText);
         }
 
         var subBody = _host.CreateElement("body");
-        DomBridgeUtils.SetParent(subBody, subHtml);
         subHtml.AppendChild(subBody);
         return Build(subDocRoot);
     }
 
-    private JsValue CreateTreeWalker(in JsCall call)
+    /// <summary>
+    /// The shared <c>createTreeWalker</c>/<c>createNodeIterator</c> entry point on a sub-document: the
+    /// two factories read the same three arguments and differ only in the object
+    /// <paramref name="build"/> mints, which the traversal module owns on this module's behalf.
+    /// </summary>
+    private JsValue CreateTraversalObject(
+        in JsCall call,
+        string member,
+        Func<DomElement, int, JsValue, JsValue> build)
     {
         if (call.Length == 0)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createTreeWalker': 1 argument required.");
+            throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute '{member}': 1 argument required.");
         if (!call[0].IsObject)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createTreeWalker': parameter 1 is not of type 'Node'.");
+            throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute '{member}': parameter 1 is not of type 'Node'.");
         var rootEl = _host.FindElement(call[0]);
         if (rootEl == null)
             return JsValue.Null;
-        return _host.BuildTreeWalker(rootEl, WhatToShowArgument(in call), FilterArgument(in call));
+        // whatToShow stays on its own line: ToNumber on argument 1 can run a page valueOf and the
+        // filter read can run a page getter, and argument 1 is the one read first.
+        var whatToShow = WhatToShowArgument(in call);
+        return build(rootEl, whatToShow, FilterArgument(in call));
     }
 
-    private JsValue CreateNodeIterator(in JsCall call)
-    {
-        if (call.Length == 0)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createNodeIterator': 1 argument required.");
-        if (!call[0].IsObject)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createNodeIterator': parameter 1 is not of type 'Node'.");
-        var rootEl = _host.FindElement(call[0]);
-        if (rootEl == null)
-            return JsValue.Null;
-        return _host.BuildNodeIterator(rootEl, WhatToShowArgument(in call), FilterArgument(in call));
-    }
+    private JsValue CreateTreeWalker(in JsCall call) =>
+        CreateTraversalObject(in call, "createTreeWalker", _host.BuildTreeWalker);
+
+    private JsValue CreateNodeIterator(in JsCall call) =>
+        CreateTraversalObject(in call, "createNodeIterator", _host.BuildNodeIterator);
 
     /// <summary>
     /// The <c>whatToShow</c> bitmask: absent, <c>null</c> or <c>undefined</c> means SHOW_ALL. The

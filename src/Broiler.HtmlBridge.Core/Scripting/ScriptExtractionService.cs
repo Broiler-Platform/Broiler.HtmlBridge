@@ -70,11 +70,12 @@ public static partial class ScriptExtractionService
         attrs.TryGetValue("src", out var src) && !string.IsNullOrEmpty(src) ? src : null;
 
     /// <summary>
-    /// Resolves an authorised module's program text, by the same rules a classic script
-    /// uses: an inline body must pass the CSP inline check; a <c>data:</c>/external source must pass the CSP
-    /// external check, then is decoded / fetched. Returns <c>null</c> when blocked, empty, or unresolvable.
+    /// Resolves an authorised script's program text by the one set of rules classic scripts and
+    /// modules share: an inline body must pass the CSP inline check; a <c>data:</c>/external source must
+    /// pass the CSP external check, then is decoded / fetched. Returns <c>null</c> when blocked, empty,
+    /// or unresolvable.
     /// </summary>
-    private static string? ResolveModuleSource(
+    private static string? ResolveScriptSource(
         ScriptSourceKind kind, string? url, string rawContent, string? nonce, ContentSecurityPolicySet csp, string? pageUrl,
         SubResourcePrefetcher? prefetcher = null)
     {
@@ -227,7 +228,7 @@ public static partial class ScriptExtractionService
                 // per-occurrence key, so they never dedup; a repeated src module is recorded once.
                 if (kind == ScriptSourceKind.Inline || !moduleMap.TryGet(moduleKey, out _))
                 {
-                    var moduleSource = ResolveModuleSource(kind, url, tag.RawContent, nonce, csp, pageUrl, prefetcher);
+                    var moduleSource = ResolveScriptSource(kind, url, tag.RawContent, nonce, csp, pageUrl, prefetcher);
                     moduleMap.Add(new ModuleMapEntry(documentOrder, kind, moduleKey, url, moduleSource, IsExecutable: moduleSource != null));
 
                     if (moduleSource != null)
@@ -249,34 +250,9 @@ public static partial class ScriptExtractionService
 
             // Resolve the program text for the classic execution buckets. Module scripts are recorded in
             // the descriptor list but omitted from execution here; the module roots carry them instead.
-            string? scriptContent = null;
-            if (!isModule)
-            {
-                if (kind == ScriptSourceKind.DataUri)
-                {
-                    if (csp.AllowsExternalScript(url!, pageUrl, nonce))
-                    {
-                        var decoded = DecodeDataUri(url!);
-                        if (!string.IsNullOrEmpty(decoded))
-                            scriptContent = decoded;
-                    }
-                }
-                else if (kind == ScriptSourceKind.External)
-                {
-                    if (csp.AllowsExternalScript(url!, pageUrl, nonce))
-                    {
-                        var fetched = FetchExternalScript(url!, pageUrl, prefetcher);
-                        if (!string.IsNullOrEmpty(fetched))
-                            scriptContent = fetched;
-                    }
-                }
-                else
-                {
-                    var content = tag.RawContent.Trim();
-                    if (!string.IsNullOrEmpty(content) && csp.AllowsInlineScript(nonce, content))
-                        scriptContent = content;
-                }
-            }
+            string? scriptContent = isModule
+                ? null
+                : ResolveScriptSource(kind, url, tag.RawContent, nonce, csp, pageUrl, prefetcher);
 
             descriptors.Add(new ScriptDescriptor(
                 DocumentOrder: documentOrder++,

@@ -73,8 +73,11 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
             name => DomBridgeUtils.HasAttr(element, name) ? AttrNodeFor(element, name, owner) : null,
             new DomCollectionBinding.NamedNodeMapOperations
             {
-                GetNamedItem = (in call) => GetNamedItem(element, owner, in call),
-                GetNamedItemNS = (in call) => GetNamedItemNS(element, owner, in call),
+                // The two named getters *are* the element's Attr-node getters — DOM §4.9.2 gives
+                // getNamedItem and getAttributeNode the same steps — so they are the one method
+                // here rather than a second copy of it.
+                GetNamedItem = (in call) => GetAttributeNode(element, owner, in call),
+                GetNamedItemNS = (in call) => GetAttributeNodeNS(element, owner, in call),
                 SetNamedItem = (in call) => SetNamedItem(element, owner, in call),
                 SetNamedItemNS = (in call) => SetNamedItemNS(element, owner, in call),
                 RemoveNamedItem = (in call) => RemoveNamedItem(element, owner, in call),
@@ -178,31 +181,29 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
         return existing;
     }
 
+    // -------- Shared argument reads --------
+
+    /// <summary>
+    /// The <c>(namespace, name)</c> argument pair every namespaced attribute operation opens with:
+    /// a nullish namespace is the null namespace rather than the string "null", and both reads are
+    /// the realm's ECMAScript conversion.
+    /// </summary>
+    /// <remarks>
+    /// Strictly <em>inside</em> each caller's own arity guard, never in place of it: the guards are
+    /// not uniform — <c>&lt; 2</c> answering <c>null</c>, <c>&lt; 2</c> answering <c>false</c>,
+    /// <c>&gt;= 2</c> and <c>&gt;= 3</c> as positive blocks — and folding them together would change
+    /// what an under-argumented call answers. Running behind them also keeps <c>call[0]</c> from
+    /// ever being <c>Missing</c> here, so the <c>IsNullish</c> test means what it always meant. The
+    /// tuple's elements are evaluated left to right, so a page's <c>toString</c> on the namespace
+    /// still runs before the one on the name.
+    /// </remarks>
+    private static (string? Namespace, string Name) NsArgs(in JsCall call) =>
+        (call[0].IsNullish ? null : call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+
     // -------- NamedNodeMap operations --------
     //
     // Every argument read is the realm's ECMAScript conversion rather than the handle's rendering:
     // passing an object with its own toString to getNamedItem has always run it.
-
-    private JsValue GetNamedItem(DomElement element, JsValue ownerObj, in JsCall call)
-    {
-        if (call.Length == 0)
-            return JsValue.Null;
-        var name = call.Realm.ToJsString(call[0]);
-        if (!DomBridgeUtils.TryGetAttribute(element, name, out var val))
-            return JsValue.Null;
-        return BuildAttrNode(name, val, element, ownerObj);
-    }
-
-    private JsValue GetNamedItemNS(DomElement element, JsValue ownerObj, in JsCall call)
-    {
-        if (call.Length < 2)
-            return JsValue.Null;
-        var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
-        var localName = call.Realm.ToJsString(call[1]);
-        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
-            return JsValue.Null;
-        return BuildAttrNode(qName, val, element, ownerObj);
-    }
 
     private JsValue SetNamedItem(DomElement element, JsValue ownerObj, in JsCall call)
     {
@@ -250,9 +251,9 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
         if (call.Length == 0)
             return JsValue.Null;
         var name = call.Realm.ToJsString(call[0]);
-        if (!DomBridgeUtils.TryGetAttribute(element, name, out var val))
+        if (!DomBridgeUtils.TryGetAttribute(element, name, out _))
             return JsValue.Null;
-        var removed = BuildAttrNode(name, val, element, ownerObj);
+        var removed = AttrNodeFor(element, name, ownerObj);
         RemoveAttributeLikeRemoveAttribute(element, name);
         return removed;
     }
@@ -261,21 +262,15 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
     {
         if (call.Length < 2)
             return JsValue.Null;
-        var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
-        var localName = call.Realm.ToJsString(call[1]);
-        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
+        var (ns, localName) = NsArgs(in call);
+        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out _))
             return JsValue.Null;
-        var removed = BuildAttrNode(qName, val, element, ownerObj);
+        var removed = AttrNodeFor(element, qName, ownerObj);
         RemoveAttributeLikeRemoveAttributeNS(element, ns, localName);
         return removed;
     }
 
     // -------- Attr node construction --------
-
-    /// <summary>Builds an <c>Attr</c>-like object with name, value, specified, ownerElement,
-    /// nodeType, nodeName, localName, prefix and namespaceURI.</summary>
-    internal JsValue BuildAttrNode(string name, string value, DomElement element, JsValue ownerObj) =>
-        AttrNodeFor(element, name, ownerObj);
 
     /// <summary>
     /// A parentless <c>Attr</c> (<c>document.createAttribute</c>).
@@ -322,7 +317,8 @@ internal sealed partial class AttributesBinding(IAttributesHost host)
             (ReadValue, WriteValue));
     }
 
-    /// <summary>The members every <c>Attr</c> carries, attached or standalone.</summary>
+    /// <summary>The members every <c>Attr</c> carries, attached or standalone: name, value,
+    /// specified, ownerElement, nodeType, nodeName, localName, prefix and namespaceURI.</summary>
     private JsValue BuildAttrNodeShell(
         string name,
         JsValue ownerElement,

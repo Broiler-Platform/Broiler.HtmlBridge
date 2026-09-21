@@ -15,38 +15,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// The call frame is JSEAL's -- <c>DomBridge/Registration/Document.cs</c> mints all three through the
 /// realm -- and so is everything behind it. The add/remove semantics take the realm the frame
-/// carries and a listener record that holds a <see cref="JsValue"/>. The event-type coercion below is
-/// the realm's <c>ToJsString</c>, the observable ECMAScript <c>ToString</c>.
+/// carries and a listener record that holds a <see cref="JsValue"/>. The event-type coercion is the
+/// realm's <c>ToJsString</c>, the observable ECMAScript <c>ToString</c>.
 /// </remarks>
 internal static class DocumentEventTargetBinding
 {
-    public static JsValue AddEventListener(IDocumentEventTargetHost host, in JsCall call)
-    {
-        if (call.Length < 2)
-            return JsValue.Undefined;
-        var doc = host.DocumentNode;
-        var type = call.Realm.ToJsString(call[0]);
-        if (!host.GetEventListeners(doc).TryGetValue(type, out var listeners))
-        {
-            listeners = [];
-            host.GetEventListeners(doc)[type] = listeners;
-        }
+    // Guard before the store, as <see cref="EventTargetBinding"/> does: the document's store is
+    // created on demand and a one-argument call must not file an empty one.
+    public static JsValue AddEventListener(IDocumentEventTargetHost host, in JsCall call) =>
+        call.Length < 2 ? JsValue.Undefined : EventListenerBinding.AddTo(host.GetEventListeners(host.DocumentNode), in call);
 
-        EventListenerBinding.AddListener(call.Realm, listeners, call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
-        return JsValue.Undefined;
-    }
-
-    public static JsValue RemoveEventListener(IDocumentEventTargetHost host, in JsCall call)
-    {
-        if (call.Length < 2)
-            return JsValue.Undefined;
-        var type = call.Realm.ToJsString(call[0]);
-        EventListenerBinding.RemoveListener(
-            call.Realm,
-            host.GetEventListeners(host.DocumentNode).TryGetValue(type, out var listeners) ? listeners : null,
-            call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
-        return JsValue.Undefined;
-    }
+    public static JsValue RemoveEventListener(IDocumentEventTargetHost host, in JsCall call) =>
+        call.Length < 2 ? JsValue.Undefined : EventListenerBinding.RemoveFrom(host.GetEventListeners(host.DocumentNode), in call);
 
     public static JsValue DispatchEvent(IDocumentEventTargetHost host, in JsCall call)
     {

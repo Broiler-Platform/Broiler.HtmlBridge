@@ -69,7 +69,6 @@ public sealed partial class DomBridge
         // homogeneous tree where every child was an element.
         foreach (var child in docElement.ChildNodes.ToArray())
         {
-            SetParent(child, DocumentElement);
             DocumentElement.AppendChild(child);
         }
 

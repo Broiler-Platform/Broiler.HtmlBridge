@@ -91,8 +91,7 @@ internal static class NodeMutationBinding
             }
 
             var doc = host.DocumentNode;
-            // Single canonical append (the move-block above already detached childEl). The prior
-            // SetParent(childEl, doc) did the append, leaving this AppendChild a redundant no-op.
+            // One canonical append; the move-block above already detached childEl.
             doc.AppendChild(childEl);
         }
 

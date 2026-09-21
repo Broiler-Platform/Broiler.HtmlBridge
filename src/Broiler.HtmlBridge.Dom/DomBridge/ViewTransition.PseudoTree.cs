@@ -248,7 +248,6 @@ public sealed partial class DomBridge
 
     private void AppendBridgeChild(DomElement parent, DomElement child)
     {
-        SetParent(child, parent);
         parent.AppendChild(child);
     }
 

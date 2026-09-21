@@ -72,33 +72,35 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
         realm.SetProperty(realm.Global, "getSelection", getSelection);
     }
 
-    private JsValue CreateTreeWalker(in JsCall call)
+    /// <summary>
+    /// The shared <c>createTreeWalker</c>/<c>createNodeIterator</c> entry point: the two factories read
+    /// the same three arguments and differ only in the object <paramref name="build"/> mints.
+    /// </summary>
+    private JsValue CreateTraversalObject(
+        in JsCall call,
+        string member,
+        Func<DomElement, int, JsValue, JsValue> build)
     {
         // A plain Error, not a TypeError: it is what this site has always thrown, and the arity and
         // the type failure are reported the same way for the same reason.
         if (call.Length == 0)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createTreeWalker': 1 argument required.");
+            throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute '{member}': 1 argument required.");
         if (!call[0].IsObject)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createTreeWalker': parameter 1 is not of type 'Node'.");
+            throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute '{member}': parameter 1 is not of type 'Node'.");
         var rootEl = _host.FindElement(call[0]);
         if (rootEl == null)
             return JsValue.Null;
+        // whatToShow stays on its own line: ToNumber on argument 1 can run a page valueOf and the
+        // filter read can run a page getter, and argument 1 is the one read first.
         var whatToShow = WhatToShowArgument(in call);
-        return BuildTreeWalker(rootEl, whatToShow, FilterArgument(in call));
+        return build(rootEl, whatToShow, FilterArgument(in call));
     }
 
-    private JsValue CreateNodeIterator(in JsCall call)
-    {
-        if (call.Length == 0)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createNodeIterator': 1 argument required.");
-        if (!call[0].IsObject)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createNodeIterator': parameter 1 is not of type 'Node'.");
-        var rootEl = _host.FindElement(call[0]);
-        if (rootEl == null)
-            return JsValue.Null;
-        var whatToShow = WhatToShowArgument(in call);
-        return BuildNodeIterator(rootEl, whatToShow, FilterArgument(in call));
-    }
+    private JsValue CreateTreeWalker(in JsCall call) =>
+        CreateTraversalObject(in call, "createTreeWalker", BuildTreeWalker);
+
+    private JsValue CreateNodeIterator(in JsCall call) =>
+        CreateTraversalObject(in call, "createNodeIterator", BuildNodeIterator);
 
     /// <summary>
     /// The <c>whatToShow</c> bitmask: absent, <c>null</c> or <c>undefined</c> means SHOW_ALL. The
@@ -264,13 +266,10 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
     /// The identity a weak per-object registry keys on: the reference the handle carries.
     /// </summary>
     /// <remarks>
-    /// A <see cref="JsValue"/> is a struct and so cannot itself be a
-    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/> key. The
-    /// struct is not the key; the reference it carries is, and
-    /// <see cref="JsValue.ObjectIdentity"/> is that reference — an instance every provider supplies.
-    /// The keys stay weak, so a
-    /// range or a selection the page has dropped is not kept alive by the registry, nor is its
-    /// mutation subscription.
+    /// See <see cref="Runtime.JsObjectRegistry"/> for why the reference the handle carries, and not
+    /// the <see cref="JsValue"/> struct itself, is the weak-table key. The keys stay weak, so a range
+    /// or a selection the page has dropped is not kept alive by the registry, nor is its mutation
+    /// subscription.
     /// </remarks>
     private static object IdentityOf(JsValue value) =>
         value.ObjectIdentity ?? throw new InvalidOperationException(

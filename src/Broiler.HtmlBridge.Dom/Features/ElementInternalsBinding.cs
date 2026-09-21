@@ -120,10 +120,8 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
     /// The identity a weak per-object registry keys on: the reference the handle carries.
     /// </summary>
     /// <remarks>
-    /// A <see cref="JsValue"/> is a struct, so it is not itself the
-    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/> key; the
-    /// reference it carries is, and <see cref="JsValue.ObjectIdentity"/> is that reference — an
-    /// instance every provider supplies.
+    /// See <see cref="Runtime.JsObjectRegistry"/> for why the reference the handle carries, and
+    /// not the <see cref="JsValue"/> struct itself, is the weak-table key.
     /// </remarks>
     private static object IdentityOf(JsValue value) =>
         value.ObjectIdentity ?? throw new InvalidOperationException(

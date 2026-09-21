@@ -154,36 +154,14 @@ internal static class DocumentQueryBinding
 
     /// <summary>An <c>HTMLCollection</c> over <paramref name="contents"/>, with the named getter
     /// DOM §4.2.10.2 gives one — by <c>id</c>, then by <c>name</c>.</summary>
-    private static JsValue LiveCollection(IDocumentQueryHost host, IJsRealm realm, Func<List<JsValue>> contents) =>
-        host.HtmlCollection(contents, name =>
-        {
-            if (name.Length == 0)
-                return null;
-
-            foreach (var candidate in contents())
-            {
-                if (candidate.IsObject &&
-                    (Named(realm, candidate, "id", name) || Named(realm, candidate, "name", name)))
-                    return candidate;
-            }
-
-            return null;
-        });
-
-    /// <summary>
-    /// Whether the wrapper's <paramref name="attribute"/> property is the string
-    /// <paramref name="name"/>.
-    /// </summary>
     /// <remarks>
-    /// The property has to <em>be</em> a string, not be coercible to one — a wrapper whose <c>id</c>
-    /// is absent reads <c>undefined</c> and must not match the name "undefined". That is what the
-    /// engine-typed <c>is JSString</c> test said, and <see cref="JsValue.IsString"/> says it without
-    /// entering the engine. <see cref="JsValue.AsString"/> likewise does not coerce, so reading the
-    /// property of one collection member cannot run a <c>toString</c> the page wrote.
+    /// <c>DomBridgeUtils.NamedItem</c> is that getter; this used to write it out again. Note what it
+    /// promises and this slice depends on: the reflected property has to <em>be</em> a string, not be
+    /// coercible to one — a wrapper whose <c>id</c> is absent reads <c>undefined</c> and must not
+    /// match the name "undefined", and reading the property of one collection member must not run a
+    /// <c>toString</c> the page wrote. The named lookup closes over the call-frame
+    /// <paramref name="realm"/>, which is the realm the collection was asked for in.
     /// </remarks>
-    private static bool Named(IJsRealm realm, JsValue wrapper, string attribute, string name)
-    {
-        var value = realm.GetProperty(wrapper, attribute);
-        return value.IsString && string.Equals(value.AsString, name, StringComparison.Ordinal);
-    }
+    private static JsValue LiveCollection(IDocumentQueryHost host, IJsRealm realm, Func<List<JsValue>> contents) =>
+        host.HtmlCollection(contents, name => DomBridgeUtils.NamedItem(realm, contents, name));
 }

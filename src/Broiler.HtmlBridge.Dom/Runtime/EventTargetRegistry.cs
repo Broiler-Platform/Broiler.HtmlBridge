@@ -55,16 +55,8 @@ internal sealed class EventTargetRegistry
     // ------------------------------------------------------------------
 
     /// <summary>The window listener list for <paramref name="type"/>, created on first access (for add).</summary>
-    public List<EventListenerRegistration> WindowListenersForAdd(string type)
-    {
-        if (!_windowListeners.TryGetValue(type, out var listeners))
-        {
-            listeners = [];
-            _windowListeners[type] = listeners;
-        }
-
-        return listeners;
-    }
+    public List<EventListenerRegistration> WindowListenersForAdd(string type) =>
+        RegistryMaps.GetOrAdd(_windowListeners, type, static () => new List<EventListenerRegistration>());
 
     /// <summary>The window listener list for <paramref name="type"/>, if any (for remove/dispatch).</summary>
     public bool TryGetWindowListeners(string type, out List<EventListenerRegistration> listeners) =>
@@ -75,16 +67,11 @@ internal sealed class EventTargetRegistry
     // ------------------------------------------------------------------
 
     /// <summary>The listener lists (by event type) for a generic JS <paramref name="target"/>, created on first access (for add).</summary>
-    public Dictionary<string, List<EventListenerRegistration>> TargetListenersForAdd(JsValue target)
-    {
-        if (!_targetListeners.TryGetValue(target, out var byType))
-        {
-            byType = new Dictionary<string, List<EventListenerRegistration>>(StringComparer.OrdinalIgnoreCase);
-            _targetListeners[target] = byType;
-        }
-
-        return byType;
-    }
+    public Dictionary<string, List<EventListenerRegistration>> TargetListenersForAdd(JsValue target) =>
+        RegistryMaps.GetOrAdd(
+            _targetListeners,
+            target,
+            static () => new Dictionary<string, List<EventListenerRegistration>>(StringComparer.OrdinalIgnoreCase));
 
     /// <summary>The listener lists (by event type) for a generic JS <paramref name="target"/>, if any (for dispatch).</summary>
     public bool TryGetTargetListeners(JsValue target, out Dictionary<string, List<EventListenerRegistration>> byType) =>

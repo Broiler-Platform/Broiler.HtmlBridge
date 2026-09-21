@@ -55,16 +55,8 @@ internal sealed class MessagePortRegistry
     public void Start(JsValue port) => _started.Add(port);
 
     /// <summary>Queues a message event for a not-yet-started <paramref name="port"/>.</summary>
-    public void Enqueue(JsValue port, JsValue messageEvent)
-    {
-        if (!_queued.TryGetValue(port, out var events))
-        {
-            events = [];
-            _queued[port] = events;
-        }
-
-        events.Add(messageEvent);
-    }
+    public void Enqueue(JsValue port, JsValue messageEvent) =>
+        RegistryMaps.GetOrAdd(_queued, port, static () => new List<JsValue>()).Add(messageEvent);
 
     /// <summary>
     /// Removes and returns the messages queued for <paramref name="port"/> (to deliver when it

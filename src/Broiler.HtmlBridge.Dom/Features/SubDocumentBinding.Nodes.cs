@@ -98,12 +98,10 @@ internal sealed partial class SubDocumentBinding
             // document's first child.
             if (parsed.DocumentType is { } doctype)
             {
-                DomBridgeUtils.SetParent(doctype, docRoot);
                 docRoot.AppendChild(doctype);
             }
 
             // The parsed <html> element itself becomes docRoot's document element, not its children.
-            DomBridgeUtils.SetParent(parsedRoot, docRoot);
             docRoot.AppendChild(parsedRoot);
         }
         else
@@ -116,7 +114,6 @@ internal sealed partial class SubDocumentBinding
                 {
                     foreach (var child in parsedBody.ChildNodes.ToArray())
                     {
-                        DomBridgeUtils.SetParent(child, bodyEl);
                         bodyEl.AppendChild(child);
                     }
                 }
@@ -166,7 +163,6 @@ internal sealed partial class SubDocumentBinding
         {
             if (DomBridgeUtils.ParentEl(child) != null)
                 child.Remove();
-            DomBridgeUtils.SetParent(child, docRoot);
             docRoot.AppendChild(child);
             return childObj;
         }
@@ -174,25 +170,27 @@ internal sealed partial class SubDocumentBinding
         return childObj;
     }
 
-    private JsValue Append(DomNode docRoot, in JsCall call)
+    /// <summary>
+    /// <c>append</c>/<c>prepend</c> on a sub-document: the same insertion, differing only in where the
+    /// run starts — at the end of the child list when <paramref name="atEnd"/>, otherwise at 0.
+    /// </summary>
+    /// <remarks>
+    /// The start index is read <em>after</em> the argument list is built, not before: coercing an
+    /// object argument runs its own <c>toString</c>, which can be page script that mutates this
+    /// sub-document, so the count taken earlier would be stale.
+    /// </remarks>
+    private JsValue InsertAll(DomNode docRoot, bool atEnd, in JsCall call)
     {
         if (call.Length == 0)
             return JsValue.Undefined;
         var nodes = _host.BuildChildNodeArgumentNodes(call.Arguments);
-        var insertIndex = docRoot.ChildNodes.Count;
+        var insertIndex = atEnd ? docRoot.ChildNodes.Count : 0;
         foreach (var node in nodes)
             _host.InsertNodeAt(docRoot, node, insertIndex++);
         return JsValue.Undefined;
     }
 
-    private JsValue Prepend(DomNode docRoot, in JsCall call)
-    {
-        if (call.Length == 0)
-            return JsValue.Undefined;
-        var nodes = _host.BuildChildNodeArgumentNodes(call.Arguments);
-        var insertIndex = 0;
-        foreach (var node in nodes)
-            _host.InsertNodeAt(docRoot, node, insertIndex++);
-        return JsValue.Undefined;
-    }
+    private JsValue Append(DomNode docRoot, in JsCall call) => InsertAll(docRoot, atEnd: true, in call);
+
+    private JsValue Prepend(DomNode docRoot, in JsCall call) => InsertAll(docRoot, atEnd: false, in call);
 }

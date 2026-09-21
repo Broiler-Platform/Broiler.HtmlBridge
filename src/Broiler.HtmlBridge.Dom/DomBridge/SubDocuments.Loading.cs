@@ -104,13 +104,11 @@ public sealed partial class DomBridge
             if (child is XElement childXe)
             {
                 var childEl = BuildDomElementFromXElement(childXe);
-                SetParent(childEl, el);
                 el.AppendChild(childEl);
             }
             else if (child is XText childText)
             {
                 var textNode = CreateBridgeTextNode(childText.Value);
-                SetParent(textNode, el);
                 el.AppendChild(textNode);
             }
         }
@@ -143,33 +141,22 @@ public sealed partial class DomBridge
         var scripts = new List<string>();
         CollectScriptContent(docRoot, scripts);
 
-        var ordinal = 0;
-
-        foreach (var scriptCode in scripts)
-        {
-            // An XML sub-document's scripts are inline by construction -- CollectScriptContent takes
-            // an element's text and never a src -- so the inline directive is the one that decides.
-            if (!policies.AllowsInlineScript(scriptText: scriptCode))
-                continue;
-
-            try
-            {
-                // A CLASSIC SCRIPT, exactly as the HTML path's are, and evaluated through the same
-                // member for the same reason: script-src governs a script element, the decision was
-                // taken on the line above, and 'unsafe-eval' has nothing to say about either.
-                //
-                // The ordinal counts scripts ADMITTED rather than scripts found, so a label names the
-                // n-th script that ran and not the n-th that was looked at. The two differ exactly
-                // when a policy refused one, which is the moment a reader is most likely to be
-                // reading these labels.
-                realm.EvaluateClassicScript(scriptCode, $"subdocument:xml:{ordinal++}");
-            }
-            catch (Exception ex)
-            {
-                RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.ExecuteSubDocumentScripts",
-                    $"Sub-document script error: {ex.Message}", ex);
-            }
-        }
+        // An XML sub-document's scripts are inline by construction -- CollectScriptContent takes
+        // an element's text and never a src -- so the inline directive is the one that decides.
+        //
+        // What the filter admits is A CLASSIC SCRIPT, exactly as the HTML path's are, and evaluated
+        // through the same member for the same reason: script-src governs a script element, the
+        // decision was taken by the filter, and 'unsafe-eval' has nothing to say about either.
+        //
+        // The ordinal counts scripts ADMITTED rather than scripts found, so a label names the
+        // n-th script that ran and not the n-th that was looked at. The two differ exactly
+        // when a policy refused one, which is the moment a reader is most likely to be
+        // reading these labels. Refusing before the shared loop sees the script is what keeps that
+        // true: the counter only ever advances for a script that runs.
+        RunSubDocumentScripts(
+            realm,
+            scripts.Where(scriptCode => policies.AllowsInlineScript(scriptText: scriptCode)),
+            "subdocument:xml:");
     }
 }
 

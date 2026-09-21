@@ -107,31 +107,46 @@ public sealed partial class DomBridge
         return console;
     }
 
+    /// <summary>Registers a window member and its unqualified spelling — the pair every global below
+    /// is written as.</summary>
+    /// <remarks>
+    /// <c>window</c> and the global are one object under this engine
+    /// (<see cref="JsCapabilities.GlobalIsVariableScope"/>), so the two writes land on the same object,
+    /// exactly as they did when one went through the context and one through the window. Both are kept
+    /// because a realm that separated them would still need both. <paramref name="window"/> stays a
+    /// parameter rather than becoming <c>realm.Global</c>, because
+    /// <c>DomBridgeUtils.MirrorWindowMembersOntoGlobal</c> branches on the two handles being distinct.
+    /// </remarks>
+    private void DefineWindowGlobal(JsValue window, string name, JsValue value)
+    {
+        var realm = Realm;
+        realm.DefineValue(window, name, value);
+        realm.SetProperty(realm.Global, name, value);
+    }
+
+    /// <summary>The event interface objects the window republishes from the global, in the order
+    /// they are defined — define order fixes own-property enumeration order.</summary>
+    private static readonly string[] EventConstructorNames =
+        ["Event", "CustomEvent", "MouseEvent", "FocusEvent", "KeyboardEvent", "WheelEvent", "UIEvent", "InputEvent"];
+
+    /// <summary>The timer functions exposed unqualified, mirroring their <c>window.*</c>
+    /// counterparts, in the order they are set.</summary>
+    private static readonly string[] TimerGlobalNames =
+        ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "requestAnimationFrame", "cancelAnimationFrame"];
+
     private void RegisterWindowGlobals(JsValue document, JsValue window, JsValue console, JsValue fetchFn)
     {
         var realm = Realm;
-
-        // `window` and the global are one object under this engine (JsCapabilities.GlobalIsVariableScope),
-        // so the pairs below — a window member and its unqualified spelling — are two writes to the
-        // same object, exactly as they were when one went through the context and one through the
-        // window. Both are kept because a realm that separated them would still need both.
         var global = realm.Global;
 
         realm.SetProperty(global, "window", window);
-        realm.DefineValue(window, "Event", realm.GetProperty(global, "Event"));
-        realm.DefineValue(window, "CustomEvent", realm.GetProperty(global, "CustomEvent"));
-        realm.DefineValue(window, "MouseEvent", realm.GetProperty(global, "MouseEvent"));
-        realm.DefineValue(window, "FocusEvent", realm.GetProperty(global, "FocusEvent"));
-        realm.DefineValue(window, "KeyboardEvent", realm.GetProperty(global, "KeyboardEvent"));
-        realm.DefineValue(window, "WheelEvent", realm.GetProperty(global, "WheelEvent"));
-        realm.DefineValue(window, "UIEvent", realm.GetProperty(global, "UIEvent"));
-        realm.DefineValue(window, "InputEvent", realm.GetProperty(global, "InputEvent"));
+        foreach (var name in EventConstructorNames)
+            realm.DefineValue(window, name, realm.GetProperty(global, name));
 
         // window.parent — uses the realm's global scope so that parent.X()
         // resolves user-defined globals (e.g. parent.notify() from sub-documents).
         var globalThis = realm.EvaluateHostScript("this", "probe:global-this");
-        realm.DefineValue(window, "parent", globalThis);
-        realm.SetProperty(global, "parent", globalThis);
+        DefineWindowGlobal(window, "parent", globalThis);
 
         // window.self — refers to this window
         realm.DefineValue(window, "self", window);
@@ -145,8 +160,7 @@ public sealed partial class DomBridge
         // unqualified (`if (top != self)`), so this is the first thing a page's boilerplate
         // touches: google.com's One-Google-bar bundle died on it, taking with it every listener
         // the rest of that script would have registered.
-        realm.DefineValue(window, "top", globalThis);
-        realm.SetProperty(global, "top", globalThis);
+        DefineWindowGlobal(window, "top", globalThis);
 
         // document.defaultView — returns the window object
         realm.DefineValue(document, "defaultView", window);
@@ -154,12 +168,8 @@ public sealed partial class DomBridge
         realm.SetProperty(global, "fetch", fetchFn);
 
         // Expose timer functions as globals (matching window.* counterparts)
-        realm.SetProperty(global, "setTimeout", realm.GetProperty(window, "setTimeout"));
-        realm.SetProperty(global, "clearTimeout", realm.GetProperty(window, "clearTimeout"));
-        realm.SetProperty(global, "setInterval", realm.GetProperty(window, "setInterval"));
-        realm.SetProperty(global, "clearInterval", realm.GetProperty(window, "clearInterval"));
-        realm.SetProperty(global, "requestAnimationFrame", realm.GetProperty(window, "requestAnimationFrame"));
-        realm.SetProperty(global, "cancelAnimationFrame", realm.GetProperty(window, "cancelAnimationFrame"));
+        foreach (var name in TimerGlobalNames)
+            realm.SetProperty(global, name, realm.GetProperty(window, name));
     }
 
     /// <summary>
@@ -256,8 +266,7 @@ public sealed partial class DomBridge
                 return json;
             });
 
-        realm.DefineValue(window, "performance", performanceObj);
-        realm.SetProperty(realm.Global, "performance", performanceObj);
+        DefineWindowGlobal(window, "performance", performanceObj);
     }
 
     /// <summary>
@@ -293,8 +302,7 @@ public sealed partial class DomBridge
         realm.DefineValue(history, "forward", UndefinedMember("forward", 0));
         realm.DefineValue(history, "go", UndefinedMember("go", 1));
 
-        realm.DefineValue(window, "history", history);
-        realm.SetProperty(realm.Global, "history", history);
+        DefineWindowGlobal(window, "history", history);
     }
 
     /// <summary>
@@ -340,18 +348,15 @@ public sealed partial class DomBridge
         // nothing is the honest answer for a capture that reports no entries.
         realm.DefineValue(performanceObserver, "supportedEntryTypes", realm.NewArray());
 
-        realm.DefineValue(window, "PerformanceObserver", performanceObserver);
-        realm.SetProperty(realm.Global, "PerformanceObserver", performanceObserver);
+        DefineWindowGlobal(window, "PerformanceObserver", performanceObserver);
 
         if (realm.GetProperty(window, "requestIdleCallback").IsUndefined)
         {
             var requestIdle = realm.NewMethod("requestIdleCallback", (in a) => Dom.Features.TimerBinding.RequestIdleCallback(_eventLoop, _windowContext, in a), 1);
-            realm.DefineValue(window, "requestIdleCallback", requestIdle);
-            realm.SetProperty(realm.Global, "requestIdleCallback", requestIdle);
+            DefineWindowGlobal(window, "requestIdleCallback", requestIdle);
 
             var cancelIdle = realm.NewMethod("cancelIdleCallback", (in a) => Dom.Features.TimerBinding.CancelIdleCallback(_eventLoop, in a), 1);
-            realm.DefineValue(window, "cancelIdleCallback", cancelIdle);
-            realm.SetProperty(realm.Global, "cancelIdleCallback", cancelIdle);
+            DefineWindowGlobal(window, "cancelIdleCallback", cancelIdle);
         }
     }
 
@@ -395,9 +400,7 @@ public sealed partial class DomBridge
         // and mediaCapabilities stay absent — see NavigatorSurfacesBinding for each decision.
         Dom.Features.NavigatorSurfacesBinding.Install(realm, navigatorObj, Layout.Net.BroilerUserAgent.Value);
 
-        realm.DefineValue(window, "navigator", navigatorObj);
-
-        realm.SetProperty(realm.Global, "navigator", navigatorObj);
+        DefineWindowGlobal(window, "navigator", navigatorObj);
         realm.SetProperty(realm.Global, "postMessage", realm.GetProperty(window, "postMessage"));
     }
 
@@ -495,8 +498,7 @@ public sealed partial class DomBridge
         // ScreenOrientationBinding.
         realm.DefineValue(screenObj, "orientation", Dom.Features.ScreenOrientationBinding.Build(realm, vpWidth, vpHeight));
 
-        realm.DefineValue(window, "screen", screenObj);
-        realm.SetProperty(realm.Global, "screen", screenObj);
+        DefineWindowGlobal(window, "screen", screenObj);
 
         var visualViewport = realm.NewObject();
         // The visualViewport root (DomBridge.cs) is this handle as minted — no conversion to an
@@ -518,8 +520,7 @@ public sealed partial class DomBridge
         realm.DefineMethod(visualViewport, "addEventListener", 2, (in a) => Dom.Features.VisualViewportEventTargetBinding.AddEventListener(this, in a));
         realm.DefineMethod(visualViewport, "removeEventListener", 2, (in a) => Dom.Features.VisualViewportEventTargetBinding.RemoveEventListener(this, in a));
 
-        realm.DefineValue(window, "visualViewport", visualViewport);
-        realm.SetProperty(realm.Global, "visualViewport", visualViewport);
+        DefineWindowGlobal(window, "visualViewport", visualViewport);
     }
 
 }

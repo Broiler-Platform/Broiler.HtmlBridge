@@ -37,9 +37,15 @@ internal sealed class TableBinding(ITableHost host)
             realm.DefineAccessor(obj, "caption", (in _) => GetCaption(element), IgnoredSetter);
             realm.DefineAccessor(obj, "tHead", (in _) => GetTHead(element), IgnoredSetter);
             realm.DefineAccessor(obj, "tFoot", (in _) => GetTFoot(element), IgnoredSetter);
-            realm.DefineAccessor(obj, "tBodies", (in call) => GetTBodies(call.Realm, element), null);
+            realm.DefineAccessor(
+                obj, "tBodies",
+                (in call) => WrapCollection(call.Realm, HtmlTableOperations.GetTableBodies(element)),
+                null);
             // rows (read-only) — all <tr> in spec order: thead rows, then tbody/direct-tr rows, then tfoot rows
-            realm.DefineAccessor(obj, "rows", (in call) => BuildTableRows(call.Realm, element), null);
+            realm.DefineAccessor(
+                obj, "rows",
+                (in call) => WrapCollection(call.Realm, HtmlElementQueries.CollectTableRows(element)),
+                null);
             realm.DefineMethod(obj, "createCaption", 0, (in _) => CreateCaption(element));
             realm.DefineMethod(obj, "createTHead", 0, (in _) => CreateTHead(element));
             realm.DefineMethod(obj, "createTFoot", 0, (in _) => CreateTFoot(element));
@@ -53,7 +59,10 @@ internal sealed class TableBinding(ITableHost host)
         // HTMLTableSectionElement (thead, tbody, tfoot) — rows and insertRow
         if (tag == "thead" || tag == "tbody" || tag == "tfoot")
         {
-            realm.DefineAccessor(obj, "rows", (in call) => SectionGetRows(call.Realm, element), null);
+            realm.DefineAccessor(
+                obj, "rows",
+                (in call) => WrapCollection(call.Realm, HtmlTableOperations.GetSectionRows(element)),
+                null);
             realm.DefineMethod(obj, "insertRow", 1, (in call) => SectionInsertRow(element, in call));
         }
 
@@ -62,7 +71,10 @@ internal sealed class TableBinding(ITableHost host)
         {
             realm.DefineAccessor(obj, "rowIndex", (in _) => RowGetRowIndex(element), null);
             realm.DefineAccessor(obj, "sectionRowIndex", (in _) => RowGetSectionRowIndex(element), null);
-            realm.DefineAccessor(obj, "cells", (in call) => RowGetCells(call.Realm, element), null);
+            realm.DefineAccessor(
+                obj, "cells",
+                (in call) => WrapCollection(call.Realm, HtmlTableOperations.GetRowCells(element)),
+                null);
             realm.DefineMethod(obj, "insertCell", 1, (in call) => RowInsertCell(element, in call));
             realm.DefineMethod(obj, "deleteCell", 1, (in call) => RowDeleteCell(element, in call));
         }
@@ -100,12 +112,6 @@ internal sealed class TableBinding(ITableHost host)
     {
         var tf = HtmlTableOperations.GetTFoot(element);
         return tf != null ? _host.WrapNode(tf) : JsValue.Null;
-    }
-
-    private JsValue GetTBodies(IJsRealm realm, DomElement element)
-    {
-        var bodies = HtmlTableOperations.GetTableBodies(element).Select(_host.WrapNode).ToArray();
-        return WithLength(realm, realm.NewArray(bodies), bodies.Length);
     }
 
     private JsValue CreateCaption(DomElement element) =>
@@ -160,12 +166,6 @@ internal sealed class TableBinding(ITableHost host)
 
     // -------- HTMLTableSectionElement --------
 
-    private JsValue SectionGetRows(IJsRealm realm, DomElement element)
-    {
-        var rows = HtmlTableOperations.GetSectionRows(element).Select(_host.WrapNode).ToArray();
-        return WithLength(realm, realm.NewArray(rows), rows.Length);
-    }
-
     private JsValue SectionInsertRow(DomElement element, in JsCall call)
     {
         var index = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : -1;
@@ -180,12 +180,6 @@ internal sealed class TableBinding(ITableHost host)
 
     private static JsValue RowGetSectionRowIndex(DomElement element) =>
         JsValue.Number(HtmlTableOperations.GetSectionRowIndex(element));
-
-    private JsValue RowGetCells(IJsRealm realm, DomElement element)
-    {
-        var cells = HtmlTableOperations.GetRowCells(element).Select(_host.WrapNode).ToArray();
-        return WithLength(realm, realm.NewArray(cells), cells.Length);
-    }
 
     private JsValue RowInsertCell(DomElement element, in JsCall call)
     {
@@ -213,21 +207,20 @@ internal sealed class TableBinding(ITableHost host)
     // -------- Helpers --------
 
     /// <summary>
-    /// Replaces the array's own <c>length</c> with an accessor over the snapshot the array was built
-    /// from — what this site has always installed, and what keeps the two in agreement.
+    /// A node snapshot as a JS array whose own <c>length</c> is an accessor over the snapshot the
+    /// array was built from — what every one of these collection sites has always installed, and
+    /// what keeps the array and its length in agreement.
     /// </summary>
-    private static JsValue WithLength(IJsRealm realm, JsValue array, int length)
+    /// <remarks>
+    /// The getter closes over the materialised wrapper array, never over <paramref name="nodes"/>:
+    /// re-running the query inside it would turn a snapshot length into a live one, which is not
+    /// what these properties answer.
+    /// </remarks>
+    private JsValue WrapCollection(IJsRealm realm, IEnumerable<DomNode> nodes)
     {
-        realm.DefineAccessor(array, "length", (in _) => JsValue.Number(length), null);
+        var items = nodes.Select(_host.WrapNode).ToArray();
+        var array = realm.NewArray(items);
+        realm.DefineAccessor(array, "length", (in _) => JsValue.Number(items.Length), null);
         return array;
-    }
-
-    private JsValue BuildTableRows(IJsRealm realm, DomElement table)
-    {
-        var rows = HtmlElementQueries.CollectTableRows(table);
-        var jsRows = new List<JsValue>();
-        foreach (var r in rows)
-            jsRows.Add(_host.WrapNode(r));
-        return WithLength(realm, realm.NewArray([.. jsRows]), jsRows.Count);
     }
 }

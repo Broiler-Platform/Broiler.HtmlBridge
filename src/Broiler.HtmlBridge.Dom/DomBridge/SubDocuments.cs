@@ -316,53 +316,12 @@ public sealed partial class DomBridge
 
         RunWithWindowContext(subWindow, () =>
         {
-            // The label is the location a stack frame reports, so it names the bucket and the
-            // position within it: a frame's third deferred script is a thing a reader can find, and
-            // the three buckets run in three passes rather than in document order.
-            var ordinal = 0;
-
-            foreach (var script in extraction.Scripts)
-            {
-                try
-                {
-                    realm.EvaluateClassicScript(script, $"subdocument:{ordinal++}");
-                }
-                catch (Exception ex)
-                {
-                    RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.ExecuteSubDocumentScripts",
-                        $"Sub-document script error: {ex.Message}", ex);
-                }
-            }
-
-            ordinal = 0;
-
-            foreach (var script in extraction.AsyncScripts)
-            {
-                try
-                {
-                    realm.EvaluateClassicScript(script, $"subdocument:async:{ordinal++}");
-                }
-                catch (Exception ex)
-                {
-                    RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.ExecuteSubDocumentScripts",
-                        $"Sub-document script error: {ex.Message}", ex);
-                }
-            }
-
-            ordinal = 0;
-
-            foreach (var script in extraction.DeferredScripts)
-            {
-                try
-                {
-                    realm.EvaluateClassicScript(script, $"subdocument:defer:{ordinal++}");
-                }
-                catch (Exception ex)
-                {
-                    RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.ExecuteSubDocumentScripts",
-                        $"Sub-document deferred script error: {ex.Message}", ex);
-                }
-            }
+            // The three buckets run in three passes rather than in document order, and each pass
+            // numbers its own scripts from zero -- see RunSubDocumentScripts for what the label says.
+            RunSubDocumentScripts(realm, extraction.Scripts, "subdocument:");
+            RunSubDocumentScripts(realm, extraction.AsyncScripts, "subdocument:async:");
+            RunSubDocumentScripts(
+                realm, extraction.DeferredScripts, "subdocument:defer:", "Sub-document deferred script error");
 
             // ES modules run last (they are deferred), through the engine's own module
             // machinery — exactly like the main page (ScriptEngine.RunPageScripts). This needs a module
@@ -418,6 +377,35 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
+    /// Evaluates one bucket of a sub-document's classic scripts, numbering the bucket from zero.
+    /// </summary>
+    /// <remarks>
+    /// The label is the location a stack frame reports, so it names the bucket and the position
+    /// within it: a frame's third deferred script is a thing a reader can find.
+    /// </remarks>
+    private static void RunSubDocumentScripts(
+        IJsRealm realm,
+        IEnumerable<string> scripts,
+        string labelPrefix,
+        string errorMessage = "Sub-document script error")
+    {
+        var ordinal = 0;
+
+        foreach (var script in scripts)
+        {
+            try
+            {
+                realm.EvaluateClassicScript(script, $"{labelPrefix}{ordinal++}");
+            }
+            catch (Exception ex)
+            {
+                RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.ExecuteSubDocumentScripts",
+                    $"{errorMessage}: {ex.Message}", ex);
+            }
+        }
+    }
+
+    /// <summary>
     /// Creates a minimal empty sub-document structure (html > head + body).
     /// </summary>
     private DomDocument BuildEmptySubDocument(DomElement containerElement)
@@ -428,11 +416,9 @@ public sealed partial class DomBridge
         document.AppendChild(htmlEl);
 
         var headEl = CreateBridgeElement("head");
-        SetParent(headEl, htmlEl);
         htmlEl.AppendChild(headEl);
 
         var bodyEl = CreateBridgeElement("body");
-        SetParent(bodyEl, htmlEl);
         htmlEl.AppendChild(bodyEl);
 
         LinkContentDocument(containerElement, document);
@@ -452,20 +438,16 @@ public sealed partial class DomBridge
         document.AppendChild(htmlEl);
 
         var headEl = CreateBridgeElement("head");
-        SetParent(headEl, htmlEl);
         htmlEl.AppendChild(headEl);
 
         var bodyEl = CreateBridgeElement("body");
-        SetParent(bodyEl, htmlEl);
         htmlEl.AppendChild(bodyEl);
 
         // Wrap text content in <pre> element
         var preEl = CreateBridgeElement("pre");
-        SetParent(preEl, bodyEl);
         bodyEl.AppendChild(preEl);
 
         var textNode = CreateBridgeTextNode(textContent);
-        SetParent(textNode, preEl);
         preEl.AppendChild(textNode);
 
         LinkContentDocument(containerElement, document);

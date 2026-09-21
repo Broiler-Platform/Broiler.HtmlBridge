@@ -81,9 +81,8 @@ internal sealed class BlobBinding
     /// The identity the blob store keys on: the reference the handle carries.
     /// </summary>
     /// <remarks>
-    /// See <see cref="JsValue.ObjectIdentity"/>. A provider is required to make this canonical per
-    /// object because handle equality is defined by it, which is exactly the promise a per-object
-    /// store needs.
+    /// See <see cref="Runtime.JsObjectRegistry"/> for why the reference the handle carries, and
+    /// not the <see cref="JsValue"/> struct itself, is the weak-table key.
     /// </remarks>
     private static object IdentityOf(JsValue value) =>
         value.ObjectIdentity ?? throw new InvalidOperationException(

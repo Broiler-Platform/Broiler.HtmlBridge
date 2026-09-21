@@ -326,62 +326,41 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
     // -------- read-only document getters --------
 
-    private JsValue GetBody(DomNode docRoot)
-    {
-        var htmlEl = DomBridgeUtils.GetDocumentElement(docRoot);
-        if (htmlEl == null)
-            return JsValue.Null;
-        foreach (var child in DomBridgeUtils.ChildElements(htmlEl))
-        {
-            if (string.Equals(child.TagName, "body", StringComparison.OrdinalIgnoreCase))
-                return _host.ToJsObject(child);
-        }
+    /// <summary>
+    /// The first child <em>element</em> of <paramref name="parent"/> whose tag name is
+    /// <paramref name="tagName"/>, matched case-insensitively — the one hop
+    /// <c>body</c>/<c>head</c>/<c>title</c> are each found by. A null parent has no children, so the
+    /// callers stay one-liners.
+    /// </summary>
+    private static DomElement? ChildElementNamed(DomNode? parent, string tagName) =>
+        parent == null
+            ? null
+            : DomBridgeUtils.ChildElements(parent)
+                .FirstOrDefault(c => string.Equals(c.TagName, tagName, StringComparison.OrdinalIgnoreCase));
 
-        return JsValue.Null;
-    }
+    /// <summary>The <c>&lt;title&gt;</c> of this sub-document: documentElement &gt; head &gt; title.</summary>
+    private static DomElement? TitleElement(DomNode docRoot) =>
+        ChildElementNamed(ChildElementNamed(DomBridgeUtils.GetDocumentElement(docRoot), "head"), "title");
 
-    private JsValue GetHead(DomNode docRoot)
-    {
-        var htmlEl = DomBridgeUtils.GetDocumentElement(docRoot);
-        if (htmlEl == null)
-            return JsValue.Null;
-        foreach (var child in DomBridgeUtils.ChildElements(htmlEl))
-        {
-            if (string.Equals(child.TagName, "head", StringComparison.OrdinalIgnoreCase))
-                return _host.ToJsObject(child);
-        }
+    private JsValue GetBody(DomNode docRoot) =>
+        ChildElementNamed(DomBridgeUtils.GetDocumentElement(docRoot), "body") is { } bodyEl
+            ? _host.ToJsObject(bodyEl)
+            : JsValue.Null;
 
-        return JsValue.Null;
-    }
+    private JsValue GetHead(DomNode docRoot) =>
+        ChildElementNamed(DomBridgeUtils.GetDocumentElement(docRoot), "head") is { } headEl
+            ? _host.ToJsObject(headEl)
+            : JsValue.Null;
 
-    private static JsValue GetTitle(DomNode docRoot)
-    {
-        var htmlEl = DomBridgeUtils.GetDocumentElement(docRoot);
-        if (htmlEl == null)
-            return JsValue.String(string.Empty);
-        var head = DomBridgeUtils.ChildElements(htmlEl).FirstOrDefault(c => string.Equals(c.TagName, "head", StringComparison.OrdinalIgnoreCase));
-        if (head != null)
-        {
-            var titleEl = DomBridgeUtils.ChildElements(head).FirstOrDefault(c => string.Equals(c.TagName, "title", StringComparison.OrdinalIgnoreCase));
-            if (titleEl != null)
-                return JsValue.String(titleEl.TextContent);
-        }
-
-        return JsValue.String(string.Empty);
-    }
+    private static JsValue GetTitle(DomNode docRoot) =>
+        JsValue.String(TitleElement(docRoot) is { } titleEl ? titleEl.TextContent : string.Empty);
 
     private static JsValue SetTitle(DomNode docRoot, in JsCall call)
     {
-        var htmlEl = DomBridgeUtils.GetDocumentElement(docRoot);
-        if (htmlEl == null)
-            return JsValue.Undefined;
-        var head = DomBridgeUtils.ChildElements(htmlEl).FirstOrDefault(c => string.Equals(c.TagName, "head", StringComparison.OrdinalIgnoreCase));
-        if (head != null)
-        {
-            var titleEl = DomBridgeUtils.ChildElements(head).FirstOrDefault(c => string.Equals(c.TagName, "title", StringComparison.OrdinalIgnoreCase));
-            if (titleEl != null)
-                titleEl.TextContent = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
-        }
+        // The argument is coerced strictly inside the guard: with no <title> to write, a page's own
+        // toString is never invoked, and that is observable.
+        if (TitleElement(docRoot) is { } titleEl)
+            titleEl.TextContent = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
 
         return JsValue.Undefined;
     }

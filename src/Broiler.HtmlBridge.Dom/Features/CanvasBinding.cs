@@ -164,15 +164,23 @@ internal static class CanvasBinding
             Dimension(canvas, "width", DefaultWidth),
             Dimension(canvas, "height", DefaultHeight));
 
+        // The three string-valued drawing-state setters share one body (SetString); only the target
+        // differs. They are bound here, once per context, rather than inside the setter lambdas,
+        // where each assignment a drawing loop makes would allocate a fresh delegate.
+        Action<string> setFillStyle = s => context2d.FillStyle = s;
+        Action<string> setStrokeStyle = s => context2d.StrokeStyle = s;
+        // A value that does not parse as a CSS font is ignored (HTML §canvas), which TrySetFont decides.
+        Action<string> setFont = s => { context2d.TrySetFont(s); };
+
         // fillStyle (get/set)
         realm.DefineAccessor(ctx, "fillStyle",
             (in _) => JsValue.String(context2d.FillStyle),
-            (in call) => SetFillStyle(context2d, in call));
+            (in call) => SetString(in call, setFillStyle));
 
         // strokeStyle (get/set)
         realm.DefineAccessor(ctx, "strokeStyle",
             (in _) => JsValue.String(context2d.StrokeStyle),
-            (in call) => SetStrokeStyle(context2d, in call));
+            (in call) => SetString(in call, setStrokeStyle));
 
         // lineWidth (get/set)
         realm.DefineAccessor(ctx, "lineWidth",
@@ -182,7 +190,7 @@ internal static class CanvasBinding
         // font (get/set)
         realm.DefineAccessor(ctx, "font",
             (in _) => JsValue.String(context2d.Font),
-            (in call) => SetFont(context2d, in call));
+            (in call) => SetString(in call, setFont));
 
         // textAlign (get/set)
         realm.DefineAccessor(ctx, "textAlign",
@@ -207,65 +215,67 @@ internal static class CanvasBinding
         // attribute is spelled.
         realm.DefineAccessor(ctx, "canvas", (in _) => canvasObject, null);
 
-        // Drawing methods
-        realm.DefineMethod(ctx, "fillRect", 4, (in call) => FillRect(context2d, in call));
-
-        realm.DefineMethod(ctx, "strokeRect", 4, (in call) => StrokeRect(context2d, in call));
-
-        realm.DefineMethod(ctx, "clearRect", 4, (in call) => ClearRect(context2d, in call));
-
-        realm.DefineMethod(ctx, "beginPath", (in call) => BeginPath(context2d, in call));
-
+        // Drawing methods. The registration order is the enumeration order a page sees, so it is the
+        // order below and not a tidier one.
+        RectMethod("fillRect", context2d.FillRect);
+        RectMethod("strokeRect", context2d.StrokeRect);
+        RectMethod("clearRect", context2d.ClearRect);
+        VoidMethod("beginPath", static c => c.BeginPath());
         realm.DefineMethod(ctx, "moveTo", 2, (in call) => MoveTo(context2d, in call));
-
         realm.DefineMethod(ctx, "lineTo", 2, (in call) => LineTo(context2d, in call));
-
         realm.DefineMethod(ctx, "arc", 5, (in call) => Arc(context2d, in call));
-
         realm.DefineMethod(ctx, "rect", 4, (in call) => Rect(context2d, in call));
-
-        realm.DefineMethod(ctx, "closePath", (in call) => ClosePath(context2d, in call));
-
-        realm.DefineMethod(ctx, "fill", (in call) => Fill(context2d, in call));
-
-        realm.DefineMethod(ctx, "stroke", (in call) => Stroke(context2d, in call));
-
+        VoidMethod("closePath", static c => c.ClosePath());
+        VoidMethod("fill", static c => c.Fill());
+        VoidMethod("stroke", static c => c.Stroke());
         realm.DefineMethod(ctx, "fillText", 3, (in call) => FillText(context2d, in call));
-
         realm.DefineMethod(ctx, "strokeText", 3, (in call) => StrokeText(context2d, in call));
-
-        realm.DefineMethod(ctx, "save", (in call) => Save(context2d, in call));
-
-        realm.DefineMethod(ctx, "restore", (in call) => Restore(context2d, in call));
+        VoidMethod("save", static c => c.Save());
+        VoidMethod("restore", static c => c.Restore());
 
         // measureText(text) — returns { width: ... }
         realm.DefineMethod(ctx, "measureText", 1, (in call) => MeasureText(context2d, in call));
 
         // Pixel access
         realm.DefineMethod(ctx, "getImageData", 4, (in call) => GetImageData(context2d, host, in call));
-
         realm.DefineMethod(ctx, "putImageData", 3, (in call) => PutImageData(context2d, in call));
-
         realm.DefineMethod(ctx, "createImageData", 2, (in call) => CreateImageData(host, in call));
 
         // No toDataURL here: HTML puts it on HTMLCanvasElement only, and a page reaches it from a context
         // through ctx.canvas. Adding it to the context would be a name feature detection could trip on.
         return new CanvasContext(ctx, context2d);
+
+        // An operation that takes no arguments and answers undefined. The arity is left to NewMethod's
+        // own default of zero, which is what each of these six was registered with.
+        void VoidMethod(string name, Action<CanvasRenderingContext2D> draw) =>
+            realm.DefineMethod(ctx, name, (in _) =>
+            {
+                draw(context2d);
+                return JsValue.Undefined;
+            });
+
+        // One of the three (x, y, width, height) rectangle operations: all four coordinates or nothing.
+        // The draw delegate is bound once per context here, not once per JS call.
+        void RectMethod(string name, Action<float, float, float, float> draw) =>
+            realm.DefineMethod(ctx, name, 4, (in call) =>
+            {
+                if (call.Length >= 4)
+                    draw(Coordinate(call, 0), Coordinate(call, 1), Coordinate(call, 2), Coordinate(call, 3));
+                return JsValue.Undefined;
+            });
     }
 
     // ---- drawing-state setters --------------------------------------------------------------------
 
-    private static JsValue SetFillStyle(CanvasRenderingContext2D context2d, in JsCall call)
+    /// <summary>
+    /// The body behind <c>fillStyle</c>, <c>strokeStyle</c> and <c>font</c>: the ECMAScript
+    /// <c>ToString</c> of the argument, handed to <paramref name="set"/>, and nothing at all when the
+    /// assignment carried no argument.
+    /// </summary>
+    private static JsValue SetString(in JsCall call, Action<string> set)
     {
         if (call.Length > 0)
-            context2d.FillStyle = call.Realm.ToJsString(call[0]);
-        return JsValue.Undefined;
-    }
-
-    private static JsValue SetStrokeStyle(CanvasRenderingContext2D context2d, in JsCall call)
-    {
-        if (call.Length > 0)
-            context2d.StrokeStyle = call.Realm.ToJsString(call[0]);
+            set(call.Realm.ToJsString(call[0]));
         return JsValue.Undefined;
     }
 
@@ -275,14 +285,6 @@ internal static class CanvasBinding
         // = "4"` is ignored.
         if (call.Length > 0 && call[0].IsNumber)
             context2d.LineWidth = (float)call[0].AsNumber;
-        return JsValue.Undefined;
-    }
-
-    private static JsValue SetFont(CanvasRenderingContext2D context2d, in JsCall call)
-    {
-        // A value that does not parse as a CSS font is ignored (HTML §canvas), which TrySetFont decides.
-        if (call.Length > 0)
-            context2d.TrySetFont(call.Realm.ToJsString(call[0]));
         return JsValue.Undefined;
     }
 
@@ -319,33 +321,6 @@ internal static class CanvasBinding
     }
 
     // ---- drawing ----------------------------------------------------------------------------------
-
-    private static JsValue FillRect(CanvasRenderingContext2D context2d, in JsCall call)
-    {
-        if (call.Length >= 4)
-            context2d.FillRect(Coordinate(call, 0), Coordinate(call, 1), Coordinate(call, 2), Coordinate(call, 3));
-        return JsValue.Undefined;
-    }
-
-    private static JsValue StrokeRect(CanvasRenderingContext2D context2d, in JsCall call)
-    {
-        if (call.Length >= 4)
-            context2d.StrokeRect(Coordinate(call, 0), Coordinate(call, 1), Coordinate(call, 2), Coordinate(call, 3));
-        return JsValue.Undefined;
-    }
-
-    private static JsValue ClearRect(CanvasRenderingContext2D context2d, in JsCall call)
-    {
-        if (call.Length >= 4)
-            context2d.ClearRect(Coordinate(call, 0), Coordinate(call, 1), Coordinate(call, 2), Coordinate(call, 3));
-        return JsValue.Undefined;
-    }
-
-    private static JsValue BeginPath(CanvasRenderingContext2D context2d, in JsCall _)
-    {
-        context2d.BeginPath();
-        return JsValue.Undefined;
-    }
 
     private static JsValue MoveTo(CanvasRenderingContext2D context2d, in JsCall call)
     {
@@ -387,24 +362,6 @@ internal static class CanvasBinding
         return JsValue.Undefined;
     }
 
-    private static JsValue ClosePath(CanvasRenderingContext2D context2d, in JsCall _)
-    {
-        context2d.ClosePath();
-        return JsValue.Undefined;
-    }
-
-    private static JsValue Fill(CanvasRenderingContext2D context2d, in JsCall _)
-    {
-        context2d.Fill();
-        return JsValue.Undefined;
-    }
-
-    private static JsValue Stroke(CanvasRenderingContext2D context2d, in JsCall _)
-    {
-        context2d.Stroke();
-        return JsValue.Undefined;
-    }
-
     private static JsValue FillText(CanvasRenderingContext2D context2d, in JsCall call)
     {
         if (call.Length >= 3)
@@ -416,18 +373,6 @@ internal static class CanvasBinding
     {
         if (call.Length >= 3)
             context2d.StrokeText(call.Realm.ToJsString(call[0]), Coordinate(call, 1), Coordinate(call, 2));
-        return JsValue.Undefined;
-    }
-
-    private static JsValue Save(CanvasRenderingContext2D context2d, in JsCall _)
-    {
-        context2d.Save();
-        return JsValue.Undefined;
-    }
-
-    private static JsValue Restore(CanvasRenderingContext2D context2d, in JsCall _)
-    {
-        context2d.Restore();
         return JsValue.Undefined;
     }
 

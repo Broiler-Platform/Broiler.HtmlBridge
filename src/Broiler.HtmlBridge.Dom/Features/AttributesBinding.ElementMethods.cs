@@ -53,8 +53,8 @@ internal sealed partial class AttributesBinding
         if (call.Length == 0)
             return JsValue.Null;
         var name = call.Realm.ToJsString(call[0]);
-        return DomBridgeUtils.TryGetAttribute(element, name, out var val)
-            ? BuildAttrNode(name, val, element, ownerObj)
+        return DomBridgeUtils.TryGetAttribute(element, name, out _)
+            ? AttrNodeFor(element, name, ownerObj)
             : JsValue.Null;
     }
 
@@ -62,11 +62,10 @@ internal sealed partial class AttributesBinding
     {
         if (call.Length < 2)
             return JsValue.Null;
-        var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
-        var localName = call.Realm.ToJsString(call[1]);
-        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
+        var (ns, localName) = NsArgs(in call);
+        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out _))
             return JsValue.Null;
-        return BuildAttrNode(qName, val, element, ownerObj);
+        return AttrNodeFor(element, qName, ownerObj);
     }
 
     internal JsValue HasAttribute(DomElement element, in JsCall call)
@@ -153,9 +152,9 @@ internal sealed partial class AttributesBinding
         if (call.Length == 0 || !call[0].IsObject)
             return JsValue.Null;
         var name = GetAttrNodeName(call[0]);
-        if (string.IsNullOrEmpty(name) || !DomBridgeUtils.TryGetAttribute(element, name, out var val))
+        if (string.IsNullOrEmpty(name) || !DomBridgeUtils.TryGetAttribute(element, name, out _))
             return JsValue.Null;
-        var removed = BuildAttrNode(name, val, element, ownerObj);
+        var removed = AttrNodeFor(element, name, ownerObj);
         RemoveAttributeLikeRemoveAttribute(element, name);
         return removed;
     }
@@ -179,9 +178,9 @@ internal sealed partial class AttributesBinding
         if (string.IsNullOrEmpty(localName))
             return JsValue.Null;
         var ns = GetAttrNodeNamespace(incoming);
-        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out var val))
+        if (!DomBridgeUtils.TryGetNsAttribute(element, ns, localName, out var qName, out _))
             return JsValue.Null;
-        var removed = BuildAttrNode(qName, val, element, ownerObj);
+        var removed = AttrNodeFor(element, qName, ownerObj);
         RemoveAttributeLikeRemoveAttributeNS(element, ns, localName);
         return removed;
     }
@@ -197,8 +196,7 @@ internal sealed partial class AttributesBinding
     {
         if (call.Length >= 3)
         {
-            var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
-            var qName = call.Realm.ToJsString(call[1]);
+            var (ns, qName) = NsArgs(in call);
             var val = call.Realm.ToJsString(call[2]);
             // The realm of the call rather than the host's, and unguarded: a JsCall exists only
             // because guest code is running, so the realm it carries cannot be absent.
@@ -214,8 +212,7 @@ internal sealed partial class AttributesBinding
     {
         if (call.Length < 2)
             return JsValue.Null;
-        var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
-        var localName = call.Realm.ToJsString(call[1]);
+        var (ns, localName) = NsArgs(in call);
         var val = element.GetAttributeNS(ns, localName);
         return val is not null ? JsValue.String(val) : JsValue.Null;
     }
@@ -224,8 +221,7 @@ internal sealed partial class AttributesBinding
     {
         if (call.Length >= 2)
         {
-            var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
-            var localName = call.Realm.ToJsString(call[1]);
+            var (ns, localName) = NsArgs(in call);
             RemoveAttributeLikeRemoveAttributeNS(element, ns, localName);
         }
 
@@ -236,8 +232,7 @@ internal sealed partial class AttributesBinding
     {
         if (call.Length < 2)
             return JsValue.False;
-        var ns = call[0].IsNullish ? null : call.Realm.ToJsString(call[0]);
-        var localName = call.Realm.ToJsString(call[1]);
+        var (ns, localName) = NsArgs(in call);
         return JsValue.Boolean(element.GetAttributeNS(ns, localName) is not null);
     }
 }

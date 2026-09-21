@@ -306,9 +306,8 @@ public sealed partial class DomBridge
             // Move ALL children so parsed text/comment survive.
             foreach (var child in fragmentContainer.ChildNodes.ToArray())
             {
-                // Single canonical move: AppendChild removes the child from the parsed fragment and
-                // appends it to the target in one op. The prior SetParent(child, element) did the
-                // same move, leaving the following AppendChild a no-op — redundant, not wrong.
+                // One canonical move: AppendChild removes the child from the parsed fragment and
+                // appends it to the target in a single operation.
                 target.AppendChild(child);
             }
 

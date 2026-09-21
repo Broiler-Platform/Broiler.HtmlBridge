@@ -348,7 +348,6 @@ public sealed partial class DomBridge
         var head = FindFirstElementByTagName(root, "head");
         if (head != null)
         {
-            SetParent(styleElement, head);
             head.AppendChild(styleElement);
             return;
         }

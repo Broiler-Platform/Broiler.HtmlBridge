@@ -302,7 +302,6 @@ public sealed partial class DomBridge
             {
                 ["src"] = url,
             });
-        SetParent(img, body);
         body.AppendChild(img);
     }
 
@@ -348,7 +347,6 @@ public sealed partial class DomBridge
                 {
                     ["src"] = url,
                 });
-            SetParent(img, element);
             element.AppendChild(img);
         }
     }
@@ -409,7 +407,6 @@ public sealed partial class DomBridge
             ClearChildren(element);
 
             var img = CreateBridgeElement("img", attributes: attributes);
-            SetParent(img, element);
             element.AppendChild(img);
         }
     }

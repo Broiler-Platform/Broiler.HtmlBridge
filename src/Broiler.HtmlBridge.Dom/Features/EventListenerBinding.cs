@@ -10,9 +10,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// parsing (capture/once/passive), the DOM duplicate-registration check, and
 /// match-by-listener-and-capture removal, plus snapshot invocation shared by the dispatch paths. It
 /// is deliberately stateless and storage-agnostic -- each target callback (element, document,
-/// window, message port) resolves its own listener list from the
+/// window, message port) resolves its own listener store from the
 /// <see cref="EventTargetRegistry"/> and calls these operations, so the registration block is
-/// written once rather than per feature file.
+/// written once rather than per feature file. A caller that holds the whole per-type store hands it
+/// over as it is: <see cref="AddTo"/> and <see cref="RemoveFrom"/> do the by-type resolution --
+/// including the create-on-first-add -- so the get-or-create is written once too.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -76,6 +78,54 @@ internal static class EventListenerBinding
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// The whole of DOM <c>addEventListener</c> over a target's per-type listener store: the arity
+    /// test, the event-type coercion, the create-on-first-add of that type's list, and
+    /// <see cref="AddListener"/>. The caller supplies the store and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// A call with fewer than two arguments is a no-op that returns <em>before</em> the type is
+    /// coerced, so a <c>toString</c> the page wrote on the first argument does not run for it --
+    /// and no list is filed for that type either. An unsupplied third argument is
+    /// <see cref="JsValue.Undefined"/>, which the option parsing reads as capture-false.
+    /// </remarks>
+    internal static JsValue AddTo(
+        Dictionary<string, List<EventListenerRegistration>> byType, in JsCall call)
+    {
+        if (call.Length < 2)
+            return JsValue.Undefined;
+
+        var type = call.Realm.ToJsString(call[0]);
+        if (!byType.TryGetValue(type, out var listeners))
+        {
+            listeners = [];
+            byType[type] = listeners;
+        }
+
+        AddListener(call.Realm, listeners, call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
+        return JsValue.Undefined;
+    }
+
+    /// <summary>
+    /// <see cref="AddTo"/>'s counterpart for DOM <c>removeEventListener</c>, with the same arity
+    /// test and coercion in the same order. Nothing is created here: a target with no store at all
+    /// (<see langword="null"/>) and a store holding no list of that type both reach
+    /// <see cref="RemoveListener"/>'s no-op.
+    /// </summary>
+    internal static JsValue RemoveFrom(
+        Dictionary<string, List<EventListenerRegistration>>? byType, in JsCall call)
+    {
+        if (call.Length < 2)
+            return JsValue.Undefined;
+
+        var type = call.Realm.ToJsString(call[0]);
+        RemoveListener(
+            call.Realm,
+            byType is not null && byType.TryGetValue(type, out var listeners) ? listeners : null,
+            call[1], call.Length > 2 ? call[2] : JsValue.Undefined);
+        return JsValue.Undefined;
     }
 
     /// <summary>
