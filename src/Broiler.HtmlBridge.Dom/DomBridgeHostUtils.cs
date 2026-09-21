@@ -132,26 +132,25 @@ internal static class DomBridgeHostUtils
                 return results[0];
         }
 
-        SearchDescendants(root, selector, results, bridge, all, scope);
+        // Canonical Descendants() is the document-order descendant walk (see
+        // CollectDescendantsByTag for why it is the one the bridge uses). It yields DomNode and
+        // only an element can match a selector, so the walk is filtered to elements. It is lazy,
+        // so querySelector still stops the search at its first match rather than walking on.
+        foreach (var element in root.Descendants().OfType<DomElement>())
+        {
+            if (!bridge.MatchesSelector(element, selector, scope))
+                continue;
+
+            results.Add(bridge.WrapNode(element));
+            if (!all)
+                return results[0];
+        }
+
         // querySelectorAll is a STATIC NodeList (DOM §4.2.6) — the one collection the specification
         // defines as a snapshot rather than live, so the list is handed the results it already has
         // rather than the search that produced them.
         if (all) return Dom.Features.DomCollectionBinding.NodeList(bridge.Realm, () => results);
         return results.Count > 0 ? results[0] : JsValue.Null;
-    }
-
-    private static void SearchDescendants(DomNode parent, string selector, List<JsValue> results, DomBridge bridge, bool all, DomElement? scope)
-    {
-        foreach (var child in ChildElements(parent))
-        {
-            if (!IsText(child) && bridge.MatchesSelector(child, selector, scope))
-            {
-                results.Add(bridge.WrapNode(child));
-                if (!all) return;
-            }
-            SearchDescendants(child, selector, results, bridge, all, scope);
-            if (!all && results.Count > 0) return;
-        }
     }
 
     /// <summary>

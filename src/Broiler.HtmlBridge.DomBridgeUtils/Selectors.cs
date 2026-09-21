@@ -1,5 +1,4 @@
 using System.Text;
-using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge;
@@ -54,12 +53,6 @@ public static partial class DomBridgeUtils
     /// <c>DomBridge/JsObjects.NonElementNodes.cs</c> is the other caller.
     /// </remarks>
     internal static JsValue FromEngineResult(JsValue value) => value.IsObject ? value : JsValue.Null;
-}
-
-public static partial class DomBridgeUtils
-{
-    internal static bool SlotAcceptsNode(DomElement slot, DomNode node) =>
-        DomSlotting.SlotAcceptsNode(slot, node);
 }
 
 public static partial class DomBridgeUtils

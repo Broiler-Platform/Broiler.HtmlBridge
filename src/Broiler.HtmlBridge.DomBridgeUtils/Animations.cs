@@ -526,8 +526,16 @@ public static partial class DomBridgeUtils
             var open = transform.IndexOf('(', position);
             if (open < 0)
                 break;
-            var close = transform.IndexOf(')', open + 1);
-            if (close < 0)
+            // Balanced, so a nested function argument does not end the function early:
+            // `translate(calc(1px + 2px), 0)` closes at its own ')', not calc's. The hand-scan this
+            // replaces took the first ')' and truncated the argument list there.
+            //
+            // FindMatching answers text.Length - 1 when nothing matches rather than -1, so the
+            // landing character is what says whether a close was really found. Without that test an
+            // unterminated `translateY(` would take the rest of the string as its argument, where
+            // the hand-scan dropped the function and kept the ones before it.
+            var close = CssSyntax.FindMatching(transform, open, '(', ')');
+            if (close <= open || transform[close] != ')')
                 break;
 
             var name = transform[position..open].Trim().ToLowerInvariant();

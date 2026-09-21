@@ -39,9 +39,6 @@ public sealed partial class DomBridge
         return WrapNode(root);
     }
 
-    private static DomElement? GetSlotHost(DomElement slot) =>
-        (slot.GetRootNode(composed: false) as DomShadowRoot)?.Host;
-
     private static DomElement? GetAssignedSlot(DomElement element) =>
         DomSlotting.FindAssignedSlot(element);
 

@@ -184,30 +184,25 @@ public static partial class DomBridgeUtils
     // (fragment/id lookup) and document.write — so they stay bridge-owned internal statics.
 
     /// <summary>Finds the first element in a sub-tree matching a predicate (excludes the root; skips
-    /// text nodes and sentinel <c>#</c>-tag elements).</summary>
-    internal static DomElement? FindInSubTree(DomNode root, Func<DomElement, bool> predicate)
-    {
-        foreach (var child in ChildElements(root))
-        {
-            if (!IsText(child) && !child.TagName.StartsWith("#") && predicate(child))
-                return child;
-            var found = FindInSubTree(child, predicate);
-            if (found != null) return found;
-        }
-        return null;
-    }
+    /// sentinel <c>#</c>-tag elements).</summary>
+    /// <remarks>
+    /// The walk is canonical <see cref="DomNode.Descendants"/> — document order, level-snapshotted
+    /// — filtered to elements because it yields every node kind. The sentinel filter is the
+    /// bridge's own and rides along: a <c>#</c>-tag element is not a candidate, but it is still
+    /// descended into, so it hides nothing beneath it.
+    /// </remarks>
+    internal static DomElement? FindInSubTree(DomNode root, Func<DomElement, bool> predicate) =>
+        root.Descendants()
+            .OfType<DomElement>()
+            .FirstOrDefault(element => !element.TagName.StartsWith("#") && predicate(element));
 
     /// <summary>Finds the first element in a tree matching a predicate (includes the root).</summary>
-    internal static DomElement? FindInTree(DomElement root, Func<DomElement, bool> predicate)
-    {
-        if (predicate(root)) return root;
-        foreach (var child in ChildElements(root))
-        {
-            var found = FindInTree(child, predicate);
-            if (found != null) return found;
-        }
-        return null;
-    }
+    /// <remarks>
+    /// <see cref="DomNode.InclusiveDescendants"/> yields the root before its descendants, which is
+    /// exactly the root-first order this answers in.
+    /// </remarks>
+    internal static DomElement? FindInTree(DomElement root, Func<DomElement, bool> predicate) =>
+        root.InclusiveDescendants().OfType<DomElement>().FirstOrDefault(predicate);
 }
 
 public static partial class DomBridgeUtils

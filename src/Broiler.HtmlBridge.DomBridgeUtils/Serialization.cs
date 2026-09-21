@@ -68,20 +68,19 @@ public static partial class DomBridgeUtils
         }
     }
 
-    internal static DomElement? FindFirstElementByTagName(DomElement root, string tagName)
-    {
-        if (string.Equals(root.TagName, tagName, StringComparison.OrdinalIgnoreCase))
-            return root;
-
-        foreach (var child in ChildElements(root))
-        {
-            var match = FindFirstElementByTagName(child, tagName);
-            if (match != null)
-                return match;
-        }
-
-        return null;
-    }
+    /// <summary>
+    /// The first element named <paramref name="tagName"/> in tree order, the root included.
+    /// </summary>
+    /// <remarks>
+    /// Canonical <see cref="DomNode.InclusiveDescendants"/> is root-first document order, filtered
+    /// to elements because it yields every node kind. The tag comparison stays case-insensitive:
+    /// callers pass a lowercase literal ("html", "head", "body") against a <c>TagName</c> the
+    /// parser may have cased either way.
+    /// </remarks>
+    internal static DomElement? FindFirstElementByTagName(DomElement root, string tagName) =>
+        root.InclusiveDescendants()
+            .OfType<DomElement>()
+            .FirstOrDefault(element => string.Equals(element.TagName, tagName, StringComparison.OrdinalIgnoreCase));
 
     internal static double ReadPixelLength(string? rawValue, double fallback)
     {

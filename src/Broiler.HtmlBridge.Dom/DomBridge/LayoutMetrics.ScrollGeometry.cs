@@ -68,15 +68,15 @@ public sealed partial class DomBridge
     {
         if (string.Equals(element.TagName, "slot", StringComparison.OrdinalIgnoreCase))
         {
-            var host = GetSlotHost(element);
-            if (host == null)
-                yield break;
-
-            foreach (var child in ChildElements(host))
-            {
-                if (!IsText(child) && SlotAcceptsNode(element, child))
-                    yield return child;
-            }
+            // What renders inside a slot is what the canonical assignment algorithm assigns to it
+            // (DOM §4.2.2.3): a slottable is assigned to the FIRST slot of the shadow tree that
+            // accepts it, never to every same-named slot — which is what testing the slot's own
+            // name against each of the host's children answered. `flatten: false` keeps this walk's
+            // semantics: flattening adds the fallback-content and nested-slot substitutions the
+            // render-bound tree does not model. The algorithm answers in nodes; only elements
+            // generate the boxes this walk measures, so text and comment slottables are filtered out.
+            foreach (var assigned in DomSlotting.GetAssignedNodes(element, flatten: false).OfType<DomElement>())
+                yield return assigned;
 
             yield break;
         }

@@ -147,6 +147,19 @@ public sealed class PreloadScanResult
 /// values and resolves them at the end; the pass is microseconds and the requests it triggers are
 /// milliseconds, so there is nothing to gain by resolving early.
 /// </para>
+/// <para>
+/// <b>Which <c>&lt;base&gt;</c> counts is not decided here.</b> That rule — first in document
+/// order, outside a <c>&lt;template&gt;</c>, carrying a non-whitespace <c>href</c>, trimmed — is
+/// <see cref="HtmlDocumentQueries.GetEffectiveBaseHref(string)"/>'s, the same answer the DOM walk
+/// and the WPT stylesheet inliner get. Spotting the tag while this pass went past it was free, but
+/// it was a fourth reading of §4.2.3 and it disagreed with the other three on a blank <c>href</c>:
+/// it latched the blank value, which resolves to nothing, so the document silently fell back to the
+/// page URL and every prefetch on it was keyed to a URL no consume site would ask for — a scan that
+/// doubles the requests instead of overlapping them, which is the one failure this type exists to
+/// avoid. Re-reading the source costs a vectorized <c>"&lt;base"</c> search on a document that has
+/// none, and stops at the tag — which HTML puts in the head — on a document that has one; both are
+/// under 2% of this pass, measured, so the shared rule is bought with noise.
+/// </para>
 /// </remarks>
 public static class PreloadScanner
 {
@@ -182,7 +195,6 @@ public static class PreloadScanner
 
         var raw = new List<PreloadCandidate>();
         var seen = new HashSet<(PreloadKind, string)>();
-        string? baseHref = null;
 
         // Depth counters rather than booleans: `<template><template>` is legal, and an inner
         // element's end tag must not re-open the outer one's contents to the scan.
@@ -213,14 +225,6 @@ public static class PreloadScanner
             if (inertDepth > 0)
                 continue;
 
-            if (baseHref is null &&
-                string.Equals(token.Name, "base", StringComparison.OrdinalIgnoreCase) &&
-                Attribute(token, "href") is { Length: > 0 } declaredBase)
-            {
-                baseHref = declaredBase;
-                continue;
-            }
-
             if (CandidateFor(token) is not { } candidate)
                 continue;
 
@@ -228,7 +232,7 @@ public static class PreloadScanner
                 raw.Add(candidate with { Nonce = Attribute(token, "nonce") });
         }
 
-        var documentBase = ResolveDocumentBase(baseHref, pageUrl);
+        var documentBase = ResolveDocumentBase(HtmlDocumentQueries.GetEffectiveBaseHref(html), pageUrl);
         return new PreloadScanResult(
             documentBase,
             [.. raw.Select(c => c with { ResolvedUrl = UrlResolver.Resolve(c.RawUrl, documentBase)?.AbsoluteUri })]);

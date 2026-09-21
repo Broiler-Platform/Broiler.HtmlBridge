@@ -574,13 +574,13 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    // docRoot may be a #subdoc-root element OR a canonical DomDocument browsing-context root;
-    // ChildElements works over both. Returns the documentElement, or — for an element root with
-    // none — the root itself. A canonical DomDocument with no documentElement yields null (per DOM;
-    // e.g. createDocument with an empty qualifiedName), so callers must null-check.
+    // docRoot is a canonical DomDocument browsing-context root, or any other node standing in for
+    // one; ChildElements works over both. Returns the documentElement, or — for an element root
+    // with none — the root itself. A canonical DomDocument with no documentElement yields null (per
+    // DOM; e.g. createDocument with an empty qualifiedName), so callers must null-check.
     internal static DomElement? GetDocumentElement(DomNode docRoot) => docRoot switch
     {
         DomDocument doc => doc.DocumentElement,
-        _ => docRoot.ChildElements.FirstOrDefault(c => !c.TagName.StartsWith('#')) ?? docRoot as DomElement
+        _ => docRoot.ChildElements.FirstOrDefault() ?? docRoot as DomElement
     };
 }

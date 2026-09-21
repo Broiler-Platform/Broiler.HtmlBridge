@@ -11,21 +11,20 @@ public static partial class DomBridgeUtils
 {
     /// <summary>
     /// Finds the style-scope root ancestor for the given element by walking up the
-    /// parent chain. Stops at a <c>#</c>-prefixed boundary element (a <c>#shadow-root</c>;
-    /// the document/sub-document sentinels are gone — the canonical <c>DomDocument</c> parent
-    /// is not a <c>DomElement</c>, so <see cref="ParentEl"/> already stops the walk there).
-    /// Returns the topmost element within the element's scope.
+    /// parent chain, and returns the topmost element within the element's scope.
     /// </summary>
+    /// <remarks>
+    /// The scope boundary needs no test of its own: every root a scope can end at — a
+    /// <c>DomDocument</c>, a <c>DomDocumentFragment</c>, a <c>DomShadowRoot</c> — is a node kind
+    /// rather than a <c>DomElement</c> in the canonical model, so <see cref="ParentEl"/> answers
+    /// <c>null</c> there and ends the walk. The boundary-element sentinels this used to test for
+    /// are gone.
+    /// </remarks>
     internal static DomElement GetDocumentRootFor(DomElement el)
     {
         var root = el;
         while (ParentEl(root) is { } parent)
-        {
-            // If we've reached a scope root (shadow root), stop here
-            if (root.TagName.StartsWith('#'))
-                return root;
             root = parent;
-        }
         return root;
     }
 

@@ -362,9 +362,6 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    internal static bool IsTableCellElement(DomElement element) =>
-        HtmlTableOperations.IsTableCell(element);
-
     internal static bool IsAreaElement(DomElement element) =>
         string.Equals(element.TagName, "area", StringComparison.OrdinalIgnoreCase);
 
