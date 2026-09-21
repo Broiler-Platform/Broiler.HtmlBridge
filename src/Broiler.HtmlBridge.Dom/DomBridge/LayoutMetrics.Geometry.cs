@@ -555,10 +555,40 @@ public sealed partial class DomBridge
         return htmlElement ?? current;
     }
 
+    /// <summary>
+    /// The one exit every line-height resolution passes through, so a line height that cannot be
+    /// represented is refused once rather than in each of the three spellings below.
+    /// </summary>
+    /// <remarks>
+    /// The unitless multiplier is the spelling that needs it. It is the only one that does not
+    /// reach <see cref="TryEvaluateCssLengthWithViewport"/>, so the finiteness exit that method
+    /// gained never covered it, and it is parsed with <see cref="NumberStyles.Float"/> — which
+    /// admits <c>Infinity</c> and <c>NaN</c> by name and overflows a double on an exponent, or on
+    /// a long enough run of digits, with no symbol in the value at all.
+    /// <para>
+    /// Testing the resolved height rather than the token also covers the multiplication, which is
+    /// the half a guard at the parse would have missed: <c>line-height: 1e307</c> is a multiplier
+    /// a double holds perfectly well, and <c>16px</c> times it is not.
+    /// </para>
+    /// <para>
+    /// A refused line height is <c>normal</c> — the same <c>1.2</c> factor the unset and
+    /// <c>normal</c> cases take — and deliberately not zero. Zero is a line height a page can
+    /// write, and substituting it would make a value this component refused indistinguishable
+    /// from one the page chose. The font size is finite by construction (
+    /// <see cref="ResolveFontSizeForElement"/> resolves through the guarded evaluator and falls
+    /// back to <c>16</c>), so the refusal cannot itself answer with a non-finite number.
+    /// </para>
+    /// </remarks>
     private double ResolveLineHeightForElement(DomElement element)
     {
+        var resolved = ResolveLineHeightForElementCore(element, out var fontSize);
+        return double.IsFinite(resolved) ? resolved : fontSize * 1.2;
+    }
+
+    private double ResolveLineHeightForElementCore(DomElement element, out double fontSize)
+    {
         var props = GetComputedProps(element);
-        var fontSize = ResolveFontSizeForElement(element);
+        fontSize = ResolveFontSizeForElement(element);
         var lineHeight = props.GetValueOrDefault("line-height");
         if (string.IsNullOrWhiteSpace(lineHeight) ||
             string.Equals(lineHeight, "normal", StringComparison.OrdinalIgnoreCase))

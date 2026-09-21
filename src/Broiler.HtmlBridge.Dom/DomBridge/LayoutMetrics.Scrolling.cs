@@ -520,7 +520,15 @@ public sealed partial class DomBridge
         double clientBlockExtent = verticalWritingMode
             ? GetClientWidthForDomElement(element, isRoot: false)
             : GetClientHeightForDomElement(element, isRoot: false);
-        double totalBlockExtent = Math.Max(clientBlockExtent, optionCount * rowExtent);
+        // The rows' extent is a product, so two numbers this component can represent need not have
+        // a representable product: a `line-height: 1e307` resolves to a row extent a double holds
+        // and six of them do not. A scrolling area that cannot be measured is one that does not
+        // reach past the box — the client extent, which is already the answer a list box with room
+        // for all its rows gives, rather than a number invented by clamping.
+        double rowsBlockExtent = optionCount * rowExtent;
+        double totalBlockExtent = double.IsFinite(rowsBlockExtent)
+            ? Math.Max(clientBlockExtent, rowsBlockExtent)
+            : clientBlockExtent;
 
         extent = verticalAxis
             ? (verticalWritingMode ? clientInlineExtent : totalBlockExtent)
