@@ -942,3 +942,126 @@ public class DependencyAlignmentAnimationSelectorTests
         public Dom.IDomBridgeRuntime Create() => Bridge = new DomBridge();
     }
 }
+
+/// <summary>
+/// Confining a shadow root's style rules to its own tree, now that the selector text is read
+/// through the dependency's structural model instead of re-scanned here.
+/// <para>
+/// The pass appends a scope marker to the <em>subject</em> compound of every complex selector in a
+/// shadow tree's <c>&lt;style&gt;</c>, so <c>p</c> written inside a shadow root matches only that
+/// root's paragraphs once the rule is serialized into the render document as a global one. Finding
+/// the subject compound, and finding the point inside it just past the type selector, used to be
+/// two hand-rolled character scans over the selector text; <c>CssSelector.Subject</c> and
+/// <c>CssCompoundSelector.TypeSelectorEnd</c> are those two answers, and
+/// <c>CssSyntax.SplitTopLevel</c> is the comma split above them.
+/// </para>
+/// <para>
+/// <b>Three answers change, and each is a rewrite the old scans corrupted.</b> A selector carrying
+/// a comment, a comment carrying a comma, and an escaped comma were all split or marked in the
+/// middle of a token, so the rule reached the renderer as something that parses differently from
+/// what the author wrote — or does not parse at all. The rest of the cases here are the shapes that
+/// already worked and must keep working.
+/// </para>
+/// </summary>
+public class DependencyAlignmentShadowScopeTests
+{
+    private const string PageUrl = "https://example.test/pages/shadow-scope.html";
+
+    /// <summary>The marker the pass appends, for the fixture's single shadow root.</summary>
+    private const string Marker = "[data-broiler-shadow-scope=\"0\"]";
+
+    /// <summary>
+    /// FIXED: a trailing comment. The old scan took the last whitespace run inside the comment as a
+    /// combinator, so the subject compound was <c>*&#47;</c> and the marker landed between the
+    /// comment's own two closing characters.
+    /// </summary>
+    [Fact]
+    public void ACommentAfterTheSubjectCompoundIsNotTakenForACombinator() =>
+        Assert.Equal($"p{Marker} /* c */{{color:red}}", Scoped("p /* c */"));
+
+    /// <summary>
+    /// FIXED: a comma inside a comment. The old comma split saw only strings and brackets, so it cut
+    /// the selector list in the middle of the comment and marked each half.
+    /// </summary>
+    [Fact]
+    public void ACommaInsideACommentDoesNotSplitTheSelectorList() =>
+        Assert.Equal($"a{Marker} /*,*/ ,  b{Marker}{{color:red}}", Scoped("a /*,*/ , b"));
+
+    /// <summary>
+    /// FIXED: an escaped comma. <c>a\,b</c> is one type selector naming an element whose name
+    /// contains a comma; the old split cut it in two and left a dangling backslash.
+    /// </summary>
+    [Fact]
+    public void AnEscapedCommaDoesNotSplitTheSelectorList() =>
+        Assert.Equal($"a\\,b{Marker}{{color:red}}", Scoped("a\\,b"));
+
+    /// <summary>
+    /// PRESERVED: the marker goes just past the type selector, so it precedes a pseudo-element and
+    /// follows a namespace prefix, and a compound with no type selector takes it at the front.
+    /// </summary>
+    [Theory]
+    [InlineData("p", "p{0}")]
+    [InlineData("*", "*{0}")]
+    [InlineData(".a.b", "{0}.a.b")]
+    [InlineData("p::before", "p{0}::before")]
+    [InlineData("svg|circle", "svg|circle{0}")]
+    public void TheMarkerGoesJustPastTheTypeSelector(string selector, string expected) =>
+        Assert.Equal(string.Format(expected, Marker) + "{color:red}", Scoped(selector));
+
+    /// <summary>
+    /// PRESERVED: only the subject compound is marked, and a combinator character inside brackets or
+    /// parentheses is not one.
+    /// </summary>
+    [Theory]
+    [InlineData("div > p", "div > p{0}")]
+    [InlineData("#id .cls", "#id {0}.cls")]
+    [InlineData("li:nth-child(2n + 1) > span", "li:nth-child(2n + 1) > span{0}")]
+    [InlineData("a[href=\",\"]", "a{0}[href=\",\"]")]
+    [InlineData("p:is(a, b)", "p{0}:is(a, b)")]
+    public void OnlyTheSubjectCompoundIsMarked(string selector, string expected) =>
+        Assert.Equal(string.Format(expected, Marker) + "{color:red}", Scoped(selector));
+
+    /// <summary>
+    /// PRESERVED: the three compounds that must not be narrowed to tree membership. <c>:host</c>
+    /// addresses the host, which is in the light tree; <c>::slotted</c> and <c>::part</c> address
+    /// light-DOM nodes. None of them gains the scope marker — what each does gain is the rewrite its
+    /// own pass performs, which is the answer being preserved here.
+    /// </summary>
+    [Theory]
+    [InlineData(":host")]
+    [InlineData(":host(.x)")]
+    [InlineData("::slotted(p)")]
+    [InlineData("::part(x)")]
+    [InlineData("div :host")]
+    [InlineData("a ::part(b)")]
+    public void TheCompoundsThatAddressLightDomAreNotNarrowed(string selector) =>
+        Assert.DoesNotContain(Marker, Scoped(selector));
+
+    /// <summary>
+    /// The shadow tree's <c>&lt;style&gt;</c> text as it reaches the renderer, for a tree whose one
+    /// rule is declared on <paramref name="selector"/>.
+    /// </summary>
+    private static string Scoped(string selector) =>
+        StyleTextIn(PageProbe.Render(
+            [PageProbe.Probe("'ok'")],
+            "<html><body><div id=\"h\"><template shadowrootmode=\"open\"><style>" +
+            selector + "{color:red}</style><p>s</p></template></div>" +
+            "<div id=\"out\"></div></body></html>",
+            PageUrl));
+
+    /// <summary>
+    /// The text of the serialized page's one <c>&lt;style&gt;</c>. Matched on the tag name alone,
+    /// because whether the pass stamps the element itself is part of what varies between cases.
+    /// </summary>
+    private static string StyleTextIn(string html)
+    {
+        var open = html.IndexOf("<style", StringComparison.Ordinal);
+        Assert.True(open >= 0, $"no <style> in serialized output: {html}");
+
+        var start = html.IndexOf('>', open);
+        var end = html.IndexOf("</style>", start, StringComparison.Ordinal);
+        Assert.True(end >= 0, $"unterminated <style> in serialized output: {html}");
+
+        return html[(start + 1)..end];
+    }
+}
