@@ -21,7 +21,36 @@ public sealed partial class DomBridge
         var props = GetComputedProps(element);
         var specifiedZoom = props.GetValueOrDefault("zoom");
         var parentZoom = ParentEl(element) != null ? GetUsedZoomForElement(ParentEl(element)) : RootUsedZoomBase();
-        return CssZoom.ResolveUsed(specifiedZoom, parentZoom);
+        return ResolveUsedZoom(specifiedZoom, parentZoom);
+    }
+
+    /// <summary>
+    /// The one place a used zoom comes into existence in this component, so a zoom that cannot be
+    /// represented is refused once for all three walks that resolve one — this one, and the two in
+    /// <c>Serialization.Rendering.cs</c> that bake scaled lengths into the serialized document.
+    /// </summary>
+    /// <remarks>
+    /// The dependency answers a <c>zoom</c> from the declaration alone and hands the arithmetic
+    /// back, so nothing on that side can catch this: <c>zoom: 1e400</c> resolved to <c>+∞</c>, and
+    /// the rendered rect divides the snapshot box by the zoom and multiplies the size back — so
+    /// <c>getBoundingClientRect()</c> answered <c>NaN</c> for width and height off
+    /// <c>0 × ∞</c>, while serialization baked <c>width: Infinitypx</c> into the document.
+    /// <para>
+    /// Testing the used value rather than the declaration also covers the compounding: the used
+    /// zoom is the specified one times the parent's, so a chain of representable zooms need not
+    /// have a representable product. Each level is guarded, so a parent's zoom is finite by
+    /// induction and a refusal cannot cascade.
+    /// </para>
+    /// <para>
+    /// A refused zoom is <c>1</c> — no zoom, the identity this property already has when it is
+    /// unset or unreadable — rather than a clamp, which would scale the page by a factor nobody
+    /// wrote.
+    /// </para>
+    /// </remarks>
+    private static double ResolveUsedZoom(string? specifiedZoom, double parentZoom)
+    {
+        var usedZoom = CssZoom.ResolveUsed(specifiedZoom, parentZoom);
+        return double.IsFinite(usedZoom) ? usedZoom : 1.0;
     }
 
     /// <summary>

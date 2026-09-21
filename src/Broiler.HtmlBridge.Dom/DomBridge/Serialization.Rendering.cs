@@ -240,7 +240,7 @@ public sealed partial class DomBridge
 
         var props = GetComputedProps(element);
         var specifiedZoom = props.GetValueOrDefault("zoom");
-        var usedZoom = CssZoom.ResolveUsed(specifiedZoom, parentZoom);
+        var usedZoom = ResolveUsedZoom(specifiedZoom, parentZoom);
 
         if (Math.Abs(usedZoom - 1.0) > ZoomSerializationEpsilon)
         {
@@ -289,7 +289,7 @@ public sealed partial class DomBridge
 
         var props = GetComputedProps(element);
         var specifiedZoom = props.GetValueOrDefault("zoom");
-        var usedZoom = CssZoom.ResolveUsed(specifiedZoom, parentZoom);
+        var usedZoom = ResolveUsedZoom(specifiedZoom, parentZoom);
 
         var willScale = Math.Abs(usedZoom - 1.0) > ZoomSerializationEpsilon;
         var willSvg = ShouldApplySvgSerializationAttributes(element);
