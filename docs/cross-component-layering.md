@@ -100,9 +100,11 @@ silently outranked the live, publicly settable `BaseUrl`.
 
 ### Adopted after the bump
 
-Five of the merged changes landed here as calls, and the local re-implementations they replace are
-gone: net −184 lines in `src/`, +431 in `tests/`. A sixth was attempted and reverted — see
-[The transform resolver, attempted and reverted](#the-transform-resolver-attempted-and-reverted).
+Eight of the merged changes landed here as calls, and the local re-implementations they replace are
+gone: net −283 lines in `src/`, +767 in `tests/`. A ninth was attempted and reverted — see
+[The transform resolver, attempted and reverted](#the-transform-resolver-attempted-and-reverted) —
+and a tenth cannot be reached at all, see
+[The paint-order hit test, and what it needs](#the-paint-order-hit-test-and-what-it-needs).
 
 | What went | Where it was | Now | Upstream |
 | --- | --- | --- | --- |
@@ -111,6 +113,16 @@ gone: net −184 lines in `src/`, +431 in `tests/`. A sixth was attempted and re
 | `DomBridgeUtils.TryParseExponentNumber` and its two fallback call sites | `DomBridgeUtils/AnchorResolver.cs` | `CssValueParser.TryParseNumeric` alone | [Broiler.CSS#53](https://github.com/Broiler-Platform/Broiler.CSS/issues/53) |
 | `DomBridgeUtils.SimpleMatchesElement`, the hand-rolled selector stub | `DomBridgeUtils/Animations.cs`, `DomBridge/Animations.cs` | `CssSelectorMatcher.TryMatch` | [Broiler.CSS#56](https://github.com/Broiler-Platform/Broiler.CSS/issues/56) |
 | The two-index guard written around `FindMatching`'s no-match sentinel | `DomBridgeUtils/Animations.cs` | a sign test | [Broiler.CSS#54](https://github.com/Broiler-Platform/Broiler.CSS/issues/54) |
+| The subject-compound scan, the type-selector scan and the comma split behind shadow-tree scoping | `DomBridgeUtils/Selectors.cs` | `CssSelector.Subject`, `CssCompoundSelector.TypeSelectorEnd`, `CssSyntax.SplitTopLevel` | [Broiler.CSS#55](https://github.com/Broiler-Platform/Broiler.CSS/issues/55) |
+| `SelectsStandardsMode`'s doctype-name test | `DomBridge/Serialization.cs` | `DocumentModeContext.IsQuirksDoctype` | [Broiler.Layout#9](https://github.com/Broiler-Platform/Broiler.Layout/issues/9) |
+| The `viewBox` mapping, hardcoded to the default `preserveAspectRatio` | `DomBridge/LayoutMetrics.Svg.cs` | `IR.SvgViewBox.Resolve` | [Broiler.Layout#10](https://github.com/Broiler-Platform/Broiler.Layout/issues/10) |
+
+The last three are **correctness fixes, not preserving substitutions**, and each carries the test
+that fails against the code it replaced. The selector one corrupted any selector carrying a comment
+or an escaped comma and marked a `-`-initial or escaped type selector at the wrong offset; the
+doctype one flipped a legacy-doctype document into standards mode on the way out; the `viewBox` one
+answered `xMidYMid meet` for every `preserveAspectRatio`, including the ones nobody writes unless
+they mean something else.
 
 **Two answers this component kept rather than took, and both are the same shape: a dependency is
 right for its own consumers and wrong for this one.**
@@ -165,8 +177,8 @@ only public entry point is all-or-nothing.
   grammar is SVG's: bare numbers are user units. Put `translate(10,20)` through that fallback and
   the bridge answers a `(10, 20)` offset today and the identity under `CssTransform` — measured
   both ways on the geometry harness in `DependencyAlignmentTransformSplitTests`. Upstream says so
-  itself and points at `IR.SvgTransform`, which is **not public** in `0.1.0-preview.5`, so there is
-  no way to route the attribute to the parser written for it. (The two spellings the SVG grammar
+  itself and points at `IR.SvgTransform`, which is **not public** in `0.1.0-preview.5` — though see
+  the correction below, because it is not unreachable either. (The two spellings the SVG grammar
   allows that CSS does not — `translate(10 20)` and `rotate(45 50 50)` — are already lost today;
   only the comma form regresses.)
 - **Nothing smaller is reachable.** `TryResolveFunction`, `TryResolveLength`, `TryParseAngle` and
@@ -174,11 +186,56 @@ only public entry point is all-or-nothing.
   assembly. Per-function adoption — which would have kept the local rule that an unrecognised
   function contributes the identity rather than killing the declaration — is not on offer.
 
+**One correction to the middle point above, found while judging the hit test.** `IR.SvgTransform`
+is not *public*, but it is `internal` and **`Broiler.Layout` grants `InternalsVisibleTo` to
+`Broiler.HtmlBridge.Dom`** — `DomBridge/Serialization.Rendering.cs` already calls
+`SvgTransform.TryParse` through that grant. So "there is no way to route the attribute to the
+parser written for it" is wrong as stated. What is true is narrower and still blocking:
+`ApplyTransformChain` lives in `Broiler.HtmlBridge.DomBridgeUtils`, which holds no such grant and
+must not acquire one (it is the project budgeted at zero dependencies), and the `calc()` loss is
+decisive on its own regardless of where the code sits. The grant is recorded here because an
+argument that rests on a `CS0122` needs to name *which assembly* saw it.
+
 The strictness `CssTransform` brings *is* an improvement taken on its own: an invalid or 3D
 function should invalidate the declaration, and a unitless `rotate(45)` is not an angle. None of it
 can be taken without the two losses above. What would make this adoptable is `calc()` support (or
 a way to hand over pre-resolved arguments) plus a public `SvgTransform`; until then the local
 engine stays and this paragraph is the evidence that the obvious substitution was tried.
+
+### The paint-order hit test, and what it needs
+
+[Broiler.Layout#6](https://github.com/Broiler-Platform/Broiler.Layout/issues/6) shipped `IR.FragmentHitTest`, a point query over the
+fragment tree with the paint-order model the bridge's `CollectHitTestMatches` does not have —
+`CreatesStackingContext`, `StackLevel`, `TopLayerOrder`. Nothing was written against it, because
+**this component cannot obtain a fragment tree and could not read the answer if it had one.**
+Three independent blockers, each measured by reflecting over the `0.1.0-preview.5` assembly rather
+than read off the documentation:
+
+- **No public path from a document to a `Fragment`.** Of the seven public members in
+  `Broiler.Layout` that hand out a `Fragment`, one is `Fragment.Children` (you must already hold
+  the tree) and the rest are queries that take a root. Nothing builds one. `Fragment`'s setters are
+  public, so the bridge *could* construct a tree — but a point query over a tree this component
+  laid out itself is not a substitution, it is the same estimator wearing the dependency's types.
+- **A `Fragment` cannot be turned back into an element.** `Fragment`, `ComputedStyle`,
+  `LineFragment` and `InlineFragment` expose **zero** members typed from `Broiler.Dom`;
+  `ComputedStyle.TagName` is a string, so two `<div>`s are indistinguishable.
+  `elementFromPoint`/`elementsFromPoint` must answer with an `Element`, and no correspondence
+  survives the query. Matching the winner back by `Bounds` and tag name is a heuristic, which is
+  the class of answer tier A exists to have removed.
+- **The internal route stops one step short, and stops there for a reason.** `Broiler.Layout`
+  grants `InternalsVisibleTo` to `Broiler.HtmlBridge.Dom`, so `IR.FragmentTreeBuilder.Build(CssBox
+  root)` *is* callable from the project hit testing lives in — and `Engine.CssBox` carries an
+  `internal DomElement SourceElement`, which is exactly the identity `Fragment` lacks. But
+  `FragmentTreeBuilder.Build` returns the tree and nothing else: no box-to-fragment correspondence
+  comes back, so `SourceElement` cannot be carried across it. And obtaining the `CssBox` root in
+  the first place means running Layout's own engine over a document, which is the missing
+  `ILayoutView` implementation of tier D: `CssBox`'s only accessible constructor is
+  `(CssBox parent, HtmlTag tag, Uri baseUrl)` and `CssLayoutEngine` exposes line-boxing and cell
+  alignment, not a document entry point.
+
+What would make it adoptable is one member: a public path from a `DomDocument` to a fragment tree
+whose fragments name their source element — which is [#4](https://github.com/Broiler-Platform/Broiler.Layout/issues/4) again, and is why that issue gates
+this one as much as it gates tier B and tier D.
 
 ### Dropped when re-verified against `main`
 
@@ -320,6 +377,14 @@ into quirks mode — still serialises as standards mode.
 actual conditions, reading the public and system identifiers. It is not public in any version, so no
 bump reaches it. Recorded as a latent correctness gap, not a duplication.
 
+**Closed, and the name test is gone** — `0.1.0-preview.5` adds `IsQuirksDoctype(name, publicId,
+systemId)`, the same condition over a parsed triple. The gap was never a duplication and never
+depended on the bump for its existence: `IsQuirksHtml` read the public identifier in
+`0.1.0-preview.4` too (checked against that assembly in a process that loaded only it), so a
+legacy-doctype document parsed in quirks mode and serialised into standards. What the bump supplied
+was the only predicate a caller holding a `DomDocumentType` could ask. See
+[Adopted after the bump](#adopted-after-the-bump).
+
 ## Tier C — belongs downstream
 
 These are recommendations for the named repository. The bridge cannot act on them alone, and should
@@ -331,8 +396,8 @@ not: re-implementing them better here would deepen the mislayering rather than f
 | --- | --- | --- | --- |
 | The CSS Overflow 3 §3.1 scrollable overflow region, walked and unioned per element | `DomBridge/LayoutMetrics.cs:355` | ~170 | [Broiler.Layout#5](https://github.com/Broiler-Platform/Broiler.Layout/issues/5) |
 | A complete CSS Transforms 1 used-value engine — a transform list folded into an affine matrix | `DomBridgeUtils/Animations.cs` | ~150 | [Broiler.Layout#7](https://github.com/Broiler-Platform/Broiler.Layout/issues/7) — **implemented upstream; adoption reverted, [see above](#the-transform-resolver-attempted-and-reverted)** |
-| `elementFromPoint`/`elementsFromPoint` paint-order hit testing, recursing the DOM in reverse child order | `DomBridge/HitTesting.cs:74` | ~40 | [Broiler.Layout#6](https://github.com/Broiler-Platform/Broiler.Layout/issues/6) |
-| The SVG `viewBox` user-space mapping, hardcoded to the default `preserveAspectRatio` | `DomBridge/LayoutMetrics.Svg.cs:450` | ~3 | [Broiler.Layout#10](https://github.com/Broiler-Platform/Broiler.Layout/issues/10) |
+| `elementFromPoint`/`elementsFromPoint` paint-order hit testing, recursing the DOM in reverse child order | `DomBridge/HitTesting.cs:74` | ~40 | [Broiler.Layout#6](https://github.com/Broiler-Platform/Broiler.Layout/issues/6) — **implemented upstream; not reachable from here, [see above](#the-paint-order-hit-test-and-what-it-needs)** |
+| ~~The SVG `viewBox` user-space mapping, hardcoded to the default `preserveAspectRatio`~~ | `DomBridge/LayoutMetrics.Svg.cs` | ~3 | [Broiler.Layout#10](https://github.com/Broiler-Platform/Broiler.Layout/issues/10) — **adopted, and the other eight alignments with it** |
 
 The transform engine looked like the clearest case: Layout already had a transform model
 (`IR.TransformItem.Matrix`, `AffineLayerMap`, `SvgTransform`) and the bridge had built a second one
@@ -341,20 +406,32 @@ engine is not a duplicate of the first so much as a more forgiving one, and the 
 load-bearing for two inputs this caller actually sees. The hit-testing one is a correctness gap
 rather than a duplication — a point query needs
 the paint-order model (`IR.Fragment` with `CreatesStackingContext`, `StackLevel`, `TopLayerOrder`),
-and no amount of exposing existing members substitutes for a Layout point-query API.
+and #6 shipped exactly that. It still cannot be called: the query takes a fragment tree this
+component has no public way to obtain, and answers with fragments that name no element. The
+measurements are in [The paint-order hit test, and what it needs](#the-paint-order-hit-test-and-what-it-needs).
 
 ### Broiler.CSS
 
 | What the bridge owns | Where | Lines | Filed |
 | --- | --- | --- | --- |
-| Selector scoping into a shadow tree — parsing selector lists into compounds and combinators | `DomBridgeUtils/Selectors.cs:186` | ~120 | [Broiler.CSS#55](https://github.com/Broiler-Platform/Broiler.CSS/issues/55) |
+| ~~Selector scoping into a shadow tree — parsing selector lists into compounds and combinators~~ | `DomBridgeUtils/Selectors.cs` | ~120 | [Broiler.CSS#55](https://github.com/Broiler-Platform/Broiler.CSS/issues/55) — **adopted, deleted** |
 | `url()` tokenising and rebasing a sheet's relative URLs against its own base | `DomBridgeUtils/Css.cs:240` | ~33 | dropped — see above |
 | The used value of `line-height`, resolved three independent times and never shared | `DomBridgeUtils/AnchorResolver.cs:290` | ~27 | dropped — see above |
 
-The selector one is blocked by a shape, not a gap: `CssSelectorParser.Parse` is public but
-`CssSelector` exposes only `Text` and `Specificity` — no compounds, no combinators, no offsets — so
-the bridge re-parses to get at structure it cannot otherwise see. A public structural selector model
-would delete all 120 lines.
+The selector one was blocked by a shape, not a gap: `CssSelectorParser.Parse` is public but
+`CssSelector` exposed only `Text` and `Specificity` — no compounds, no combinators, no offsets — so
+the bridge re-parsed to get at structure it could not otherwise see.
+
+**Closed, and the scans are gone** — `0.1.0-preview.6` adds `Compounds`, `Combinators` and
+`Subject`, each compound carrying `Start`/`Length`/`TypeSelectorEnd`/`PseudoElementStart` as offsets
+into the selector's own text, and `CssSyntax.SplitTopLevel` for the comma split above them. The
+rewrite is now one `Insert` at `Subject.TypeSelectorEnd`, and it turned out not to be a preserving
+substitution: the old scans corrupted a selector carrying a comment, split on a comma inside a
+comment or behind a backslash, and marked a `-`-initial or escaped type selector before the type
+selector rather than after it. Old and new were run against each other over 177,217 generated
+preludes plus four further alphabets, with zero differences on well-formed input outside those two
+classes. The `:host`/`::slotted`/`::part` guard is unchanged and now reads the parsed subject
+compound.
 
 `line-height` being resolved three times **within this component** is worth fixing here regardless of
 where it eventually lives; see the open items below.
