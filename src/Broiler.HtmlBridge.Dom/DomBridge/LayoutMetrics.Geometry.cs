@@ -283,7 +283,42 @@ public sealed partial class DomBridge
             : 0;
     }
 
+    /// <summary>
+    /// The one exit every length evaluation passes through, so a non-finite one is refused in a
+    /// single place rather than in each unit's branch.
+    /// </summary>
+    /// <remarks>
+    /// Every branch below parses with <see cref="NumberStyles.Float"/>, which accepts .NET's
+    /// symbolic forms, and an exponent can overflow a double on its own — so <c>Infinityem</c> and
+    /// <c>1e400px</c> both used to arrive here as successful lengths. What is behind this method is
+    /// geometry that multiplies and adds what it is given without clamping, so an infinity reaches
+    /// script: <c>border-top-width: 1e400px</c> answered <c>element.clientTop === Infinity</c>.
+    /// <para>
+    /// A guard per branch would have to be repeated for every unit and every future one, and the
+    /// recursive <c>calc()</c> paths call back through here, so each part is checked on its own way
+    /// out too. An unparseable length and an unrepresentable one are both "not a length".
+    /// </para>
+    /// </remarks>
     private bool TryEvaluateCssLengthWithViewport(
+        string value,
+        DomElement? referenceElement,
+        bool forLineHeight,
+        double? percentageBasis,
+        out double result,
+        bool forFontSize = false)
+    {
+        if (!TryEvaluateCssLengthCore(
+                value, referenceElement, forLineHeight, percentageBasis, out result, forFontSize) ||
+            !double.IsFinite(result))
+        {
+            result = 0;
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool TryEvaluateCssLengthCore(
         string value,
         DomElement? referenceElement,
         bool forLineHeight,
