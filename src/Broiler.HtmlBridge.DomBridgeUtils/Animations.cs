@@ -495,12 +495,12 @@ public static partial class DomBridgeUtils
             // `translate(calc(1px + 2px), 0)` closes at its own ')', not calc's. The hand-scan this
             // replaces took the first ')' and truncated the argument list there.
             //
-            // FindMatching answers text.Length - 1 when nothing matches rather than -1, so the
-            // landing character is what says whether a close was really found. Without that test an
-            // unterminated `translateY(` would take the rest of the string as its argument, where
-            // the hand-scan dropped the function and kept the ones before it.
+            // No match is -1 (Broiler.CSS #54; it used to be text.Length - 1, which for a value
+            // ending in '(' is the opening index itself, so the guard here had to compare the two
+            // indices and then check the landing character). An unterminated `translateY(` would
+            // otherwise take the rest of the string as its argument.
             var close = CssSyntax.FindMatching(transform, open, '(', ')');
-            if (close <= open || transform[close] != ')')
+            if (close < 0)
                 break;
 
             var name = transform[position..open].Trim().ToLowerInvariant();

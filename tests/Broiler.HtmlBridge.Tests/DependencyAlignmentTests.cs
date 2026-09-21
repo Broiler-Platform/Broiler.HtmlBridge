@@ -562,12 +562,17 @@ public class DependencyAlignmentTransformSplitTests
 
     /// <summary>
     /// PRESERVED: a function whose parenthesis never closes contributes nothing, leaves any
-    /// complete function before it standing, and — the point of these cases — does not throw.
-    /// <c>FindMatching</c> reports <c>text.Length - 1</c> rather than <c>-1</c> when it finds no
-    /// match, which for a value ending in <c>'('</c> is the opening index itself; the guard compares
-    /// the two indices, so the argument range below it stays in bounds. The values arrive as a
-    /// presentation attribute because an unclosed function does not survive the CSS declaration
-    /// parser.
+    /// complete function before it standing, and — the point of these cases — does not throw. The
+    /// values arrive as a presentation attribute because an unclosed function does not survive the
+    /// CSS declaration parser.
+    /// <para>
+    /// These three answers are what the guard on <c>FindMatching</c> has to keep producing, and the
+    /// guard has changed shape under them: it used to compare the returned index against the
+    /// opening one and then check the landing character, because no match was reported as
+    /// <c>text.Length - 1</c>. It is now the sign test the name suggests — see
+    /// <see cref="AnUnmatchedParenthesisIsReportedAsMinusOne"/> for the dependency contract that
+    /// makes the two the same test.
+    /// </para>
     /// </summary>
     [Theory]
     [InlineData("translateY(", "0")]
@@ -575,6 +580,25 @@ public class DependencyAlignmentTransformSplitTests
     [InlineData("translateY(20px) translateX(", "20")]
     public void AnUnclosedFunctionIsDroppedWithoutDisturbingTheRest(string transformAttribute, string expectedTop) =>
         Assert.Equal(expectedTop, RectTopOf($"<div id=\"t\" transform=\"{transformAttribute}\"></div>"));
+
+    /// <summary>
+    /// CHANGED, in the dependency: <c>CssSyntax.FindMatching</c> answers <c>-1</c> when nothing
+    /// closes the opening character (Broiler.CSS #54). It used to answer <c>text.Length - 1</c>,
+    /// which is a valid index into the string and for a value ending in <c>'('</c> is the opening
+    /// index itself — so a caller could not read the sign and had to test where it landed instead.
+    /// <para>
+    /// This is pinned as a case of its own because the split above no longer demonstrates it: the
+    /// old guard and the new one agree on every input, which is what makes replacing one with the
+    /// other safe and also means no behaviour test can tell them apart. What the new guard rests on
+    /// is this contract, so this is the case that fails if a later bump takes the sentinel back.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData("translateY(")]
+    [InlineData("translateY(20px")]
+    [InlineData("translateY(20px) translateX(")]
+    public void AnUnmatchedParenthesisIsReportedAsMinusOne(string value) =>
+        Assert.Equal(-1, Broiler.CSS.CssSyntax.FindMatching(value, value.LastIndexOf('('), '(', ')'));
 
     /// <summary>
     /// A layout view that gives an element with a declared <c>id</c> exactly the border box named
