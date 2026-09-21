@@ -302,6 +302,22 @@ outside the subtree being measured, where a scroll container counted content tha
 .NET's symbolic forms, so `"Infinitypx"` was a *successful* parse feeding an infinity into geometry
 behind ~94 call sites. `CssValueParser.TryParseNumeric` requires a digit.
 
+> **This claim was too broad, and the correction is worth reading.** Closing `TryParsePx` closed one
+> route, and tier A read as though it had closed the problem. It had not. The length evaluator on the
+> other side — `DomBridge.TryEvaluateCssLengthWithViewport` — guarded only `double.IsNaN`, and every
+> one of its unit branches parses with `NumberStyles.Float` of its own. So `border-top-width: 1e400px`
+> still answered `element.clientTop === Infinity`, as did `1e400em`, `1e400rem`, `1e400vw`,
+> `calc(1e400px)` — and `Infinityem` and `Infinityrem`, the very spelling this paragraph claims to
+> have removed.
+>
+> Two lessons, both general. First, an exponent overflows a double **without any symbol in it**, so a
+> guard written against the symbolic spellings misses `1e400px` entirely; the test has to be
+> finiteness, not a digit. Second, the fix belongs at the *exit* rather than in each unit's branch,
+> because a guard per branch has to be repeated for every future unit and the `calc()` paths recurse
+> back through the same evaluation. That is how it is now written, and
+> `tests/NonFiniteLengthTests.cs` reads it back through `clientTop` — what a page observes — rather
+> than through the helper.
+
 ### Reverted after review: the selector matcher (A7)
 
 `DomBridgeUtils.SimpleMatchesElement` is a hand-rolled matcher whose own comment admits it is "very

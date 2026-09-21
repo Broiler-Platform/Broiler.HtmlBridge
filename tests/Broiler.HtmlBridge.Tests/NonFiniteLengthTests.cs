@@ -49,13 +49,18 @@ public class NonFiniteLengthTests
     [InlineData("1e400rem")]
     [InlineData("1e400vw")]
     [InlineData("1e400vh")]
+    [InlineData("1e400ch")]
+    [InlineData("1e400%")]
     // the symbolic forms NumberStyles.Float admits
     [InlineData("Infinitypx")]
     [InlineData("Infinityem")]
     [InlineData("Infinityrem")]
     [InlineData("-Infinityem")]
+    [InlineData("Infinityvw")]
+    [InlineData("-Infinityrem")]
     [InlineData("NaNpx")]
     [InlineData("NaNem")]
+    [InlineData("NaNrem")]
     // and through calc(), which recurses back into the same evaluation
     [InlineData("calc(1e400px)")]
     [InlineData("calc(1e400px + 1px)")]
