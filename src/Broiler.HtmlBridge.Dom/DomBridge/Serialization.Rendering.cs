@@ -516,6 +516,19 @@ public sealed partial class DomBridge
         SetAttr(element, attributeName, ScaleSvgPathRegex().Replace(value, match => ScaleSvgNumericMatch(match, usedZoom)));
     }
 
+    /// <summary>
+    /// An SVG length attribute scaled by the element's used zoom, or no answer at all when there
+    /// is no scaled number this component can represent.
+    /// </summary>
+    /// <remarks>
+    /// Every exit that produces a number formats it through <see cref="TryFormatScaledSvgLength"/>,
+    /// which is where the refusal lives, because the scale is a multiplication: the zoom is finite
+    /// (<c>ResolveUsedZoom</c> refuses one that is not) and the attribute may be too, and their
+    /// product still need not be — at <c>zoom: 2</c>, <c>width="1e308"</c> used to serialize as
+    /// <c>width="Infinity"</c>. Declining leaves the attribute exactly as the page wrote it, which
+    /// is what this method already answers for a percentage, an unreadable token, or a unit whose
+    /// zoom factor is 1.
+    /// </remarks>
     private bool TryScaleSvgLengthToken(DomElement element, string value, double usedZoom, out string scaled)
     {
         scaled = string.Empty;
@@ -526,8 +539,7 @@ public sealed partial class DomBridge
         if (double.TryParse(trimmed, System.Globalization.NumberStyles.Float,
             System.Globalization.CultureInfo.InvariantCulture, out var unitlessNumber))
         {
-            scaled = (unitlessNumber * usedZoom).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
-            return true;
+            return TryFormatScaledSvgLength(unitlessNumber * usedZoom, string.Empty, out scaled);
         }
 
         foreach (var unit in SvgZoomScaledUnits)
@@ -544,20 +556,33 @@ public sealed partial class DomBridge
 
             if (TryResolveSvgFontRelativeUnitPixels(element, unit, out var unitPixels))
             {
-                scaled = (number * unitPixels * usedZoom)
-                    .ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
-                return true;
+                return TryFormatScaledSvgLength(number * unitPixels * usedZoom, string.Empty, out scaled);
             }
 
             var factor = ResolveSvgLengthZoomFactor(element, unit, usedZoom);
             if (Math.Abs(factor - 1.0) < ZoomSerializationEpsilon)
                 return false;
 
-            scaled = $"{(number * factor).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}{unit}";
-            return true;
+            return TryFormatScaledSvgLength(number * factor, unit, out scaled);
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The scaled length written back into the attribute, or no answer when it is not a number
+    /// this component can represent. The single place the refusal above is read.
+    /// </summary>
+    private static bool TryFormatScaledSvgLength(double value, string unit, out string scaled)
+    {
+        if (!double.IsFinite(value))
+        {
+            scaled = string.Empty;
+            return false;
+        }
+
+        scaled = value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + unit;
+        return true;
     }
 
     private bool TryResolveSvgFontRelativeUnitPixels(DomElement element, string unit, out double pixels)
