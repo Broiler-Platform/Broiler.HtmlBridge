@@ -57,7 +57,7 @@ public sealed partial class DomBridge
         // element stays behind: that element's children and attributes are carried into the persistent
         // DocumentElement below. The doctype goes first, before DocumentElement is appended, because a
         // canonical DomDocument requires doctype-before-element.
-        var parsed = HtmlDocumentParser.ParseDocument(html);
+        var parsed = HtmlDocumentParser.ParseDocument(html, document: null, NavigationParseOptions);
         var docElement = parsed.Document.DocumentElement ??
             throw new InvalidOperationException("The shared HTML parser did not produce a document element.");
         if (parsed.Document.DocumentType is { } doctype)
@@ -91,7 +91,12 @@ public sealed partial class DomBridge
         if (!_document.ChildNodes.Contains(DocumentElement))
             _document.AppendChild(DocumentElement);
 
-        AttachDeclarativeShadowRoots(DocumentElement);
+        // The shadow roots the tree builder attached are real ones on real hosts, and the pass that
+        // confines a shadow tree's own style rules to that tree is skipped outright for a document
+        // that has never attached one — a flag only attachShadow() used to set, and which the
+        // post-parse pass this replaces set as it attached. Asking the finished tree once is
+        // strictly less work than that walk-plus-attach was.
+        _hasShadowRoots |= GetDescendantShadowRoots(DocumentElement).Any();
 
         // Stylesheet discovery is document-scoped and lazy through the shared
         // CssStyleEngine. A rebuilt document must not retain the prior engines.
@@ -99,96 +104,28 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// HTML §4.12.3: turns every <c>&lt;template shadowrootmode="open|closed"&gt;</c> into a real
-    /// shadow root on its parent — the declarative counterpart of <c>attachShadow()</c>. The template
-    /// contributes its children to the new root and is then dropped from the tree.
+    /// The switches the markup cannot answer for a <b>navigation</b>'s parse — the entry point
+    /// <see cref="ParseHtml"/> is, in the Standard's terms.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The spec does this inside the tree builder, as the template's end tag is seen. Doing it as a
-    /// pass over the finished tree is equivalent for a parsed document — nothing observes the
-    /// intermediate state, because script has not run yet — and keeps the shared
-    /// <c>HtmlDocumentParser</c> free of a bridge-only concept.
+    /// Declarative shadow roots are on, because HTML §13.2.6.4.4 gates
+    /// <c>&lt;template shadowrootmode&gt;</c> on the document's "allow declarative shadow roots" flag,
+    /// and navigation is one of the entry points that sets it. The flag is the caller's to supply —
+    /// the parser cannot see which entry point it is serving, and its conservative default is what
+    /// keeps markup of unknown provenance from silently growing shadow trees.
     /// </para>
     /// <para>
-    /// Only the shadow root is new here: everything downstream of it (styling the shadow tree,
-    /// flattening the <c>#shadow-root</c> wrapper for the renderer, capturing it in a view
-    /// transition) is the same machinery <c>attachShadow()</c> already drove, which is why
-    /// imperative shadow content rendered while declarative content did not.
+    /// <b>The fragment paths deliberately do not take these options.</b> <c>innerHTML</c> is the entry
+    /// point the Standard singles out as NOT setting the flag — that is what the "unsafe" in
+    /// <c>setHTMLUnsafe</c> is about — so <c>TryBuildInnerHtmlFragmentContainer</c> keeps the overload
+    /// without them. Nor do the two sub-document parses (a frame's resource, and <c>document.write</c>
+    /// into one): the pass this replaces never reached those either, and turning the flag on there
+    /// would be a behaviour change no finding asked for.
     /// </para>
     /// </remarks>
-    private void AttachDeclarativeShadowRoots(DomElement root)
-    {
-        // Depth-first with an explicit stack: a shadow tree may itself contain declarative shadow
-        // roots, and those templates only become reachable once their content has been moved.
-        var pending = new Stack<DomNode>();
-        pending.Push(root);
-
-        while (pending.Count > 0)
-        {
-            var current = pending.Pop();
-
-            for (var index = current.ChildNodes.Count - 1; index >= 0; index--)
-            {
-                if (current.ChildNodes[index] is not DomElement child)
-                    continue;
-
-                if (current is DomElement element &&
-                    TryTakeDeclarativeShadowRoot(element, child, index, out var shadowRoot))
-                {
-                    pending.Push(shadowRoot);
-                    continue;
-                }
-
-                pending.Push(child);
-            }
-        }
-    }
-
-    /// <summary>
-    /// When <paramref name="child"/> is a declarative shadow-root template of <paramref name="host"/>,
-    /// moves its children into a freshly attached shadow root, removes the template, and returns the
-    /// root. Returns <see langword="false"/> for anything else, leaving the tree untouched.
-    /// </summary>
-    private bool TryTakeDeclarativeShadowRoot(
-        DomElement host, DomElement child, int childIndex, out DomShadowRoot shadowRoot)
-    {
-        shadowRoot = null!;
-
-        if (!string.Equals(child.TagName, "template", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var mode = child.GetAttribute("shadowrootmode")?.Trim();
-        if (!string.Equals(mode, "open", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(mode, "closed", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        // "Only the first declarative shadow root wins": a second template on the same host is an
-        // ordinary inert <template>, per the spec's already-has-a-shadow-root check.
-        if (host.InternalShadowRoot is not null)
-            return false;
-
-        var shadowMode = string.Equals(mode, "closed", StringComparison.OrdinalIgnoreCase)
-            ? DomShadowRootMode.Closed
-            : DomShadowRootMode.Open;
-        _hasShadowRoots = true;
-        try
-        {
-            shadowRoot = host.AttachShadow(shadowMode);
-        }
-        catch (DomException)
-        {
-            return false;
-        }
-
-        foreach (var content in child.ChildNodes.ToArray())
-        {
-            shadowRoot.AppendChild(content);
-        }
-
-        RemoveNthChild(host, childIndex);
-        return true;
-    }
+    private static readonly HtmlParseOptions NavigationParseOptions =
+        new(AllowDeclarativeShadowRoots: true);
 }
 
 /// <summary>
