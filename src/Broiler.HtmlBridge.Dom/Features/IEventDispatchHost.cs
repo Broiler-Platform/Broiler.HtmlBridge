@@ -30,20 +30,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// per-node mutable store is not something a dispatching module should be handed, so the contract asks
 /// for the one handler it will fire.
 /// </para>
+/// <para>
+/// The inherited <see cref="IDocumentNodeHost.DocumentNode"/> is the top of the propagation path.
+/// </para>
 /// </remarks>
-internal interface IEventDispatchHost
+internal interface IEventDispatchHost : IDocumentNodeHost, INodeWrapperHost, IRealmHost
 {
-    /// <summary>
-    /// The realm the event object's members are installed in and its listeners are called through.
-    /// </summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
-    /// <summary>The main document root node (the top of the event propagation path).</summary>
-    DomNode DocumentNode { get; }
-
     /// <summary>The JS <c>document</c> wrapper, used as the event target/currentTarget when the
     /// document node is on the path; not an object before the document global is installed.</summary>
     JsValue DocumentWrapper { get; }

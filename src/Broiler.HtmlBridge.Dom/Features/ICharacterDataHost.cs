@@ -16,11 +16,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="IJsCalls.DomError"/> owns that now, reached from the call frame each operation already
 /// has.
 /// </remarks>
-internal interface ICharacterDataHost
+internal interface ICharacterDataHost : INodeWrapperHost, ITextNodeFactoryHost
 {
     void SetCharacterData(DomNode node, string? value);
-    DomText CreateBridgeTextNode(string data);
-
-    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
 }

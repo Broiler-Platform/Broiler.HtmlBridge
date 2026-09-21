@@ -16,6 +16,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// called directly and are not part of this contract.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The whole contract is spelled in JSEAL: a JS object is a <see cref="JsValue"/>, and beside
 /// <see cref="Realm"/> it carries no script context. Raising a <c>DOMException</c> from the two name
 /// validations and the selector check, and building the collections, are named operations instead
@@ -23,24 +24,26 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="ValidateSelector"/>, <see cref="NodeList"/>/<see cref="HtmlCollection"/>/
 /// <see cref="DocumentCollection"/>). The module says what it wants done and which engine does it is
 /// the bridge's business.
+/// </para>
+/// <para>
+/// Three inherited members carry a condition of their own here: the sub-document surface is only
+/// reachable after attach, so <see cref="Realm"/> — which this module also raises its errors through —
+/// is never null for it; <see cref="ISelectorMatchHost.ValidateSelector"/> is a no-op before the
+/// bridge is attached, there being no realm to raise a <c>DOMException</c> in; and
+/// <see cref="ISelectorMatchHost.MatchesSelector"/> is a host member rather than a static helper
+/// because it reads the per-bridge <c>:checked</c> state. A sub-document's element list is read the
+/// way the main document's is, from the root's own <c>InclusiveDescendants</c>, so there is one
+/// definition of "the elements of this document" rather than a second walk that could order or filter
+/// them differently.
+/// </para>
 /// </remarks>
-internal interface ISubDocumentHost
+internal interface ISubDocumentHost : IJsObjectHost, INameValidationHost, INodeInsertionHost, IRealmHost, ISelectorMatchHost
 {
-    /// <summary>
-    /// The realm every object this module builds belongs to, and through which it raises errors.
-    /// Never null while a document is attached; the sub-document surface is only reachable after
-    /// attach.
-    /// </summary>
-    IJsRealm Realm { get; }
-
     /// <summary>
     /// The main window object, used for the sub-document's <c>defaultView</c>, or a non-object when
     /// the bridge has no window yet.
     /// </summary>
     JsValue MainWindow { get; }
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue ToJsObject(DomNode node);
 
     /// <summary>Points a wrapper at a named interface's prototype. A sub-document object is built
     /// rather than minted as a node wrapper, so it does not pass the choke point that links every
@@ -80,23 +83,6 @@ internal interface ISubDocumentHost
 
     /// <summary>Mints a canonical <c>DomDocument</c> browsing-context root.</summary>
     DomDocument CreateBrowsingContextDocument();
-
-    // -------- name and selector validation --------
-
-    /// <summary>Throws an <c>InvalidCharacterError</c> when <paramref name="name"/> is not a valid
-    /// element name (DOM's Name production).</summary>
-    void ValidateElementName(string name);
-
-    /// <summary>Throws an <c>InvalidCharacterError</c> or a <c>NamespaceError</c> when
-    /// <paramref name="qualifiedName"/> is malformed, or is inconsistent with <paramref name="ns"/>.</summary>
-    void ValidateQualifiedName(string qualifiedName, string? ns);
-
-    /// <summary>
-    /// Throws a <c>SyntaxError</c> <c>DOMException</c> when <paramref name="selector"/> is not a valid
-    /// selector list (DOM §4.2.6), and returns quietly when it is. A no-op before the bridge is
-    /// attached: there is then no realm to raise a <c>DOMException</c> in.
-    /// </summary>
-    void ValidateSelector(string selector);
 
     // -------- collections --------
 
@@ -154,13 +140,6 @@ internal interface ISubDocumentHost
     /// <inheritdoc cref="BuildTreeWalker"/>
     JsValue BuildNodeIterator(DomElement root, int whatToShow, JsValue filter);
 
-    // A sub-document's element list is read the way the main document's is, from the root's own
-    // InclusiveDescendants, so there is one definition of "the elements of this document" rather
-    // than a second walk that could order or filter them differently.
-    // Selector matching is a host member rather than a static helper: it reads the per-bridge
-    // `:checked` state.
-    bool MatchesSelector(DomElement element, string selector, DomElement? scope = null);
-
     // -------- mutation seams (append/prepend on the sub-document) --------
 
     /// <summary>
@@ -169,8 +148,6 @@ internal interface ISubDocumentHost
     /// coerced to a string and minted as a text node.
     /// </summary>
     List<DomNode> BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments);
-
-    void InsertNodeAt(DomNode parent, DomNode node, int index);
 
     // -------- view transitions --------
 

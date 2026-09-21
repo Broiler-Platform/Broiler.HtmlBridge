@@ -17,10 +17,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// member behind the factory answers the handle the browsing-context cache holds, so neither side of
 /// this contract converts.
 /// </remarks>
-internal interface IObjectElementHost
+internal interface IObjectElementHost : IPageUrlHost, ISubDocumentFactoryHost
 {
-    string PageUrl { get; }
     void InvalidateCachedSubDocument(DomElement containerElement);
     bool IsObjectLoadFailed(DomElement objectElement);
-    JsValue GetOrCreateSubDocument(DomElement containerElement);
 }

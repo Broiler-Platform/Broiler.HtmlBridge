@@ -18,25 +18,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// A collection is minted in a realm, so <see cref="Realm"/> is what the module asks for, and both
 /// implementers have one — the bridge, and the sub-document host the frame projection delegates to.
 /// </para>
+/// <para>
+/// Two inherited members carry a condition of their own here: a document collection is only reachable
+/// after attach, so <see cref="Realm"/> is never null for this module, and <see cref="Elements"/> is
+/// recomputed per read — which is what makes these collections live — with <c>links</c> and
+/// <c>scripts</c> filtered out of that one list rather than collected separately.
+/// </para>
 /// </remarks>
-internal interface IDocumentCollectionHost
+internal interface IDocumentCollectionHost : IElementsHost, INodeWrapperHost, IRealmHost
 {
-    /// <summary>
-    /// The realm the collections this module builds belong to. Never null while a document is
-    /// attached; a document collection is only reachable after attach.
-    /// </summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
-    /// <summary>
-    /// Every element in the document, in tree order, recomputed per read — which is what makes the
-    /// collections built over it live. <c>links</c> and <c>scripts</c> are filtered out of this one
-    /// list rather than collected separately, so a document has only one element ordering.
-    /// </summary>
-    IReadOnlyList<DomElement> Elements { get; }
-
     /// <summary>
     /// Index into <see cref="Elements"/> of the <c>&lt;script&gt;</c> element whose program the host
     /// is evaluating right now, or a negative value when no script is running. The same insertion

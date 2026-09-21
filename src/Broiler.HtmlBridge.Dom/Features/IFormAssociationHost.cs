@@ -18,17 +18,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// own label walk and wraps each element on every read, and gets a handle back — the same shape
 /// <c>ISelectorsHost.ElementsByTagName</c> takes.
 /// </remarks>
-internal interface IFormAssociationHost
+internal interface IFormAssociationHost : IElementsHost, INodeWrapperHost, IRealmHost
 {
-    /// <summary>The realm the <c>form</c>/<c>labels</c>/<c>control</c> accessors are installed in.</summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
-    /// <summary>Every element in the document, in document order.</summary>
-    IReadOnlyList<DomElement> Elements { get; }
-
     /// <summary>The element carrying <paramref name="id"/>, or <see langword="null"/>.</summary>
     DomElement? GetElementById(string id);
 

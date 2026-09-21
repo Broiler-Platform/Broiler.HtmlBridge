@@ -26,12 +26,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// names no engine type.
 /// </para>
 /// </remarks>
-internal interface IEventTargetHost
+internal interface IEventTargetHost : IRealmHost
 {
-    /// <summary>The realm the synthetic <c>click</c>/<c>submit</c>/<c>focus</c>/<c>blur</c> event
-    /// objects are built in.</summary>
-    IJsRealm Realm { get; }
-
     Dictionary<string, List<EventListenerRegistration>> GetEventListeners(DomNode element);
 
     /// <summary>

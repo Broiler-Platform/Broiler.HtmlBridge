@@ -13,23 +13,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// inline-handler compiler and the CSS invalidation route); the module reaches each through a named
 /// seam here, implemented explicitly on <see cref="DomBridge"/> so the public surface is unchanged.
 /// </summary>
-internal interface IAttributesHost
+internal interface IAttributesHost : IRealmHost, IStyleInvalidationHost
 {
-    /// <summary>
-    /// The realm the <c>Attr</c> wrappers are built in. It is what the module's <c>Attr</c> object
-    /// model creates and reads members through.
-    /// </summary>
-    IJsRealm Realm { get; }
-
     /// <summary>Applies a <c>style</c> attribute value to the element's inline style declaration
     /// (clearing and reparsing it) and invalidates the element's style scope.</summary>
     void ApplyStyleAttribute(DomElement element, string value);
 
     /// <summary>Compiles an <c>on*</c> inline event-handler attribute into a listener on the element.</summary>
     void CompileInlineEventAttribute(DomElement element, string attributeName, string code);
-
-    /// <summary>Invalidates the element's style scope so an attribute change re-cascades.</summary>
-    void InvalidateStyleScope(DomElement element);
 
     /// <summary>Points a wrapper at a named interface's prototype. Needed here because an attribute
     /// is not a <c>DomNode</c>, so its wrapper is not minted at the choke point that links every

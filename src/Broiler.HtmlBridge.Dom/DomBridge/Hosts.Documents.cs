@@ -21,12 +21,6 @@ namespace Broiler.HtmlBridge;
 // collection is built over the cached sheet objects themselves and sheet identity is untouched.
 public sealed partial class DomBridge : Dom.Features.IDocumentCollectionHost
 {
-    IJsRealm Dom.Features.IDocumentCollectionHost.Realm => Realm;
-
-    JsValue Dom.Features.IDocumentCollectionHost.WrapNode(DomNode node) => WrapNode(node);
-
-    IReadOnlyList<DomElement> Dom.Features.IDocumentCollectionHost.Elements => Elements;
-
     int Dom.Features.IDocumentCollectionHost.CurrentScriptIndex => CurrentScriptIndex;
 
     JsValue Dom.Features.IDocumentCollectionHost.BuildStyleSheetObject(DomElement styleElement)
@@ -45,8 +39,6 @@ public sealed partial class DomBridge : Dom.Features.IDocumentCollectionHost
 // Features/EventListenerBinding.cs itself.
 public sealed partial class DomBridge : Dom.Features.IDocumentEventTargetHost
 {
-    DomNode Dom.Features.IDocumentEventTargetHost.DocumentNode => _document;
-
     Dictionary<string, List<EventListenerRegistration>> Dom.Features.IDocumentEventTargetHost.GetEventListeners(DomNode node)
         => GetEventListeners(node);
 
@@ -69,9 +61,6 @@ public sealed partial class DomBridge : Dom.Features.IDocumentEventTargetHost
 // back is not a node wrapper: BuildStandaloneAttrNode mints it and no table caches it.
 public sealed partial class DomBridge : Dom.Features.IDocumentFactoryHost
 {
-    // The bridge's own WrapNode, which answers the handle.
-    JsValue Dom.Features.IDocumentFactoryHost.WrapNode(DomNode node) => WrapNode(node);
-
     // Missing rather than undefined for "nothing is defined for this name": the module tests it with
     // IsMissing and never hands it to script, which is what the null check it replaces did. The
     // IsObject filter is kept rather than delegating outright, so a non-object answer still reads as
@@ -107,9 +96,6 @@ public sealed partial class DomBridge : Dom.Features.IDocumentFactoryHost
         return element;
     }
 
-    DomText Dom.Features.IDocumentFactoryHost.CreateBridgeTextNode(string data)
-        => CreateBridgeTextNode(data);
-
     DomDocumentFragment Dom.Features.IDocumentFactoryHost.CreateBridgeDocumentFragment()
         => CreateBridgeDocumentFragment();
 
@@ -124,14 +110,6 @@ public sealed partial class DomBridge : Dom.Features.IDocumentFactoryHost
 
     DomNode Dom.Features.IDocumentFactoryHost.CloneDomNode(DomNode source, bool deep)
         => CloneDomElement(source, deep);
-
-    // Both validations raise their DOMException against the realm, through IJsCalls.DomError. They
-    // took a script context until the validators did.
-    void Dom.Features.IDocumentFactoryHost.ValidateElementName(string name)
-        => ValidateElementName(name, Realm);
-
-    void Dom.Features.IDocumentFactoryHost.ValidateQualifiedName(string qualifiedName, string? ns)
-        => ValidateQualifiedName(qualifiedName, ns, Realm);
 }
 
 // Explicit IDocumentLevelFactoryHost implementation for the DocumentLevelFactoryBinding feature
@@ -146,9 +124,6 @@ public sealed partial class DomBridge : Dom.Features.IDocumentFactoryHost
 // keys on JsValue.ObjectIdentity.
 public sealed partial class DomBridge : Dom.Features.IDocumentLevelFactoryHost
 {
-    JsValue Dom.Features.IDocumentLevelFactoryHost.ToJsObject(DomNode node) =>
-        WrapNode(node);
-
     // A plain forward: the reverse lookup takes the same handle. There is no unwrap left to fail, and
     // a handle that is not an object answers null — which the module's own IsObject guard still means
     // this never has to do.
@@ -164,23 +139,12 @@ public sealed partial class DomBridge : Dom.Features.IDocumentLevelFactoryHost
     DomElement Dom.Features.IDocumentLevelFactoryHost.CreateBridgeElementNS(string? namespaceUri, string tagName)
         => CreateBridgeElementNS(namespaceUri, tagName);
 
-    DomText Dom.Features.IDocumentLevelFactoryHost.CreateBridgeTextNode(string data)
-        => CreateBridgeTextNode(data);
-
     DomDocument Dom.Features.IDocumentLevelFactoryHost.CreateBrowsingContextDocument()
         => CreateBrowsingContextDocument();
 
     // Build answers the handle.
     JsValue Dom.Features.IDocumentLevelFactoryHost.BuildDocument(DomNode docRoot)
         => _subDocuments.Build(docRoot);
-
-    // Both validations raise their DOMException against the realm, through IJsCalls.DomError. They
-    // took a script context until the validators did.
-    void Dom.Features.IDocumentLevelFactoryHost.ValidateElementName(string name)
-        => ValidateElementName(name, Realm);
-
-    void Dom.Features.IDocumentLevelFactoryHost.ValidateQualifiedName(string qualifiedName, string? ns)
-        => ValidateQualifiedName(qualifiedName, ns, Realm);
 }
 
 // Explicit IDocumentQueryHost implementation for the DocumentQueryBinding feature module:
@@ -193,21 +157,6 @@ public sealed partial class DomBridge : Dom.Features.IDocumentLevelFactoryHost
 // selector validation raises its DOMException through the realm. Nothing is unwrapped here.
 public sealed partial class DomBridge : Dom.Features.IDocumentQueryHost
 {
-    JsValue Dom.Features.IDocumentQueryHost.ToJsObject(DomNode node) => WrapNode(node);
-
-    DomElement Dom.Features.IDocumentQueryHost.DocumentElement => DocumentElement;
-
-    IReadOnlyList<DomElement> Dom.Features.IDocumentQueryHost.Elements => Elements;
-
-    bool Dom.Features.IDocumentQueryHost.MatchesSelector(DomElement element, string selector, DomElement? scope)
-        => MatchesSelector(element, selector, scope);
-
-    // The realm is what the DOMException is constructed against, and having none (no bridge attached
-    // yet) means the validation is skipped — exactly as when the module passed host.JsContext straight
-    // back to this helper and a null context meant the same thing.
-    void Dom.Features.IDocumentQueryHost.ValidateSelector(string selector) =>
-        ValidateSelector(selector);
-
     JsValue Dom.Features.IDocumentQueryHost.NodeList(Func<List<JsValue>> contents) =>
         Dom.Features.DomCollectionBinding.NodeList(Realm, contents);
 
@@ -225,11 +174,6 @@ public sealed partial class DomBridge : Dom.Features.IDocumentQueryHost
 // WrapNode, which answers the handle the realm minted, and nothing here converts.
 public sealed partial class DomBridge : Dom.Features.IDocumentStructureHost
 {
-    JsValue Dom.Features.IDocumentStructureHost.ToJsObject(DomNode node) =>
-        WrapNode(node);
-
-    DomElement Dom.Features.IDocumentStructureHost.DocumentElement => DocumentElement;
-
     string Dom.Features.IDocumentStructureHost.Title
     {
         get => Title;
@@ -243,10 +187,6 @@ public sealed partial class DomBridge : Dom.Features.IDocumentStructureHost
 // private field and the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IDocumentWriteHost
 {
-    Broiler.Dom.DomElement Dom.Features.IDocumentWriteHost.DocumentElement => DocumentElement;
-
-    IReadOnlyList<Broiler.Dom.DomElement> Dom.Features.IDocumentWriteHost.Elements => Elements;
-
     int Dom.Features.IDocumentWriteHost.CurrentScriptIndex => CurrentScriptIndex;
 }
 
@@ -273,18 +213,11 @@ public sealed partial class DomBridge : Dom.Features.IDocumentWriteHost
 /// </remarks>
 public sealed partial class DomBridge : ISubDocumentHost
 {
-    IJsRealm ISubDocumentHost.Realm => Realm;
-
     // Missing rather than undefined for "there is no window yet": the module tests it with IsObject,
     // and the value is never handed to script — the null check it replaces guarded the same thing.
     // That is exactly what the bridge's window root holds, so this forwards WindowHandle
     // (DomBridge.cs) as it stands.
     JsValue ISubDocumentHost.MainWindow => WindowHandle;
-
-    // A plain forward to the bridge's wrapper factory (DomBridge/JsObjects.cs), which answers a handle.
-    // Until 5282d02 this read FromEngineObject(ToJSObject(node)), when ToJSObject was the engine-typed
-    // factory itself; 5282d02 made ToJSObject a cast over WrapNode, and bcce315 retired it.
-    JsValue ISubDocumentHost.ToJsObject(DomNode node) => WrapNode(node);
 
     void ISubDocumentHost.LinkToInterface(JsValue wrapper, string interfaceName) =>
         LinkToInterface(wrapper, interfaceName);
@@ -338,16 +271,6 @@ public sealed partial class DomBridge : ISubDocumentHost
         CreateBridgeDocumentType(name, publicId, systemId);
     DomDocument ISubDocumentHost.CreateBrowsingContextDocument() => CreateBrowsingContextDocument();
 
-    // The three validations raise their DOMException against the realm, through IJsCalls.DomError.
-    // They took a script context until the validators did. The selector check is the one that
-    // tolerates having no realm — it is a no-op before attach, as it always has been.
-    void ISubDocumentHost.ValidateElementName(string name) => ValidateElementName(name, Realm);
-
-    void ISubDocumentHost.ValidateQualifiedName(string qualifiedName, string? ns) =>
-        ValidateQualifiedName(qualifiedName, ns, Realm);
-
-    void ISubDocumentHost.ValidateSelector(string selector) => ValidateSelector(selector);
-
     // The three collection seams are straight forwards: both builders mint in a realm and speak in
     // handles, so the wrapper list the module produces is the list the collection holds and the named
     // getter it supplies is the one the collection consults.
@@ -389,9 +312,6 @@ public sealed partial class DomBridge : ISubDocumentHost
     JsValue ISubDocumentHost.BuildNodeIterator(DomElement root, int whatToShow, JsValue filter) =>
         _traversal.BuildNodeIterator(root, whatToShow, filter);
 
-    bool ISubDocumentHost.MatchesSelector(DomElement element, string selector, DomElement? scope) =>
-        MatchesSelector(element, selector, scope);
-
     /// <summary>
     /// <c>append</c>/<c>prepend</c>'s argument list as canonical nodes.
     /// </summary>
@@ -427,8 +347,6 @@ public sealed partial class DomBridge : ISubDocumentHost
         return nodes;
     }
 
-    void ISubDocumentHost.InsertNodeAt(DomNode parent, DomNode node, int index) => InsertNodeAt(parent, node, index);
-
     /// <summary>
     /// <c>startViewTransition()</c> on the sub-document, over the one argument the operation takes.
     /// </summary>
@@ -457,14 +375,9 @@ public sealed partial class DomBridge : ISubDocumentHost
 /// </remarks>
 public sealed partial class DomBridge : ISubWindowHost
 {
-    IJsRealm ISubWindowHost.Realm => Realm;
-
     // Missing rather than undefined for "there is no window yet": the module tests it with IsObject
     // and never hands it to script, which is what the null check it replaces did.
     JsValue ISubWindowHost.MainWindow => WindowHandle;
-
-    JsValue ISubWindowHost.GetOrCreateSubDocument(DomElement container) =>
-        GetOrCreateSubDocument(container);
 
     DomDocument? ISubWindowHost.GetContentDocument(DomElement container) => GetContentDocument(container);
 
@@ -569,12 +482,7 @@ public sealed partial class DomBridge : ISubWindowHost
 // public interface member cannot be satisfied by a non-public property (CS0737).
 public sealed partial class DomBridge : Dom.Features.IIframeElementHost
 {
-    IJsRealm Dom.Features.IIframeElementHost.Realm => Realm;
-
     bool Dom.Features.IIframeElementHost.IsCurrentIframeCrossOrigin(DomElement element) => IsCurrentIframeCrossOrigin(element);
-
-    JsValue Dom.Features.IIframeElementHost.GetOrCreateSubDocument(DomElement element)
-        => GetOrCreateSubDocument(element);
 
     JsValue Dom.Features.IIframeElementHost.GetOrCreateSubWindow(DomElement element)
         => _subWindows.GetOrCreate(element);
@@ -594,10 +502,6 @@ public sealed partial class DomBridge : Dom.Features.IIframeElementHost
 // compares that handle with itself.
 public sealed partial class DomBridge : Dom.Features.IObjectElementHost
 {
-    string Dom.Features.IObjectElementHost.PageUrl => _pageUrl;
     void Dom.Features.IObjectElementHost.InvalidateCachedSubDocument(DomElement containerElement) => InvalidateCachedSubDocument(containerElement);
     bool Dom.Features.IObjectElementHost.IsObjectLoadFailed(DomElement objectElement) => IsObjectLoadFailed(objectElement);
-
-    JsValue Dom.Features.IObjectElementHost.GetOrCreateSubDocument(DomElement containerElement)
-        => GetOrCreateSubDocument(containerElement);
 }

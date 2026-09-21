@@ -19,7 +19,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// the bridge has no realm before <c>Attach</c> and none after teardown, and the context switch is
 /// expected to degrade to running its callback rather than to throw.
 /// </remarks>
-internal interface IWindowContextHost
+internal interface IWindowContextHost : Features.ISubDocumentFactoryHost
 {
     /// <summary>
     /// The realm the window/document/location/parent/postMessage/self/top bindings live in, or
@@ -34,7 +34,4 @@ internal interface IWindowContextHost
 
     /// <summary>The top-level document object, or <c>undefined</c> when absent.</summary>
     JsValue MainDocumentOrUndefined { get; }
-
-    /// <summary>The sub-document object for a container (a target window's <c>document</c>).</summary>
-    JsValue GetOrCreateSubDocument(DomElement container);
 }

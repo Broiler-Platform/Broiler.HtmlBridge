@@ -6,8 +6,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// visual-viewport scale setter (for <c>window.visualViewport.scale</c>). The other residual singletons
 /// in that module are stateless (or take a by-ref store) and do not use this contract.
 /// </summary>
-internal interface IWindowDocumentMiscHost
+internal interface IWindowDocumentMiscHost : IPageUrlHost
 {
-    string PageUrl { get; }
     void SetVisualViewportScale(double scale);
 }

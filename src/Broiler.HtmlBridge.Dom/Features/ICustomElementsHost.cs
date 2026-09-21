@@ -14,9 +14,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// type. Calling a definition's constructor, calling a reaction and minting a promise are engine
 /// operations with no bridge state behind them, so the registry asks the realm directly through
 /// <see cref="IJsCalls.Construct"/>, <see cref="IJsCalls.Invoke"/> and
-/// <see cref="IJsJobs.NewPromise"/>; <see cref="Realm"/> is the only member this contract needs for
-/// them.
+/// <see cref="IJsJobs.NewPromise"/>; <see cref="IRealmHost.Realm"/> is the only member this contract
+/// needs for them.
 /// </para>
+/// <para>The inherited <see cref="IElementsHost.Elements"/> is the set an upgrade sweeps.</para>
 /// <para>
 /// <b><c>whenDefined</c>'s pending promise is the case worth naming.</b>
 /// <see cref="IJsJobs.NewPromise"/> hands the settle functions back, so the registry stores an
@@ -25,17 +26,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// nothing.
 /// </para>
 /// </remarks>
-internal interface ICustomElementsHost
+internal interface ICustomElementsHost : IElementsHost, INodeWrapperHost, IRealmHost
 {
-    /// <summary>The realm a definition's constructor and its reactions are called in.</summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>Every element in the document, in tree order — the set an upgrade sweeps.</summary>
-    IReadOnlyList<DomElement> Elements { get; }
-
-    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
     /// <summary>The wrapper already minted for <paramref name="element"/>, if any. A reaction is
     /// only ever dispatched to an element a page has seen, so this never mints one.</summary>
     bool TryGetWrapper(DomElement element, out JsValue wrapper);

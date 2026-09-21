@@ -20,16 +20,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// realm is the only engine seam. A <c>DataCloneError</c> is raised through
 /// <see cref="IJsCalls.DomError"/>, and a message payload is structured-cloned through
 /// <see cref="IJsClone.Clone"/>.
+/// <para>
+/// The realm is never null while a document is attached, and the messaging APIs are only reachable
+/// from one — so this contract takes the property rather than a nullable realm of its own.
+/// </para>
 /// </remarks>
-internal interface IMessagingHost
+internal interface IMessagingHost : IRealmHost
 {
-    /// <summary>
-    /// The realm the messaging objects are built in, and through which this module raises a
-    /// <c>DOMException</c>. Never null while a document is attached; the messaging APIs are only
-    /// reachable from an attached document.
-    /// </summary>
-    IJsRealm Realm { get; }
-
     /// <summary>The top-level window wrapper (<see cref="JsValue.Null"/> before attach).</summary>
     JsValue WindowObject { get; }
 

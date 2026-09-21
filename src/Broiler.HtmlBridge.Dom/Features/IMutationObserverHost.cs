@@ -15,17 +15,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the realm: <see cref="IJsSource.EvaluateHostScript"/> for the script, and ordinary property writes
 /// on <see cref="IJsRealm.Global"/> for the two host functions.
 /// </remarks>
-internal interface IMutationObserverHost
+internal interface IMutationObserverHost : INodeWrapperHost, IRealmHost
 {
-    /// <summary>
-    /// The realm the <c>MutationObserver</c> constructor, its host bridge functions and every
-    /// mutation record are built in.
-    /// </summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
     /// <summary>Resolves the canonical node behind a JS wrapper, or null.</summary>
     DomNode? FindNode(JsValue wrapper);
 

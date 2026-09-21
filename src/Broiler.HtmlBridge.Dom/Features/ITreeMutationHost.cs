@@ -24,7 +24,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// resolver, and there is one argument reading.
 /// </para>
 /// </remarks>
-internal interface ITreeMutationHost
+internal interface ITreeMutationHost : INodeInsertionHost, IStyleInvalidationHost
 {
     /// <summary>Resolves the canonical node behind a JS wrapper, or null.</summary>
     DomNode? FindNode(JsValue wrapper);
@@ -36,11 +36,8 @@ internal interface ITreeMutationHost
     /// </summary>
     List<DomNode> BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments);
 
-    void InsertNodeAt(DomNode parent, DomNode node, int index);
-
     /// <summary>The state-preserving reposition behind <c>moveBefore</c> — unlike
-    /// <see cref="InsertNodeAt"/> it never disconnects the node, so a moved iframe does not
-    /// reload and a render-blocking element keeps blocking.</summary>
+    /// <see cref="INodeInsertionHost.InsertNodeAt"/> it never disconnects the node, so a moved iframe
+    /// does not reload and a render-blocking element keeps blocking.</summary>
     void MoveNodeBefore(DomNode parent, DomNode node, DomNode? reference);
-    void InvalidateStyleScope(DomElement anchor);
 }

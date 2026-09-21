@@ -11,7 +11,10 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// Implemented by <c>DomBridge</c> via explicit interface members (see
 /// <c>DomBridge/Hosts.Window.cs</c>).
 /// </summary>
-internal interface IScriptInsertionHost
+/// <remarks>
+/// The inherited page URL is both what a relative <c>src</c> resolves against and the CSP self-origin.
+/// </remarks>
+internal interface IScriptInsertionHost : Features.IPageUrlHost
 {
     /// <summary>The document whose insertions are watched — the runner ignores any script whose
     /// root is something else (a detached subtree, or another document's tree).</summary>
@@ -19,9 +22,6 @@ internal interface IScriptInsertionHost
 
     /// <summary>Whether a JavaScript realm is attached. Nothing can run before <c>Attach</c>.</summary>
     bool HasRealm { get; }
-
-    /// <summary>The document URL, for resolving a relative <c>src</c> and as the CSP self-origin.</summary>
-    string PageUrl { get; }
 
     /// <summary>The policy a candidate is authorised against, when the document declares one.</summary>
     ContentSecurityPolicy? Csp { get; }

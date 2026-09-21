@@ -12,20 +12,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type.
+/// type. The realm inherited from <see cref="IRealmHost"/> is what mints <c>form.elements</c> as a
+/// host-completed object (see <see cref="IJsExotic"/>), which is what its named access is.
 /// </remarks>
-internal interface IFormHost
+internal interface IFormHost : INodeWrapperHost, IRealmHost
 {
-    /// <summary>
-    /// The realm the <c>form.elements</c> collection and the <c>HTMLFormElement</c> members are built
-    /// in. It is what mints the collection as a host-completed object (see
-    /// <see cref="IJsExotic"/>), which is what its named access is.
-    /// </summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
     /// <summary>
     /// Runs the form-reset algorithm (HTML §4.10.21.4) over <paramref name="form"/>'s controls.
     /// </summary>

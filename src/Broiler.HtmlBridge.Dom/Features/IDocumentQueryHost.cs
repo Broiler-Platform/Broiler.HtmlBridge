@@ -13,29 +13,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The three members below the DOM ones ask for what the module actually wants — a <c>SyntaxError</c>
 /// raised, a collection built — by name, rather than taking the bridge's script context so they can
 /// pass it straight back. That is what lets this contract, and the module over it, name no engine
-/// type at all.
+/// type at all. The inherited <see cref="ISelectorMatchHost.MatchesSelector"/> is a host member
+/// rather than a static helper for a reason of its own: it reads the per-bridge <c>:checked</c> state.
 /// </remarks>
-internal interface IDocumentQueryHost
+internal interface IDocumentQueryHost : IDocumentElementHost, IElementsHost, IJsObjectHost, ISelectorMatchHost
 {
-    /// <summary>
-    /// The single JS wrapper identity for <paramref name="node"/>, as the JSEAL handle the bridge
-    /// caches for it; the registry's reverse table keys on <see cref="JsValue.ObjectIdentity"/>.
-    /// </summary>
-    JsValue ToJsObject(DomNode node);
-
-    DomElement DocumentElement { get; }
-    IReadOnlyList<DomElement> Elements { get; }
-
-    // Selector matching is a host member rather than a static helper: it reads the per-bridge
-    // `:checked` state.
-    bool MatchesSelector(DomElement element, string selector, DomElement? scope = null);
-
-    /// <summary>
-    /// Throws a <c>SyntaxError</c> <c>DOMException</c> when <paramref name="selector"/> is not a valid
-    /// selector list (DOM §4.2.6), and returns quietly when it is.
-    /// </summary>
-    void ValidateSelector(string selector);
-
     /// <summary>
     /// A <c>NodeList</c> over what <paramref name="contents"/> answers. The function is re-asked on
     /// every read, so passing one that recomputes makes the list live and passing one that closes over

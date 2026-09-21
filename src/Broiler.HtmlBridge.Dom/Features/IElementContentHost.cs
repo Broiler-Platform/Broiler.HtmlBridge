@@ -13,15 +13,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// and writes on the element it already holds.
 /// </summary>
 /// <remarks>
-/// The contract names no engine type. <see cref="Realm"/> is here only because
+/// The contract names no engine type. <see cref="IRealmHost.Realm"/> is here only because
 /// <see cref="ElementContentBinding.InstallTextContent"/> reads the realm off the host instead of taking
 /// one like its two siblings; its caller, WrapNode, holds that same realm.
 /// </remarks>
-internal interface IElementContentHost
+internal interface IElementContentHost : IRealmHost
 {
-    /// <summary>The realm the content members are installed in and run against.</summary>
-    IJsRealm Realm { get; }
-
     string SerializeChildrenToHtml(DomElement element);
     string SerializeElementToHtml(DomElement element);
     void SetElementInnerHtml(DomElement element, string html);

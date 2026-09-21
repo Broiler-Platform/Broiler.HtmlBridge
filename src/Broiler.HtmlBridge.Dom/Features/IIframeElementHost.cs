@@ -18,13 +18,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// behind the two factories answer the handles the browsing-context caches hold, so neither side of
 /// this contract converts.
 /// </remarks>
-internal interface IIframeElementHost
+internal interface IIframeElementHost : IRealmHost, ISubDocumentFactoryHost
 {
-    /// <summary>The realm the frame accessors are minted in.</summary>
-    IJsRealm Realm { get; }
-
     bool IsCurrentIframeCrossOrigin(DomElement element);
-    JsValue GetOrCreateSubDocument(DomElement element);
     JsValue GetOrCreateSubWindow(DomElement element);
     void InvalidateCachedSubDocument(DomElement element);
     void ClearOnloadFired(DomElement element);

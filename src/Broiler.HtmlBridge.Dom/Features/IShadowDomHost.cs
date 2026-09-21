@@ -20,12 +20,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// answers in it, and because <c>attachShadow</c> is also reached from
 /// <see cref="ElementInternalsBinding"/> through a path that carries no call frame.
 /// </remarks>
-internal interface IShadowDomHost
+internal interface IShadowDomHost : INodeWrapperHost, IRealmHost
 {
-    /// <summary>The realm the shadow-root answers are minted in, and the one the
-    /// <c>NotSupportedError</c> is raised in.</summary>
-    IJsRealm Realm { get; }
-
     /// <summary>The element's attached shadow root, or null.</summary>
     DomShadowRoot? GetShadowRoot(DomElement element);
 
@@ -35,7 +31,4 @@ internal interface IShadowDomHost
         DomShadowRootMode mode,
         bool delegatesFocus = false,
         DomSlotAssignmentMode slotAssignment = DomSlotAssignmentMode.Named);
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
 }

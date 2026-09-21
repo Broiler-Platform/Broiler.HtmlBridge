@@ -18,17 +18,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// type. The rename is contract-side only: the bridge member behind <see cref="FindElement"/> is
 /// still spelled <c>FindDomElementByJSObject</c>, and takes what it takes here.
 /// </remarks>
-internal interface ISelectHost
+internal interface ISelectHost : INodeWrapperHost, IRealmHost
 {
-    /// <summary>
-    /// The realm the select's <c>options</c> array and its members are built in, and which the
-    /// installed members' bodies run against.
-    /// </summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
     /// <summary>Resolves the canonical element behind a JS wrapper, or null.</summary>
     DomElement? FindElement(JsValue wrapper);
 

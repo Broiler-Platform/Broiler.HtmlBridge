@@ -24,10 +24,6 @@ namespace Broiler.HtmlBridge;
 /// </remarks>
 public sealed partial class DomBridge : IFormHost
 {
-    IJsRealm IFormHost.Realm => Realm;
-
-    JsValue IFormHost.WrapNode(DomNode node) => WrapNode(node);
-
     void IFormHost.ResetForm(DomElement form) => ResetFormControls(form);
 
     IReadOnlyList<DomElement> IFormHost.CollectFormControls(DomElement form) =>
@@ -38,23 +34,16 @@ public sealed partial class DomBridge : IFormHost
 }
 
 // Explicit IFormAssociationHost implementation for the FormAssociationBinding feature module: the
-// realm, the wrapper factory, the document-order element list, the by-id lookup and the live NodeList
-// a control's `labels` is. Explicit interface members, so these seams do not widen the public
-// DomBridge surface.
+// by-id lookup and the live NodeList a control's `labels` is, with the realm, the wrapper factory
+// and the document-order element list inherited from the shared primitives. Explicit interface
+// members, so these seams do not widen the public DomBridge surface.
 //
 // The whole seam is spelled in JSEAL now. The collection was minted through DomCollectionBinding's
 // engine-typed entry point and unwrapped back across JsInterop while that module was unmigrated; it
 // has a realm-shaped NodeList of its own, so the list is built and handed on without either
-// conversion. Realm must be an explicit implementation — DomBridge.Realm is internal, so an implicit
-// one does not compile (CS0737).
+// conversion.
 public sealed partial class DomBridge : Dom.Features.IFormAssociationHost
 {
-    IJsRealm Dom.Features.IFormAssociationHost.Realm => Realm;
-
-    JsValue Dom.Features.IFormAssociationHost.WrapNode(DomNode node) => WrapNode(node);
-
-    IReadOnlyList<DomElement> Dom.Features.IFormAssociationHost.Elements => Elements;
-
     DomElement? Dom.Features.IFormAssociationHost.GetElementById(string id) =>
         FindInSubTree(DocumentElement, element => element.Id == id);
 
@@ -85,8 +74,6 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
     /// contents function stays live over an always-empty list rather than being a fixed one, so a file
     /// selection would need no second shape.</summary>
     private readonly Dictionary<DomElement, JsValue> _fileLists = [];
-
-    IJsRealm Dom.Features.IFormControlHost.Realm => Realm;
 
     JsValue Dom.Features.IFormControlHost.GetFileList(DomElement element)
     {
@@ -126,8 +113,6 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
 
     void Dom.Features.IFormControlHost.SetFormControlChecked(DomElement element, bool value) =>
         _formState.SetDirtyChecked(element, value);
-
-    void Dom.Features.IFormControlHost.InvalidateStyleScope(DomElement anchor) => InvalidateStyleScope(anchor);
 }
 
 // Explicit IFormSubmitHost implementation for the FormSubmitBinding feature module: the bridge
@@ -227,10 +212,6 @@ public sealed partial class DomBridge : ISelectHost
         OnStateChanged = BridgeRuntimeStateEpoch.Bump
     };
 
-    IJsRealm ISelectHost.Realm => Realm;
-
-    JsValue ISelectHost.WrapNode(DomNode node) => WrapNode(node);
-
     DomElement? ISelectHost.FindElement(JsValue wrapper) =>
         wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
 
@@ -282,10 +263,6 @@ public sealed partial class DomBridge : ISelectHost
 /// </remarks>
 public sealed partial class DomBridge : ITableHost
 {
-    IJsRealm ITableHost.Realm => Realm;
-
-    JsValue ITableHost.WrapNode(DomNode node) => WrapNode(node);
-
     DomElement ITableHost.CreateElement(string tag)
     {
         var element = CreateBridgeElement(tag);
@@ -309,8 +286,6 @@ public sealed partial class DomBridge : ITableHost
 /// </remarks>
 public sealed partial class DomBridge : IDialogHost
 {
-    IJsRealm IDialogHost.Realm => Realm;
-
     void IDialogHost.SetOpenAttribute(DomElement element, bool open)
     {
         if (open)
@@ -320,8 +295,6 @@ public sealed partial class DomBridge : IDialogHost
     }
 
     bool IDialogHost.HasOpenAttribute(DomElement element) => HasAttr(element, "open");
-
-    void IDialogHost.InvalidateStyleScope(DomElement element) => InvalidateStyleScope(element);
 
     void IDialogHost.AssignNextTopLayerOrder(DomElement element) =>
         DialogStateFor(element).TopLayerOrder.Set(++_topLayerCounter);
@@ -421,8 +394,6 @@ public sealed partial class DomBridge : Dom.Features.ICanvasHost
 // name; that is a rename waiting to happen, not a seam.
 public sealed partial class DomBridge : Dom.Features.IComputedStyleHost
 {
-    IJsRealm Dom.Features.IComputedStyleHost.Realm => Realm;
-
     DomElement? Dom.Features.IComputedStyleHost.FindElement(JsValue wrapper) =>
         wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
 
@@ -553,25 +524,14 @@ public sealed partial class DomBridge : Dom.Features.IElementGeometryHost
         var second = call[1];
         return (call.Realm.ToNumber(first), second.IsMissing ? null : call.Realm.ToNumber(second), null);
     }
-
-    JsValue Dom.Features.IElementGeometryHost.WrapNode(DomNode node) => WrapNode(node);
 }
 
 // Explicit IHitTestHost implementation for the HitTestBinding feature module: the bridge
-// exposes the realm, the document root, the JS-wrapper factory and the point hit-test via explicit
-// interface members, so the module never reaches an arbitrary bridge private field and the public surface
-// is unchanged.
-//
-// Realm is implemented explicitly because DomBridge.Realm is internal: an implicit implementation of a
-// public interface member cannot be satisfied by a non-public property (CS0737).
+// exposes the point hit-test via an explicit interface member, and inherits the realm, the document
+// root and the JS-wrapper factory from the shared primitives, so the module never reaches an arbitrary
+// bridge private field and the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IHitTestHost
 {
-    IJsRealm Dom.Features.IHitTestHost.Realm => Realm;
-
-    DomElement Dom.Features.IHitTestHost.DocumentElement => DocumentElement;
-
-    JsValue Dom.Features.IHitTestHost.WrapNode(DomNode node) => WrapNode(node);
-
     IReadOnlyList<DomElement> Dom.Features.IHitTestHost.HitTestDocumentPoint(DomNode docRoot, double x, double y)
         => HitTestDocumentPoint(docRoot, x, y);
 }

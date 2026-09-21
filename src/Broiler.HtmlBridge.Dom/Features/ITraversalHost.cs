@@ -15,22 +15,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The JavaScript vocabulary is JSEAL's: a wrapper is a <see cref="JsValue"/> and errors are raised
 /// through <see cref="IJsRealm"/>, so nothing here names an engine type. The bridge's implementation
 /// (<c>DomBridge/Hosts.Nodes.cs</c>) meets no engine object — both lookups forward the handle.
+/// The inherited <see cref="IRealmHost.Realm"/> is never null here — the traversal APIs are only
+/// reachable from an attached document — and the inherited
+/// <see cref="IDocumentNodeHost.DocumentNode"/> is the root a range created without an explicit one
+/// belongs to.
 /// </remarks>
-internal interface ITraversalHost
+internal interface ITraversalHost : IDocumentNodeHost, INodeWrapperHost, IRealmHost
 {
-    /// <summary>
-    /// The realm the traversal objects are built in, and through which this module raises a
-    /// <c>DOMException</c>. Never null while a document is attached; the traversal APIs are only
-    /// reachable from an attached document.
-    /// </summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>The main document root node that owns a range created without an explicit root.</summary>
-    DomNode DocumentNode { get; }
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
     /// <summary>Resolves the canonical node behind a JS wrapper, or null.</summary>
     DomNode? FindNode(JsValue wrapper);
 
@@ -48,7 +39,7 @@ internal interface ITraversalHost
     JsValue CreateCommentNode(string data);
 
     /// <summary>Mints a bridge <c>#document-fragment</c> to receive extracted/cloned range content,
-    /// registered so <see cref="WrapNode"/> can wrap it.</summary>
+    /// registered so <see cref="INodeWrapperHost.WrapNode"/> can wrap it.</summary>
     DomNode CreateRangeResultFragment();
 
     /// <summary>Clones a node for a range content operation, carrying host runtime state, registered

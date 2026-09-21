@@ -21,11 +21,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// object it reads was built in, which is what makes the read the one a page would have made.
 /// </para>
 /// </remarks>
-internal interface IComputedStyleHost
+internal interface IComputedStyleHost : IRealmHost
 {
-    /// <summary>The realm the bridge is attached to.</summary>
-    IJsRealm Realm { get; }
-
     /// <summary>The canonical element behind a JS wrapper, or <see langword="null"/> for anything else.</summary>
     DomElement? FindElement(JsValue wrapper);
 

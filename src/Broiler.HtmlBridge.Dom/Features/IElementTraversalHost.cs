@@ -16,15 +16,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>el.firstElementChild === el.firstElementChild</c>.
 /// </para>
 /// <para>
-/// <see cref="Realm"/> is here because building the <c>children</c> Array is the realm's business,
+/// <see cref="IRealmHost.Realm"/> is here because building the <c>children</c> Array is the realm's business,
 /// and the realm is the only place a binding can ask for one.
 /// </para>
 /// </remarks>
-internal interface IElementTraversalHost
+internal interface IElementTraversalHost : IRealmHost
 {
-    /// <summary>The realm the wrappers and the <c>children</c> Array belong to.</summary>
-    IJsRealm Realm { get; }
-
     /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
     JsValue ToWrapper(DomNode node);
 }

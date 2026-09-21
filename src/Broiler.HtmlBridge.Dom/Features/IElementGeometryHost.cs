@@ -29,7 +29,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// implementation rather than being re-derived per element.
 /// </para>
 /// </remarks>
-internal interface IElementGeometryHost
+internal interface IElementGeometryHost : INodeWrapperHost
 {
     bool IsViewportElementForMetrics(DomElement element);
 
@@ -57,7 +57,4 @@ internal interface IElementGeometryHost
     (string Block, string Inline, string? Behavior) GetScrollIntoViewOptions(in JsCall call);
     void ScrollElementIntoView(DomElement element, string? block = null, string? inline = null, string? behavior = null);
     (double? Left, double? Top, string? Behavior) GetScrollOptions(in JsCall call);
-
-    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
 }

@@ -19,11 +19,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// takes the realm and answers a handle, and keeps one per element; this contract asks for that
 /// finished list.
 /// </remarks>
-internal interface IFormControlHost
+internal interface IFormControlHost : IRealmHost, IStyleInvalidationHost
 {
-    /// <summary>The realm the reflectors are installed in and their bodies run against.</summary>
-    IJsRealm Realm { get; }
-
     /// <summary>
     /// The file input's <c>FileList</c> — one object per element, so <c>input.files ===
     /// input.files</c> holds as it does in a browser. Always empty: there is no file selection.
@@ -47,7 +44,4 @@ internal interface IFormControlHost
 
     /// <summary>Sets the input's dirty IDL <c>checked</c> state.</summary>
     void SetFormControlChecked(DomElement element, bool value);
-
-    /// <summary>Invalidates the cascade/computed style scope anchored at <paramref name="anchor"/>.</summary>
-    void InvalidateStyleScope(DomElement anchor);
 }

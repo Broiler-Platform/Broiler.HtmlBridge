@@ -26,16 +26,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>DomCollectionBinding.HtmlCollection</c> call, which takes the realm and answers a handle —
 /// and the binding receives it finished.
 /// </para>
+/// <para>
+/// The inherited <see cref="ISelectorMatchHost.ValidateSelector"/> is a no-op before the bridge is
+/// attached: there is then no realm to raise a <c>DOMException</c> in.
+/// </para>
 /// </remarks>
-internal interface ISelectorsHost
+internal interface ISelectorsHost : ISelectorMatchHost
 {
-    /// <summary>
-    /// Validates a selector argument per DOM §4.2.6, throwing <c>SyntaxError</c> when it does not
-    /// parse as a selector list. A no-op before the bridge is attached: there is then no realm to
-    /// raise a <c>DOMException</c> in.
-    /// </summary>
-    void ValidateSelector(string selector);
-
     /// <summary>
     /// The descendant selector search: the first hit (or <see cref="JsValue.Null"/>) when
     /// <paramref name="all"/> is <see langword="false"/>, and a static <c>NodeList</c> when it is
@@ -53,6 +50,4 @@ internal interface ISelectorsHost
 
     /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
     JsValue ToWrapper(DomNode node);
-
-    bool MatchesSelector(DomElement element, string selector, DomElement? scope = null);
 }

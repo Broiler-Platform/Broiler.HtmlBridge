@@ -11,16 +11,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The contract names no engine type, member names included: the wrapper factory is
-/// <see cref="WrapNode"/> and the reverse lookup <see cref="FindDomNode"/>. It carries no script
+/// <see cref="INodeWrapperHost.WrapNode"/> and the reverse lookup <see cref="FindDomNode"/>. It carries no script
 /// context either — the DOM exceptions the module raises go through the call's own realm.
 /// </remarks>
-internal interface INodeMutationHost
+internal interface INodeMutationHost : IDocumentNodeHost, INodeWrapperHost
 {
-    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
-    DomNode DocumentNode { get; }
-
     /// <summary>Resolves a JS wrapper back to the node it wraps, or <see langword="null"/>.</summary>
     DomNode? FindDomNode(JsValue wrapper);
 

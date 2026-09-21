@@ -19,13 +19,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// reaches from the call frame it already has; a contract that carried a realm only to raise an error
 /// would be carrying the same thing under a new name.
 /// </remarks>
-internal interface IInsertAdjacentHost
+internal interface IInsertAdjacentHost : INodeInsertionHost, ITextNodeFactoryHost
 {
     /// <summary>Reverse wrapper lookup: the element whose JS wrapper is <paramref name="wrapper"/>.</summary>
     DomElement? FindElement(JsValue wrapper);
 
-    void InsertNodeAt(DomNode parent, DomNode node, int index);
-    DomText CreateBridgeTextNode(string data);
     List<DomNode> BuildAdjacentHtmlNodes(DomElement contextElement, string html);
     void ResetComputedStyleEngines();
 }

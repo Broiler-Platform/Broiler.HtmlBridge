@@ -19,12 +19,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// frame the operation already has.
 /// </para>
 /// <para>
-/// The three wrapper members are <see cref="WrapNode"/>, <see cref="WrapRootNode"/> and
+/// The three wrapper members are <see cref="INodeWrapperHost.WrapNode"/>,
+/// <see cref="WrapRootNode"/> and
 /// <see cref="FindNode"/>. Same wrappers and the same
 /// identity: a JSEAL object handle carries the engine's own object.
 /// </para>
 /// </remarks>
-internal interface INodeRelationshipsHost
+internal interface INodeRelationshipsHost : INodeWrapperHost
 {
     /// <summary>Resolves the canonical node behind a JS wrapper, or null.</summary>
     DomNode? FindNode(JsValue wrapper);
@@ -39,7 +40,4 @@ internal interface INodeRelationshipsHost
     JsValue WrapRootNode(DomNode root);
 
     DomNode CloneDomElement(DomNode source, bool deep);
-
-    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
 }

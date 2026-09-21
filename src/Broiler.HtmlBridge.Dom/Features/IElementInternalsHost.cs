@@ -16,14 +16,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// interface prototypes, its per-instance objects and its coercions in it, and because
 /// <c>RegisterInterfaces</c> runs with no call frame to carry one.
 /// </remarks>
-internal interface IElementInternalsHost
+internal interface IElementInternalsHost : INodeWrapperHost, IRealmHost
 {
-    /// <summary>The realm the three interfaces and every object they hand back are minted in.</summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
     /// <summary>Whether the element is a custom element — the gate on <c>attachInternals</c>, which
     /// a browser refuses for an ordinary one.</summary>
     bool IsCustomElement(DomElement element);

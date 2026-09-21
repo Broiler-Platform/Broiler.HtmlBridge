@@ -21,16 +21,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="ISelectorsHost.ElementsByTagName"/> makes.
 /// </para>
 /// <para>
-/// The two wrapper members are <see cref="WrapNode"/> and <see cref="DocumentWrapper"/>. Same wrapper,
+/// The two wrapper members are <see cref="INodeWrapperHost.WrapNode"/> and
+/// <see cref="DocumentWrapper"/>. Same wrapper,
 /// same identity: a JSEAL object handle carries Broiler.JS's own object, or the VM's canonical identity
 /// object under that provider, so <c>el === el</c>.
 /// </para>
 /// </remarks>
-internal interface INodeAccessorsHost
+internal interface INodeAccessorsHost : IDocumentNodeHost, INodeWrapperHost
 {
-    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
     /// <summary>
     /// <paramref name="node"/>'s children as a <b>live</b> <c>NodeList</c> — the object
     /// <c>node.childNodes</c> answers. Live because DOM §4.4 says so: the collection holds the walk
@@ -38,7 +36,6 @@ internal interface INodeAccessorsHost
     /// </summary>
     JsValue ChildNodeList(DomNode node);
 
-    DomNode DocumentNode { get; }
     void SetCharacterData(DomNode node, string? value);
     bool TryGetDocumentWrapper(DomNode documentRoot, out JsValue wrapper);
 

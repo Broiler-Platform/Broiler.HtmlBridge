@@ -17,8 +17,6 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 public sealed partial class DomBridge : IAttributesHost
 {
-    IJsRealm IAttributesHost.Realm => Realm;
-
     void IAttributesHost.ApplyStyleAttribute(DomElement element, string value)
     {
         InlineStyle(element).Clear();
@@ -29,8 +27,6 @@ public sealed partial class DomBridge : IAttributesHost
 
     void IAttributesHost.CompileInlineEventAttribute(DomElement element, string attributeName, string code) =>
         CompileInlineEventAttribute(element, attributeName, code);
-
-    void IAttributesHost.InvalidateStyleScope(DomElement element) => InvalidateStyleScope(element);
 
     void IAttributesHost.LinkToInterface(JsValue wrapper, string interfaceName) =>
         LinkToInterface(wrapper, interfaceName);
@@ -47,11 +43,6 @@ public sealed partial class DomBridge : Dom.Features.ICharacterDataHost
 {
     void Dom.Features.ICharacterDataHost.SetCharacterData(DomNode node, string? value)
         => SetCharacterData(node, value);
-
-    DomText Dom.Features.ICharacterDataHost.CreateBridgeTextNode(string data)
-        => CreateBridgeTextNode(data);
-
-    JsValue Dom.Features.ICharacterDataHost.WrapNode(DomNode node) => WrapNode(node);
 }
 
 // Explicit IChildNodeHost implementation for the ChildNodeBinding feature module: the bridge
@@ -66,12 +57,6 @@ public sealed partial class DomBridge : Dom.Features.IChildNodeHost
 {
     List<DomNode> Dom.Features.IChildNodeHost.BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments)
         => ((Dom.Features.ISubDocumentHost)this).BuildChildNodeArgumentNodes(arguments);
-
-    void Dom.Features.IChildNodeHost.InsertNodeAt(DomNode parent, DomNode node, int index)
-        => InsertNodeAt(parent, node, index);
-
-    void Dom.Features.IChildNodeHost.InvalidateStyleScope(DomElement anchor)
-        => InvalidateStyleScope(anchor);
 }
 
 // Explicit INodeAccessorsHost implementation for the NodeAccessorsBinding feature module:
@@ -86,8 +71,6 @@ public sealed partial class DomBridge : Dom.Features.IChildNodeHost
 // and the bridge is where the child list lives.
 public sealed partial class DomBridge : Dom.Features.INodeAccessorsHost
 {
-    JsValue Dom.Features.INodeAccessorsHost.WrapNode(DomNode node) => WrapNode(node);
-
     JsValue Dom.Features.INodeAccessorsHost.ChildNodeList(DomNode node) =>
         Dom.Features.DomCollectionBinding.NodeList(Realm, () =>
         {
@@ -97,8 +80,6 @@ public sealed partial class DomBridge : Dom.Features.INodeAccessorsHost
 
             return children;
         });
-
-    DomNode Dom.Features.INodeAccessorsHost.DocumentNode => _document;
 
     void Dom.Features.INodeAccessorsHost.SetCharacterData(DomNode node, string? value)
         => SetCharacterData(node, value);
@@ -135,11 +116,6 @@ public sealed partial class DomBridge : Dom.Features.INodeAccessorsHost
 // keyed on — those tables key on JsValue.ObjectIdentity, the reference the handle carries.
 public sealed partial class DomBridge : Dom.Features.INodeMutationHost
 {
-    JsValue Dom.Features.INodeMutationHost.WrapNode(DomNode node) =>
-        WrapNode(node);
-
-    DomNode Dom.Features.INodeMutationHost.DocumentNode => _document;
-
     // A plain forward: the reverse lookup takes the same handle. There is no unwrap left to fail, and
     // a handle that is not an object answers null — which the module's own IsObject guard, at all four
     // of its call sites, still means this never has to do.
@@ -177,8 +153,6 @@ public sealed partial class DomBridge : Dom.Features.INodeRelationshipsHost
 
     DomNode Dom.Features.INodeRelationshipsHost.CloneDomElement(DomNode source, bool deep)
         => CloneDomElement(source, deep);
-
-    JsValue Dom.Features.INodeRelationshipsHost.WrapNode(DomNode node) => WrapNode(node);
 }
 
 // Explicit ITreeMutationHost implementation for the TreeMutationBinding feature module: the
@@ -205,12 +179,6 @@ public sealed partial class DomBridge : Dom.Features.ITreeMutationHost
 
     void Dom.Features.ITreeMutationHost.MoveNodeBefore(DomNode parent, DomNode node, DomNode? reference)
         => MoveNodeBefore(parent, node, reference);
-
-    void Dom.Features.ITreeMutationHost.InsertNodeAt(DomNode parent, DomNode node, int index)
-        => InsertNodeAt(parent, node, index);
-
-    void Dom.Features.ITreeMutationHost.InvalidateStyleScope(DomElement anchor)
-        => InvalidateStyleScope(anchor);
 }
 
 // Explicit IInsertAdjacentHost implementation for the InsertAdjacentBinding feature module: the
@@ -228,8 +196,6 @@ public sealed partial class DomBridge : Dom.Features.IInsertAdjacentHost
     DomElement? Dom.Features.IInsertAdjacentHost.FindElement(JsValue wrapper)
         => FindDomElementByJSObject(wrapper);
 
-    void Dom.Features.IInsertAdjacentHost.InsertNodeAt(DomNode parent, DomNode node, int index) => InsertNodeAt(parent, node, index);
-    DomText Dom.Features.IInsertAdjacentHost.CreateBridgeTextNode(string data) => CreateBridgeTextNode(data);
     List<DomNode> Dom.Features.IInsertAdjacentHost.BuildAdjacentHtmlNodes(DomElement contextElement, string html) => BuildAdjacentHtmlNodes(contextElement, html);
     void Dom.Features.IInsertAdjacentHost.ResetComputedStyleEngines() => ResetComputedStyleEngines();
 }
@@ -240,8 +206,6 @@ public sealed partial class DomBridge : Dom.Features.IInsertAdjacentHost
 // the canonical DomNode.TextContent, which the binding reaches without the bridge.
 public sealed partial class DomBridge : Dom.Features.IElementContentHost
 {
-    IJsRealm Dom.Features.IElementContentHost.Realm => Realm;
-
     string Dom.Features.IElementContentHost.SerializeChildrenToHtml(DomElement element) => SerializeChildrenToHtml(element);
     string Dom.Features.IElementContentHost.SerializeElementToHtml(DomElement element) => SerializeElementToHtml(element);
     void Dom.Features.IElementContentHost.SetElementInnerHtml(DomElement element, string html) => SetElementInnerHtml(element, html);
@@ -254,7 +218,6 @@ public sealed partial class DomBridge : Dom.Features.IElementContentHost
 // module needs is a neutral internal static bridge helper it calls directly.
 public sealed partial class DomBridge : Dom.Features.IElementReflectionHost
 {
-    string Dom.Features.IElementReflectionHost.PageUrl => _pageUrl;
 }
 
 // Explicit IElementTraversalHost implementation for the ElementTraversalBinding feature module:
@@ -265,8 +228,6 @@ public sealed partial class DomBridge : Dom.Features.IElementReflectionHost
 // wrapper identity — and `el.firstElementChild === el.firstElementChild` with it — is preserved.
 public sealed partial class DomBridge : Dom.Features.IElementTraversalHost
 {
-    IJsRealm Dom.Features.IElementTraversalHost.Realm => Realm;
-
     JsValue Dom.Features.IElementTraversalHost.ToWrapper(DomNode node) =>
         WrapNode(node);
 }
@@ -276,7 +237,6 @@ public sealed partial class DomBridge : Dom.Features.IElementTraversalHost
 // on a selector-affecting write (id/class/dir), forwarded here to the existing internal method.
 public sealed partial class DomBridge : Dom.Features.IGlobalAttributeHost
 {
-    void Dom.Features.IGlobalAttributeHost.InvalidateStyleScope(DomElement element) => InvalidateStyleScope(element);
 }
 
 /// <summary>
@@ -295,12 +255,6 @@ public sealed partial class DomBridge : Dom.Features.IGlobalAttributeHost
 /// </remarks>
 public sealed partial class DomBridge : ITraversalHost
 {
-    IJsRealm ITraversalHost.Realm => Realm;
-
-    DomNode ITraversalHost.DocumentNode => _document;
-
-    JsValue ITraversalHost.WrapNode(DomNode node) => WrapNode(node);
-
     DomNode? ITraversalHost.FindNode(JsValue wrapper) =>
         wrapper.IsObject ? FindDomNodeByJSObject(wrapper) : null;
 
@@ -356,9 +310,6 @@ public sealed partial class DomBridge : ITraversalHost
 // nothing while both sides hold the same handles.
 public sealed partial class DomBridge : Dom.Features.ISelectorsHost
 {
-    void Dom.Features.ISelectorsHost.ValidateSelector(string selector)
-        => ValidateSelector(selector);
-
     JsValue Dom.Features.ISelectorsHost.FindInDescendants(DomElement element, string selector, bool all)
         => FromEngineResult(FindInDescendants(element, selector, all, this));
 
@@ -380,9 +331,6 @@ public sealed partial class DomBridge : Dom.Features.ISelectorsHost
 
     JsValue Dom.Features.ISelectorsHost.ToWrapper(DomNode node) => WrapNode(node);
 
-    bool Dom.Features.ISelectorsHost.MatchesSelector(DomElement element, string selector, DomElement? scope)
-        => MatchesSelector(element, selector, scope);
-
     /// <summary>
     /// An <c>HTMLCollection</c> over <paramref name="contents"/>, with the named getter DOM
     /// §4.2.10.2 gives one: a lookup answers the first element whose <c>id</c> — or, for the
@@ -399,12 +347,9 @@ public sealed partial class DomBridge : Dom.Features.ISelectorsHost
 // members, so these seams do not widen the public DomBridge surface.
 //
 // The contract is spelled in JSEAL; IJsCalls.DomError raises the second-attachment
-// NotSupportedError. The realm member must be explicit — DomBridge.Realm is internal, so an implicit implementation of a
-// public interface member cannot see it (CS0737).
+// NotSupportedError.
 public sealed partial class DomBridge : Dom.Features.IShadowDomHost
 {
-    IJsRealm Dom.Features.IShadowDomHost.Realm => Realm;
-
     DomShadowRoot? Dom.Features.IShadowDomHost.GetShadowRoot(DomElement element) => element.ShadowRoot;
 
     DomShadowRoot Dom.Features.IShadowDomHost.AttachShadowRoot(
@@ -416,10 +361,6 @@ public sealed partial class DomBridge : Dom.Features.IShadowDomHost
         _hasShadowRoots = true;
         return host.AttachShadow(mode, delegatesFocus, slotAssignment);
     }
-
-    // The bridge's wrapper factory, forwarded as it stands: WrapNode answers the handle its wrapper
-    // cache holds, so wrapper identity is unchanged.
-    JsValue Dom.Features.IShadowDomHost.WrapNode(DomNode node) => WrapNode(node);
 }
 
 /// <summary>
@@ -434,22 +375,9 @@ public sealed partial class DomBridge : Dom.Features.IShadowDomHost
 /// promise are engine operations with no bridge state behind them, so the registry asks the realm for
 /// them rather than asking the bridge to relay them. What is here is what only the bridge can answer.
 /// </para>
-/// <para>
-/// <see cref="Realm"/> is implemented explicitly because it has to be: <c>DomBridge.Realm</c> is
-/// <see langword="internal"/>, and an implicit implementation of a public interface member typed
-/// against it does not compile (CS0737).
-/// </para>
 /// </remarks>
 public sealed partial class DomBridge : ICustomElementsHost
 {
-    IJsRealm ICustomElementsHost.Realm => Realm;
-
-    IReadOnlyList<DomElement> ICustomElementsHost.Elements => Elements;
-
-    // The bridge's wrapper factory, forwarded as it stands: WrapNode answers the handle
-    // JsObjectRegistry caches for the node, so wrapper identity is unchanged.
-    JsValue ICustomElementsHost.WrapNode(DomNode node) => WrapNode(node);
-
     bool ICustomElementsHost.TryGetWrapper(DomElement element, out JsValue wrapper)
     {
         if (_jsObjects.TryGet(element, out var cached))
@@ -501,11 +429,6 @@ public sealed partial class DomBridge : ICustomElementsHost
 /// read or a handle the bridge or a binding answered, and the one event it fires is a realm object
 /// handed to the dispatcher as it is.
 /// </para>
-/// <para>
-/// <see cref="Realm"/> is implemented explicitly because it has to be: <c>DomBridge.Realm</c> is
-/// <see langword="internal"/>, and an implicit implementation of an interface member typed against it
-/// does not compile (CS0737).
-/// </para>
 /// </remarks>
 public sealed partial class DomBridge : IElementInternalsHost
 {
@@ -513,10 +436,6 @@ public sealed partial class DomBridge : IElementInternalsHost
 
     internal ElementInternalsBinding ElementInternals =>
         _elementInternals ??= new ElementInternalsBinding(this);
-
-    IJsRealm IElementInternalsHost.Realm => Realm;
-
-    JsValue IElementInternalsHost.WrapNode(DomNode node) => WrapNode(node);
 
     bool IElementInternalsHost.IsCustomElement(DomElement element) => CustomElements.IsCustom(element);
 

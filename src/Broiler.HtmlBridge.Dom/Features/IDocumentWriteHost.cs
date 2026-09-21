@@ -8,9 +8,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// fragment lands right after the executing <c>&lt;script&gt;</c>, matching the parser insertion
 /// point).
 /// </summary>
-internal interface IDocumentWriteHost
+internal interface IDocumentWriteHost : IDocumentElementHost, IElementsHost
 {
-    DomElement DocumentElement { get; }
-    IReadOnlyList<DomElement> Elements { get; }
     int CurrentScriptIndex { get; }
 }

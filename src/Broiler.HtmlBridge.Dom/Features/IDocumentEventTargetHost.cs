@@ -20,10 +20,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// to return, which is the whole of what the dispatch produces for a caller.
 /// </para>
 /// </remarks>
-internal interface IDocumentEventTargetHost
+internal interface IDocumentEventTargetHost : IDocumentNodeHost
 {
-    DomNode DocumentNode { get; }
-
     Dictionary<string, List<EventListenerRegistration>> GetEventListeners(DomNode node);
 
     JsValue DispatchEvent(DomNode target, JsValue evt);

@@ -20,9 +20,6 @@ namespace Broiler.HtmlBridge;
 //
 // The dispatch below is a plain forward now: window dispatch takes the handle the module built, so
 // there is no conversion left here to describe and no engine type named on either side of this seam.
-// Realm is implemented explicitly because DomBridge.Realm is internal, and an
-// implicit implementation of a public interface member cannot be satisfied by a non-public property
-// (CS0737).
 public sealed partial class DomBridge : Dom.Features.ILocationHost
 {
     private NavigationRequest? _pendingNavigation;
@@ -34,8 +31,6 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
         _pendingNavigation = null;
         return pending;
     }
-
-    IJsRealm Dom.Features.ILocationHost.Realm => Realm;
 
     void Dom.Features.ILocationHost.DispatchWindowEvent(JsValue evt)
         => DispatchWindowEvent(evt);
@@ -80,8 +75,6 @@ public sealed partial class DomBridge : Dom.Features.IMatchMediaHost
 // surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IWindowDocumentMiscHost
 {
-    string Dom.Features.IWindowDocumentMiscHost.PageUrl => _pageUrl;
-
     void Dom.Features.IWindowDocumentMiscHost.SetVisualViewportScale(double scale)
         => SetVisualViewportScale(scale);
 }
@@ -108,8 +101,6 @@ public sealed partial class DomBridge : Dom.Features.IWindowEventTargetHost
 // field and the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IWindowScrollHost
 {
-    DomElement Dom.Features.IWindowScrollHost.DocumentElement => DocumentElement;
-
     // One reading, not two: the JSEAL-framed argument list is read by the bridge's own ISubWindowHost
     // member, which performs exactly what the engine-framed GetScrollArguments this replaces
     // performed — an options object wins over positional coordinates, a nullish member leaves its
@@ -176,9 +167,6 @@ public sealed partial class DomBridge : IWindowContextHost
     // WindowContextManager.GetWindowDocument, answers undefined on its other branch too.
     JsValue IWindowContextHost.MainDocumentOrUndefined =>
         DocumentHandle.IsMissing ? JsValue.Undefined : DocumentHandle;
-
-    JsValue IWindowContextHost.GetOrCreateSubDocument(DomElement container) =>
-        GetOrCreateSubDocument(container);
 }
 
 /// <summary>
@@ -228,8 +216,6 @@ public sealed partial class DomBridge
 /// </remarks>
 public sealed partial class DomBridge : IMessagingHost
 {
-    IJsRealm IMessagingHost.Realm => Realm;
-
     JsValue IMessagingHost.WindowObject =>
         WindowHandle.IsMissing ? JsValue.Null : WindowHandle;
 
@@ -356,9 +342,6 @@ public sealed partial class DomBridge : IWorkerHost
 /// </summary>
 public sealed partial class DomBridge : IFetchHost
 {
-    /// <inheritdoc />
-    IJsRealm IFetchHost.Realm => Realm;
-
     /// <summary>
     /// The entry list of a <c>&lt;form&gt;</c> wrapper, or <see langword="null"/> for anything else —
     /// what <c>new FormData(form)</c> collects.
@@ -375,8 +358,6 @@ public sealed partial class DomBridge : IFetchHost
         string.Equals(element.TagName, "form", StringComparison.OrdinalIgnoreCase)
             ? BuildFormEntryList(element)
             : null;
-
-    string IFetchHost.PageUrl => _pageUrl;
 
     JsValue IFetchHost.StreamOverText(string text) => _streams.StreamOverText(text);
 
@@ -414,8 +395,6 @@ public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
     DomDocument Dom.Runtime.IScriptInsertionHost.Document => _document;
 
     bool Dom.Runtime.IScriptInsertionHost.HasRealm => _realm is not null;
-
-    string Dom.Runtime.IScriptInsertionHost.PageUrl => _pageUrl;
 
     ContentSecurityPolicy? Dom.Runtime.IScriptInsertionHost.Csp => Csp;
 
@@ -469,10 +448,6 @@ public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
 /// </remarks>
 public sealed partial class DomBridge : IMutationObserverHost
 {
-    IJsRealm IMutationObserverHost.Realm => Realm;
-
-    JsValue IMutationObserverHost.WrapNode(DomNode node) => WrapNode(node);
-
     DomNode? IMutationObserverHost.FindNode(JsValue wrapper) =>
         wrapper.IsObject ? FindDomNodeByJSObject(wrapper) : null;
 
@@ -520,12 +495,6 @@ public sealed partial class DomBridge : IMutationObserverHost
 /// </remarks>
 public sealed partial class DomBridge : IEventDispatchHost
 {
-    IJsRealm IEventDispatchHost.Realm => Realm;
-
-    JsValue IEventDispatchHost.WrapNode(DomNode node) => WrapNode(node);
-
-    DomNode IEventDispatchHost.DocumentNode => _document;
-
     JsValue IEventDispatchHost.DocumentWrapper => DocumentHandle;
 
     JsValue IEventDispatchHost.WindowWrapper => WindowHandle;
@@ -552,8 +521,6 @@ public sealed partial class DomBridge : IEventDispatchHost
 // listener field is a handle.
 public sealed partial class DomBridge : Dom.Features.IEventTargetHost
 {
-    IJsRealm Dom.Features.IEventTargetHost.Realm => Realm;
-
     Dictionary<string, List<EventListenerRegistration>> Dom.Features.IEventTargetHost.GetEventListeners(DomNode element)
         => GetEventListeners(element);
 

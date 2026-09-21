@@ -13,22 +13,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the feature module never reaches the runtime-state object directly; the eventual TopLayerManager
 /// can re-home the state behind the same contract. Backdrop/top-layer rendering stays in the bridge.
 /// </summary>
-internal interface IDialogHost
+/// <remarks>
+/// The realm inherited from <see cref="IRealmHost"/> is also the one whose job queue backs the
+/// resolved promise the fullscreen methods return.
+/// </remarks>
+internal interface IDialogHost : IRealmHost, IStyleInvalidationHost
 {
-    /// <summary>
-    /// The realm the dialog/popover members are installed in, and the one whose job queue backs the
-    /// resolved promise the fullscreen methods return.
-    /// </summary>
-    IJsRealm Realm { get; }
-
     /// <summary>Adds (<paramref name="open"/> true) or removes the boolean <c>open</c> attribute.</summary>
     void SetOpenAttribute(DomElement element, bool open);
 
     /// <summary>Whether <paramref name="element"/> currently has the <c>open</c> attribute.</summary>
     bool HasOpenAttribute(DomElement element);
-
-    /// <summary>Invalidates the element's style scope so open/top-layer changes re-cascade.</summary>
-    void InvalidateStyleScope(DomElement element);
 
     /// <summary>Assigns <paramref name="element"/> the next monotonic top-layer order (promotes it
     /// above previously promoted dialogs/popovers).</summary>
