@@ -100,14 +100,17 @@ silently outranked the live, publicly settable `BaseUrl`.
 
 ### Adopted after the bump
 
-Three of the merged changes landed here as calls, and the local re-implementations they replace are
-gone: net −158 lines in `src/`, +245 in `tests/`.
+Five of the merged changes landed here as calls, and the local re-implementations they replace are
+gone: net −184 lines in `src/`, +431 in `tests/`. A sixth was attempted and reverted — see
+[The transform resolver, attempted and reverted](#the-transform-resolver-attempted-and-reverted).
 
 | What went | Where it was | Now | Upstream |
 | --- | --- | --- | --- |
 | The `<template>` contents side table, the pass that filled it and its three call sites | `DomBridge/HtmlParsing.cs`, `DomBridge/Traversal.cs`, `DomBridge/JsObjects.cs` | `DomElement.TemplateContents` | [Broiler.DOM#22](https://github.com/Broiler-Platform/Broiler.DOM/issues/22) |
 | The post-parse declarative shadow-root pass | `DomBridge/HtmlParsing.cs` | `HtmlParseOptions.AllowDeclarativeShadowRoots` | [Broiler.DOM#21](https://github.com/Broiler-Platform/Broiler.DOM/issues/21) |
 | `DomBridgeUtils.TryParseExponentNumber` and its two fallback call sites | `DomBridgeUtils/AnchorResolver.cs` | `CssValueParser.TryParseNumeric` alone | [Broiler.CSS#53](https://github.com/Broiler-Platform/Broiler.CSS/issues/53) |
+| `DomBridgeUtils.SimpleMatchesElement`, the hand-rolled selector stub | `DomBridgeUtils/Animations.cs`, `DomBridge/Animations.cs` | `CssSelectorMatcher.TryMatch` | [Broiler.CSS#56](https://github.com/Broiler-Platform/Broiler.CSS/issues/56) |
+| The two-index guard written around `FindMatching`'s no-match sentinel | `DomBridgeUtils/Animations.cs` | a sign test | [Broiler.CSS#54](https://github.com/Broiler-Platform/Broiler.CSS/issues/54) |
 
 **Two answers this component kept rather than took, and both are the same shape: a dependency is
 right for its own consumers and wrong for this one.**
@@ -131,6 +134,51 @@ One thing had to move rather than go: `_hasShadowRoots`, the flag that lets a do
 shadow DOM skip the per-serialization descendant walk that confines each shadow tree's style rules
 to that tree. The deleted pass set it as it attached; the parser cannot, so the parse asks the
 finished tree once instead — strictly less work than the walk-plus-attach it replaces.
+
+The selector substitution is the one that changes what pages render, and in both directions at
+once. `SimpleMatchesElement` understood a bare tag name, `#id`, `.class` and `:root`, and answered
+`false` for everything else, so an `animation` declared on a compound, a combinator, `*`, an
+attribute selector or a functional pseudo-class reached nothing at all. `TryMatch` answers all of
+them. What it does *not* do is guess: its lenient sibling `Matches` reports `true` for a recognised
+but unmodelled pseudo-class and for any vendor-prefixed name, and this caller reads "no answer" as
+"no match" — the stub's own conservative error, kept deliberately, and now the only thing left of
+it. That is what [Broiler.CSS#56](https://github.com/Broiler-Platform/Broiler.CSS/issues/56) was filed for, and why the substitution
+below was reverted before it existed.
+
+### The transform resolver, attempted and reverted
+
+[Broiler.Layout#7](https://github.com/Broiler-Platform/Broiler.Layout/issues/7) shipped `IR.CssTransform`, a CSS Transforms 1 used-value resolver, and
+`IR.CssTransformOrigin`, which this component already calls. Substituting `CssTransform.Resolve`
+for the ~150-line local engine behind `ApplyTransformChain` was tried, measured and **reverted**.
+It is not a matter of taste: the substitution loses answers this component gives today, and the
+only public entry point is all-or-nothing.
+
+- **`calc()` in an argument invalidates the whole list.** `transform: translate(calc(100% - 10px),
+  20px)` is valid CSS that a browser resolves. `CssTransform` refuses the declaration outright and
+  answers the identity; the local engine resolves the components it can and contributes zero for
+  the one it cannot, so the `20px` survives. Two of this repository's own regression tests —
+  `ANestedFunctionArgumentDoesNotEndTheFunction` and `AFunctionFollowingANestedArgumentIsStillApplied`,
+  which exist because the tier A split fixed exactly this — fail against the substitution, and the
+  answer they assert is the one closer to a browser.
+- **The SVG `transform` attribute goes through the same call site.** `GetElementTransformValue`
+  falls back to the `transform` attribute when the computed property is absent, and there the
+  grammar is SVG's: bare numbers are user units. Put `translate(10,20)` through that fallback and
+  the bridge answers a `(10, 20)` offset today and the identity under `CssTransform` — measured
+  both ways on the geometry harness in `DependencyAlignmentTransformSplitTests`. Upstream says so
+  itself and points at `IR.SvgTransform`, which is **not public** in `0.1.0-preview.5`, so there is
+  no way to route the attribute to the parser written for it. (The two spellings the SVG grammar
+  allows that CSS does not — `translate(10 20)` and `rotate(45 50 50)` — are already lost today;
+  only the comma form regresses.)
+- **Nothing smaller is reachable.** `TryResolveFunction`, `TryResolveLength`, `TryParseAngle` and
+  `TryParseScaleFactor` all appear in the package's XML documentation and are all private in the
+  assembly. Per-function adoption — which would have kept the local rule that an unrecognised
+  function contributes the identity rather than killing the declaration — is not on offer.
+
+The strictness `CssTransform` brings *is* an improvement taken on its own: an invalid or 3D
+function should invalidate the declaration, and a unitless `rotate(45)` is not an angle. None of it
+can be taken without the two losses above. What would make this adoptable is `calc()` support (or
+a way to hand over pre-resolved arguments) plus a public `SvgTransform`; until then the local
+engine stays and this paragraph is the evidence that the obvious substitution was tried.
 
 ### Dropped when re-verified against `main`
 
@@ -218,6 +266,12 @@ selector is fully modelled — filed as [Broiler.CSS#56](https://github.com/Broi
 `false` for compounds, combinators, `*`, attribute and functional selectors, so animation
 declarations on any rule but the simplest are silently dropped today.
 
+**Closed, and the stub is gone** — `0.1.0-preview.6` adds `TryMatch`, which reports whether the
+answer is one the matcher can stand behind, with the lenient `Matches` untouched for the cascade.
+The pass takes the strict answer and reads "cannot say" as no match, so the silently-dropped
+declarations above are now applied and `:read-only` still attaches its animation to nothing. See
+[Adopted after the bump](#adopted-after-the-bump).
+
 ### A gap found in the dependency
 
 `CssValueParser.TryParseNumeric` does not scan an exponent, so `1e2px` — valid `<length>` per
@@ -234,6 +288,10 @@ for why an overflowing exponent is a length upstream and is not one here.
 `CssSyntax.FindMatching` answers `text.Length - 1` when nothing matches, not `-1`, so a caller must
 test the landing character rather than the sign. An unterminated `translateY(` otherwise takes the
 rest of the string as its argument. Filed as [Broiler.CSS#54](https://github.com/Broiler-Platform/Broiler.CSS/issues/54).
+
+**Closed, and the guard is a sign test** — `0.1.0-preview.6` answers `-1`. The two guards agree on
+every input (checked over 8,546 value/index pairs), so no behaviour test distinguishes them and the
+dependency's new contract is pinned directly instead.
 
 ## Tier B — real, but not reachable from here
 
@@ -272,13 +330,16 @@ not: re-implementing them better here would deepen the mislayering rather than f
 | What the bridge owns | Where | Lines | Filed |
 | --- | --- | --- | --- |
 | The CSS Overflow 3 §3.1 scrollable overflow region, walked and unioned per element | `DomBridge/LayoutMetrics.cs:355` | ~170 | [Broiler.Layout#5](https://github.com/Broiler-Platform/Broiler.Layout/issues/5) |
-| A complete CSS Transforms 1 used-value engine — a transform list folded into an affine matrix | `DomBridgeUtils/Animations.cs:408` | ~158 | [Broiler.Layout#7](https://github.com/Broiler-Platform/Broiler.Layout/issues/7) |
+| A complete CSS Transforms 1 used-value engine — a transform list folded into an affine matrix | `DomBridgeUtils/Animations.cs` | ~150 | [Broiler.Layout#7](https://github.com/Broiler-Platform/Broiler.Layout/issues/7) — **implemented upstream; adoption reverted, [see above](#the-transform-resolver-attempted-and-reverted)** |
 | `elementFromPoint`/`elementsFromPoint` paint-order hit testing, recursing the DOM in reverse child order | `DomBridge/HitTesting.cs:74` | ~40 | [Broiler.Layout#6](https://github.com/Broiler-Platform/Broiler.Layout/issues/6) |
 | The SVG `viewBox` user-space mapping, hardcoded to the default `preserveAspectRatio` | `DomBridge/LayoutMetrics.Svg.cs:450` | ~3 | [Broiler.Layout#10](https://github.com/Broiler-Platform/Broiler.Layout/issues/10) |
 
-The transform engine is the clearest case: Layout already has a transform model
-(`IR.TransformItem.Matrix`, `AffineLayerMap`, `SvgTransform`) and the bridge has built a second one
-beside it. The hit-testing one is a correctness gap rather than a duplication — a point query needs
+The transform engine looked like the clearest case: Layout already had a transform model
+(`IR.TransformItem.Matrix`, `AffineLayerMap`, `SvgTransform`) and the bridge had built a second one
+beside it. #7 shipped the public resolver and the substitution still does not hold — the second
+engine is not a duplicate of the first so much as a more forgiving one, and the forgiveness is
+load-bearing for two inputs this caller actually sees. The hit-testing one is a correctness gap
+rather than a duplication — a point query needs
 the paint-order model (`IR.Fragment` with `CreatesStackingContext`, `StackLevel`, `TopLayerOrder`),
 and no amount of exposing existing members substitutes for a Layout point-query API.
 
