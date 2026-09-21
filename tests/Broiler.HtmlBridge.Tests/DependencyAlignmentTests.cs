@@ -300,53 +300,53 @@ public class DependencyAlignmentHitTestTests
     [Fact]
     public void APointOutsideTheTableHitsNoPartOfIt() =>
         Assert.DoesNotContain(ElementIdAt(400, 200), new[] { "grid", "wide", "narrow", "spanned" });
+}
 
-    /// <summary>
-    /// A layout view that reports the border box declared for an element's <c>id</c> and no box at
-    /// all for anything else — the narrow slice of <c>Broiler.Layout.ILayoutView</c> the bridge's
-    /// geometry snapshot consumes. Keyed by <c>id</c> rather than by element because the document
-    /// it is asked about is the bridge's render projection, a clone of the live tree.
-    /// </summary>
-    private sealed class DeclaredBoxLayoutView : Broiler.Layout.ILayoutView
+/// <summary>
+/// A layout view that reports the border box declared for an element's <c>id</c> and no box at
+/// all for anything else — the narrow slice of <c>Broiler.Layout.ILayoutView</c> the bridge's
+/// geometry snapshot consumes. Keyed by <c>id</c> rather than by element because the document
+/// it is asked about is the bridge's render projection, a clone of the live tree.
+/// </summary>
+internal sealed class DeclaredBoxLayoutView : Broiler.Layout.ILayoutView
+{
+    private readonly IReadOnlyDictionary<string, System.Drawing.RectangleF> _borderBoxesById;
+
+    internal DeclaredBoxLayoutView(IReadOnlyDictionary<string, System.Drawing.RectangleF> borderBoxesById) =>
+        _borderBoxesById = borderBoxesById;
+
+    public IReadOnlyDictionary<Broiler.Dom.DomElement, Broiler.Layout.BoxGeometry> GetGeometry(
+        Broiler.Dom.DomDocument document,
+        System.Drawing.SizeF viewport,
+        string baseUrl,
+        Func<Broiler.Dom.DomElement, Broiler.Dom.DomDocument?>? contentDocumentResolver = null)
     {
-        private readonly IReadOnlyDictionary<string, System.Drawing.RectangleF> _borderBoxesById;
+        var geometry = new Dictionary<Broiler.Dom.DomElement, Broiler.Layout.BoxGeometry>(
+            ReferenceEqualityComparer.Instance);
+        Collect(document, geometry);
+        return geometry;
+    }
 
-        internal DeclaredBoxLayoutView(IReadOnlyDictionary<string, System.Drawing.RectangleF> borderBoxesById) =>
-            _borderBoxesById = borderBoxesById;
+    public void Dispose()
+    {
+    }
 
-        public IReadOnlyDictionary<Broiler.Dom.DomElement, Broiler.Layout.BoxGeometry> GetGeometry(
-            Broiler.Dom.DomDocument document,
-            System.Drawing.SizeF viewport,
-            string baseUrl,
-            Func<Broiler.Dom.DomElement, Broiler.Dom.DomDocument?>? contentDocumentResolver = null)
+    private void Collect(
+        Broiler.Dom.DomNode node,
+        Dictionary<Broiler.Dom.DomElement, Broiler.Layout.BoxGeometry> geometry)
+    {
+        foreach (var element in node.ChildElements)
         {
-            var geometry = new Dictionary<Broiler.Dom.DomElement, Broiler.Layout.BoxGeometry>(
-                ReferenceEqualityComparer.Instance);
-            Collect(document, geometry);
-            return geometry;
-        }
-
-        public void Dispose()
-        {
-        }
-
-        private void Collect(
-            Broiler.Dom.DomNode node,
-            Dictionary<Broiler.Dom.DomElement, Broiler.Layout.BoxGeometry> geometry)
-        {
-            foreach (var element in node.ChildElements)
+            if (element.GetAttributeByQualifiedName("id") is { } id &&
+                _borderBoxesById.TryGetValue(id, out var borderBox))
             {
-                if (element.GetAttributeByQualifiedName("id") is { } id &&
-                    _borderBoxesById.TryGetValue(id, out var borderBox))
-                {
-                    // One rectangle for all three box-model levels: hit testing reads the border
-                    // box, and a fixture that declared three would be pinning the box model rather
-                    // than which box the bridge looks up.
-                    geometry[element] = new Broiler.Layout.BoxGeometry(borderBox, borderBox, borderBox);
-                }
-
-                Collect(element, geometry);
+                // One rectangle for all three box-model levels: hit testing reads the border
+                // box, and a fixture that declared three would be pinning the box model rather
+                // than which box the bridge looks up.
+                geometry[element] = new Broiler.Layout.BoxGeometry(borderBox, borderBox, borderBox);
             }
+
+            Collect(element, geometry);
         }
     }
 }
@@ -1166,4 +1166,115 @@ public class DependencyAlignmentDocumentModeTests
 
     private static string Serialize(string doctype) =>
         PageProbe.Render([PageProbe.Probe("'ok'")], Page(doctype), PageUrl);
+}
+
+/// <summary>
+/// Where an SVG shape lands once its viewport's <c>preserveAspectRatio</c> is read, rather than
+/// assumed.
+/// <para>
+/// A <c>viewBox</c> establishes a user-space to viewport-space mapping, and
+/// <c>preserveAspectRatio</c> decides it: whether the box is fitted or covers, and where the slack
+/// goes. <c>GetSvgViewBoxMapping</c> computed the default <c>xMidYMid meet</c> and nothing else, so
+/// every other value was scaled and centred as if it had been written <c>xMidYMid meet</c> — and
+/// the one case where the attribute changes anything is a viewBox whose aspect differs from its
+/// viewport's, which is the only case where anybody writes it. <c>IR.SvgViewBox.Resolve</c>, new in
+/// <c>Broiler.Layout 0.1.0-preview.5</c>, is SVG 1.1 §7.8 in full.
+/// </para>
+/// <para>
+/// The fixture is a 200×100 viewport over a square <c>0 0 100 100</c> viewBox, so the two axes
+/// disagree by exactly a factor of two and every alignment lands somewhere different. The shape is
+/// a 10×10 rect at the viewBox origin, read through <c>getBoundingClientRect</c>.
+/// </para>
+/// </summary>
+public class DependencyAlignmentSvgViewBoxTests
+{
+    private const string PageUrl = "https://example.test/pages/viewbox.html";
+
+    /// <summary>The <c>&lt;svg&gt;</c>'s own box: twice as wide as the viewBox is square.</summary>
+    private static readonly Dictionary<string, System.Drawing.RectangleF> ViewportBox = new()
+    {
+        ["v"] = new System.Drawing.RectangleF(0, 0, 200, 100),
+    };
+
+    /// <summary>
+    /// PRESERVED: the default, spelt four ways. One scale for both axes so the box fits, and the
+    /// 100px of horizontal slack split evenly. An unparseable value falls back here too.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("xMidYMid meet")]
+    [InlineData("xMidYMid")]
+    [InlineData("nonsense")]
+    public void TheDefaultMappingIsUnchanged(string? preserveAspectRatio) =>
+        Assert.Equal("50,0,10,10", RectOf(preserveAspectRatio));
+
+    /// <summary>
+    /// FIXED: <c>none</c> scales the axes independently, so the square viewBox is stretched across
+    /// the whole viewport and the rect is twice as wide as it is tall.
+    /// </summary>
+    [Fact]
+    public void NoneScalesTheTwoAxesIndependently() =>
+        Assert.Equal("0,0,20,10", RectOf("none"));
+
+    /// <summary>
+    /// FIXED: the alignment decides where the slack goes. Under <c>meet</c> the scale is the same
+    /// as the default's; only the placement moves, from the middle to either edge.
+    /// </summary>
+    [Theory]
+    [InlineData("xMinYMin meet", "0,0,10,10")]
+    [InlineData("xMaxYMax meet", "100,0,10,10")]
+    public void AnAlignmentPlacesTheSlack(string preserveAspectRatio, string expected) =>
+        Assert.Equal(expected, RectOf(preserveAspectRatio));
+
+    /// <summary>
+    /// FIXED: <c>slice</c> covers the viewport instead of fitting inside it, so the scale is the
+    /// larger of the two and the overflow is placed by the alignment — upwards here, which is a
+    /// negative top the default mapping could never produce.
+    /// </summary>
+    [Theory]
+    [InlineData("xMidYMid slice", "0,-50,20,20")]
+    [InlineData("xMaxYMin slice", "0,0,20,20")]
+    public void SliceCoversTheViewport(string preserveAspectRatio, string expected) =>
+        Assert.Equal(expected, RectOf(preserveAspectRatio));
+
+    /// <summary>
+    /// FIXED: the legacy <c>defer</c> prefix is skipped rather than making the whole value
+    /// unreadable.
+    /// </summary>
+    [Fact]
+    public void TheLegacyDeferPrefixIsSkipped() =>
+        Assert.Equal("0,-100,20,20", RectOf("defer xMinYMax slice"));
+
+    /// <summary>
+    /// The rect's client box as <c>left,top,width,height</c>, for a viewport carrying
+    /// <paramref name="preserveAspectRatio"/> (omitted entirely when it is <see langword="null"/>).
+    /// </summary>
+    private static string RectOf(string? preserveAspectRatio)
+    {
+        var attribute = preserveAspectRatio is null
+            ? string.Empty
+            : $" preserveAspectRatio=\"{preserveAspectRatio}\"";
+
+        var page =
+            "<html><body>" +
+            $"<svg id=\"v\" viewBox=\"0 0 100 100\"{attribute}>" +
+            "<rect id=\"r\" x=\"0\" y=\"0\" width=\"10\" height=\"10\"></rect>" +
+            "</svg><div id=\"out\"></div></body></html>";
+
+        var engine = new ScriptEngine(new DomBridgeFactory(new DomBridgeSessionOptions
+        {
+            LayoutViewFactory = () => new DeclaredBoxLayoutView(ViewportBox),
+        }));
+
+        var script = PageProbe.Probe(
+            "(function () { var b = document.getElementById('r').getBoundingClientRect();" +
+            " return [b.left, b.top, b.width, b.height].join(','); })()");
+
+        var html = engine.Execute([script], page, PageUrl);
+
+        Assert.NotNull(html);
+
+        return PageProbe.OutOf(html!);
+    }
 }

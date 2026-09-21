@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Globalization;
 using Broiler.CSS;
 using Broiler.Dom;
@@ -270,9 +271,8 @@ public sealed partial class DomBridge
 /// exactly as every shape did before, rather than being given a wrong one. Of the transform
 /// functions only <c>translate()</c> is accumulated, which is what an ancestor chain overwhelmingly
 /// carries; a <c>rotate</c>/<c>scale</c>/<c>matrix</c> on the chain is ignored rather than
-/// approximated, so its subtree keeps the untransformed rect. <c>preserveAspectRatio</c> is
-/// modelled at its default (<c>xMidYMid meet</c>): uniform scale, centred. Each of these is a
-/// bounded, nameable gap rather than a silent zero.
+/// approximated, so its subtree keeps the untransformed rect. Each of these is a bounded, nameable
+/// gap rather than a silent zero.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -438,14 +438,22 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// The user-space to viewport-space mapping a <c>viewBox</c> establishes.
+    /// The user-space to viewport-space mapping a <c>viewBox</c> establishes, under this
+    /// viewport's <c>preserveAspectRatio</c>.
     /// </summary>
     /// <remarks>
-    /// <c>preserveAspectRatio</c> is modelled at its default, <c>xMidYMid meet</c>: one scale for
-    /// both axes, chosen so the box fits, with the slack split evenly. A non-default value is not
-    /// read, so a <c>slice</c> or a corner alignment maps as if it were the default — visibly wrong
-    /// only when the viewBox aspect differs from the viewport's, and the same shape of gap the class
-    /// documentation lists rather than a silent zero.
+    /// The mapping used to be computed here at the default <c>xMidYMid meet</c> and nowhere else,
+    /// so a <c>slice</c> or a corner alignment was scaled and centred as if it had been written
+    /// <c>xMidYMid meet</c> — the one case where the attribute changes anything is a viewBox whose
+    /// aspect differs from the viewport's, which is the only case where anybody writes it.
+    /// <c>IR.SvgViewBox.Resolve</c> is SVG 1.1 §7.8 in full: <c>none</c> scales the axes
+    /// independently, <c>slice</c> covers rather than fits, all nine alignments place the slack,
+    /// and the legacy <c>defer</c> prefix is skipped. An absent or unparseable value falls back to
+    /// the default, which is what this answered for every value before.
+    /// <para>
+    /// The viewport rectangle is passed at the origin because the caller adds the viewport's own
+    /// rendered position separately, on the outside of the <c>&lt;g&gt;</c> translate chain.
+    /// </para>
     /// </remarks>
     private (double ScaleX, double ScaleY, double OffsetX, double OffsetY) GetSvgViewBoxMapping(DomElement viewport)
     {
@@ -456,12 +464,12 @@ public sealed partial class DomBridge
         if (rendered.Width <= 0 || rendered.Height <= 0)
             return (1, 1, 0, 0);
 
-        var scale = Math.Min(rendered.Width / box.Width, rendered.Height / box.Height);
-        return (
-            scale,
-            scale,
-            ((rendered.Width - (box.Width * scale)) / 2) - (box.X * scale),
-            ((rendered.Height - (box.Height * scale)) / 2) - (box.Y * scale));
+        var map = Layout.IR.SvgViewBox.Resolve(
+            GetAttr(viewport, "preserveAspectRatio"),
+            new RectangleF(0, 0, (float)rendered.Width, (float)rendered.Height),
+            new RectangleF((float)box.X, (float)box.Y, (float)box.Width, (float)box.Height));
+
+        return (map.ScaleX, map.ScaleY, map.TranslateX, map.TranslateY);
     }
 
     /// <summary>
