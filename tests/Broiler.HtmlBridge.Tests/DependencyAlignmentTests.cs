@@ -629,10 +629,16 @@ public class DependencyAlignmentTransformSplitTests
 /// CHANGED: <c>NumberStyles.Float</c> accepts .NET's <c>NaN</c> and <c>Infinity</c> symbols, so
 /// <c>"NaNpx"</c> and <c>"Infinitypx"</c> were <em>successful</em> parses that put a NaN or an
 /// infinity into geometry. The shared parser requires a digit and rejects both, so such a value now
-/// takes the caller's not-a-length path. It also does not scan an exponent, which css-syntax-3
-/// §4.3.12 allows, so <c>TryParseExponentNumber</c> covers that one shape rather than letting a
-/// valid length regress; that gap is <c>CssValueParser</c>'s to close, and when it does the
-/// fallback becomes dead rather than wrong.
+/// takes the caller's not-a-length path.
+/// </para>
+/// <para>
+/// A local <c>TryParseExponentNumber</c> stood behind both helpers for one release, because
+/// <c>TryParseNumeric</c> did not scan an exponent and <c>"1e2px"</c> is a valid <c>&lt;length&gt;</c>
+/// per css-syntax-3 §4.3.12. Broiler.CSS #53 closed that, so the fallback is gone — and its
+/// finiteness test moved into the helpers rather than going with it: an exponent a double cannot
+/// hold now parses, to ±∞, which is the dependency's deliberate answer (it matches
+/// <c>CssLengthParser</c>, and CSS Values 4 §11.1 clamps rather than invalidates) and not one these
+/// call sites can hold.
 /// </para>
 /// <para>
 /// The surface these cases read through is SVG font-relative length resolution during render
@@ -680,10 +686,10 @@ public class DependencyAlignmentCssNumericParseTests
         Assert.Equal("32", SerializedRectWidthFor(fontSize));
 
     /// <summary>
-    /// PRESERVED: a length in scientific notation, legal per css-syntax-3 §4.3.12.
-    /// <c>CssValueParser</c>'s number scan stops before the exponent, so adopting it alone would
-    /// have regressed this from 100 to not-a-length. <c>TryParseExponentNumber</c> covers exactly
-    /// that shape, so the answer is the one the old local scan gave.
+    /// PRESERVED: a length in scientific notation, legal per css-syntax-3 §4.3.12. The answer used
+    /// to come from this component's own fallback, because <c>CssValueParser</c>'s number scan
+    /// stopped before the exponent; since Broiler.CSS #53 it comes from <c>CssValueParser</c>
+    /// itself, and it is the same answer.
     /// </summary>
     [Theory]
     [InlineData("1e2px")]
@@ -693,12 +699,22 @@ public class DependencyAlignmentCssNumericParseTests
         Assert.Equal("200", SerializedRectWidthFor(fontSize));
 
     /// <summary>
-    /// An exponent that overflows is not a length: the fallback requires a finite result, so
-    /// <c>"1e400px"</c> does not reach geometry as an infinity by the back door.
+    /// An exponent that overflows a double is not a length <em>here</em>, in either sign and with
+    /// or without a unit. <c>CssValueParser.TryParseNumeric</c> answers <c>(±∞, Px)</c> for these
+    /// and is not wrong to: CSS Values 4 §11.1 clamps an out-of-range number rather than making the
+    /// declaration invalid, and <c>CssLengthParser</c> in the same package has always said so. But
+    /// the ~94 call sites behind <c>TryParsePx</c> multiply what they are handed into geometry with
+    /// no clamp of their own, which is the whole reason <c>"Infinitypx"</c> was a defect. So the
+    /// helpers keep the finiteness test, and the value takes the not-a-length path: 2 × the 16px
+    /// root default.
     /// </summary>
-    [Fact]
-    public void AnOverflowingExponentIsNotALength() =>
-        Assert.Equal("32", SerializedRectWidthFor("1e400px"));
+    [Theory]
+    [InlineData("1e400px")]
+    [InlineData("-1e400px")]
+    [InlineData("1e400")]
+    [InlineData("-1e400")]
+    public void AnOverflowingExponentIsNotALength(string fontSize) =>
+        Assert.Equal("32", SerializedRectWidthFor(fontSize));
 
     /// <summary>
     /// PRESERVED: the contract the call sites depend on. A plain <c>px</c> length and a bare number

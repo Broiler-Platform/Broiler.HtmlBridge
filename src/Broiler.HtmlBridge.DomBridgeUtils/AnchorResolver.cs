@@ -58,63 +58,46 @@ public static partial class DomBridgeUtils
     /// test is what keeps this helper's contract, and it is what rejects the percentage the old
     /// body rejected with an explicit <c>'%'</c> guard.
     /// <para>
-    /// Three differences from the <c>double.TryParse(NumberStyles.Float, …)</c> it replaces, all
+    /// Two differences from the <c>double.TryParse(NumberStyles.Float, …)</c> it replaces, both
     /// deliberate. <c>NumberStyles.Float</c> accepted .NET's <c>NaN</c> and <c>Infinity</c>
     /// symbols, so <c>"NaNpx"</c> and <c>"Infinitypx"</c> parsed as <em>successes</em> and fed a
     /// NaN or an infinity straight into anchor and box geometry; the shared parser requires a
     /// digit and rejects both. It also rejects whitespace before the unit — <c>"12 px"</c> parsed
-    /// before and does not now, which is invalid CSS either way. It does not scan an exponent,
-    /// so <c>"1e2px"</c> — valid
-    /// <c>&lt;length&gt;</c> syntax per css-syntax-3 §4.3.12 — is <c>null</c> here where the old
-    /// body answered 100. That gap belongs to <c>CssValueParser</c>, and until it is closed
-    /// <see cref="TryParseExponentNumber"/> covers exactly that shape, so no valid length regresses.
+    /// before and does not now, which is invalid CSS either way.
+    /// </para>
+    /// <para>
+    /// <b>The finiteness test is this component's, not the parser's, and has to stay.</b>
+    /// <c>TryParseNumeric</c> scans an exponent since Broiler.CSS #53, so <c>"1e2px"</c> parses —
+    /// and so does <c>"1e400px"</c>, which overflows a double and answers +∞. That is the right
+    /// answer downstream: it matches <c>CssLengthParser</c> in the same package, and CSS Values 4
+    /// §11.1 clamps an out-of-range number rather than making the declaration invalid. It is not
+    /// an answer geometry here can take, because the ~94 call sites behind these two helpers treat
+    /// a returned number as a measured length and have no clamp of their own — which is the same
+    /// defect <c>"Infinitypx"</c> used to cause by the other door. A non-finite result therefore
+    /// takes the caller's not-a-length path, as a rejected parse always has.
     /// </para>
     /// </remarks>
     internal static double? TryParsePx(string? value) =>
-        CssValueParser.TryParseNumeric(value, out var numeric) && numeric.Unit is CssUnit.Px or CssUnit.None
+        CssValueParser.TryParseNumeric(value, out var numeric) &&
+        numeric.Unit is CssUnit.Px or CssUnit.None &&
+        double.IsFinite(numeric.Number)
             ? numeric.Number
-            : TryParseExponentNumber(value, "px");
+            : null;
 
     /// <summary>
     /// Tries to parse a CSS percentage value (e.g. "50%") and returns
     /// the numeric value (e.g. 50.0).
     /// </summary>
     /// <remarks>
-    /// Same shared parser as <see cref="TryParsePx"/>, and the same two behaviour notes; the unit
-    /// test here is <see cref="CssNumericValue.IsPercentage"/>.
+    /// Same shared parser as <see cref="TryParsePx"/>, and the same behaviour notes including the
+    /// finiteness test; the unit test here is <see cref="CssNumericValue.IsPercentage"/>.
     /// </remarks>
     internal static double? TryParsePercent(string? value) =>
-        CssValueParser.TryParseNumeric(value, out var numeric) && numeric.IsPercentage
+        CssValueParser.TryParseNumeric(value, out var numeric) &&
+        numeric.IsPercentage &&
+        double.IsFinite(numeric.Number)
             ? numeric.Number
-            : TryParseExponentNumber(value, "%");
-
-    /// <summary>
-    /// The one <c>&lt;number&gt;</c> shape <see cref="CssValueParser.TryParseNumeric"/> does not
-    /// scan: an exponent, which css-syntax-3 §4.3.12 allows. Covers it so that adopting the shared
-    /// parser regresses no valid length, and nothing else.
-    /// </summary>
-    /// <remarks>
-    /// The exponent marker is also what keeps <c>NaN</c> and <c>Infinity</c> out: neither spelling
-    /// contains an <c>e</c>, so neither reaches the parse below. <see cref="double.IsFinite"/> is
-    /// belt and braces for an overflowing exponent such as <c>"1e400px"</c>.
-    /// </remarks>
-    private static double? TryParseExponentNumber(string? value, string unit)
-    {
-        if (value is null)
-            return null;
-
-        var text = value.Trim();
-        if (!text.Contains('e') && !text.Contains('E'))
-            return null;
-
-        if (text.EndsWith(unit, StringComparison.OrdinalIgnoreCase))
-            text = text[..^unit.Length];
-
-        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
-            && double.IsFinite(number)
-            ? number
             : null;
-    }
 
     /// <summary>
     /// Resolves a CSS value that may be a percentage or a pixel length.
