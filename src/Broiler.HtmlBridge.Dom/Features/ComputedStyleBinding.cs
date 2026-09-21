@@ -50,6 +50,21 @@ internal static class ComputedStyleBinding
     /// Those are not substitutions invented by the guard — they are the fallbacks the getter
     /// already had, and the only ones it has.
     /// </para>
+    /// <para>
+    /// The attribute read goes through <c>TryParseFiniteScalar</c> for its <em>culture</em> as much
+    /// as its finiteness. It used to call the parameterless <c>double.TryParse</c>, which reads the
+    /// machine's current culture: on a German one the group separator is <c>.</c> and the decimal
+    /// separator is <c>,</c>, so <c>width="1.234"</c> answered <c>1234</c> and <c>width="1,5"</c>
+    /// answered <c>1.5</c>. A content attribute is not a localised number — HTML parses it with no
+    /// culture at all — so the same document answered differently depending on where it was opened.
+    /// </para>
+    /// <para>
+    /// This still reads the attribute as a <em>number</em> rather than by HTML's rules for parsing
+    /// non-negative integers, which would take the leading digit run and stop: <c>width="1.5"</c> is
+    /// <c>1</c> to a browser and <c>1.5</c> here, and a negative value should be ignored outright
+    /// rather than used. That is a separate question from the culture, and a larger one, so it is
+    /// left recorded rather than folded in here.
+    /// </para>
     /// </remarks>
     internal static JsValue GetUsedDimension(IComputedStyleHost host, string? dimName, DomElement element)
     {
@@ -69,10 +84,10 @@ internal static class ComputedStyleBinding
             }
         }
 
-        // Fallback: HTML attribute
+        // Fallback: HTML attribute. Read through the shared scalar helper, which fixes the culture
+        // as well as the finiteness — see the remark below for why the culture matters here.
         if (DomBridgeUtils.TryGetAttribute(element, dimName, out var attrVal) &&
-            double.TryParse(attrVal, out var attrNum) &&
-            double.IsFinite(attrNum))
+            DomBridgeUtils.TryParseFiniteScalar(attrVal, out var attrNum))
         {
             return JsValue.Number(attrNum);
         }

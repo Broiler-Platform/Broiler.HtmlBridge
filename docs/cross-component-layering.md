@@ -616,13 +616,22 @@ Not cross-component, but found while looking and worth keeping:
 - **`HUMAN_REVIEW.md` is stale** — its dependency table still describes Broiler.JS and Broiler.VM as
   submodules, with links to paths that do not exist. Left untouched deliberately: it is an
   attestation record, and correcting it is its owner's call.
-- **`img.width`/`.height` read their content attribute in the *current* culture**, with
-  `AllowThousands` — `Dom/Features/ComputedStyleBinding.cs`. On a German-locale machine
-  `<img width="1.5">` answers `15` and `<img width="1,5">` answers `1.5`, where HTML parses that
-  attribute culture-invariantly and as an integer. Left alone by the non-finite round deliberately:
-  it is a locale defect rather than a representability one, and fixing it changes what a page reads
-  for values that are perfectly representable. Every other numeric read in these files goes through
-  `InvariantCulture`.
+- **`img.width`/`.height` read their content attribute as a number, not by HTML's integer grammar**
+  — `Dom/Features/ComputedStyleBinding.cs`. The *culture* half of this is now fixed: the read goes
+  through `DomBridgeUtils.TryParseFiniteScalar`, so a dot is a decimal point everywhere. What
+  remains is the grammar. HTML applies the rules for parsing non-negative integers, which take the
+  leading digit run and stop, so a browser answers `1` for `<img width="1.5">` where this answers
+  `1.5`, and ignores a negative value outright where this uses it. Smaller than the culture defect
+  was, and in a different direction — it makes this component *more* precise than the Standard
+  rather than differently precise on different machines.
+
+  > The culture defect is worth remembering for its shape. The read used the parameterless
+  > `double.TryParse`, which takes the machine's current culture *and* `AllowThousands`. On a German
+  > machine the group separator is `.`, so `<img width="1.234">` answered **1234** — a thousandfold
+  > error, growing with the number of digits in the group — and `<img width="1,5">` answered `1.5`,
+  > the correct answer to a *different* spelling, which is what made it hard to see. Every other
+  > numeric read in these files already went through `InvariantCulture`; this one had been missed
+  > rather than decided, and a machine with an English locale would never have shown it.
 - **A frame dimension a double holds is still truncated by a cast to `int`** —
   `DomBridgeUtils.ParseViewportDimensionAttribute` and `CascadedFrameViewport.ResolveFrameLength`.
   `<iframe width="1e30">` is a number the page wrote and this component can represent, and it still
