@@ -65,17 +65,14 @@ public sealed partial class DomBridge
         if (!_eventTargetRoutingReady)
         {
 
-            Realm.DefineValue(handle, "addEventListener",
-                Realm.NewMethod("addEventListener",
-                    (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in call), 3));
+            Realm.DefineMethod(handle, "addEventListener", 3,
+                (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in call));
 
-            Realm.DefineValue(handle, "removeEventListener",
-                Realm.NewMethod("removeEventListener",
-                    (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in call), 3));
+            Realm.DefineMethod(handle, "removeEventListener", 3,
+                (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in call));
 
-            Realm.DefineValue(handle, "dispatchEvent",
-                Realm.NewMethod("dispatchEvent",
-                    (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in call), 1));
+            Realm.DefineMethod(handle, "dispatchEvent", 1,
+                (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in call));
         }
 
     }
@@ -128,30 +125,24 @@ public sealed partial class DomBridge
         // splitText is Text-only (not on Comment).
         if (IsText(node))
         {
-            Realm.DefineValue(handle, "splitText",
-                Realm.NewMethod("splitText",
-                    (in call) => Dom.Features.CharacterDataBinding.SplitText(this, node, in call), 1));
+            Realm.DefineMethod(handle, "splitText", 1,
+                (in call) => Dom.Features.CharacterDataBinding.SplitText(this, node, in call));
         }
 
-        Realm.DefineValue(handle, "substringData",
-            Realm.NewMethod("substringData",
-                (in call) => Dom.Features.CharacterDataBinding.SubstringData(this, node, in call), 2));
+        Realm.DefineMethod(handle, "substringData", 2,
+            (in call) => Dom.Features.CharacterDataBinding.SubstringData(this, node, in call));
 
-        Realm.DefineValue(handle, "appendData",
-            Realm.NewMethod("appendData",
-                (in call) => Dom.Features.CharacterDataBinding.AppendData(this, node, in call), 1));
+        Realm.DefineMethod(handle, "appendData", 1,
+            (in call) => Dom.Features.CharacterDataBinding.AppendData(this, node, in call));
 
-        Realm.DefineValue(handle, "deleteData",
-            Realm.NewMethod("deleteData",
-                (in call) => Dom.Features.CharacterDataBinding.DeleteData(this, node, in call), 2));
+        Realm.DefineMethod(handle, "deleteData", 2,
+            (in call) => Dom.Features.CharacterDataBinding.DeleteData(this, node, in call));
 
-        Realm.DefineValue(handle, "insertData",
-            Realm.NewMethod("insertData",
-                (in call) => Dom.Features.CharacterDataBinding.InsertData(this, node, in call), 2));
+        Realm.DefineMethod(handle, "insertData", 2,
+            (in call) => Dom.Features.CharacterDataBinding.InsertData(this, node, in call));
 
-        Realm.DefineValue(handle, "replaceData",
-            Realm.NewMethod("replaceData",
-                (in call) => Dom.Features.CharacterDataBinding.ReplaceData(this, node, in call), 3));
+        Realm.DefineMethod(handle, "replaceData", 3,
+            (in call) => Dom.Features.CharacterDataBinding.ReplaceData(this, node, in call));
 
         // -- Tree navigation --
         Realm.DefineAccessor(handle, "parentNode",
@@ -182,56 +173,44 @@ public sealed partial class DomBridge
         Realm.DefineAccessor(handle, "ownerDocument",
             (in call) => Dom.Features.NodeAccessorsBinding.GetOwnerDocument(this, node, in call), null);
 
-        Realm.DefineValue(handle, "hasChildNodes",
-            Realm.NewMethod("hasChildNodes", (in _) => JsValue.Boolean(node.ChildNodes.Count > 0)));
+        Realm.DefineMethod(handle, "hasChildNodes", (in _) => JsValue.Boolean(node.ChildNodes.Count > 0));
 
         // -- Node methods --
-        Realm.DefineValue(handle, "cloneNode",
-            Realm.NewMethod("cloneNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, node, in call), 1));
+        Realm.DefineMethod(handle, "cloneNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, node, in call));
 
-        Realm.DefineValue(handle, "contains",
-            Realm.NewMethod("contains",
-                (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, node, in call), 1));
+        Realm.DefineMethod(handle, "contains", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, node, in call));
 
-        Realm.DefineValue(handle, "compareDocumentPosition",
-            Realm.NewMethod("compareDocumentPosition",
-                (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, node, in call), 1));
+        Realm.DefineMethod(handle, "compareDocumentPosition", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, node, in call));
 
-        Realm.DefineValue(handle, "isSameNode",
-            Realm.NewMethod("isSameNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, node, in call), 1));
+        Realm.DefineMethod(handle, "isSameNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, node, in call));
 
-        Realm.DefineValue(handle, "isEqualNode",
-            Realm.NewMethod("isEqualNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, node, in call), 1));
+        Realm.DefineMethod(handle, "isEqualNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, node, in call));
 
-        Realm.DefineValue(handle, "getRootNode",
-            Realm.NewMethod("getRootNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, node, in call), 1));
+        Realm.DefineMethod(handle, "getRootNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, node, in call));
 
-        Realm.DefineValue(handle, "normalize",
-            Realm.NewMethod("normalize",
-                (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, node, in call), 0));
+        Realm.DefineMethod(handle, "normalize", 0,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, node, in call));
 
         // -- ChildNode mixin --
         // The realm's: ChildNodeBinding reads a JsCall frame at one entry point per operation, which
         // this file, NodeInterfaces.cs and ElementInterface.cs all share.
-        Realm.DefineValue(handle, "remove",
-            Realm.NewMethod("remove",
-                (in call) => Dom.Features.ChildNodeBinding.Remove(this, node, in call)));
+        Realm.DefineMethod(handle, "remove",
+            (in call) => Dom.Features.ChildNodeBinding.Remove(this, node, in call));
 
-        Realm.DefineValue(handle, "before",
-            Realm.NewMethod("before",
-                (in call) => Dom.Features.ChildNodeBinding.Before(this, node, in call)));
+        Realm.DefineMethod(handle, "before",
+            (in call) => Dom.Features.ChildNodeBinding.Before(this, node, in call));
 
-        Realm.DefineValue(handle, "after",
-            Realm.NewMethod("after",
-                (in call) => Dom.Features.ChildNodeBinding.After(this, node, in call)));
+        Realm.DefineMethod(handle, "after",
+            (in call) => Dom.Features.ChildNodeBinding.After(this, node, in call));
 
-        Realm.DefineValue(handle, "replaceWith",
-            Realm.NewMethod("replaceWith",
-                (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, node, in call)));
+        Realm.DefineMethod(handle, "replaceWith",
+            (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, node, in call));
 
 
         // The constants are on Node.prototype for every other wrapper; this one inherits nothing.
@@ -297,51 +276,40 @@ public sealed partial class DomBridge
             (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(node, in call), null);
 
         // A doctype is a leaf: hasChildNodes is constantly false.
-        Realm.DefineValue(handle, "hasChildNodes",
-            Realm.NewMethod("hasChildNodes", (in _) => JsValue.False));
+        Realm.DefineMethod(handle, "hasChildNodes", (in _) => JsValue.False);
 
         // -- Node methods --
-        Realm.DefineValue(handle, "cloneNode",
-            Realm.NewMethod("cloneNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, node, in call), 1));
+        Realm.DefineMethod(handle, "cloneNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, node, in call));
 
-        Realm.DefineValue(handle, "isEqualNode",
-            Realm.NewMethod("isEqualNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, node, in call), 1));
+        Realm.DefineMethod(handle, "isEqualNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, node, in call));
 
-        Realm.DefineValue(handle, "isSameNode",
-            Realm.NewMethod("isSameNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, node, in call), 1));
+        Realm.DefineMethod(handle, "isSameNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, node, in call));
 
-        Realm.DefineValue(handle, "contains",
-            Realm.NewMethod("contains",
-                (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, node, in call), 1));
+        Realm.DefineMethod(handle, "contains", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, node, in call));
 
-        Realm.DefineValue(handle, "compareDocumentPosition",
-            Realm.NewMethod("compareDocumentPosition",
-                (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, node, in call), 1));
+        Realm.DefineMethod(handle, "compareDocumentPosition", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, node, in call));
 
-        Realm.DefineValue(handle, "getRootNode",
-            Realm.NewMethod("getRootNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, node, in call), 1));
+        Realm.DefineMethod(handle, "getRootNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, node, in call));
 
         // -- ChildNode mixin --
         // The realm's, like the character-data wrapper's four above.
-        Realm.DefineValue(handle, "remove",
-            Realm.NewMethod("remove",
-                (in call) => Dom.Features.ChildNodeBinding.Remove(this, node, in call)));
+        Realm.DefineMethod(handle, "remove",
+            (in call) => Dom.Features.ChildNodeBinding.Remove(this, node, in call));
 
-        Realm.DefineValue(handle, "before",
-            Realm.NewMethod("before",
-                (in call) => Dom.Features.ChildNodeBinding.Before(this, node, in call)));
+        Realm.DefineMethod(handle, "before",
+            (in call) => Dom.Features.ChildNodeBinding.Before(this, node, in call));
 
-        Realm.DefineValue(handle, "after",
-            Realm.NewMethod("after",
-                (in call) => Dom.Features.ChildNodeBinding.After(this, node, in call)));
+        Realm.DefineMethod(handle, "after",
+            (in call) => Dom.Features.ChildNodeBinding.After(this, node, in call));
 
-        Realm.DefineValue(handle, "replaceWith",
-            Realm.NewMethod("replaceWith",
-                (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, node, in call)));
+        Realm.DefineMethod(handle, "replaceWith",
+            (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, node, in call));
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
         // routed by receiver (DomBridge/Events.cs) — one function for every target, as
@@ -350,17 +318,14 @@ public sealed partial class DomBridge
         if (!_eventTargetRoutingReady)
         {
 
-            Realm.DefineValue(handle, "addEventListener",
-                Realm.NewMethod("addEventListener",
-                    (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in call), 3));
+            Realm.DefineMethod(handle, "addEventListener", 3,
+                (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in call));
 
-            Realm.DefineValue(handle, "removeEventListener",
-                Realm.NewMethod("removeEventListener",
-                    (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in call), 3));
+            Realm.DefineMethod(handle, "removeEventListener", 3,
+                (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in call));
 
-            Realm.DefineValue(handle, "dispatchEvent",
-                Realm.NewMethod("dispatchEvent",
-                    (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in call), 1));
+            Realm.DefineMethod(handle, "dispatchEvent", 1,
+                (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in call));
         }
 
         // Node interface constants (exist on all Node objects) — types and DOCUMENT_POSITION_* bits.
@@ -407,8 +372,7 @@ public sealed partial class DomBridge
             (in call) => Dom.Features.NodeAccessorsBinding.GetLastChild(this, node, in call), null);
         Realm.DefineAccessor(handle, "isConnected",
             (in call) => Dom.Features.NodeAccessorsBinding.GetIsConnected(node, in call), null);
-        Realm.DefineValue(handle, "hasChildNodes",
-            Realm.NewMethod("hasChildNodes", (in _) => JsValue.Boolean(fragment.ChildNodes.Count > 0)));
+        Realm.DefineMethod(handle, "hasChildNodes", (in _) => JsValue.Boolean(fragment.ChildNodes.Count > 0));
 
         // -- ParentNode mixin (element views) --
         // The same canonical element views an element's wrapper reads (ElementTraversalBinding).
@@ -434,149 +398,131 @@ public sealed partial class DomBridge
             (in call) => Dom.Features.NodeAccessorsBinding.SetTextContent(fragment, in call));
 
         // -- Child manipulation --
-        Realm.DefineValue(handle, "appendChild",
-            Realm.NewMethod("appendChild", (in call) =>
-            {
-                if (call.Length == 0 || !call[0].IsObject)
-                    return JsValue.Undefined;
-                var childEl = NodeForWrapper(call[0]);
-                if (childEl == null)
-                    return call[0];
-                if (ReferenceEquals(childEl, fragment) || fragment.IsDescendantOf(childEl))
-                    throw call.Realm.DomError("HierarchyRequestError", "The new child element contains the parent.");
-                InsertNodeAt(fragment, childEl, fragment.ChildNodes.Count);
+        Realm.DefineMethod(handle, "appendChild", 1, (in call) =>
+        {
+            if (call.Length == 0 || !call[0].IsObject)
+                return JsValue.Undefined;
+            var childEl = NodeForWrapper(call[0]);
+            if (childEl == null)
                 return call[0];
-            }, 1));
-        Realm.DefineValue(handle, "insertBefore",
-            Realm.NewMethod("insertBefore", (in call) =>
-            {
-                if (call.Length == 0 || !call[0].IsObject)
-                    return JsValue.Undefined;
-                var newEl = NodeForWrapper(call[0]);
-                if (newEl == null)
-                    return call[0];
-                if (ReferenceEquals(newEl, fragment) || fragment.IsDescendantOf(newEl))
-                    throw call.Realm.DomError("HierarchyRequestError", "The new child element contains the parent.");
-                if (call.Length < 2 || call[1].IsNull || call[1].IsUndefined)
-                {
-                    InsertNodeAt(fragment, newEl, fragment.ChildNodes.Count);
-                    return call[0];
-                }
-                if (!call[1].IsObject)
-                    return call[0];
-                var refEl = NodeForWrapper(call[1]);
-                if (refEl == null || ReferenceEquals(newEl, refEl))
-                    return call[0];
-                var idx = ChildIndexOf(fragment, refEl);
-                if (idx < 0)
-                    throw call.Realm.Error(JsErrorKind.Error, "NotFoundError: The node before which the new node is to be inserted is not a child of this node.");
-                InsertNodeAt(fragment, newEl, idx);
+            if (ReferenceEquals(childEl, fragment) || fragment.IsDescendantOf(childEl))
+                throw call.Realm.DomError("HierarchyRequestError", "The new child element contains the parent.");
+            InsertNodeAt(fragment, childEl, fragment.ChildNodes.Count);
+            return call[0];
+        });
+        Realm.DefineMethod(handle, "insertBefore", 2, (in call) =>
+        {
+            if (call.Length == 0 || !call[0].IsObject)
+                return JsValue.Undefined;
+            var newEl = NodeForWrapper(call[0]);
+            if (newEl == null)
                 return call[0];
-            }, 2));
-        Realm.DefineValue(handle, "removeChild",
-            Realm.NewMethod("removeChild", (in call) =>
+            if (ReferenceEquals(newEl, fragment) || fragment.IsDescendantOf(newEl))
+                throw call.Realm.DomError("HierarchyRequestError", "The new child element contains the parent.");
+            if (call.Length < 2 || call[1].IsNull || call[1].IsUndefined)
             {
-                if (call.Length == 0 || !call[0].IsObject)
-                    return JsValue.Undefined;
-                var childEl = NodeForWrapper(call[0]);
-                if (childEl == null)
-                    return call[0];
-                var idx = ChildIndexOf(fragment, childEl);
-                if (idx < 0)
-                    return call[0];
-                RemoveNthChild(fragment, idx);
-                SetParent(childEl, null);
+                InsertNodeAt(fragment, newEl, fragment.ChildNodes.Count);
                 return call[0];
-            }, 1));
-        Realm.DefineValue(handle, "replaceChild",
-            Realm.NewMethod("replaceChild", (in call) =>
-            {
-                if (call.Length < 2 || !call[0].IsObject || !call[1].IsObject)
-                    return JsValue.Undefined;
-                var newEl = NodeForWrapper(call[0]);
-                var oldEl = NodeForWrapper(call[1]);
-                if (newEl == null || oldEl == null)
-                    return call[1];
-                var idx = ChildIndexOf(fragment, oldEl);
-                if (idx < 0)
-                    return call[1];
-                SetParent(oldEl, null);
-                InsertNodeAt(fragment, newEl, Math.Min(idx, fragment.ChildNodes.Count));
+            }
+            if (!call[1].IsObject)
+                return call[0];
+            var refEl = NodeForWrapper(call[1]);
+            if (refEl == null || ReferenceEquals(newEl, refEl))
+                return call[0];
+            var idx = ChildIndexOf(fragment, refEl);
+            if (idx < 0)
+                throw call.Realm.Error(JsErrorKind.Error, "NotFoundError: The node before which the new node is to be inserted is not a child of this node.");
+            InsertNodeAt(fragment, newEl, idx);
+            return call[0];
+        });
+        Realm.DefineMethod(handle, "removeChild", 1, (in call) =>
+        {
+            if (call.Length == 0 || !call[0].IsObject)
+                return JsValue.Undefined;
+            var childEl = NodeForWrapper(call[0]);
+            if (childEl == null)
+                return call[0];
+            var idx = ChildIndexOf(fragment, childEl);
+            if (idx < 0)
+                return call[0];
+            RemoveNthChild(fragment, idx);
+            SetParent(childEl, null);
+            return call[0];
+        });
+        Realm.DefineMethod(handle, "replaceChild", 2, (in call) =>
+        {
+            if (call.Length < 2 || !call[0].IsObject || !call[1].IsObject)
+                return JsValue.Undefined;
+            var newEl = NodeForWrapper(call[0]);
+            var oldEl = NodeForWrapper(call[1]);
+            if (newEl == null || oldEl == null)
                 return call[1];
-            }, 2));
+            var idx = ChildIndexOf(fragment, oldEl);
+            if (idx < 0)
+                return call[1];
+            SetParent(oldEl, null);
+            InsertNodeAt(fragment, newEl, Math.Min(idx, fragment.ChildNodes.Count));
+            return call[1];
+        });
         // append/prepend read the whole variadic list — nodes and strings alike — through the bridge's
         // ISubDocumentHost reading of it, which every other host's BuildChildNodeArgumentNodes forwards
         // to and which coerces each non-node argument with the realm's ToString.
-        Realm.DefineValue(handle, "append",
-            Realm.NewMethod("append", (in call) =>
-            {
-                if (call.Length == 0)
-                    return JsValue.Undefined;
-                var nodes = ((Dom.Features.ISubDocumentHost)this).BuildChildNodeArgumentNodes(call.Arguments);
-                var insertIndex = fragment.ChildNodes.Count;
-                foreach (var child in nodes)
-                    InsertNodeAt(fragment, child, insertIndex++);
+        Realm.DefineMethod(handle, "append", (in call) =>
+        {
+            if (call.Length == 0)
                 return JsValue.Undefined;
-            }));
-        Realm.DefineValue(handle, "prepend",
-            Realm.NewMethod("prepend", (in call) =>
-            {
-                if (call.Length == 0)
-                    return JsValue.Undefined;
-                var nodes = ((Dom.Features.ISubDocumentHost)this).BuildChildNodeArgumentNodes(call.Arguments);
-                var insertIndex = 0;
-                foreach (var child in nodes)
-                    InsertNodeAt(fragment, child, insertIndex++);
+            var nodes = ((Dom.Features.ISubDocumentHost)this).BuildChildNodeArgumentNodes(call.Arguments);
+            var insertIndex = fragment.ChildNodes.Count;
+            foreach (var child in nodes)
+                InsertNodeAt(fragment, child, insertIndex++);
+            return JsValue.Undefined;
+        });
+        Realm.DefineMethod(handle, "prepend", (in call) =>
+        {
+            if (call.Length == 0)
                 return JsValue.Undefined;
-            }));
+            var nodes = ((Dom.Features.ISubDocumentHost)this).BuildChildNodeArgumentNodes(call.Arguments);
+            var insertIndex = 0;
+            foreach (var child in nodes)
+                InsertNodeAt(fragment, child, insertIndex++);
+            return JsValue.Undefined;
+        });
 
         // -- Query --
         // The descendant search answers a handle — a wrapper, a static NodeList, or null — and
         // FromEngineResult, the object-or-null filter the element forms share, passes it through as it
         // is. The selector is read with the realm's ToString, so a selector object runs its own
         // toString.
-        Realm.DefineValue(handle, "querySelector",
-            Realm.NewMethod("querySelector",
-                (in call) => FromEngineResult(FindInDescendants(
-                    fragment, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty, false, bridge)), 1));
-        Realm.DefineValue(handle, "querySelectorAll",
-            Realm.NewMethod("querySelectorAll",
-                (in call) => FromEngineResult(FindInDescendants(
-                    fragment, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty, true, bridge)), 1));
+        Realm.DefineMethod(handle, "querySelector", 1,
+            (in call) => FromEngineResult(FindInDescendants(
+                fragment, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty, false, bridge)));
+        Realm.DefineMethod(handle, "querySelectorAll", 1,
+            (in call) => FromEngineResult(FindInDescendants(
+                fragment, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty, true, bridge)));
 
         // -- Node methods --
-        Realm.DefineValue(handle, "cloneNode",
-            Realm.NewMethod("cloneNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, node, in call), 1));
-        Realm.DefineValue(handle, "isEqualNode",
-            Realm.NewMethod("isEqualNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, node, in call), 1));
-        Realm.DefineValue(handle, "isSameNode",
-            Realm.NewMethod("isSameNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, node, in call), 1));
-        Realm.DefineValue(handle, "contains",
-            Realm.NewMethod("contains",
-                (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, node, in call), 1));
-        Realm.DefineValue(handle, "compareDocumentPosition",
-            Realm.NewMethod("compareDocumentPosition",
-                (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, node, in call), 1));
-        Realm.DefineValue(handle, "getRootNode",
-            Realm.NewMethod("getRootNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, node, in call), 1));
-        Realm.DefineValue(handle, "normalize",
-            Realm.NewMethod("normalize",
-                (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, node, in call), 0));
+        Realm.DefineMethod(handle, "cloneNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, node, in call));
+        Realm.DefineMethod(handle, "isEqualNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, node, in call));
+        Realm.DefineMethod(handle, "isSameNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, node, in call));
+        Realm.DefineMethod(handle, "contains", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, node, in call));
+        Realm.DefineMethod(handle, "compareDocumentPosition", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, node, in call));
+        Realm.DefineMethod(handle, "getRootNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, node, in call));
+        Realm.DefineMethod(handle, "normalize", 0,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, node, in call));
 
         // -- EventTarget --
-        Realm.DefineValue(handle, "addEventListener",
-            Realm.NewMethod("addEventListener",
-                (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in call), 3));
-        Realm.DefineValue(handle, "removeEventListener",
-            Realm.NewMethod("removeEventListener",
-                (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in call), 3));
-        Realm.DefineValue(handle, "dispatchEvent",
-            Realm.NewMethod("dispatchEvent",
-                (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in call), 1));
+        Realm.DefineMethod(handle, "addEventListener", 3,
+            (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, node, in call));
+        Realm.DefineMethod(handle, "removeEventListener", 3,
+            (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, node, in call));
+        Realm.DefineMethod(handle, "dispatchEvent", 1,
+            (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, node, in call));
 
         if (fragment is DomShadowRoot shadowRoot)
         {

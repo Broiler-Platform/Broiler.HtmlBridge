@@ -148,9 +148,8 @@ public sealed partial class DomBridge
         realm.DefineAccessor(liveCssRules, "length",
             (in _) => Dom.Features.StyleSheetBinding.JsStyleSheetsGetLength002Core(CurrentRules), null);
 
-        realm.DefineValue(liveCssRules, "item",
-            realm.NewMethod("item",
-                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsItem003Core(SyncLiveCssRulesIndices, liveCssRules, CurrentRules, in call), 1));
+        realm.DefineMethod(liveCssRules, "item", 1,
+            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsItem003Core(SyncLiveCssRulesIndices, liveCssRules, CurrentRules, in call));
 
         // Syncs indexed properties on the live cssRules object with the CSSOM view of the shared model
         void SyncLiveCssRulesIndices()
@@ -177,14 +176,12 @@ public sealed partial class DomBridge
         // insertRule(rule, index) — mutates the shared model (marking it mutated so
         // the renderer/engine serialize from it and computed style is re-resolved) and
         // resyncs the live collection
-        realm.DefineValue(sheet, "insertRule",
-            realm.NewMethod("insertRule",
-                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call), 2));
+        realm.DefineMethod(sheet, "insertRule", 2,
+            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call));
 
         // deleteRule(index) — removes a rule from the shared model
-        realm.DefineValue(sheet, "deleteRule",
-            realm.NewMethod("deleteRule",
-                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsDeleteRule006Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call), 1));
+        realm.DefineMethod(sheet, "deleteRule", 1,
+            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsDeleteRule006Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call));
 
         _styleSheetCache[styleElement] = sheet;
         return sheet;

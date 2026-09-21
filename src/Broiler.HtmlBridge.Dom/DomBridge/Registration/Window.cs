@@ -36,7 +36,7 @@ public sealed partial class DomBridge
         // window.matchMedia(query) — evaluates basic media queries. The realm mints the function
         // with the same name, arity and non-constructable shape it had, and the binding builds its
         // MediaQueryList through the realm.
-        realm.DefineValue(window, "matchMedia", realm.NewMethod("matchMedia", (in a) => Dom.Features.MatchMediaBinding.MatchMedia(this, in a), 1));
+        realm.DefineMethod(window, "matchMedia", 1, (in a) => Dom.Features.MatchMediaBinding.MatchMedia(this, in a));
 
         // window.location — the URL components here, and the navigation surface (`href`, `hash`,
         // assign, replace, reload, toString) from LocationBinding. The components alone made
@@ -74,24 +74,24 @@ public sealed partial class DomBridge
         // in the TimerBinding feature module. The realm mints all six with the names and
         // arities they had, and the binding reads its arguments off the call frame. The event loop
         // they queue into holds the handles the realm minted.
-        realm.DefineValue(window, "setTimeout", realm.NewMethod("setTimeout", (in a) => Dom.Features.TimerBinding.SetTimeout(_eventLoop, _windowContext, in a), 2));
-        realm.DefineValue(window, "clearTimeout", realm.NewMethod("clearTimeout", (in a) => Dom.Features.TimerBinding.ClearTimeout(_eventLoop, in a), 1));
-        realm.DefineValue(window, "setInterval", realm.NewMethod("setInterval", (in a) => Dom.Features.TimerBinding.SetInterval(_eventLoop, _windowContext, in a), 2));
-        realm.DefineValue(window, "clearInterval", realm.NewMethod("clearInterval", (in a) => Dom.Features.TimerBinding.ClearInterval(_eventLoop, in a), 1));
-        realm.DefineValue(window, "requestAnimationFrame", realm.NewMethod("requestAnimationFrame", (in a) => Dom.Features.TimerBinding.RequestAnimationFrame(_eventLoop, _windowContext, in a), 1));
-        realm.DefineValue(window, "cancelAnimationFrame", realm.NewMethod("cancelAnimationFrame", (in a) => Dom.Features.TimerBinding.CancelAnimationFrame(_eventLoop, in a), 1));
+        realm.DefineMethod(window, "setTimeout", 2, (in a) => Dom.Features.TimerBinding.SetTimeout(_eventLoop, _windowContext, in a));
+        realm.DefineMethod(window, "clearTimeout", 1, (in a) => Dom.Features.TimerBinding.ClearTimeout(_eventLoop, in a));
+        realm.DefineMethod(window, "setInterval", 2, (in a) => Dom.Features.TimerBinding.SetInterval(_eventLoop, _windowContext, in a));
+        realm.DefineMethod(window, "clearInterval", 1, (in a) => Dom.Features.TimerBinding.ClearInterval(_eventLoop, in a));
+        realm.DefineMethod(window, "requestAnimationFrame", 1, (in a) => Dom.Features.TimerBinding.RequestAnimationFrame(_eventLoop, _windowContext, in a));
+        realm.DefineMethod(window, "cancelAnimationFrame", 1, (in a) => Dom.Features.TimerBinding.CancelAnimationFrame(_eventLoop, in a));
 
         // window.alert(msg) — logs to debug output. The realm mints it with the name, arity and
         // non-constructable shape it had, and the binding coerces its message through the realm.
-        realm.DefineValue(window, "alert", realm.NewMethod("alert", Dom.Features.WindowDocumentMiscBinding.Alert, 1));
+        realm.DefineMethod(window, "alert", 1, Dom.Features.WindowDocumentMiscBinding.Alert);
 
         // btoa / atob — the WindowOrWorkerGlobalScope base64 pair (HTML §8.3), co-located in the
         // Base64Binding feature module. The window IS the global object, so registering here is
         // what makes the unqualified `atob(…)` a page writes resolve as well. The binding raises its
         // InvalidCharacterError through the realm rather than being handed a context to raise it
         // against.
-        realm.DefineValue(window, "btoa", realm.NewMethod("btoa", Dom.Features.Base64Binding.Btoa, 1));
-        realm.DefineValue(window, "atob", realm.NewMethod("atob", Dom.Features.Base64Binding.Atob, 1));
+        realm.DefineMethod(window, "btoa", 1, Dom.Features.Base64Binding.Btoa);
+        realm.DefineMethod(window, "atob", 1, Dom.Features.Base64Binding.Atob);
 
         // console object (shared between window.console and global console)
         var console = Dom.Features.ConsoleBinding.Build(realm);
@@ -202,7 +202,7 @@ public sealed partial class DomBridge
         var performanceMonotonicOrigin = fetchTiming?.MonotonicOrigin ?? System.Diagnostics.Stopwatch.GetTimestamp();
         var performanceObj = realm.NewObject();
         realm.DefineValue(performanceObj, "timeOrigin", JsValue.Number(performanceTimeOrigin));
-        realm.DefineValue(performanceObj, "now", realm.NewMethod("now", (in c) => Dom.Features.WindowDocumentMiscBinding.PerformanceNow(performanceMonotonicOrigin, in c), 0));
+        realm.DefineMethod(performanceObj, "now", 0, (in c) => Dom.Features.WindowDocumentMiscBinding.PerformanceNow(performanceMonotonicOrigin, in c));
 
         // The Performance Timeline getters (Performance Timeline §3), all three of which answer from
         // the one entry a document that has navigated once and loaded no instrumented resources has:
@@ -245,18 +245,16 @@ public sealed partial class DomBridge
 
         // toJSON is how the interface serialises, and telemetry that ships timings reaches it through
         // JSON.stringify(performance) as often as by name.
-        realm.DefineValue(
+        realm.DefineMethod(
             performanceObj,
             "toJSON",
-            realm.NewMethod(
-                "toJSON",
-                (in _) =>
-                {
-                    var json = realm.NewObject();
-                    realm.DefineValue(json, "timeOrigin", JsValue.Number(performanceTimeOrigin));
-                    return json;
-                },
-                0));
+            0,
+            (in _) =>
+            {
+                var json = realm.NewObject();
+                realm.DefineValue(json, "timeOrigin", JsValue.Number(performanceTimeOrigin));
+                return json;
+            });
 
         realm.DefineValue(window, "performance", performanceObj);
         realm.SetProperty(realm.Global, "performance", performanceObj);
@@ -288,8 +286,8 @@ public sealed partial class DomBridge
         // pushState/replaceState record the state the page hands them, because a page that writes
         // one commonly reads it straight back; neither changes the document's URL, which a capture
         // has no way to honour.
-        realm.DefineValue(history, "pushState", realm.NewMethod("pushState", (in c) => StoreHistoryState(history, in c), 3));
-        realm.DefineValue(history, "replaceState", realm.NewMethod("replaceState", (in c) => StoreHistoryState(history, in c), 3));
+        realm.DefineMethod(history, "pushState", 3, (in c) => StoreHistoryState(history, in c));
+        realm.DefineMethod(history, "replaceState", 3, (in c) => StoreHistoryState(history, in c));
 
         realm.DefineValue(history, "back", UndefinedMember("back", 0));
         realm.DefineValue(history, "forward", UndefinedMember("forward", 0));
@@ -325,14 +323,14 @@ public sealed partial class DomBridge
         var observerPrototype = realm.NewObject();
         realm.DefineValue(observerPrototype, "observe", UndefinedMember("observe", 1));
         realm.DefineValue(observerPrototype, "disconnect", UndefinedMember("disconnect", 0));
-        realm.DefineValue(observerPrototype, "takeRecords", realm.NewMethod("takeRecords", (in _) => realm.NewArray(), 0));
+        realm.DefineMethod(observerPrototype, "takeRecords", 0, (in _) => realm.NewArray());
 
         var performanceObserver = realm.NewConstructor("PerformanceObserver", (in _) =>
         {
             var instance = realm.NewObject();
             realm.DefineValue(instance, "observe", UndefinedMember("observe", 1));
             realm.DefineValue(instance, "disconnect", UndefinedMember("disconnect", 0));
-            realm.DefineValue(instance, "takeRecords", realm.NewMethod("takeRecords", (in _) => realm.NewArray(), 0));
+            realm.DefineMethod(instance, "takeRecords", 0, (in _) => realm.NewArray());
             return instance;
         }, 1);
 
@@ -381,7 +379,7 @@ public sealed partial class DomBridge
         Dom.Features.NavigatorIdentityBinding.Install(realm, navigatorObj, Layout.Net.BroilerUserAgent.Value);
 
         // sendBeacon(url, data) — queues a fire-and-forget POST via fetch semantics
-        realm.DefineValue(navigatorObj, "sendBeacon", realm.NewMethod("sendBeacon", (in a) => Dom.Features.BeaconBinding.Send(window, in a), 2));
+        realm.DefineMethod(navigatorObj, "sendBeacon", 2, (in a) => Dom.Features.BeaconBinding.Send(window, in a));
 
         // What the host machine can do — javaEnabled, plugins/mimeTypes, getGamepads, getBattery,
         // requestMediaKeySystemAccess — and the legacy storage-quota pair, each answering "no" in
@@ -452,18 +450,18 @@ public sealed partial class DomBridge
         // window scroll / scrollTo / scrollBy, co-located in the WindowScrollBinding feature module.
         // The reading that tells scrollTo(x, y) from scrollTo({ left, top }) is the one
         // the sub-window contract already performs, shared rather than copied.
-        realm.DefineValue(window, "scroll", realm.NewMethod("scroll", (in c) => Dom.Features.WindowScrollBinding.Scroll(this, in c), 2));
-        realm.DefineValue(window, "scrollTo", realm.NewMethod("scrollTo", (in c) => Dom.Features.WindowScrollBinding.ScrollTo(this, in c), 2));
-        realm.DefineValue(window, "scrollBy", realm.NewMethod("scrollBy", (in c) => Dom.Features.WindowScrollBinding.ScrollBy(this, in c), 2));
+        realm.DefineMethod(window, "scroll", 2, (in c) => Dom.Features.WindowScrollBinding.Scroll(this, in c));
+        realm.DefineMethod(window, "scrollTo", 2, (in c) => Dom.Features.WindowScrollBinding.ScrollTo(this, in c));
+        realm.DefineMethod(window, "scrollBy", 2, (in c) => Dom.Features.WindowScrollBinding.ScrollBy(this, in c));
         // window addEventListener / removeEventListener / dispatchEvent, co-located in the
         // WindowEventTargetBinding feature module. These reach the global object — so
         // the idiomatic unqualified `addEventListener("load", …)` registers a window listener,
         // as it does in a browser — through MirrorWindowMembersOntoGlobal, which shares the
         // identical function objects so the two spellings address one listener store. It holds
         // handles, and the host contract converts nothing.
-        realm.DefineValue(window, "addEventListener", realm.NewMethod("addEventListener", (in c) => Dom.Features.WindowEventTargetBinding.AddEventListener(this, in c), 3));
-        realm.DefineValue(window, "removeEventListener", realm.NewMethod("removeEventListener", (in c) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c), 3));
-        realm.DefineValue(window, "dispatchEvent", realm.NewMethod("dispatchEvent", (in c) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c), 1));
+        realm.DefineMethod(window, "addEventListener", 3, (in c) => Dom.Features.WindowEventTargetBinding.AddEventListener(this, in c));
+        realm.DefineMethod(window, "removeEventListener", 3, (in c) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c));
+        realm.DefineMethod(window, "dispatchEvent", 1, (in c) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c));
 
         _messaging.RegisterWindowMessaging(window);
 
@@ -517,8 +515,8 @@ public sealed partial class DomBridge
 
         // visualViewport addEventListener / removeEventListener (scroll), co-located in the
         // VisualViewportEventTargetBinding feature module.
-        realm.DefineValue(visualViewport, "addEventListener", realm.NewMethod("addEventListener", (in a) => Dom.Features.VisualViewportEventTargetBinding.AddEventListener(this, in a), 2));
-        realm.DefineValue(visualViewport, "removeEventListener", realm.NewMethod("removeEventListener", (in a) => Dom.Features.VisualViewportEventTargetBinding.RemoveEventListener(this, in a), 2));
+        realm.DefineMethod(visualViewport, "addEventListener", 2, (in a) => Dom.Features.VisualViewportEventTargetBinding.AddEventListener(this, in a));
+        realm.DefineMethod(visualViewport, "removeEventListener", 2, (in a) => Dom.Features.VisualViewportEventTargetBinding.RemoveEventListener(this, in a));
 
         realm.DefineValue(window, "visualViewport", visualViewport);
         realm.SetProperty(realm.Global, "visualViewport", visualViewport);
@@ -638,10 +636,8 @@ public sealed partial class DomBridge
             (in c) => Dom.Features.AnimationObjectBinding.SetCurrentTime(animationState, in c));
 
         var ready = realm.NewObject();
-        realm.DefineValue(ready, "then",
-            realm.NewMethod("then", (in c) => Dom.Features.AnimationObjectBinding.Then(ready, in c), 1));
-        realm.DefineValue(ready, "catch",
-            realm.NewMethod("catch", (in _) => ready, 1));
+        realm.DefineMethod(ready, "then", 1, (in c) => Dom.Features.AnimationObjectBinding.Then(ready, in c));
+        realm.DefineMethod(ready, "catch", 1, (in _) => ready);
 
         realm.DefineValue(animation, "ready", ready);
         return animation;

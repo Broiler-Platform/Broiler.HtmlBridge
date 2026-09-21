@@ -393,9 +393,8 @@ public sealed partial class DomBridge
         var lastSyncedRuleCount = 0;
         realm.DefineAccessor(liveCssRules, "length",
             (in _) => Dom.Features.StyleSheetBinding.JsStyleSheetsGetLength002Core(CurrentRules), null);
-        realm.DefineValue(liveCssRules, "item",
-            realm.NewMethod("item",
-                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsItem003Core(SyncLiveCssRulesIndices, liveCssRules, CurrentRules, in call), 1));
+        realm.DefineMethod(liveCssRules, "item", 1,
+            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsItem003Core(SyncLiveCssRulesIndices, liveCssRules, CurrentRules, in call));
 
         void SyncLiveCssRulesIndices()
         {
@@ -415,12 +414,10 @@ public sealed partial class DomBridge
 
         realm.DefineAccessor(sheet, "cssRules",
             (in _) => Dom.Features.StyleSheetBinding.JsStyleSheetsGetCssRules004Core(SyncLiveCssRulesIndices, liveCssRules), null);
-        realm.DefineValue(sheet, "insertRule",
-            realm.NewMethod("insertRule",
-                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call), 2));
-        realm.DefineValue(sheet, "deleteRule",
-            realm.NewMethod("deleteRule",
-                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsDeleteRule006Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call), 1));
+        realm.DefineMethod(sheet, "insertRule", 2,
+            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call));
+        realm.DefineMethod(sheet, "deleteRule", 1,
+            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsDeleteRule006Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call));
 
         // replaceSync(text) — replace all rules from a CSS string (any @import is dropped per
         // spec). replace(text) does the same and returns an already-resolved promise of the sheet.
@@ -436,18 +433,18 @@ public sealed partial class DomBridge
             SyncLiveCssRulesIndices();
         }
 
-        realm.DefineValue(sheet, "replaceSync",
-            realm.NewMethod("replaceSync", (in call) =>
+        realm.DefineMethod(sheet, "replaceSync", 1,
+            (in call) =>
             {
                 ReplaceFromText(call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
                 return JsValue.Undefined;
-            }, 1));
-        realm.DefineValue(sheet, "replace",
-            realm.NewMethod("replace", (in call) =>
+            });
+        realm.DefineMethod(sheet, "replace", 1,
+            (in call) =>
             {
                 ReplaceFromText(call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
                 return ResolvedThenableWith(sheet);
-            }, 1));
+            });
 
         return sheet;
     }
@@ -476,10 +473,10 @@ public sealed partial class DomBridge
             return thenable;
         }
 
-        realm.DefineValue(thenable, "then", realm.NewMethod("then", Then, 1));
-        realm.DefineValue(thenable, "catch", realm.NewMethod("catch", (in _) => thenable, 1));
-        realm.DefineValue(thenable, "finally",
-            realm.NewMethod("finally", (in call) =>
+        realm.DefineMethod(thenable, "then", 1, Then);
+        realm.DefineMethod(thenable, "catch", 1, (in _) => thenable);
+        realm.DefineMethod(thenable, "finally", 1,
+            (in call) =>
             {
                 if (call.Length > 0 && call[0].IsFunction)
                 {
@@ -487,7 +484,7 @@ public sealed partial class DomBridge
                     catch { /* as above */ }
                 }
                 return thenable;
-            }, 1));
+            });
 
         return thenable;
     }

@@ -20,17 +20,14 @@ internal static class InsertAdjacentBinding
     /// </summary>
     public static void Install(IInsertAdjacentHost host, IJsRealm realm, JsValue target, JsElementSource element)
     {
-        realm.DefineValue(target, "insertAdjacentElement",
-            realm.NewMethod("insertAdjacentElement",
-                (in call) => InsertAdjacentElement(host, element(in call, "insertAdjacentElement"), in call), 2));
+        realm.DefineMethod(target, "insertAdjacentElement", 2,
+            (in call) => InsertAdjacentElement(host, element(in call, "insertAdjacentElement"), in call));
 
-        realm.DefineValue(target, "insertAdjacentText",
-            realm.NewMethod("insertAdjacentText",
-                (in call) => InsertAdjacentText(host, element(in call, "insertAdjacentText"), in call), 2));
+        realm.DefineMethod(target, "insertAdjacentText", 2,
+            (in call) => InsertAdjacentText(host, element(in call, "insertAdjacentText"), in call));
 
-        realm.DefineValue(target, "insertAdjacentHTML",
-            realm.NewMethod("insertAdjacentHTML",
-                (in call) => InsertAdjacentHtml(host, element(in call, "insertAdjacentHTML"), in call), 2));
+        realm.DefineMethod(target, "insertAdjacentHTML", 2,
+            (in call) => InsertAdjacentHtml(host, element(in call, "insertAdjacentHTML"), in call));
     }
 
     private static JsValue InsertAdjacentElement(IInsertAdjacentHost host, DomElement element, in JsCall call)

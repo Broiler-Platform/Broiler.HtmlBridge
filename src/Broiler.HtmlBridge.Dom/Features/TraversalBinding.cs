@@ -55,13 +55,13 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
         realm.SetProperty(realm.Global, "NodeFilter", nodeFilter);
 
         // document.createTreeWalker(root, whatToShow, filter)
-        realm.DefineValue(document, "createTreeWalker", realm.NewMethod("createTreeWalker", CreateTreeWalker, 3));
+        realm.DefineMethod(document, "createTreeWalker", 3, CreateTreeWalker);
         // document.createNodeIterator(root, whatToShow, filter)
-        realm.DefineValue(document, "createNodeIterator", realm.NewMethod("createNodeIterator", CreateNodeIterator, 3));
+        realm.DefineMethod(document, "createNodeIterator", 3, CreateNodeIterator);
         // document.createRange()
-        realm.DefineValue(document, "createRange", realm.NewMethod("createRange", (in _) => BuildRange(), 0));
+        realm.DefineMethod(document, "createRange", 0, (in _) => BuildRange());
         // document.createComment(data)
-        realm.DefineValue(document, "createComment", realm.NewMethod("createComment", CreateComment, 1));
+        realm.DefineMethod(document, "createComment", 1, CreateComment);
 
         // window.getSelection() and document.getSelection(), which answer the same object — the
         // window is the global here, so one function installed in both places is what a browser has.
@@ -182,22 +182,15 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
 
         realm.DefineValue(tw, "whatToShow", JsValue.Number(whatToShow));
 
-        realm.DefineValue(tw, "parentNode",
-            realm.NewMethod("parentNode", (in _) => ToTraversalJsValue(walker.ParentNode())));
-        realm.DefineValue(tw, "firstChild",
-            realm.NewMethod("firstChild", (in _) => ToTraversalJsValue(walker.FirstChild())));
-        realm.DefineValue(tw, "lastChild",
-            realm.NewMethod("lastChild", (in _) => ToTraversalJsValue(walker.LastChild())));
-        realm.DefineValue(tw, "nextSibling",
-            realm.NewMethod("nextSibling", (in _) => ToTraversalJsValue(walker.NextSibling())));
-        realm.DefineValue(tw, "previousSibling",
-            realm.NewMethod("previousSibling", (in _) => ToTraversalJsValue(walker.PreviousSibling())));
+        realm.DefineMethod(tw, "parentNode", (in _) => ToTraversalJsValue(walker.ParentNode()));
+        realm.DefineMethod(tw, "firstChild", (in _) => ToTraversalJsValue(walker.FirstChild()));
+        realm.DefineMethod(tw, "lastChild", (in _) => ToTraversalJsValue(walker.LastChild()));
+        realm.DefineMethod(tw, "nextSibling", (in _) => ToTraversalJsValue(walker.NextSibling()));
+        realm.DefineMethod(tw, "previousSibling", (in _) => ToTraversalJsValue(walker.PreviousSibling()));
         // nextNode() — depth-first pre-order traversal forward
-        realm.DefineValue(tw, "nextNode",
-            realm.NewMethod("nextNode", (in _) => ToTraversalJsValue(walker.NextNode())));
+        realm.DefineMethod(tw, "nextNode", (in _) => ToTraversalJsValue(walker.NextNode()));
         // previousNode() — depth-first pre-order traversal backward
-        realm.DefineValue(tw, "previousNode",
-            realm.NewMethod("previousNode", (in _) => ToTraversalJsValue(walker.PreviousNode())));
+        realm.DefineMethod(tw, "previousNode", (in _) => ToTraversalJsValue(walker.PreviousNode()));
 
         return tw;
     }
@@ -227,16 +220,13 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
         realm.DefineAccessor(iter, "pointerBeforeReferenceNode",
             (in _) => JsValue.Boolean(iterator.PointerBeforeReferenceNode), null);
 
-        realm.DefineValue(iter, "nextNode",
-            realm.NewMethod("nextNode", (in _) => ToTraversalJsValue(iterator.NextNode())));
-        realm.DefineValue(iter, "previousNode",
-            realm.NewMethod("previousNode", (in _) => ToTraversalJsValue(iterator.PreviousNode())));
-        realm.DefineValue(iter, "detach",
-            realm.NewMethod("detach", (in _) =>
-            {
-                iterator.Dispose();
-                return JsValue.Undefined;
-            }));
+        realm.DefineMethod(iter, "nextNode", (in _) => ToTraversalJsValue(iterator.NextNode()));
+        realm.DefineMethod(iter, "previousNode", (in _) => ToTraversalJsValue(iterator.PreviousNode()));
+        realm.DefineMethod(iter, "detach", (in _) =>
+        {
+            iterator.Dispose();
+            return JsValue.Undefined;
+        });
 
         return iter;
     }

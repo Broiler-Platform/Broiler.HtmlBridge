@@ -503,14 +503,12 @@ public sealed partial class DomBridge
 
         // Installed in the order they always were: Object.getOwnPropertyNames on the event is
         // observable, so the sequence of these six is part of the behaviour, not a detail.
-        realm.DefineValue(evt, "stopPropagation", realm.NewMethod("stopPropagation", StopPropagation, 0));
-        realm.DefineValue(evt, "stopImmediatePropagation",
-            realm.NewMethod("stopImmediatePropagation", StopImmediatePropagation, 0));
-        realm.DefineValue(evt, "preventDefault", realm.NewMethod("preventDefault", PreventDefault, 0));
+        realm.DefineMethod(evt, "stopPropagation", 0, StopPropagation);
+        realm.DefineMethod(evt, "stopImmediatePropagation", 0, StopImmediatePropagation);
+        realm.DefineMethod(evt, "preventDefault", 0, PreventDefault);
         realm.DefineAccessor(evt, "cancelBubble", GetCancelBubble, SetCancelBubble);
         realm.DefineAccessor(evt, "returnValue", GetReturnValue, SetReturnValue);
-        realm.DefineValue(evt, "composedPath",
-            realm.NewMethod("composedPath", (in _) => realm.NewArray([window]), 0));
+        realm.DefineMethod(evt, "composedPath", 0, (in _) => realm.NewArray([window]));
 
         if (_eventTargets.TryGetWindowListeners(eventType, out var listeners))
         {

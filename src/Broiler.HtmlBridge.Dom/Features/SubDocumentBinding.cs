@@ -91,8 +91,7 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
             null);
 
         // hasChildNodes()
-        realm.DefineValue(doc, "hasChildNodes",
-            realm.NewMethod("hasChildNodes", (in _) => JsValue.Boolean(docRoot.ChildNodes.Count > 0), 0));
+        realm.DefineMethod(doc, "hasChildNodes", 0, (in _) => JsValue.Boolean(docRoot.ChildNodes.Count > 0));
 
         // nodeType = DOCUMENT_NODE (9)
         realm.DefineAccessor(doc, "nodeType", (in _) => JsValue.Number(9), null);
@@ -104,89 +103,68 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         realm.DefineAccessor(doc, "localName", (in _) => JsValue.Null, null);
 
         // getElementById(id)
-        realm.DefineValue(doc, "getElementById",
-            realm.NewMethod("getElementById", (in call) => GetElementById(docRoot, in call), 1));
+        realm.DefineMethod(doc, "getElementById", 1, (in call) => GetElementById(docRoot, in call));
 
         // getElementsByTagName(tag)
-        realm.DefineValue(doc, "getElementsByTagName",
-            realm.NewMethod("getElementsByTagName", (in call) => GetElementsByTagName(docRoot, in call), 1));
+        realm.DefineMethod(doc, "getElementsByTagName", 1, (in call) => GetElementsByTagName(docRoot, in call));
 
         // getElementsByClassName(names) / getElementsByName(name) — the two collection lookups a
         // frame's document was missing while the main document had them. A script in a frame is a
         // script like any other: absent, these read as undefined rather than as missing methods, so
         // calling one threw and took the frame's whole <script> with it.
-        realm.DefineValue(doc, "getElementsByClassName",
-            realm.NewMethod("getElementsByClassName", (in call) => GetElementsByClassName(docRoot, in call), 1));
+        realm.DefineMethod(doc, "getElementsByClassName", 1, (in call) => GetElementsByClassName(docRoot, in call));
 
-        realm.DefineValue(doc, "getElementsByName",
-            realm.NewMethod("getElementsByName", (in call) => GetElementsByName(docRoot, in call), 1));
+        realm.DefineMethod(doc, "getElementsByName", 1, (in call) => GetElementsByName(docRoot, in call));
 
         // createElement(tag)
-        realm.DefineValue(doc, "createElement",
-            realm.NewMethod("createElement", (in call) => CreateElement(docRoot, in call), 1));
+        realm.DefineMethod(doc, "createElement", 1, (in call) => CreateElement(docRoot, in call));
 
         // createTextNode(text)
-        realm.DefineValue(doc, "createTextNode",
-            realm.NewMethod("createTextNode", (in call) => CreateTextNode(docRoot, in call), 1));
+        realm.DefineMethod(doc, "createTextNode", 1, (in call) => CreateTextNode(docRoot, in call));
 
         // createComment(data)
-        realm.DefineValue(doc, "createComment",
-            realm.NewMethod("createComment", (in call) => CreateComment(docRoot, in call), 1));
+        realm.DefineMethod(doc, "createComment", 1, (in call) => CreateComment(docRoot, in call));
 
         // createElementNS(ns, localName)
-        realm.DefineValue(doc, "createElementNS",
-            realm.NewMethod("createElementNS", (in call) => CreateElementNS(docRoot, in call), 2));
+        realm.DefineMethod(doc, "createElementNS", 2, (in call) => CreateElementNS(docRoot, in call));
 
         // adoptNode(node) — the one document method that moves a node between documents rather than
         // copying it. A frame's document needs it as much as the page's: the interesting direction is
         // adopting *into* this document, which is exactly what the page's own adoptNode cannot do.
-        realm.DefineValue(doc, "adoptNode",
-            realm.NewMethod("adoptNode", (in call) => AdoptNode(docRoot, in call), 1));
+        realm.DefineMethod(doc, "adoptNode", 1, (in call) => AdoptNode(docRoot, in call));
 
         // createEvent(type)
-        realm.DefineValue(doc, "createEvent",
-            realm.NewMethod("createEvent", LegacyEventBinding.Create, 1));
+        realm.DefineMethod(doc, "createEvent", 1, LegacyEventBinding.Create);
 
         // querySelector / querySelectorAll
-        realm.DefineValue(doc, "querySelector",
-            realm.NewMethod("querySelector", (in call) => QuerySelector(docRoot, in call), 1));
+        realm.DefineMethod(doc, "querySelector", 1, (in call) => QuerySelector(docRoot, in call));
 
-        realm.DefineValue(doc, "querySelectorAll",
-            realm.NewMethod("querySelectorAll", (in call) => QuerySelectorAll(docRoot, in call), 1));
+        realm.DefineMethod(doc, "querySelectorAll", 1, (in call) => QuerySelectorAll(docRoot, in call));
 
-        realm.DefineValue(doc, "elementFromPoint",
-            realm.NewMethod("elementFromPoint", (in call) => ElementFromPoint(docRoot, in call), 2));
+        realm.DefineMethod(doc, "elementFromPoint", 2, (in call) => ElementFromPoint(docRoot, in call));
 
-        realm.DefineValue(doc, "elementsFromPoint",
-            realm.NewMethod("elementsFromPoint", (in call) => ElementsFromPoint(docRoot, in call), 2));
+        realm.DefineMethod(doc, "elementsFromPoint", 2, (in call) => ElementsFromPoint(docRoot, in call));
 
         // document.open()
-        realm.DefineValue(doc, "open",
-            realm.NewMethod("open", (in _) => Open(doc, docRoot), 0));
+        realm.DefineMethod(doc, "open", 0, (in _) => Open(doc, docRoot));
 
         // document.close() — a no-op, and constructable: it is minted as a plain function object
         // rather than a bridge method, so `new document.close()` does not throw. A pre-existing
         // deviation from the interface, spelled faithfully.
-        realm.DefineValue(doc, "close",
-            realm.NewConstructor("close", (in _) => JsValue.Undefined, 0));
+        realm.DefineConstructor(doc, "close", 0, (in _) => JsValue.Undefined);
 
         // document.write(html)
-        realm.DefineValue(doc, "write",
-            realm.NewMethod("write", (in call) => Write(docRoot, in call), 1));
+        realm.DefineMethod(doc, "write", 1, (in call) => Write(docRoot, in call));
 
         // removeChild on document
-        realm.DefineValue(doc, "removeChild",
-            realm.NewMethod("removeChild", (in call) => RemoveChild(docRoot, in call), 1));
+        realm.DefineMethod(doc, "removeChild", 1, (in call) => RemoveChild(docRoot, in call));
 
         // appendChild on document
-        realm.DefineValue(doc, "appendChild",
-            realm.NewMethod("appendChild", (in call) => AppendChild(docRoot, in call), 1));
+        realm.DefineMethod(doc, "appendChild", 1, (in call) => AppendChild(docRoot, in call));
 
-        realm.DefineValue(doc, "append",
-            realm.NewMethod("append", (in call) => Append(docRoot, in call), 0));
+        realm.DefineMethod(doc, "append", 0, (in call) => Append(docRoot, in call));
 
-        realm.DefineValue(doc, "prepend",
-            realm.NewMethod("prepend", (in call) => Prepend(docRoot, in call), 0));
+        realm.DefineMethod(doc, "prepend", 0, (in call) => Prepend(docRoot, in call));
 
         // Node interface constants — types and the DOCUMENT_POSITION_* bits. On Node.prototype, which
         // this document object reaches through the HTMLDocument link above; it installs its own only
@@ -196,14 +174,10 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
         // document.implementation on sub-documents
         var subImpl = realm.NewObject();
-        realm.DefineValue(subImpl, "hasFeature",
-            realm.NewConstructor("hasFeature", (in _) => JsValue.True, 2));
-        realm.DefineValue(subImpl, "createDocumentType",
-            realm.NewMethod("createDocumentType", (in call) => CreateDocumentType(in call), 3));
-        realm.DefineValue(subImpl, "createDocument",
-            realm.NewMethod("createDocument", (in call) => CreateDocument(in call), 3));
-        realm.DefineValue(subImpl, "createHTMLDocument",
-            realm.NewMethod("createHTMLDocument", (in call) => CreateHTMLDocument(in call), 1));
+        realm.DefineConstructor(subImpl, "hasFeature", 2, (in _) => JsValue.True);
+        realm.DefineMethod(subImpl, "createDocumentType", 3, (in call) => CreateDocumentType(in call));
+        realm.DefineMethod(subImpl, "createDocument", 3, (in call) => CreateDocument(in call));
+        realm.DefineMethod(subImpl, "createHTMLDocument", 1, (in call) => CreateHTMLDocument(in call));
         realm.DefineValue(doc, "implementation", subImpl);
 
         // defaultView — return the main window object so getComputedStyle is accessible
@@ -211,29 +185,24 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
             realm.DefineValue(doc, "defaultView", mainWindow);
 
         // createTreeWalker(root, whatToShow, filter)
-        realm.DefineValue(doc, "createTreeWalker",
-            realm.NewMethod("createTreeWalker", (in call) => CreateTreeWalker(in call), 3));
+        realm.DefineMethod(doc, "createTreeWalker", 3, (in call) => CreateTreeWalker(in call));
 
         // createNodeIterator(root, whatToShow, filter)
-        realm.DefineValue(doc, "createNodeIterator",
-            realm.NewMethod("createNodeIterator", (in call) => CreateNodeIterator(in call), 3));
+        realm.DefineMethod(doc, "createNodeIterator", 3, (in call) => CreateNodeIterator(in call));
 
         // startViewTransition() — CSS View Transitions, scoped to this nested browsing context.
         // Absent here, a page driving a transition inside its <iframe> through contentDocument hit a
         // TypeError that aborted the rest of its script, so the main frame's own transition never ran
         // either (WPT css-view-transitions/iframe-and-main-frame-transition-*).
-        realm.DefineValue(doc, "startViewTransition",
-            realm.NewMethod("startViewTransition", (in call) => _host.StartViewTransition(docRoot, call[0]), 1));
+        realm.DefineMethod(doc, "startViewTransition", 1, (in call) => _host.StartViewTransition(docRoot, call[0]));
 
         // createRange()
-        realm.DefineValue(doc, "createRange",
-            realm.NewMethod("createRange", (in _) => _host.BuildRange(docRoot), 0));
+        realm.DefineMethod(doc, "createRange", 0, (in _) => _host.BuildRange(docRoot));
 
         // getSelection() — this document's own selection, distinct from the containing page's. The
         // method exists on every document, but only one being displayed has a selection to report, so
         // a createDocument/createHTMLDocument result answers null; the host draws that line.
-        realm.DefineValue(doc, "getSelection",
-            realm.NewMethod("getSelection", (in _) => _host.GetSelection(docRoot), 0));
+        realm.DefineMethod(doc, "getSelection", 0, (in _) => _host.GetSelection(docRoot));
 
         return doc;
     }

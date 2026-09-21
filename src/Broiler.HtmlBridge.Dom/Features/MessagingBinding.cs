@@ -75,8 +75,7 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
     /// </remarks>
     internal void RegisterWindowMessaging(JsValue window)
     {
-        _host.Realm.DefineValue(window, "postMessage",
-            _host.Realm.NewMethod("postMessage", (in call) => WindowPostMessage(window, in call), 2));
+        _host.Realm.DefineMethod(window, "postMessage", 2, (in call) => WindowPostMessage(window, in call));
     }
 
     private JsValue WindowPostMessage(JsValue window, in JsCall call)
@@ -395,16 +394,15 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
 
         // A NewMethod because the member was built non-constructable, and in this position because
         // the member order a page enumerates is the one it always was.
-        realm.DefineValue(port, "postMessage",
-            realm.NewMethod("postMessage", (in call) => PortPostMessage(port, in call), 1));
+        realm.DefineMethod(port, "postMessage", 1, (in call) => PortPostMessage(port, in call));
 
         realm.DefineAccessor(port, "onmessage",
             (in _) => onMessageHandler,
             (in call) => SetOnMessage(ref onMessageHandler, port, in call));
 
-        realm.DefineValue(port, "start", realm.NewMethod("start", (in call) => StartPort(port, in call)));
+        realm.DefineMethod(port, "start", (in call) => StartPort(port, in call));
 
-        realm.DefineValue(port, "close", realm.NewMethod("close", (in call) => ClosePort(port, in call)));
+        realm.DefineMethod(port, "close", (in call) => ClosePort(port, in call));
 
         return port;
     }

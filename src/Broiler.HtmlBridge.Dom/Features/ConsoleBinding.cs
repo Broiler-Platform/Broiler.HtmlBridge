@@ -21,10 +21,10 @@ internal static class ConsoleBinding
     {
         var console = realm.NewObject();
 
-        realm.DefineValue(console, "log", realm.NewMethod("log", Log));
-        realm.DefineValue(console, "warn", realm.NewMethod("warn", Warn));
-        realm.DefineValue(console, "error", realm.NewMethod("error", Error));
-        realm.DefineValue(console, "info", realm.NewMethod("info", Info));
+        realm.DefineMethod(console, "log", Log);
+        realm.DefineMethod(console, "warn", Warn);
+        realm.DefineMethod(console, "error", Error);
+        realm.DefineMethod(console, "info", Info);
 
         return console;
     }

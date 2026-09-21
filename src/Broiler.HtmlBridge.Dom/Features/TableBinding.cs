@@ -40,21 +40,21 @@ internal sealed class TableBinding(ITableHost host)
             realm.DefineAccessor(obj, "tBodies", (in call) => GetTBodies(call.Realm, element), null);
             // rows (read-only) — all <tr> in spec order: thead rows, then tbody/direct-tr rows, then tfoot rows
             realm.DefineAccessor(obj, "rows", (in call) => BuildTableRows(call.Realm, element), null);
-            realm.DefineValue(obj, "createCaption", realm.NewMethod("createCaption", (in _) => CreateCaption(element), 0));
-            realm.DefineValue(obj, "createTHead", realm.NewMethod("createTHead", (in _) => CreateTHead(element), 0));
-            realm.DefineValue(obj, "createTFoot", realm.NewMethod("createTFoot", (in _) => CreateTFoot(element), 0));
-            realm.DefineValue(obj, "deleteCaption", realm.NewMethod("deleteCaption", (in _) => DeleteCaption(element), 0));
-            realm.DefineValue(obj, "deleteTHead", realm.NewMethod("deleteTHead", (in _) => DeleteTHead(element), 0));
-            realm.DefineValue(obj, "deleteTFoot", realm.NewMethod("deleteTFoot", (in _) => DeleteTFoot(element), 0));
-            realm.DefineValue(obj, "insertRow", realm.NewMethod("insertRow", (in call) => TableInsertRow(element, in call), 1));
-            realm.DefineValue(obj, "deleteRow", realm.NewMethod("deleteRow", (in call) => TableDeleteRow(element, in call), 1));
+            realm.DefineMethod(obj, "createCaption", 0, (in _) => CreateCaption(element));
+            realm.DefineMethod(obj, "createTHead", 0, (in _) => CreateTHead(element));
+            realm.DefineMethod(obj, "createTFoot", 0, (in _) => CreateTFoot(element));
+            realm.DefineMethod(obj, "deleteCaption", 0, (in _) => DeleteCaption(element));
+            realm.DefineMethod(obj, "deleteTHead", 0, (in _) => DeleteTHead(element));
+            realm.DefineMethod(obj, "deleteTFoot", 0, (in _) => DeleteTFoot(element));
+            realm.DefineMethod(obj, "insertRow", 1, (in call) => TableInsertRow(element, in call));
+            realm.DefineMethod(obj, "deleteRow", 1, (in call) => TableDeleteRow(element, in call));
         }
 
         // HTMLTableSectionElement (thead, tbody, tfoot) — rows and insertRow
         if (tag == "thead" || tag == "tbody" || tag == "tfoot")
         {
             realm.DefineAccessor(obj, "rows", (in call) => SectionGetRows(call.Realm, element), null);
-            realm.DefineValue(obj, "insertRow", realm.NewMethod("insertRow", (in call) => SectionInsertRow(element, in call), 1));
+            realm.DefineMethod(obj, "insertRow", 1, (in call) => SectionInsertRow(element, in call));
         }
 
         // HTMLTableRowElement (tr) — rowIndex, sectionRowIndex, cells, insertCell, deleteCell
@@ -63,8 +63,8 @@ internal sealed class TableBinding(ITableHost host)
             realm.DefineAccessor(obj, "rowIndex", (in _) => RowGetRowIndex(element), null);
             realm.DefineAccessor(obj, "sectionRowIndex", (in _) => RowGetSectionRowIndex(element), null);
             realm.DefineAccessor(obj, "cells", (in call) => RowGetCells(call.Realm, element), null);
-            realm.DefineValue(obj, "insertCell", realm.NewMethod("insertCell", (in call) => RowInsertCell(element, in call), 1));
-            realm.DefineValue(obj, "deleteCell", realm.NewMethod("deleteCell", (in call) => RowDeleteCell(element, in call), 1));
+            realm.DefineMethod(obj, "insertCell", 1, (in call) => RowInsertCell(element, in call));
+            realm.DefineMethod(obj, "deleteCell", 1, (in call) => RowDeleteCell(element, in call));
         }
     }
 

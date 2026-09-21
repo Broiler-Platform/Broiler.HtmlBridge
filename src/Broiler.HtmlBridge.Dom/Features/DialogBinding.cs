@@ -38,12 +38,10 @@ internal sealed class DialogBinding(IDialogHost host)
     {
         var realm = _host.Realm;
 
-        realm.DefineValue(target, "requestFullscreen",
-            realm.NewMethod("requestFullscreen",
-                (in call) => RequestFullscreen(element(in call, "requestFullscreen")), 0));
-        realm.DefineValue(target, "webkitRequestFullscreen",
-            realm.NewMethod("webkitRequestFullscreen",
-                (in call) => RequestFullscreen(element(in call, "webkitRequestFullscreen")), 0));
+        realm.DefineMethod(target, "requestFullscreen", 0,
+            (in call) => RequestFullscreen(element(in call, "requestFullscreen")));
+        realm.DefineMethod(target, "webkitRequestFullscreen", 0,
+            (in call) => RequestFullscreen(element(in call, "webkitRequestFullscreen")));
     }
 
     /// <summary>
@@ -64,9 +62,9 @@ internal sealed class DialogBinding(IDialogHost host)
 
         if (tag == "dialog")
         {
-            realm.DefineValue(obj, "showModal", realm.NewMethod("showModal", (in _) => ShowModal(element), 0));
-            realm.DefineValue(obj, "show", realm.NewMethod("show", (in _) => Show(element), 0));
-            realm.DefineValue(obj, "close", realm.NewMethod("close", (in call) => Close(element, in call), 1));
+            realm.DefineMethod(obj, "showModal", 0, (in _) => ShowModal(element));
+            realm.DefineMethod(obj, "show", 0, (in _) => Show(element));
+            realm.DefineMethod(obj, "close", 1, (in call) => Close(element, in call));
             realm.DefineAccessor(obj, "open",
                 (in _) => JsValue.Boolean(_host.HasOpenAttribute(element)),
                 (in call) => SetOpenState(element, in call));
@@ -79,8 +77,8 @@ internal sealed class DialogBinding(IDialogHost host)
         // carrying the global `popover` attribute, not tied to a tag.
         if (hasPopover)
         {
-            realm.DefineValue(obj, "showPopover", realm.NewMethod("showPopover", (in _) => ShowPopover(element), 0));
-            realm.DefineValue(obj, "hidePopover", realm.NewMethod("hidePopover", (in _) => HidePopover(element), 0));
+            realm.DefineMethod(obj, "showPopover", 0, (in _) => ShowPopover(element));
+            realm.DefineMethod(obj, "hidePopover", 0, (in _) => HidePopover(element));
         }
     }
 

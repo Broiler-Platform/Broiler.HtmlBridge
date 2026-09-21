@@ -70,19 +70,19 @@ internal static class LegacyEventBinding
         realm.DefineValue(evt, "deltaMode", JsValue.Number(0));
         realm.DefineValue(evt, "relatedTarget", JsValue.Null);
 
-        realm.DefineValue(evt, "stopPropagation", realm.NewMethod("stopPropagation", StopPropagation, 0));
-        realm.DefineValue(evt, "stopImmediatePropagation", realm.NewMethod("stopImmediatePropagation", StopImmediatePropagation, 0));
-        realm.DefineValue(evt, "preventDefault", realm.NewMethod("preventDefault", PreventDefault, 0));
+        realm.DefineMethod(evt, "stopPropagation", 0, StopPropagation);
+        realm.DefineMethod(evt, "stopImmediatePropagation", 0, StopImmediatePropagation);
+        realm.DefineMethod(evt, "preventDefault", 0, PreventDefault);
         realm.DefineAccessor(evt, "cancelBubble", GetCancelBubble, SetCancelBubble);
         realm.DefineAccessor(evt, "returnValue", GetReturnValue, SetReturnValue);
-        realm.DefineValue(evt, "initEvent", realm.NewMethod("initEvent", InitEvent, 3));
-        realm.DefineValue(evt, "initUIEvent", realm.NewMethod("initUIEvent", InitUIEvent, 5));
-        realm.DefineValue(evt, "initInputEvent", realm.NewMethod("initInputEvent", InitInputEvent, 7));
-        realm.DefineValue(evt, "initCustomEvent", realm.NewMethod("initCustomEvent", InitCustomEvent, 4));
-        realm.DefineValue(evt, "initFocusEvent", realm.NewMethod("initFocusEvent", InitFocusEvent, 6));
-        realm.DefineValue(evt, "initKeyboardEvent", realm.NewMethod("initKeyboardEvent", InitKeyboardEvent, 13));
-        realm.DefineValue(evt, "initMouseEvent", realm.NewMethod("initMouseEvent", InitMouseEvent, 15));
-        realm.DefineValue(evt, "initWheelEvent", realm.NewMethod("initWheelEvent", InitWheelEvent, 16));
+        realm.DefineMethod(evt, "initEvent", 3, InitEvent);
+        realm.DefineMethod(evt, "initUIEvent", 5, InitUIEvent);
+        realm.DefineMethod(evt, "initInputEvent", 7, InitInputEvent);
+        realm.DefineMethod(evt, "initCustomEvent", 4, InitCustomEvent);
+        realm.DefineMethod(evt, "initFocusEvent", 6, InitFocusEvent);
+        realm.DefineMethod(evt, "initKeyboardEvent", 13, InitKeyboardEvent);
+        realm.DefineMethod(evt, "initMouseEvent", 15, InitMouseEvent);
+        realm.DefineMethod(evt, "initWheelEvent", 16, InitWheelEvent);
 
         return evt;
 

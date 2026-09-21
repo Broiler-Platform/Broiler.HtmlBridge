@@ -53,10 +53,7 @@ internal static class MatchMediaBinding
         // error. `dispatchEvent` reports false — nothing was dispatched — for the same reason.
         realm.DefineValue(result, "addEventListener", NoOp(realm, "addEventListener"));
         realm.DefineValue(result, "removeEventListener", NoOp(realm, "removeEventListener"));
-        realm.DefineValue(
-            result,
-            "dispatchEvent",
-            realm.NewConstructor("dispatchEvent", static (in _) => JsValue.False, 1));
+        realm.DefineConstructor(result, "dispatchEvent", 1, static (in _) => JsValue.False);
         realm.DefineValue(result, "onchange", JsValue.Null);
 
         return result;

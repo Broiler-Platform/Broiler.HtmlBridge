@@ -65,11 +65,9 @@ internal static class CanvasBinding
         if (!string.Equals(element.TagName, "canvas", StringComparison.OrdinalIgnoreCase))
             return;
 
-        realm.DefineValue(obj, "getContext",
-            realm.NewMethod("getContext", (in call) => GetContext(host, obj, element, in call), 1));
+        realm.DefineMethod(obj, "getContext", 1, (in call) => GetContext(host, obj, element, in call));
 
-        realm.DefineValue(obj, "toDataURL",
-            realm.NewMethod("toDataURL", (in call) => ElementToDataUrl(host, obj, element, in call), 2));
+        realm.DefineMethod(obj, "toDataURL", 2, (in call) => ElementToDataUrl(host, obj, element, in call));
 
         // width/height are unsigned longs reflecting the content attributes, and assigning either
         // resets the bitmap. Without these the canvas kept whatever size it had when getContext was
@@ -210,45 +208,45 @@ internal static class CanvasBinding
         realm.DefineAccessor(ctx, "canvas", (in _) => canvasObject, null);
 
         // Drawing methods
-        realm.DefineValue(ctx, "fillRect", realm.NewMethod("fillRect", (in call) => FillRect(context2d, in call), 4));
+        realm.DefineMethod(ctx, "fillRect", 4, (in call) => FillRect(context2d, in call));
 
-        realm.DefineValue(ctx, "strokeRect", realm.NewMethod("strokeRect", (in call) => StrokeRect(context2d, in call), 4));
+        realm.DefineMethod(ctx, "strokeRect", 4, (in call) => StrokeRect(context2d, in call));
 
-        realm.DefineValue(ctx, "clearRect", realm.NewMethod("clearRect", (in call) => ClearRect(context2d, in call), 4));
+        realm.DefineMethod(ctx, "clearRect", 4, (in call) => ClearRect(context2d, in call));
 
-        realm.DefineValue(ctx, "beginPath", realm.NewMethod("beginPath", (in call) => BeginPath(context2d, in call)));
+        realm.DefineMethod(ctx, "beginPath", (in call) => BeginPath(context2d, in call));
 
-        realm.DefineValue(ctx, "moveTo", realm.NewMethod("moveTo", (in call) => MoveTo(context2d, in call), 2));
+        realm.DefineMethod(ctx, "moveTo", 2, (in call) => MoveTo(context2d, in call));
 
-        realm.DefineValue(ctx, "lineTo", realm.NewMethod("lineTo", (in call) => LineTo(context2d, in call), 2));
+        realm.DefineMethod(ctx, "lineTo", 2, (in call) => LineTo(context2d, in call));
 
-        realm.DefineValue(ctx, "arc", realm.NewMethod("arc", (in call) => Arc(context2d, in call), 5));
+        realm.DefineMethod(ctx, "arc", 5, (in call) => Arc(context2d, in call));
 
-        realm.DefineValue(ctx, "rect", realm.NewMethod("rect", (in call) => Rect(context2d, in call), 4));
+        realm.DefineMethod(ctx, "rect", 4, (in call) => Rect(context2d, in call));
 
-        realm.DefineValue(ctx, "closePath", realm.NewMethod("closePath", (in call) => ClosePath(context2d, in call)));
+        realm.DefineMethod(ctx, "closePath", (in call) => ClosePath(context2d, in call));
 
-        realm.DefineValue(ctx, "fill", realm.NewMethod("fill", (in call) => Fill(context2d, in call)));
+        realm.DefineMethod(ctx, "fill", (in call) => Fill(context2d, in call));
 
-        realm.DefineValue(ctx, "stroke", realm.NewMethod("stroke", (in call) => Stroke(context2d, in call)));
+        realm.DefineMethod(ctx, "stroke", (in call) => Stroke(context2d, in call));
 
-        realm.DefineValue(ctx, "fillText", realm.NewMethod("fillText", (in call) => FillText(context2d, in call), 3));
+        realm.DefineMethod(ctx, "fillText", 3, (in call) => FillText(context2d, in call));
 
-        realm.DefineValue(ctx, "strokeText", realm.NewMethod("strokeText", (in call) => StrokeText(context2d, in call), 3));
+        realm.DefineMethod(ctx, "strokeText", 3, (in call) => StrokeText(context2d, in call));
 
-        realm.DefineValue(ctx, "save", realm.NewMethod("save", (in call) => Save(context2d, in call)));
+        realm.DefineMethod(ctx, "save", (in call) => Save(context2d, in call));
 
-        realm.DefineValue(ctx, "restore", realm.NewMethod("restore", (in call) => Restore(context2d, in call)));
+        realm.DefineMethod(ctx, "restore", (in call) => Restore(context2d, in call));
 
         // measureText(text) — returns { width: ... }
-        realm.DefineValue(ctx, "measureText", realm.NewMethod("measureText", (in call) => MeasureText(context2d, in call), 1));
+        realm.DefineMethod(ctx, "measureText", 1, (in call) => MeasureText(context2d, in call));
 
         // Pixel access
-        realm.DefineValue(ctx, "getImageData", realm.NewMethod("getImageData", (in call) => GetImageData(context2d, host, in call), 4));
+        realm.DefineMethod(ctx, "getImageData", 4, (in call) => GetImageData(context2d, host, in call));
 
-        realm.DefineValue(ctx, "putImageData", realm.NewMethod("putImageData", (in call) => PutImageData(context2d, in call), 3));
+        realm.DefineMethod(ctx, "putImageData", 3, (in call) => PutImageData(context2d, in call));
 
-        realm.DefineValue(ctx, "createImageData", realm.NewMethod("createImageData", (in call) => CreateImageData(host, in call), 2));
+        realm.DefineMethod(ctx, "createImageData", 2, (in call) => CreateImageData(host, in call));
 
         // No toDataURL here: HTML puts it on HTMLCanvasElement only, and a page reaches it from a context
         // through ctx.canvas. Adding it to the context would be a name feature detection could trip on.

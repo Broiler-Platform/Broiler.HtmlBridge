@@ -72,28 +72,23 @@ internal static class SvgElementBinding
         if (tag == "text" || tag == "svg:text" || tag == "tspan" || tag == "svg:tspan" ||
             tag == "textpath" || tag == "svg:textpath")
         {
-            realm.DefineValue(obj, "getNumberOfChars",
-                realm.NewMethod("getNumberOfChars", (in _) => GetNumberOfChars(element), 0));
+            realm.DefineMethod(obj, "getNumberOfChars", 0, (in _) => GetNumberOfChars(element));
 
             // getComputedTextLength() — returns estimated total advance width
-            realm.DefineValue(obj, "getComputedTextLength",
-                realm.NewMethod("getComputedTextLength", (in _) => GetComputedTextLength(element), 0));
+            realm.DefineMethod(obj, "getComputedTextLength", 0, (in _) => GetComputedTextLength(element));
 
             // getSubStringLength(charnum, nchars) — returns advance width of substring
-            realm.DefineValue(obj, "getSubStringLength",
-                realm.NewMethod("getSubStringLength", (in call) => GetSubStringLength(element, in call), 2));
+            realm.DefineMethod(obj, "getSubStringLength", 2, (in call) => GetSubStringLength(element, in call));
 
             // getStartPositionOfChar(charnum) — returns SVGPoint {x, y}
-            realm.DefineValue(obj, "getStartPositionOfChar",
-                realm.NewMethod("getStartPositionOfChar", (in call) => GetStartPositionOfChar(element, in call), 1));
+            realm.DefineMethod(obj, "getStartPositionOfChar", 1,
+                (in call) => GetStartPositionOfChar(element, in call));
 
             // getEndPositionOfChar(charnum) — returns SVGPoint {x, y}
-            realm.DefineValue(obj, "getEndPositionOfChar",
-                realm.NewMethod("getEndPositionOfChar", (in call) => GetEndPositionOfChar(element, in call), 1));
+            realm.DefineMethod(obj, "getEndPositionOfChar", 1, (in call) => GetEndPositionOfChar(element, in call));
 
             // getRotationOfChar(charnum) — returns rotation angle in degrees
-            realm.DefineValue(obj, "getRotationOfChar",
-                realm.NewMethod("getRotationOfChar", (in call) => GetRotationOfChar(element, in call), 1));
+            realm.DefineMethod(obj, "getRotationOfChar", 1, (in call) => GetRotationOfChar(element, in call));
         }
 
         // SVGSVGElement methods (getCurrentTime, setCurrentTime)
@@ -103,11 +98,9 @@ internal static class SvgElementBinding
             // both methods capture the same local, so what setCurrentTime wrote getCurrentTime reads.
             double currentTime = 0;
 
-            realm.DefineValue(obj, "getCurrentTime",
-                realm.NewMethod("getCurrentTime", (in _) => JsValue.Number(currentTime), 0));
+            realm.DefineMethod(obj, "getCurrentTime", 0, (in _) => JsValue.Number(currentTime));
 
-            realm.DefineValue(obj, "setCurrentTime",
-                realm.NewMethod("setCurrentTime", (in call) => SetCurrentTime(ref currentTime, in call), 1));
+            realm.DefineMethod(obj, "setCurrentTime", 1, (in call) => SetCurrentTime(ref currentTime, in call));
         }
 
         // SMIL animation element methods (beginElement, endElement, getStartTime)
@@ -136,14 +129,11 @@ internal static class SvgElementBinding
     /// </remarks>
     private static void InstallSmilNoOps(IJsRealm realm, JsValue obj)
     {
-        realm.DefineValue(obj, "beginElement",
-            realm.NewConstructor("beginElement", static (in _) => JsValue.Undefined, 0));
+        realm.DefineConstructor(obj, "beginElement", 0, static (in _) => JsValue.Undefined);
 
-        realm.DefineValue(obj, "endElement",
-            realm.NewConstructor("endElement", static (in _) => JsValue.Undefined, 0));
+        realm.DefineConstructor(obj, "endElement", 0, static (in _) => JsValue.Undefined);
 
-        realm.DefineValue(obj, "getStartTime",
-            realm.NewConstructor("getStartTime", static (in _) => JsValue.Number(0), 0));
+        realm.DefineConstructor(obj, "getStartTime", 0, static (in _) => JsValue.Number(0));
     }
 
     // SVGAnimatedLength stub for a dimensional presentation attribute — baseVal/animVal each an SVGLength.

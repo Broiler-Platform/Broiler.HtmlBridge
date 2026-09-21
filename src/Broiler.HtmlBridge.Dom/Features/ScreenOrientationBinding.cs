@@ -75,8 +75,7 @@ internal static class ScreenOrientationBinding
         // makes doing nothing the specified behaviour rather than a stub. It is minted as a
         // constructor rather than a method to preserve the constructable shape the bridge has always
         // published here — see the last paragraph of the class remarks.
-        realm.DefineValue(orientation, "unlock",
-            realm.NewConstructor("unlock", static (in _) => JsValue.Undefined, 0));
+        realm.DefineConstructor(orientation, "unlock", 0, static (in _) => JsValue.Undefined);
 
         return orientation;
     }

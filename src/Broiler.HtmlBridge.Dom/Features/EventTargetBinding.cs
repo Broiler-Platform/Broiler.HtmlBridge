@@ -36,7 +36,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// triggers, and the <c>focus</c>/<c>blur</c> UIEvents -- is a <see cref="JsValue"/> assembled on
 /// <see cref="IEventTargetHost.Realm"/>, with the property attributes each member always had.
 /// <c>DomBridge/ElementInterface.cs</c> installs <c>click</c>, <c>focus</c> and <c>blur</c> with
-/// <c>AddInterfaceMethod</c> over a JSEAL call frame, and their signatures below say so.
+/// <c>DefineMethod</c> over a JSEAL call frame, and their signatures below say so.
 /// </para>
 /// </remarks>
 internal static class EventTargetBinding
@@ -142,12 +142,11 @@ internal static class EventTargetBinding
 
                     // This one really is a WebIDL operation — non-constructable, unlike its three
                     // no-op siblings; see NoOperation.
-                    realm.DefineValue(submitEvt, "preventDefault",
-                        realm.NewMethod("preventDefault", (in _) =>
-                        {
-                            realm.SetProperty(submitEvt, "defaultPrevented", JsValue.True);
-                            return JsValue.Undefined;
-                        }, 0));
+                    realm.DefineMethod(submitEvt, "preventDefault", 0, (in _) =>
+                    {
+                        realm.SetProperty(submitEvt, "defaultPrevented", JsValue.True);
+                        return JsValue.Undefined;
+                    });
 
                     realm.DefineValue(submitEvt, "stopPropagation", NoOperation(realm, "stopPropagation"));
                     realm.DefineValue(submitEvt, "stopImmediatePropagation", NoOperation(realm, "stopImmediatePropagation"));

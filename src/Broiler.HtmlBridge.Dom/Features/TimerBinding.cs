@@ -201,9 +201,8 @@ internal static class TimerBinding
 
         var deadline = realm.NewObject();
         realm.DefineValue(deadline, "didTimeout", JsValue.Boolean(didTimeout));
-        realm.DefineValue(deadline, "timeRemaining",
-            realm.NewMethod("timeRemaining", (in _) => JsValue.Number(
-                Math.Max(0, IdleBudgetMs - Stopwatch.GetElapsedTime(enteredAt).TotalMilliseconds)), 0));
+        realm.DefineMethod(deadline, "timeRemaining", 0, (in _) => JsValue.Number(
+            Math.Max(0, IdleBudgetMs - Stopwatch.GetElapsedTime(enteredAt).TotalMilliseconds)));
         return deadline;
     }
 }

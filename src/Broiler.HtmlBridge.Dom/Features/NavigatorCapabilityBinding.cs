@@ -45,8 +45,7 @@ internal static class NavigatorCapabilityBinding
     {
         // navigator.javaEnabled() (HTML §8.9) — specified to return false. Not "false because
         // Broiler has no Java": the method is a vestige whose only conforming answer is false.
-        realm.DefineValue(navigator, "javaEnabled",
-            realm.NewMethod("javaEnabled", static (in _) => JsValue.False, 0));
+        realm.DefineMethod(navigator, "javaEnabled", 0, static (in _) => JsValue.False);
 
         // navigator.plugins / navigator.mimeTypes (HTML §8.9.1). HTML defines these as empty
         // whenever the user agent has no PDF viewer, which is the branch Broiler is on — the five
@@ -60,17 +59,14 @@ internal static class NavigatorCapabilityBinding
         // navigator.getGamepads() (Gamepad §2.2) — the gamepads currently connected. Broiler has no
         // gamepad input path, so none ever are, and an empty list is what the specification asks
         // for in that case.
-        realm.DefineValue(navigator, "getGamepads",
-            realm.NewMethod("getGamepads", (in _) => realm.NewArray(), 0));
+        realm.DefineMethod(navigator, "getGamepads", 0, (in _) => realm.NewArray());
 
         // navigator.getBattery() (Battery Status §4).
-        realm.DefineValue(navigator, "getBattery",
-            realm.NewMethod("getBattery", (in _) => GetBattery(realm), 0));
+        realm.DefineMethod(navigator, "getBattery", 0, (in _) => GetBattery(realm));
 
         // navigator.requestMediaKeySystemAccess() (EME §5).
-        realm.DefineValue(navigator, "requestMediaKeySystemAccess",
-            realm.NewMethod("requestMediaKeySystemAccess",
-                (in call) => RequestMediaKeySystemAccess(in call), 2));
+        realm.DefineMethod(navigator, "requestMediaKeySystemAccess", 2,
+            (in call) => RequestMediaKeySystemAccess(in call));
     }
 
     /// <summary>

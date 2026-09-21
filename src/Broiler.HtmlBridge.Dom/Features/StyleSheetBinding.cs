@@ -219,14 +219,13 @@ internal static partial class StyleSheetBinding
 
         realm.DefineAccessor(cssRuleList, "length", (in _) => JsValue.Number(rules.Count), null);
 
-        realm.DefineValue(cssRuleList, "item",
-            realm.NewMethod("item", (in call) => JsStyleSheetsItem008Core(rules, in call), 1));
+        realm.DefineMethod(cssRuleList, "item", 1, (in call) => JsStyleSheetsItem008Core(rules, in call));
 
-        realm.DefineValue(cssRuleList, "insertRule",
-            realm.NewMethod("insertRule", (in call) => JsStyleSheetsInsertRule009Core(SyncIndices, ruleFactory, rules, in call), 2));
+        realm.DefineMethod(cssRuleList, "insertRule", 2,
+            (in call) => JsStyleSheetsInsertRule009Core(SyncIndices, ruleFactory, rules, in call));
 
-        realm.DefineValue(cssRuleList, "deleteRule",
-            realm.NewMethod("deleteRule", (in call) => JsStyleSheetsDeleteRule010Core(SyncIndices, rules, in call), 1));
+        realm.DefineMethod(cssRuleList, "deleteRule", 1,
+            (in call) => JsStyleSheetsDeleteRule010Core(SyncIndices, rules, in call));
 
         return cssRuleList;
     }

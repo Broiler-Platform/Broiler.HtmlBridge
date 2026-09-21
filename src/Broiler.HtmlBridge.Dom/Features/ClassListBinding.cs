@@ -33,20 +33,15 @@ internal static class ClassListBinding
     {
         var classList = realm.NewObject();
 
-        realm.DefineValue(classList, "contains",
-            realm.NewMethod("contains", (in call) => Contains(element, in call), 1));
+        realm.DefineMethod(classList, "contains", 1, (in call) => Contains(element, in call));
 
-        realm.DefineValue(classList, "add",
-            realm.NewMethod("add", (in call) => Add(element, onClassChanged, in call)));
+        realm.DefineMethod(classList, "add", (in call) => Add(element, onClassChanged, in call));
 
-        realm.DefineValue(classList, "remove",
-            realm.NewMethod("remove", (in call) => Remove(element, onClassChanged, in call)));
+        realm.DefineMethod(classList, "remove", (in call) => Remove(element, onClassChanged, in call));
 
-        realm.DefineValue(classList, "toggle",
-            realm.NewMethod("toggle", (in call) => Toggle(element, onClassChanged, in call), 1));
+        realm.DefineMethod(classList, "toggle", 1, (in call) => Toggle(element, onClassChanged, in call));
 
-        realm.DefineValue(classList, "replace",
-            realm.NewMethod("replace", (in call) => Replace(element, onClassChanged, in call), 2));
+        realm.DefineMethod(classList, "replace", 2, (in call) => Replace(element, onClassChanged, in call));
 
         return classList;
     }

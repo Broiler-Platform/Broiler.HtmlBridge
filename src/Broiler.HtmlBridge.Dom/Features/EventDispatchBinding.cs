@@ -78,14 +78,13 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         realm.SetProperty(evt, "srcElement", realm.GetProperty(evt, "target"));
         realm.SetProperty(evt, "eventPhase", JsValue.Number(0));
 
-        realm.DefineValue(evt, "stopPropagation",
-            realm.NewMethod("stopPropagation", (in _) => EventStopPropagation(ref legacyCancelBubble, ref stopped)));
+        realm.DefineMethod(evt, "stopPropagation", (in _) => EventStopPropagation(ref legacyCancelBubble, ref stopped));
 
-        realm.DefineValue(evt, "stopImmediatePropagation",
-            realm.NewMethod("stopImmediatePropagation", (in _) => EventStopImmediatePropagation(ref immediateStopped, ref legacyCancelBubble, ref stopped)));
+        realm.DefineMethod(evt, "stopImmediatePropagation",
+            (in _) => EventStopImmediatePropagation(ref immediateStopped, ref legacyCancelBubble, ref stopped));
 
-        realm.DefineValue(evt, "preventDefault",
-            realm.NewMethod("preventDefault", (in _) => EventPreventDefault(realm, currentListenerPassive, evt, ref prevented)));
+        realm.DefineMethod(evt, "preventDefault",
+            (in _) => EventPreventDefault(realm, currentListenerPassive, evt, ref prevented));
 
         realm.DefineAccessor(evt, "cancelBubble",
             (in _) => JsValue.Boolean(legacyCancelBubble),
@@ -95,8 +94,7 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
             (in _) => JsValue.Boolean(!prevented),
             (in setCall) => EventSetReturnValue(realm, currentListenerPassive, evt, ref prevented, in setCall));
 
-        realm.DefineValue(evt, "composedPath",
-            realm.NewMethod("composedPath", (in _) => BuildComposedPathValue(target, path)));
+        realm.DefineMethod(evt, "composedPath", (in _) => BuildComposedPathValue(target, path));
 
         // Phase 1: Capture (root → parent of target)
         realm.SetProperty(evt, "eventPhase", JsValue.Number(1));

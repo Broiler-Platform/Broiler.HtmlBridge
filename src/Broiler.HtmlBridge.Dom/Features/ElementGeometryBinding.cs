@@ -65,27 +65,21 @@ internal static class ElementGeometryBinding
             (in call) => SetScrollLeft(host, element(in call, "scrollLeft"), in call));
 
         // getBoundingClientRect() — returns DOMRect-like object
-        realm.DefineValue(target, "getBoundingClientRect",
-            realm.NewMethod("getBoundingClientRect",
-                (in call) => Rect(call.Realm, host, element(in call, "getBoundingClientRect"), GetBoundingClientRect), 0));
+        realm.DefineMethod(target, "getBoundingClientRect", 0,
+            (in call) => Rect(call.Realm, host, element(in call, "getBoundingClientRect"), GetBoundingClientRect));
 
         // getClientRects() — returns array with one DOMRect for root elements
-        realm.DefineValue(target, "getClientRects",
-            realm.NewMethod("getClientRects",
-                (in call) => Rect(call.Realm, host, element(in call, "getClientRects"), GetClientRects), 0));
+        realm.DefineMethod(target, "getClientRects", 0,
+            (in call) => Rect(call.Realm, host, element(in call, "getClientRects"), GetClientRects));
 
-        realm.DefineValue(target, "scrollIntoView",
-            realm.NewMethod("scrollIntoView",
-                (in call) => ScrollIntoView(host, element(in call, "scrollIntoView"), in call), 1));
+        realm.DefineMethod(target, "scrollIntoView", 1,
+            (in call) => ScrollIntoView(host, element(in call, "scrollIntoView"), in call));
 
-        realm.DefineValue(target, "scroll",
-            realm.NewMethod("scroll", (in call) => Scroll(host, element(in call, "scroll"), in call), 2));
+        realm.DefineMethod(target, "scroll", 2, (in call) => Scroll(host, element(in call, "scroll"), in call));
 
-        realm.DefineValue(target, "scrollTo",
-            realm.NewMethod("scrollTo", (in call) => Scroll(host, element(in call, "scrollTo"), in call), 2));
+        realm.DefineMethod(target, "scrollTo", 2, (in call) => Scroll(host, element(in call, "scrollTo"), in call));
 
-        realm.DefineValue(target, "scrollBy",
-            realm.NewMethod("scrollBy", (in call) => ScrollBy(host, element(in call, "scrollBy"), in call), 2));
+        realm.DefineMethod(target, "scrollBy", 2, (in call) => ScrollBy(host, element(in call, "scrollBy"), in call));
     }
 
     /// <summary>
@@ -117,8 +111,7 @@ internal static class ElementGeometryBinding
     /// </summary>
     public static void InstallBridgeMembers(IElementGeometryHost host, IJsRealm realm, JsValue obj, DomElement element)
     {
-        realm.DefineValue(obj, "scrollParent",
-            realm.NewMethod("scrollParent", (in _) => GetScrollParent(host, element), 0));
+        realm.DefineMethod(obj, "scrollParent", 0, (in _) => GetScrollParent(host, element));
     }
 
     /// <summary>One metric read, with the viewport test the metrics take resolved for this element.</summary>

@@ -38,8 +38,7 @@ internal static class IframeElementBinding
             (in _) => GetContentWindow(host, element), null);
 
         // getSVGDocument() — returns contentDocument (same as contentDocument for same-origin)
-        realm.DefineValue(obj, "getSVGDocument",
-            realm.NewMethod("getSVGDocument", (in _) => GetContentDocument(host, element), 0));
+        realm.DefineMethod(obj, "getSVGDocument", 0, (in _) => GetContentDocument(host, element));
 
         // src property (read/write) — for iframe elements
         realm.DefineAccessor(obj, "src",

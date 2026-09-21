@@ -53,14 +53,13 @@ internal static class FormSubmitBinding
                 return JsValue.Undefined;
             }
 
-            realm.DefineValue(submitEvt, "preventDefault", realm.NewMethod("preventDefault", PreventDefault, 0));
+            realm.DefineMethod(submitEvt, "preventDefault", 0, PreventDefault);
 
             // stopPropagation is minted as a *constructor* only because it always has been: a plain
             // function carries a prototype object and so passes the engine's constructor test, rather
             // than taking the non-constructable shape WebIDL gives an operation. Correcting that is a
             // behaviour change, so it is kept and reported rather than fixed in passing.
-            realm.DefineValue(submitEvt, "stopPropagation",
-                realm.NewConstructor("stopPropagation", static (in _) => JsValue.Undefined, 0));
+            realm.DefineConstructor(submitEvt, "stopPropagation", 0, static (in _) => JsValue.Undefined);
 
             if (host.GetEventListeners(element).TryGetValue("submit", out var submitListeners))
             {

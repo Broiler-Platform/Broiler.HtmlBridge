@@ -92,9 +92,8 @@ public sealed partial class DomBridge
                 (in _) => Dom.Features.ObjectElementBinding.ContentDocument(this, element), null);
 
             // getSVGDocument() for <object> element
-            Realm.DefineValue(handle, "getSVGDocument",
-                Realm.NewMethod("getSVGDocument",
-                    (in _) => Dom.Features.ObjectElementBinding.SvgDocument(this, element), 0));
+            Realm.DefineMethod(handle, "getSVGDocument", 0,
+                (in _) => Dom.Features.ObjectElementBinding.SvgDocument(this, element));
         }
 
         // HTMLAnchorElement — href property with URI resolution
@@ -353,7 +352,7 @@ public sealed partial class DomBridge
 /// those three by receiver. A text or comment node consequently carries no own properties at all.
 /// </para>
 /// <para>
-/// <b>One vocabulary for installing a prototype member.</b> <see cref="DefinePrototypeMethod"/> and
+/// <b>One vocabulary for installing a prototype member.</b> <c>Realm.DefineMethod</c> and
 /// <see cref="DefinePrototypeAccessor"/> mint through the realm, and every member below uses them —
 /// the <c>ChildNode</c> mixin four included — because every body below calls a binding that reads a
 /// <see cref="JsCall"/> frame. Nothing here names an engine type.
@@ -399,7 +398,7 @@ public sealed partial class DomBridge
         InstallElementNamePrototypeMembers();
 
         // Text's alone: a Comment inherits CharacterData and must not answer splitText.
-        DefinePrototypeMethod(textProto, "splitText", 1,
+        Realm.DefineMethod(textProto, "splitText", 1,
             (in call) => Dom.Features.CharacterDataBinding.SplitText(
                 this, RequireNode(in call, "Text", "splitText"), in call));
 
@@ -525,21 +524,21 @@ public sealed partial class DomBridge
         DefinePrototypeAccessor(proto, "ownerDocument",
             (in call) => Dom.Features.NodeAccessorsBinding.GetOwnerDocument(this, RequireNode(in call, "Node", "ownerDocument"), in call));
 
-        DefinePrototypeMethod(proto, "hasChildNodes", 0, (in call) =>
+        Realm.DefineMethod(proto, "hasChildNodes", 0, (in call) =>
             JsValue.Boolean(RequireNode(in call, "Node", "hasChildNodes").ChildNodes.Count > 0));
-        DefinePrototypeMethod(proto, "cloneNode", 1,
+        Realm.DefineMethod(proto, "cloneNode", 1,
             (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, RequireNode(in call, "Node", "cloneNode"), in call));
-        DefinePrototypeMethod(proto, "contains", 1,
+        Realm.DefineMethod(proto, "contains", 1,
             (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, RequireNode(in call, "Node", "contains"), in call));
-        DefinePrototypeMethod(proto, "compareDocumentPosition", 1,
+        Realm.DefineMethod(proto, "compareDocumentPosition", 1,
             (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, RequireNode(in call, "Node", "compareDocumentPosition"), in call));
-        DefinePrototypeMethod(proto, "isSameNode", 1,
+        Realm.DefineMethod(proto, "isSameNode", 1,
             (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, RequireNode(in call, "Node", "isSameNode"), in call));
-        DefinePrototypeMethod(proto, "isEqualNode", 1,
+        Realm.DefineMethod(proto, "isEqualNode", 1,
             (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, RequireNode(in call, "Node", "isEqualNode"), in call));
-        DefinePrototypeMethod(proto, "getRootNode", 1,
+        Realm.DefineMethod(proto, "getRootNode", 1,
             (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, RequireNode(in call, "Node", "getRootNode"), in call));
-        DefinePrototypeMethod(proto, "normalize", 0,
+        Realm.DefineMethod(proto, "normalize", 0,
             (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, RequireNode(in call, "Node", "normalize"), in call));
     }
 
@@ -590,24 +589,24 @@ public sealed partial class DomBridge
         DefinePrototypeAccessor(proto, "length",
             (in call) => Dom.Features.CharacterDataBinding.GetLength(RequireNode(in call, "CharacterData", "length"), in call));
 
-        DefinePrototypeMethod(proto, "substringData", 2,
+        Realm.DefineMethod(proto, "substringData", 2,
             (in call) => Dom.Features.CharacterDataBinding.SubstringData(this, RequireNode(in call, "CharacterData", "substringData"), in call));
-        DefinePrototypeMethod(proto, "appendData", 1,
+        Realm.DefineMethod(proto, "appendData", 1,
             (in call) => Dom.Features.CharacterDataBinding.AppendData(this, RequireNode(in call, "CharacterData", "appendData"), in call));
-        DefinePrototypeMethod(proto, "deleteData", 2,
+        Realm.DefineMethod(proto, "deleteData", 2,
             (in call) => Dom.Features.CharacterDataBinding.DeleteData(this, RequireNode(in call, "CharacterData", "deleteData"), in call));
-        DefinePrototypeMethod(proto, "insertData", 2,
+        Realm.DefineMethod(proto, "insertData", 2,
             (in call) => Dom.Features.CharacterDataBinding.InsertData(this, RequireNode(in call, "CharacterData", "insertData"), in call));
-        DefinePrototypeMethod(proto, "replaceData", 3,
+        Realm.DefineMethod(proto, "replaceData", 3,
             (in call) => Dom.Features.CharacterDataBinding.ReplaceData(this, RequireNode(in call, "CharacterData", "replaceData"), in call));
 
-        DefinePrototypeMethod(proto, "remove", 0,
+        Realm.DefineMethod(proto, "remove", 0,
             (in call) => Dom.Features.ChildNodeBinding.Remove(this, RequireNode(in call, "CharacterData", "remove"), in call));
-        DefinePrototypeMethod(proto, "before", 0,
+        Realm.DefineMethod(proto, "before", 0,
             (in call) => Dom.Features.ChildNodeBinding.Before(this, RequireNode(in call, "CharacterData", "before"), in call));
-        DefinePrototypeMethod(proto, "after", 0,
+        Realm.DefineMethod(proto, "after", 0,
             (in call) => Dom.Features.ChildNodeBinding.After(this, RequireNode(in call, "CharacterData", "after"), in call));
-        DefinePrototypeMethod(proto, "replaceWith", 0,
+        Realm.DefineMethod(proto, "replaceWith", 0,
             (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, RequireNode(in call, "CharacterData", "replaceWith"), in call));
     }
 
@@ -630,15 +629,6 @@ public sealed partial class DomBridge
             JsErrorKind.TypeError,
             $"Failed to execute '{member}' on '{interfaceName}': Illegal invocation");
     }
-
-    /// <summary>Adds a WebIDL operation to an interface prototype, through the realm.</summary>
-    /// <remarks>
-    /// <see cref="JsPropertyFlags.Default"/> is enumerable, configurable and writable — what the
-    /// instance properties were and what Web IDL asks for on a prototype; keeping the same attributes
-    /// means only the *location* of the member changes.
-    /// </remarks>
-    private void DefinePrototypeMethod(JsValue proto, string name, int length, JsNativeFunction body) =>
-        Realm.DefineValue(proto, name, Realm.NewMethod(name, body, length));
 
     /// <summary>Adds a WebIDL attribute to an interface prototype, read-only unless a setter is given.</summary>
     /// <remarks>

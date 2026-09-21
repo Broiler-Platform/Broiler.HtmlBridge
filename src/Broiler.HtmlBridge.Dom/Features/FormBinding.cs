@@ -69,8 +69,7 @@ internal sealed class FormBinding(IFormHost host)
         // reset() — HTML §4.10.21.4. It did not exist, so `form.reset()` was a TypeError on
         // undefined: the call that a "clear this form" control is written as aborted the handler
         // rather than clearing anything, and every edited control kept its edited state.
-        realm.DefineValue(obj, "reset",
-            realm.NewMethod("reset", (in _) => { _host.ResetForm(element); return JsValue.Undefined; }, 0));
+        realm.DefineMethod(obj, "reset", 0, (in _) => { _host.ResetForm(element); return JsValue.Undefined; });
     }
 
     /// <summary>

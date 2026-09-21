@@ -88,12 +88,12 @@ public sealed partial class DomBridge
         realm.DefineValue(transition, "finished", ResolvedThenable());
         realm.DefineValue(transition, "updateCallbackDone", ResolvedThenable());
         realm.DefineValue(transition, "types", realm.NewArray());
-        realm.DefineValue(transition, "skipTransition",
-            realm.NewMethod("skipTransition", (in _) =>
+        realm.DefineMethod(transition, "skipTransition", 0,
+            (in _) =>
             {
                 _subDocumentViewTransitionOldMarkup.Remove(docRoot);
                 return JsValue.Undefined;
-            }, 0));
+            });
         return transition;
     }
 

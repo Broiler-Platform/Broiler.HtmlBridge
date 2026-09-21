@@ -354,7 +354,7 @@ public partial class EventListenerRegistrationTests
     }
 
     [Fact(Skip = "Inline on* handlers fire after every addEventListener listener whenever they were " +
-                 "registered: src/Broiler.HtmlBridge.Dom/Features/EventDispatchBinding.cs:149-180 runs the " +
+                 "registered: src/Broiler.HtmlBridge.Dom/Features/EventDispatchBinding.cs runs the " +
                  "listener list first and the inline handler afterwards, where HTML §8.1.7.1 registers a " +
                  "content attribute's listener when the attribute is set — at parse time.")]
     public void AnInlineHandlerRunsBeforeAListenerAddedAfterIt()

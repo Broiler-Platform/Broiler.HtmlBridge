@@ -38,14 +38,11 @@ internal sealed partial class MessagingBinding
 
         // All three are the realm's. The lengths are unchanged, including the 3s, which are this
         // bridge's own deviation from Web IDL's 2, recorded rather than corrected here.
-        realm.DefineValue(target, "addEventListener",
-            realm.NewMethod("addEventListener", (in call) => AddEventListener(target, in call), 3));
+        realm.DefineMethod(target, "addEventListener", 3, (in call) => AddEventListener(target, in call));
 
-        realm.DefineValue(target, "removeEventListener",
-            realm.NewMethod("removeEventListener", (in call) => RemoveEventListener(target, in call), 3));
+        realm.DefineMethod(target, "removeEventListener", 3, (in call) => RemoveEventListener(target, in call));
 
-        realm.DefineValue(target, "dispatchEvent",
-            realm.NewMethod("dispatchEvent", (in call) => DispatchEvent(target, logContext, in call), 1));
+        realm.DefineMethod(target, "dispatchEvent", 1, (in call) => DispatchEvent(target, logContext, in call));
     }
 
     private JsValue AddEventListener(JsValue target, in JsCall call)
@@ -133,15 +130,13 @@ internal sealed partial class MessagingBinding
         var legacyCancelBubble = false;
         realm.SetProperty(evt, "defaultPrevented", JsValue.Boolean(prevented));
 
-        realm.DefineValue(evt, "stopPropagation",
-            realm.NewMethod("stopPropagation", (in _) => StopPropagation(ref legacyCancelBubble, in _)));
+        realm.DefineMethod(evt, "stopPropagation", (in _) => StopPropagation(ref legacyCancelBubble, in _));
 
-        realm.DefineValue(evt, "stopImmediatePropagation",
-            realm.NewMethod("stopImmediatePropagation",
-                (in _) => StopImmediatePropagation(ref immediateStopped, ref legacyCancelBubble, in _)));
+        realm.DefineMethod(evt, "stopImmediatePropagation",
+            (in _) => StopImmediatePropagation(ref immediateStopped, ref legacyCancelBubble, in _));
 
-        realm.DefineValue(evt, "preventDefault",
-            realm.NewMethod("preventDefault", (in _) => PreventDefault(currentListenerPassive, evt, ref prevented, in _)));
+        realm.DefineMethod(evt, "preventDefault",
+            (in _) => PreventDefault(currentListenerPassive, evt, ref prevented, in _));
 
         realm.DefineAccessor(evt, "cancelBubble",
             (in _) => JsValue.Boolean(legacyCancelBubble),
@@ -151,8 +146,7 @@ internal sealed partial class MessagingBinding
             (in _) => JsValue.Boolean(!prevented),
             (in setArgs) => SetReturnValue(currentListenerPassive, evt, ref prevented, in setArgs));
 
-        realm.DefineValue(evt, "composedPath",
-            realm.NewMethod("composedPath", (in _) => realm.NewArray([target])));
+        realm.DefineMethod(evt, "composedPath", (in _) => realm.NewArray([target]));
 
         InvokeEventTargetHandler(target, eventType, evt, logContext);
 

@@ -444,7 +444,7 @@ public sealed partial class DomBridge
 /// </summary>
 /// <remarks>
 /// <b>This file speaks JSEAL end to end.</b> <c>Animatable.animate()</c> is installed by
-/// <c>DomBridge/ElementInterface.cs</c> with its realm-minting <c>AddInterfaceMethod</c>, so
+/// <c>DomBridge/ElementInterface.cs</c> through the realm-minting <c>DefineMethod</c>, so
 /// <see cref="ElementAnimate"/> receives a <see cref="JsCall"/>, and
 /// <see cref="ParseAnimationKeyframes"/>, <see cref="DomBridgeUtils.ParseAnimationTiming"/> and
 /// <see cref="DomBridgeUtils.ParseAnimationPseudoElement"/> read the keyframes and the options object through the

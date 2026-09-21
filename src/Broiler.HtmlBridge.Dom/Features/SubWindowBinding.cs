@@ -192,12 +192,9 @@ internal sealed class SubWindowBinding(
         realm.DefineAccessor(window, "pageYOffset",
             (in _) => JsValue.Number(GetSubWindowScrollOffset(containerElement, vertical: true)), null);
 
-        realm.DefineValue(window, "scroll",
-            realm.NewMethod("scroll", (in call) => Scroll(containerElement, in call), 2));
-        realm.DefineValue(window, "scrollTo",
-            realm.NewMethod("scrollTo", (in call) => ScrollTo(containerElement, in call), 2));
-        realm.DefineValue(window, "scrollBy",
-            realm.NewMethod("scrollBy", (in call) => ScrollBy(containerElement, in call), 2));
+        realm.DefineMethod(window, "scroll", 2, (in call) => Scroll(containerElement, in call));
+        realm.DefineMethod(window, "scrollTo", 2, (in call) => ScrollTo(containerElement, in call));
+        realm.DefineMethod(window, "scrollBy", 2, (in call) => ScrollBy(containerElement, in call));
 
         realm.DefineValue(window, "self", window);
         realm.DefineValue(window, "window", window);
@@ -236,8 +233,7 @@ internal sealed class SubWindowBinding(
         // window.getComputedStyle — sub-window needs its own copy so that
         // doc.defaultView.getComputedStyle(node, "") resolves CSS rules from
         // the sub-document's <style> elements rather than the main document.
-        realm.DefineValue(window, "getComputedStyle",
-            realm.NewMethod("getComputedStyle", (in call) => GetComputedStyle(in call), 2));
+        realm.DefineMethod(window, "getComputedStyle", 2, (in call) => GetComputedStyle(in call));
 
         // Last, so the bridge's own members are already in place and win over a same-named
         // declaration: whatever the frame's scripts declared while the sub-document above was being

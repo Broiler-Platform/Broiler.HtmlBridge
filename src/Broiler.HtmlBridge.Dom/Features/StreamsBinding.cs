@@ -108,17 +108,12 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
         if (!blobPrototype.IsObject)
             return;
 
-        realm.DefineValue(
-            blobPrototype,
-            "stream",
-            realm.NewMethod(
-                "stream",
-                (in call) => BytesOfBlob(blobs, call.This) is { } bytes
-                    ? StreamOverBytes(bytes)
-                    : throw call.Realm.Error(
-                        JsErrorKind.TypeError,
-                        "Failed to execute 'stream' on 'Blob': Illegal invocation"),
-                0));
+        realm.DefineMethod(blobPrototype, "stream", 0,
+            (in call) => BytesOfBlob(blobs, call.This) is { } bytes
+                ? StreamOverBytes(bytes)
+                : throw call.Realm.Error(
+                    JsErrorKind.TypeError,
+                    "Failed to execute 'stream' on 'Blob': Illegal invocation"));
     }
 
     /// <summary>

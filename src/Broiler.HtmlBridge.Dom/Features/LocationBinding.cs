@@ -181,21 +181,17 @@ internal static class LocationBinding
             (in _) => JsValue.String(url.Fragment),
             (in call) => SetHash(url, host, in call));
 
-        realm.DefineValue(location, "assign",
-            realm.NewMethod("assign", (in call) => Navigate(url, host, "assign", in call), 1));
-        realm.DefineValue(location, "replace",
-            realm.NewMethod("replace", (in call) => Navigate(url, host, "replace", in call), 1));
-        realm.DefineValue(location, "reload",
-            realm.NewMethod("reload", (in _) =>
-            {
-                Request(host, NavigationKind.Reload, "location.reload()", url.Href);
-                return JsValue.Undefined;
-            }, 0));
+        realm.DefineMethod(location, "assign", 1, (in call) => Navigate(url, host, "assign", in call));
+        realm.DefineMethod(location, "replace", 1, (in call) => Navigate(url, host, "replace", in call));
+        realm.DefineMethod(location, "reload", 0, (in _) =>
+        {
+            Request(host, NavigationKind.Reload, "location.reload()", url.Href);
+            return JsValue.Undefined;
+        });
 
         // Location stringifies to its href, not to "[object Object]". Pages build URLs with
         // `"" + location` and log it, and the default Object.prototype.toString made both useless.
-        realm.DefineValue(location, "toString",
-            realm.NewMethod("toString", (in _) => JsValue.String(url.Href), 0));
+        realm.DefineMethod(location, "toString", 0, (in _) => JsValue.String(url.Href));
     }
 
     private static JsValue SetHash(DocumentUrl url, ILocationHost? host, in JsCall call)

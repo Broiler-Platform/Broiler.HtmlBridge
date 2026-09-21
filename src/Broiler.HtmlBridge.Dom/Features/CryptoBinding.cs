@@ -24,8 +24,8 @@ internal static class CryptoBinding
     {
         var crypto = realm.NewObject();
 
-        realm.DefineValue(crypto, "getRandomValues", realm.NewMethod("getRandomValues", GetRandomValues, 1));
-        realm.DefineValue(crypto, "randomUUID", realm.NewMethod("randomUUID", RandomUuid, 0));
+        realm.DefineMethod(crypto, "getRandomValues", 1, GetRandomValues);
+        realm.DefineMethod(crypto, "randomUUID", 0, RandomUuid);
 
         return crypto;
     }

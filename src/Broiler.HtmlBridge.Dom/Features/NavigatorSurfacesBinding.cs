@@ -390,7 +390,7 @@ internal static class NavigatorSurfacesBinding
     }
 
     private static void Method(IJsRealm realm, JsValue prototype, string name, int length, JsNativeFunction body) =>
-        realm.DefineValue(prototype, name, realm.NewMethod(name, body, length));
+        realm.DefineMethod(prototype, name, length, body);
 
     /// <summary>
     /// A read-only accessor on an interface prototype, whose getter is handed the receiver.

@@ -76,24 +76,19 @@ internal static class WebStorageBinding
         // `Object.keys(storage)` yield keys alone. A bridge storage area carries its members directly
         // (see RegisterStorageConstructor), so hiding them from enumeration is what keeps a
         // page that iterates a storage area from finding four methods among its keys.
-        realm.DefineValue(area, "getItem",
-            realm.NewMethod("getItem", (in call) => GetItem(storage, in call), 1),
+        realm.DefineMethod(area, "getItem", 1, (in call) => GetItem(storage, in call),
             JsPropertyFlags.NonEnumerable);
 
-        realm.DefineValue(area, "setItem",
-            realm.NewMethod("setItem", (in call) => SetItem(storage, in call), 2),
+        realm.DefineMethod(area, "setItem", 2, (in call) => SetItem(storage, in call),
             JsPropertyFlags.NonEnumerable);
 
-        realm.DefineValue(area, "removeItem",
-            realm.NewMethod("removeItem", (in call) => RemoveItem(storage, in call), 1),
+        realm.DefineMethod(area, "removeItem", 1, (in call) => RemoveItem(storage, in call),
             JsPropertyFlags.NonEnumerable);
 
-        realm.DefineValue(area, "clear",
-            realm.NewMethod("clear", (in call) => Clear(storage, in call), 0),
+        realm.DefineMethod(area, "clear", 0, (in call) => Clear(storage, in call),
             JsPropertyFlags.NonEnumerable);
 
-        realm.DefineValue(area, "key",
-            realm.NewMethod("key", (in call) => Key(storage, in call), 1),
+        realm.DefineMethod(area, "key", 1, (in call) => Key(storage, in call),
             JsPropertyFlags.NonEnumerable);
 
         realm.DefineAccessor(area, "length",

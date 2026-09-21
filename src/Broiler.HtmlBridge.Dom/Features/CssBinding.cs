@@ -26,8 +26,8 @@ internal static class CssBinding
     {
         var css = realm.NewObject();
 
-        realm.DefineValue(css, "supports", realm.NewMethod("supports", Supports, 2));
-        realm.DefineValue(css, "escape", realm.NewMethod("escape", Escape, 1));
+        realm.DefineMethod(css, "supports", 2, Supports);
+        realm.DefineMethod(css, "escape", 1, Escape);
 
         return css;
     }

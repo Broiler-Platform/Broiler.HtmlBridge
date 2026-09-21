@@ -195,10 +195,11 @@ public sealed partial class DomBridge
         // getComputedStyle (CSSOM), co-located in the ComputedStyleBinding feature module.
         // Keeps the name, arity and constructable shape it had; the module separates the element from
         // the pseudo-element string off the call's own frame.
-        realm.DefineValue(
+        realm.DefineConstructor(
             window,
             "getComputedStyle",
-            realm.NewConstructor("getComputedStyle", (in c) => Dom.Features.ComputedStyleBinding.GetComputedStyle(this, in c), 2));
+            2,
+            (in c) => Dom.Features.ComputedStyleBinding.GetComputedStyle(this, in c));
         windowBasicsScope.Dispose();
 
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowGlobals))

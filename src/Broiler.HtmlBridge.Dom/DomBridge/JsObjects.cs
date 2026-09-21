@@ -152,23 +152,20 @@ public sealed partial class DomBridge
         // §4.9 pairs setAttributeNode with setAttributeNodeNS but gives removeAttributeNode no
         // namespace-qualified sibling (an Attr already knows its namespace), so no browser has one and
         // putting it on Element.prototype would give that prototype a member a browser's has not got.
-        Realm.DefineValue(handle, "removeAttributeNodeNS",
-            Realm.NewMethod("removeAttributeNodeNS",
-                (in call) => _attributes.RemoveAttributeNodeNS(element, handle, in call), 1));
+        Realm.DefineMethod(handle, "removeAttributeNodeNS", 1,
+            (in call) => _attributes.RemoveAttributeNodeNS(element, handle, in call));
 
         // The five Node child-mutation members below are minted by the realm, so each body has a
         // JsCall frame of its own to read its child and reference arguments from, and the DOMException
         // a failed step must throw comes from that frame's realm.
 
         // insertBefore(newChild, refChild)
-        Realm.DefineValue(handle, "insertBefore",
-            Realm.NewMethod("insertBefore",
-                (in call) => Dom.Features.TreeMutationBinding.InsertBefore(this, element, in call), 2));
+        Realm.DefineMethod(handle, "insertBefore", 2,
+            (in call) => Dom.Features.TreeMutationBinding.InsertBefore(this, element, in call));
 
         // moveBefore(node, refChild) — the atomic, state-preserving sibling of insertBefore.
-        Realm.DefineValue(handle, "moveBefore",
-            Realm.NewMethod("moveBefore",
-                (in call) => Dom.Features.TreeMutationBinding.MoveBefore(this, element, in call), 2));
+        Realm.DefineMethod(handle, "moveBefore", 2,
+            (in call) => Dom.Features.TreeMutationBinding.MoveBefore(this, element, in call));
 
         // -- DOM manipulation methods --
 
@@ -184,19 +181,16 @@ public sealed partial class DomBridge
         }
 
         // appendChild(child)
-        Realm.DefineValue(handle, "appendChild",
-            Realm.NewMethod("appendChild",
-                (in call) => Dom.Features.TreeMutationBinding.AppendChild(this, element, in call), 1));
+        Realm.DefineMethod(handle, "appendChild", 1,
+            (in call) => Dom.Features.TreeMutationBinding.AppendChild(this, element, in call));
 
         // removeChild(child)
-        Realm.DefineValue(handle, "removeChild",
-            Realm.NewMethod("removeChild",
-                (in call) => Dom.Features.TreeMutationBinding.RemoveChild(this, element, in call), 1));
+        Realm.DefineMethod(handle, "removeChild", 1,
+            (in call) => Dom.Features.TreeMutationBinding.RemoveChild(this, element, in call));
 
         // replaceChild(newChild, oldChild)
-        Realm.DefineValue(handle, "replaceChild",
-            Realm.NewMethod("replaceChild",
-                (in call) => Dom.Features.TreeMutationBinding.ReplaceChild(this, element, in call), 2));
+        Realm.DefineMethod(handle, "replaceChild", 2,
+            (in call) => Dom.Features.TreeMutationBinding.ReplaceChild(this, element, in call));
 
         // -- DOM events --
 
@@ -206,17 +200,14 @@ public sealed partial class DomBridge
         // realm and with a JSEAL frame, exactly as the routed path does.
         if (!_eventTargetRoutingReady)
         {
-            Realm.DefineValue(handle, "addEventListener",
-                Realm.NewMethod("addEventListener",
-                    (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, element, in call), 3));
+            Realm.DefineMethod(handle, "addEventListener", 3,
+                (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, element, in call));
 
-            Realm.DefineValue(handle, "removeEventListener",
-                Realm.NewMethod("removeEventListener",
-                    (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, element, in call), 3));
+            Realm.DefineMethod(handle, "removeEventListener", 3,
+                (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, element, in call));
 
-            Realm.DefineValue(handle, "dispatchEvent",
-                Realm.NewMethod("dispatchEvent",
-                    (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, element, in call), 1));
+            Realm.DefineMethod(handle, "dispatchEvent", 1,
+                (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, element, in call));
         }
 
         // click/focus/blur and the on* handlers are HTMLElement's and are on its prototype
@@ -234,20 +225,17 @@ public sealed partial class DomBridge
         _formControl.Install(handle, element);
 
         // checkValidity() — form validation; FormBinding owns the validity check.
-        Realm.DefineValue(handle, "checkValidity",
-            Realm.NewMethod("checkValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element))));
+        Realm.DefineMethod(handle, "checkValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element)));
 
         // reportValidity() — form validation
-        Realm.DefineValue(handle, "reportValidity",
-            Realm.NewMethod("reportValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element))));
+        Realm.DefineMethod(handle, "reportValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element)));
 
         // submit() — for form elements (the co-located FormSubmitBinding feature module, reached
         // through IFormSubmitHost; DomBridge/Hosts.Elements.cs). The method is minted by the realm —
         // which is what gives its body a call frame to build the synthetic event in — and it is handed
         // this wrapper's handle, which becomes the event's target.
-        Realm.DefineValue(handle, "submit",
-            Realm.NewMethod("submit",
-                (in call) => Dom.Features.FormSubmitBinding.Submit(this, element, handle, in call)));
+        Realm.DefineMethod(handle, "submit",
+            (in call) => Dom.Features.FormSubmitBinding.Submit(this, element, handle, in call));
 
         // getContext(contextType) — for <canvas> elements, in the co-located CanvasBinding feature
         // module. The realm mints the canvas members and everything the 2D context builds, and the
@@ -344,42 +332,34 @@ public sealed partial class DomBridge
             (in call) => Dom.Features.NodeAccessorsBinding.GetParentElement(this, element, in call), null);
 
         // hasChildNodes()
-        Realm.DefineValue(handle, "hasChildNodes",
-            Realm.NewMethod("hasChildNodes", (in _) => JsValue.Boolean(element.ChildNodes.Count > 0)));
+        Realm.DefineMethod(handle, "hasChildNodes", (in _) => JsValue.Boolean(element.ChildNodes.Count > 0));
 
         // contains(otherNode) — returns true if otherNode is a descendant
-        Realm.DefineValue(handle, "contains",
-            Realm.NewMethod("contains",
-                (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, element, in call), 1));
+        Realm.DefineMethod(handle, "contains", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, element, in call));
 
         // compareDocumentPosition(otherNode)
-        Realm.DefineValue(handle, "compareDocumentPosition",
-            Realm.NewMethod("compareDocumentPosition",
-                (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, element, in call), 1));
+        Realm.DefineMethod(handle, "compareDocumentPosition", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, element, in call));
 
         // isSameNode(otherNode)
-        Realm.DefineValue(handle, "isSameNode",
-            Realm.NewMethod("isSameNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, element, in call), 1));
+        Realm.DefineMethod(handle, "isSameNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, element, in call));
 
         // normalize()
-        Realm.DefineValue(handle, "normalize",
-            Realm.NewMethod("normalize",
-                (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, element, in call), 0));
+        Realm.DefineMethod(handle, "normalize", 0,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, element, in call));
 
         // isEqualNode(otherNode)
-        Realm.DefineValue(handle, "isEqualNode",
-            Realm.NewMethod("isEqualNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, element, in call), 1));
+        Realm.DefineMethod(handle, "isEqualNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, element, in call));
 
-        Realm.DefineValue(handle, "getRootNode",
-            Realm.NewMethod("getRootNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, element, in call), 1));
+        Realm.DefineMethod(handle, "getRootNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, element, in call));
 
         // cloneNode(deep)
-        Realm.DefineValue(handle, "cloneNode",
-            Realm.NewMethod("cloneNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, element, in call), 1));
+        Realm.DefineMethod(handle, "cloneNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, element, in call));
     }
 }
 

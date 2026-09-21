@@ -33,8 +33,7 @@ internal sealed class SelectBinding(ISelectHost host)
 
         if (tag == "select")
         {
-            realm.DefineValue(obj, "add",
-                realm.NewMethod("add", (in call) => Add(element, in call), 2));
+            realm.DefineMethod(obj, "add", 2, (in call) => Add(element, in call));
             realm.DefineAccessor(obj, "options",
                 (in call) => GetOptions(call.Realm, element), null);
             realm.DefineAccessor(obj, "selectedIndex",

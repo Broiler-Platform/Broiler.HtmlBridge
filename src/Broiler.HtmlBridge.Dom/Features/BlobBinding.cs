@@ -220,8 +220,8 @@ internal sealed class BlobBinding
         if (!url.IsObject)
             return;
 
-        realm.DefineValue(url, "createObjectURL", realm.NewMethod("createObjectURL", CreateObjectUrl, 1));
-        realm.DefineValue(url, "revokeObjectURL", realm.NewMethod("revokeObjectURL", RevokeObjectUrl, 1));
+        realm.DefineMethod(url, "createObjectURL", 1, CreateObjectUrl);
+        realm.DefineMethod(url, "revokeObjectURL", 1, RevokeObjectUrl);
     }
 
 
@@ -453,7 +453,7 @@ internal sealed class BlobBinding
     private delegate JsValue BlobOperation(BlobData data, in JsCall call);
 
     private void Method(IJsRealm realm, JsValue prototype, string name, int length, BlobOperation body) =>
-        realm.DefineValue(prototype, name, realm.NewMethod(name, (in call) => body(DataFor(in call, name), in call), length));
+        realm.DefineMethod(prototype, name, length, (in call) => body(DataFor(in call, name), in call));
 
     private void Getter(IJsRealm realm, JsValue prototype, string name, Func<BlobData, JsValue> read) =>
         realm.DefineAccessor(prototype, name, (in call) => read(DataFor(in call, name)), null);

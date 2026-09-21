@@ -129,9 +129,9 @@ public class DomEnumerationAndArityTests
     }
 
     [Fact(Skip =
-        "DomBridge/Registration/Window.cs:468-470 installs the window's own copies of the three " +
+        "DomBridge/Registration/Window.cs installs the window's own copies of the three " +
         "EventTarget methods unguarded, declaring 3, 3 and 1 arguments — where the document's " +
-        "(Registration/Document.cs:234) and every element's (JsObjects.cs:207) are guarded by " +
+        "(Registration/Document.cs) and every element's (JsObjects.cs) are guarded by " +
         "_eventTargetRoutingReady and so come from the routed EventTarget.prototype methods, minted " +
         "with Web IDL's 2, 2, 1 at DomBridge/Events.cs. So " +
         "window.addEventListener.length is 3 where a browser says 2, and it is a different function " +
@@ -151,8 +151,8 @@ public class DomEnumerationAndArityTests
     }
 
     [Fact(Skip =
-        "getRootNode is minted with a declared length of 1 at DomBridge/JsObjects.cs:375, " +
-        "DomBridge/JsObjects.NonElementNodes.cs:213, :329 and :572, and on the character-data " +
+        "getRootNode is minted with a declared length of 1 in DomBridge/JsObjects.cs and " +
+        "DomBridge/JsObjects.NonElementNodes.cs, and on the character-data " +
         "prototype at DomBridge/NodeInterfaces.cs. DOM §4.4 declares " +
         "`Node getRootNode(optional GetRootNodeOptions options = {})`, so its only argument is " +
         "optional and a browser reports 0 — a page feature-detecting composed-tree support by " +
