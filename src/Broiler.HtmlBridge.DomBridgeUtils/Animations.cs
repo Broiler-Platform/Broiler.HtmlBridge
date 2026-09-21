@@ -380,10 +380,54 @@ public static partial class DomBridgeUtils
             var f = ParseTransformFunction(functions[i].Name, functions[i].Args, boxWidth, boxHeight);
             matrix = matrix.Then(f);
         }
-        return matrix;
+
+        // Each function is representable on its own by the time it gets here, and the product of
+        // two of them need not be: `scale(1e200) scale(1e200)` is an infinity that no factor in it
+        // was. The composition is the second place a matrix comes into existence, so it is the
+        // second place the same test is read.
+        return matrix.IsFinite ? matrix : Affine.Identity;
     }
 
+    /// <summary>
+    /// The one exit every transform function passes through, so a component this component cannot
+    /// represent is refused in a single place rather than in each function's arm.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The arms below parse with <see cref="NumberStyles.Float"/>, which accepts .NET's symbolic
+    /// forms, and an exponent can overflow a double on its own — so <c>translateX(Infinitypx)</c>
+    /// and <c>translateX(1e400px)</c> both used to assemble a perfectly well-formed matrix with an
+    /// infinity in it. Behind this is geometry that multiplies and adds those without clamping, and
+    /// the damage compounds: an infinite component makes all four corners of the box infinite, and
+    /// <c>maxX - minX</c> over two infinities is <c>NaN</c>, so one declaration answered
+    /// <c>left === Infinity</c> <em>and</em> <c>width === NaN</c> to the same page. An angle is
+    /// worse still — <c>Math.Cos(Infinity)</c> is <c>NaN</c>, so every number in the rect was.
+    /// </para>
+    /// <para>
+    /// The test is on the assembled matrix rather than on each parse for two reasons. Every arm
+    /// ends in one, including the ones a later unit or function will add, so there is nothing to
+    /// repeat. And refusing at the parse instead would be wrong: each parse has a defined fallback
+    /// for what it cannot read (0 for a length, 1 for a scale factor), so a guard there would
+    /// silently substitute a number the page never wrote, mid-expression. What cannot be
+    /// represented is not a length or an angle or a matrix at all, and a function that has no
+    /// matrix is not a transform — so, like the unrecognised and 3D functions, it contributes the
+    /// identity and leaves the element its untransformed border box.
+    /// </para>
+    /// <para>
+    /// This is not the rule for a component the parser cannot <em>resolve</em>: a <c>calc()</c> it
+    /// has no evaluator for still contributes zero while the rest of the function survives, which
+    /// is deliberate (it is why the dependency's own resolver, which invalidates the whole list,
+    /// was rejected) and is pinned by <c>DependencyAlignmentTransformSplitTests</c>. Such a
+    /// component still yields a finite matrix, so it never reaches this refusal.
+    /// </para>
+    /// </remarks>
     private static Affine ParseTransformFunction(string name, string args, double boxWidth, double boxHeight)
+    {
+        var matrix = ParseTransformFunctionCore(name, args, boxWidth, boxHeight);
+        return matrix.IsFinite ? matrix : Affine.Identity;
+    }
+
+    private static Affine ParseTransformFunctionCore(string name, string args, double boxWidth, double boxHeight)
     {
         var values = args.Split(',');
 
@@ -523,6 +567,17 @@ internal readonly record struct Affine(double A, double B, double C, double D, d
 
     public bool IsIdentity =>
         A == 1 && B == 0 && C == 0 && D == 1 && E == 0 && F == 0;
+
+    /// <summary>
+    /// Whether every component is a real number, i.e. whether this maps a point to a point at all.
+    /// A matrix that fails this is not a weaker transform than usual, it is not a transform: one
+    /// infinite component sends all four corners of a box to infinity, and the axis-aligned rect
+    /// taken over those is <c>NaN</c> wide. <see cref="IsIdentity"/> is false for it, so the chain
+    /// does not skip it on its own.
+    /// </summary>
+    public bool IsFinite =>
+        double.IsFinite(A) && double.IsFinite(B) && double.IsFinite(C) &&
+        double.IsFinite(D) && double.IsFinite(E) && double.IsFinite(F);
 
     /// <summary>The matrix that applies <c>this</c> first and then <paramref name="next"/>.</summary>
     public Affine Then(Affine next) => new(

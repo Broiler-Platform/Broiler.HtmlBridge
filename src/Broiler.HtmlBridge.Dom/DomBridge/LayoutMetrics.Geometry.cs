@@ -655,6 +655,23 @@ public sealed partial class DomBridge
         if (!transformed)
             return box;
 
+        // The chain's own exit. Every matrix folded above is finite — ParseTransformFunctions
+        // refuses one that is not — but the point the chain rotates each box about is not part of
+        // the matrix: `transform-origin` is resolved by the shared grammar
+        // (Layout.IR.CssTransformOrigin), so `transform-origin: 1e400px` arrives here past every
+        // guard on the transform value and sends the corners to infinity by itself. Rather than
+        // testing that one input, the corners are tested, which covers the origin, the box the
+        // caller handed in, and whatever a later ancestor kind contributes.
+        //
+        // A chain that cannot place the box contributes nothing and the element reports its
+        // untransformed border box — the same rect `transform: none` answers, and the same answer
+        // a refused function gives one level down.
+        for (var i = 0; i < 4; i++)
+        {
+            if (!double.IsFinite(xs[i]) || !double.IsFinite(ys[i]))
+                return box;
+        }
+
         double minX = xs[0], maxX = xs[0], minY = ys[0], maxY = ys[0];
         for (var i = 1; i < 4; i++)
         {
