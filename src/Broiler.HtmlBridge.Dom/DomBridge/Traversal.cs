@@ -293,7 +293,7 @@ public sealed partial class DomBridge
         // markup from before the assignment, so a page that built a template dynamically and then
         // stamped it got the OLD markup with nothing to indicate the write had gone elsewhere.
         // The parsing context stays the element — the fragment has no tag to parse `<td>` against.
-        DomNode target = IsTemplateElement(element) ? GetTemplateContent(element) : element;
+        DomNode target = element.TemplateContents ?? (DomNode)element;
 
         foreach (var child in target.ChildNodes.ToArray())
             RemoveElementsRecursive(child);
@@ -310,11 +310,6 @@ public sealed partial class DomBridge
                 // appends it to the target in a single operation.
                 target.AppendChild(child);
             }
-
-            // A template written into may itself contain templates, and those are the parser's to
-            // divert exactly as the document's were.
-            if (!ReferenceEquals(target, element))
-                DivertTemplateContents(target);
         }
 
         ResetComputedStyleEngines();
@@ -336,8 +331,6 @@ public sealed partial class DomBridge
         {
             foreach (var child in fragmentContainer.ChildNodes.ToArray())
                 shadowRoot.AppendChild(child);
-
-            DivertTemplateContents(shadowRoot);
         }
 
         ResetComputedStyleEngines();

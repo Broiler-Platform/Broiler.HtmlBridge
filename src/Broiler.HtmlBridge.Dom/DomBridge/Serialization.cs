@@ -493,7 +493,8 @@ public sealed partial class DomBridge
         // #subdoc-root element was severed); it is referenced off its <iframe>/<object>/<frame>
         // container and rasterised in isolation (srcdoc content round-trips via the srcdoc
         // attribute), so it can never appear in ChildNodes and needs no serialization skip.
-        // Not node.ChildNodes: a <template> serializes its fragment (see TemplateContents.cs).
+        // Not node.ChildNodes: a <template> serializes its TemplateContents (see
+        // SerializationChildrenOf).
         GetChildren: SerializationChildrenOf,
         GetAttributes: node => node is DomElement element
             ? GetSerializableAttributes(element, sourceResolver?.Invoke(element))

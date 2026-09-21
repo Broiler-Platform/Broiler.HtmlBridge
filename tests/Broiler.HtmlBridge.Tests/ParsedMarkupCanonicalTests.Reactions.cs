@@ -194,4 +194,54 @@ public partial class ParsedMarkupCanonicalTests
                 })()
                 """));
     }
+
+    /// <summary>
+    /// A page whose body holds a parsed <c>&lt;template&gt;</c> with a nested one inside it, and a
+    /// second template a script appends to rather than writes through <c>innerHTML</c>.
+    /// </summary>
+    private const string TemplatePage =
+        "<html><body>" +
+        "<template id=\"t\"><p class=\"row\">a</p><template><i>b</i></template></template>" +
+        "<div id=\"out\"></div></body></html>";
+
+    [Fact]
+    public void AParsedTemplatesChildrenAreItsContentsAndAreNotInTheDocument()
+    {
+        // HTML §4.12.3: the tree builder puts a template's children in its contents fragment, so the
+        // element is childless and a document walk never reaches them — `t.querySelector('.row')`
+        // answers null in a browser because the markup is not in the tree at all. The fragment is the
+        // element's own and is created with it, so asking twice gives the same node.
+        Assert.Equal(
+            "own=0 content=2 nested=I query=null identity=true",
+            Run(TemplatePage, """
+                (function () {
+                  var t = document.getElementById('t');
+                  return 'own=' + t.childNodes.length +
+                         ' content=' + t.content.childNodes.length +
+                         ' nested=' + t.content.lastChild.content.firstChild.nodeName +
+                         ' query=' + (document.querySelector('.row') === null ? 'null' : 'found') +
+                         ' identity=' + (t.content === t.content);
+                })()
+                """));
+    }
+
+    [Fact]
+    public void ATemplateSerializesItsContentsAndNotItsOwnChildren()
+    {
+        // The serialization walk reaches through to the contents fragment (HTML §13.3 serializes a
+        // template's contents in place of its child list), which is also where a script's appendChild
+        // does NOT land: appending to the element leaves the contents alone, so the appended node is
+        // not serialized. Both halves are the dependency's own serializer's answer.
+        Assert.Equal(
+            "<template id=\"t\"><p class=\"row\">a</p><template><i>b</i></template></template>",
+            PageProbe.OutOf(
+                RunForHtml(TemplatePage, """
+                    (function () {
+                      var t = document.getElementById('t');
+                      t.appendChild(document.createElement('u'));
+                      return t.outerHTML;
+                    })()
+                    """),
+                decode: true));
+    }
 }

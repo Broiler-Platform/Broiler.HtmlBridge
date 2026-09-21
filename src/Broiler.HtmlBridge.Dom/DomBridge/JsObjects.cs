@@ -172,12 +172,14 @@ public sealed partial class DomBridge
         // HTMLTemplateElement.content — the template contents fragment. Every component idiom goes
         // through it (`importNode(t.content, true)`, `t.content.cloneNode(true)`,
         // `t.content.querySelector(...)`), and without it `t.content` was undefined and the whole
-        // component script threw. See GetTemplateContent for what this fragment is and is not.
-        if (string.Equals(element.TagName, "template", StringComparison.OrdinalIgnoreCase))
+        // component script threw. The fragment is the canonical element's own, created with it and
+        // stable for its lifetime, so `t.content === t.content`; a non-null TemplateContents is what
+        // makes an element an HTML <template> rather than a tag-name test.
+        if (element.TemplateContents is { } templateContents)
         {
             // Nothing but a tree read and a wrapper, so the realm mints the accessor: it names it
             // "get content" and a null setter is how the read-only IDL attribute is spelled.
-            Realm.DefineAccessor(handle, "content", (in _) => WrapNode(GetTemplateContent(element)), null);
+            Realm.DefineAccessor(handle, "content", (in _) => WrapNode(templateContents), null);
         }
 
         // appendChild(child)

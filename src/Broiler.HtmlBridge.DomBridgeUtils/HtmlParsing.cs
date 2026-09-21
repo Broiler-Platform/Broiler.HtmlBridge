@@ -74,13 +74,6 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    /// <summary>Whether <paramref name="element"/> is an HTML <c>&lt;template&gt;</c>.</summary>
-    internal static bool IsTemplateElement(DomElement element) =>
-        string.Equals(element.TagName, "template", StringComparison.OrdinalIgnoreCase);
-}
-
-public static partial class DomBridgeUtils
-{
     /// <summary>
     /// Returns the top-level nodes overlapping the given range boundaries, for the range
     /// client-rect geometry. For a single container this is the children between the offsets;
