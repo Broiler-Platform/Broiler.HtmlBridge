@@ -46,8 +46,7 @@ internal static class NotificationBinding
 
         realm.DefineValue(constructor, "permission", JsValue.String(Permission));
 
-        realm.DefineValue(constructor, "requestPermission",
-            realm.NewMethod("requestPermission", RequestPermission, 1));
+        realm.DefineMethod(constructor, "requestPermission", 1, RequestPermission);
 
         // The maximum number of actions a notification may carry. Zero is the honest count for a
         // notification that is never displayed, and it is a value the specification expects to vary
@@ -98,8 +97,7 @@ internal static class NotificationBinding
             (in _) => onError,
             (in set) => onError = set.Length > 0 ? set[0] : JsValue.Null);
 
-        realm.DefineValue(notification, "close",
-            realm.NewConstructor("close", static (in _) => JsValue.Undefined, 0));
+        realm.DefineMethod(notification, "close", 0, static (in _) => JsValue.Undefined);
 
         return notification;
     }

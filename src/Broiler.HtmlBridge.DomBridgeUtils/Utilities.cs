@@ -121,17 +121,17 @@ public static partial class DomBridgeUtils
     }
 
     /// <summary>
-    /// The canonical <see cref="DomDocument"/> that owns <paramref name="node"/> (Phase 4 item 1,
-    /// P4.4c). For a connected node this is the absolute tree root: after P4.4b a (sub-)document root
-    /// is a canonical <see cref="DomDocument"/>, so ownership is derived from tree position — no
-    /// parallel <c>OwnerDocRoot</c> field. A detached node falls back to the canonical owner-document
-    /// set at construction/adoption (a sub-document's <c>createElement</c> node was adopted into its
-    /// content document; every other node was minted from the main <c>_document</c>).
+    /// The canonical <see cref="DomDocument"/> that owns <paramref name="node"/>. For a connected node
+    /// this is the absolute tree root: a (sub-)document root is a canonical <see cref="DomDocument"/>,
+    /// so ownership is derived from tree position — no parallel <c>OwnerDocRoot</c> field. A detached
+    /// node falls back to the canonical owner-document set at construction/adoption (a sub-document's
+    /// <c>createElement</c> node was adopted into its content document; every other node was minted
+    /// from the main <c>_document</c>).
     /// </summary>
     internal static DomDocument GetOwningDocument(DomNode node) =>
-        // Phase 4 item 4/5: the absolute-root walk is canonical DomNode.GetRootNode() (the identical
-        // `while ParentNode` climb); a connected node roots to its DomDocument, a detached one falls
-        // back to the canonical owner-document set at construction/adoption.
+        // The absolute-root walk is canonical DomNode.GetRootNode() (the identical `while ParentNode`
+        // climb); a connected node roots to its DomDocument, a detached one falls back to the
+        // canonical owner-document set at construction/adoption.
         node.GetRootNode() as DomDocument ?? node.OwnerDocument;
 }
 
@@ -144,16 +144,8 @@ public static partial class DomBridgeUtils
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>This became a call to <see cref="IJsCalls.DomError"/> rather than a reimplementation of
-    /// one, and the two were already the same algorithm.</b> The body used to read
-    /// <c>context["DOMException"]</c>, construct through it and throw the result, falling back to a
-    /// bare string when the global was absent. The Broiler.JS provider's <c>DomError</c> does
-    /// exactly that, down to the fallback's wording — so what a page catches is unchanged, which is
-    /// the property that let five call sites move in one commit without a behavioural argument.
-    /// </para>
-    /// <para>
-    /// <b>The argument order flipped and that is the one hazard here.</b> This takes
-    /// <c>(message, name)</c>, the order its call sites were written in; the contract takes
+    /// <b>The argument order differs from the contract's, and that is the one hazard here.</b> This
+    /// takes <c>(message, name)</c>, the order its call sites were written in; the contract takes
     /// <c>(name, message)</c>. Keeping this wrapper rather than inlining the contract call at each
     /// site is what stops the two being transposed five times.
     /// </para>
@@ -373,10 +365,6 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    /// <summary>The four control tags, plus whatever the custom-element registry adds.</summary>
-    internal static readonly HashSet<string> ControlTags =
-        new(StringComparer.Ordinal) { "input", "select", "textarea", "button" };
-
     /// <summary>
     /// Whether the control is disabled — by its own <c>disabled</c> attribute or by an ancestor
     /// <c>&lt;fieldset disabled&gt;</c>, which disables everything in it (HTML §4.10.15).
@@ -425,31 +413,6 @@ public static partial class DomBridgeUtils
 
         realm.Invoke(forEach, candidate, [collector]);
         return true;
-    }
-}
-
-public static partial class DomBridgeUtils
-{
-    internal static bool IsRadioInput(DomElement element) =>
-        Broiler.Dom.Html.HtmlFormQueries.IsRadioInput(element);
-
-    /// <summary>
-    /// The radio-group scope for <paramref name="element"/>: its form owner, or the root of its tree
-    /// when it has none (HTML defines the group over the form owner, falling back to the tree).
-    /// </summary>
-    internal static DomElement RadioGroupScope(DomElement element)
-    {
-        var scope = ParentEl(element);
-        while (scope != null && !string.Equals(scope.TagName, "form", StringComparison.OrdinalIgnoreCase))
-            scope = ParentEl(scope);
-
-        if (scope != null)
-            return scope;
-
-        var root = element;
-        while (ParentEl(root) is { } parent)
-            root = parent;
-        return root;
     }
 }
 

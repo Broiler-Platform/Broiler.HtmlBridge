@@ -8,12 +8,12 @@ namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// Runs a <see cref="PreloadScanner"/> pass on a worker thread while the main thread parses the same
-/// document, and hands what it finds to a sink that issues the requests. Multithreading roadmap
-/// item #17.
+/// document, and hands what it finds to a sink that issues the requests.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>What this buys, precisely.</b> Item #2 built the prefetch/consume split and wired it to the
+/// <b>What this buys, precisely.</b> The prefetch/consume split (<see cref="SubResourcePrefetcher"/>)
+/// is wired to the
 /// two families whose URL set is already known at a single point: external scripts (the script scan)
 /// and <c>&lt;link&gt;</c> stylesheets (the collected sheet list). Both of those points are reached
 /// <em>after</em> work that does not depend on them — the stylesheet set is collected once the whole
@@ -23,13 +23,12 @@ namespace Broiler.HtmlBridge;
 /// completely; nothing here makes the parse faster, and it is not meant to.
 /// </para>
 /// <para>
-/// <b>Safe by construction, and that is the reason the roadmap rates it low risk.</b> The worker
+/// <b>Safe by construction.</b> The worker
 /// reads one immutable string and writes nothing the document owns. It builds a list of URLs and
 /// calls a sink; the sink's only job is to start requests, which the consume sites were going to
 /// start anyway, in the same order, under the same keys. No DOM node, no ambient slot and no cache
-/// of the render path is touched, so the ambient-state contract
-/// (<c>docs/architecture/multithreading-static-state.md</c>) has nothing to establish here — this
-/// worker never renders.
+/// of the render path is touched, so the ambient-state contract has nothing to establish here —
+/// this worker never renders.
 /// </para>
 /// <para>
 /// <b>Nothing waits on it.</b> A caller starts a scan and carries on; the result is available to
@@ -154,8 +153,8 @@ public sealed class SpeculativePreloadScan
 
     /// <summary>
     /// The scan's findings, blocking until the worker finishes. The render path does not call this —
-    /// the sink is what does the useful work — but a consumer that wants the URL set (item #8's
-    /// image decode, item #16's compile-ahead queue) reads it here.
+    /// the sink is what does the useful work — but a consumer that wants the URL set (an image
+    /// decode or a compile-ahead queue, say) reads it here.
     /// </summary>
     public PreloadScanResult Result => _scan.GetAwaiter().GetResult();
 

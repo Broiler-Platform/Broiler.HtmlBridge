@@ -54,7 +54,7 @@ choosing an engine; the seam it names is here.
                     └───────────────────┬─────────────────────┘
                                         │  binds the document against
                     ┌───────────────────▼─────────────────────┐
-                    │  Broiler.HtmlBridge.Jseal      ◄─ JSEAL  │   ZERO ProjectReferences
+                    │  Broiler.JSeal (package)       ◄─ JSEAL  │   ZERO ProjectReferences
                     │    JsValue JsCall IJsRealm              │
                     │    JsCapabilities JsEngineRegistry      │
                     └───────────────────┬─────────────────────┘
@@ -62,19 +62,21 @@ choosing an engine; the seam it names is here.
               ┌─────────────────────────┴─────────────────────────┐
               │                                                   │
   ┌───────────▼──────────────┐                    ┌───────────────▼──────────────┐
-  │ …Jseal.BroilerJs         │                    │ …Jseal.Vm                    │
+  │ Broiler.JSeal.BroilerJs  │                    │ Broiler.JSeal.Vm             │
   │   over Broiler.JavaScript│                    │   over Broiler.VM's profile  │
   │   the default engine     │                    │   -VM builds only, see below │
   └──────────────────────────┘                    └──────────────────────────────┘
 ```
 
-**`Broiler.HtmlBridge.Jseal` has no `ProjectReference` and no `PackageReference`, and that is the
+**`Broiler.JSeal` has no `ProjectReference` and no `PackageReference`, and that is the
 whole neutrality claim.** Everywhere else in this repository engine neutrality is asserted by
-grepping for a namespace. Here it is asserted by the compiler: an assembly that references nothing
-cannot name a `Broiler.JavaScript` type, a `Broiler.VM` type, or anything either drags in. Adding a
-reference is a diff a reviewer sees, and `scripts/check-engine-neutrality.sh` fails CI if the project
-file ever declares either kind of reference. It inspects those two elements and nothing else; the file
-already carries a `PropertyGroup` and `InternalsVisibleTo` items.
+grepping for a namespace. In JSEAL it is asserted by the compiler: an assembly that references
+nothing cannot name a `Broiler.JavaScript` type, a `Broiler.VM` type, or anything either drags in.
+Adding a reference is a diff a reviewer sees. The contracts and both reference providers live in the
+[Broiler.JSeal](https://github.com/Broiler-Platform/Broiler.JSeal) repository and arrive here as
+NuGet packages, so enforcing that claim is that repository's job;
+`scripts/check-engine-neutrality.sh` counts coupling in the five projects under `src/` and cannot
+see inside a package.
 
 The corollary is that JSEAL cannot reach `Broiler.HtmlBridge.Core` either — no `ContentSecurityPolicy`,
 no `MicroTaskQueue`, no `RenderLogger`. That costs less than it looks: what JSEAL needs from those is
@@ -92,10 +94,10 @@ derive from it, and an interface would force a carrier allocation per number on 
 runs per property read.
 
 **Why this layout in particular.** Tag + double + reference is what Broiler.VM's own `JsValue`
-([`JsValue.cs:83`](../Broiler.VM/src/Broiler.VM.Profile.JavaScript/JsValue.cs), `internal readonly
+(`src/Broiler.VM.Profile.JavaScript/JsValue.cs:83` in that repository, `internal readonly
 struct`) chose, for the reason it records: the collector is the CLR's, so a value that must sometimes
 hold a managed reference cannot be a NaN-boxed word. Matching it means the Broiler.VM provider
-re-tags rather than converts. (This said "a future Broiler.VM provider".)
+re-tags rather than converts.
 
 **`Missing` is kind zero.** Broiler.JS's `Arguments` indexer returns a CLR `null` — not `undefined` —
 past the end, and the bridge's argument reads (598 on 2026-09-08) depend on telling those apart
@@ -107,8 +109,8 @@ the same reason.
 handle carries the `JSObject` the engine already has. That is what keeps wrapper identity working:
 `el === el`, and the seven `ConditionalWeakTable<object, …>` the bridge keys on
 `JsValue.ObjectIdentity`, one of them `JsObjectRegistry`'s reverse map, all keep asking the question
-they always asked. (This said "across a half-migrated bridge"; the bridge holds handles throughout.)
-A provider whose engine hands out pointers or stack slots is expected to canonicalise handles itself.
+they always asked. A provider whose engine hands out pointers or stack slots is expected to
+canonicalise handles itself.
 
 **`==` is `===`; `Equals` is reflexive.** The two deliberately differ on NaN alone — the same split
 `System.Double` makes, and for the same reason: the bridge stores JS values in `List<>`s (event
@@ -172,8 +174,12 @@ non-constructable, because `JSConstructorOperations.IsConstructor` tests
 `prototype != null || IsConstructable`. The same boolean is a load-bearing memory fix: an element
 wrapper's members were each minting an unreachable prototype object plus its `constructor`
 back-reference, and dropping them was the difference between a WPT test fitting the memory budget and
-being aborted (see [`DomFunction.cs`](../src/Broiler.HtmlBridge.Dom/DomBridge/DomFunction.cs)). Sixteen
-interface objects a page may legitimately `new` use `NewConstructor`; everything else uses `NewMethod`.
+being aborted. Only the interface objects a page may legitimately `new` therefore use
+`NewConstructor`, and as of 2026-09-21 that is what the tree does: ten sites, for `CSSStyleSheet`,
+`FormData`, `Headers`, `MediaSource`, `MessageChannel`, `Notification`, `PerformanceObserver`,
+`Request`, `Response` and `Worker`. It was 104 sites over 71 names until then, most of them ordinary
+operations — every member of the document, of a `Headers`/`FormData`/`Response` object, and a dozen
+stubs. `tests/OperationsAreNotConstructorsTests.cs` pins the distinction from the page's side.
 
 **Ordinary properties beat exotic handlers.** `IJsExotic` is consulted only when the object's own
 property storage found nothing. This is what WebIDL's named-property semantics require and what all
@@ -298,15 +304,17 @@ renders differently on the other engine — a question about a *run*, not a *bui
 
 ## Adding an engine
 
-1. A new project `src/Broiler.HtmlBridge.Jseal.<Engine>` referencing `Broiler.HtmlBridge.Jseal` and the
-   engine.
+1. A new provider project referencing the `Broiler.JSeal` contracts package and the engine. The two
+   reference providers live in the Broiler.JSeal repository beside the contracts, which is where a
+   third one belongs; a host is free to keep its own elsewhere.
 2. `IJsRealm` over the engine's realm. Split it by capability, one file per contract — the Broiler.JS
    provider does, and the shape is worth copying.
 3. `IJsEngineProvider` with a stable lower-case hyphenated `Name`, an honest `Capabilities`, and a
    `[ModuleInitializer]` that registers it.
 4. Optionally `IJsRealmAdoption`, if the engine's realms can be host-constructed and then wrapped.
-5. Add it to `eng/jseal-budget.json` — a provider is the one kind of project whose engine references
-   are *supposed* to be high.
+5. If the provider lives in this repository, under `src/`, add it to `eng/jseal-budget.json` — a
+   provider is the one kind of project whose engine references are *supposed* to be high. A provider
+   that ships as a package is outside what `scripts/check-engine-neutrality.sh` can see at all.
 6. Run the conformance suite. It is data-driven over `JsEngineRegistry.All`, so a new provider adds no
    test code.
 
@@ -422,7 +430,7 @@ reached a page.
 
 ## Broiler.VM: the second engine
 
-There is a `Broiler.HtmlBridge.Jseal.Vm`, and it declares `JsCapabilities.Document`. **This section
+There is a `Broiler.JSeal.Vm`, and it declares `JsCapabilities.Document`. **This section
 twice said that was impossible, and was twice wrong in the same shape** — a true statement about one
 mechanism, read as a statement about every mechanism. Both are kept below rather than deleted,
 because the shape is available to anyone reasoning about a second engine from its contracts rather
@@ -475,7 +483,7 @@ completed page load.**
 
 ### The provider
 
-`src/Broiler.HtmlBridge.Jseal.Vm` exists and **passes the conformance suite in full**. It registers
+`Broiler.JSeal.Vm` exists and **passes the conformance suite in full**. It registers
 as `broiler-vm`, and a build that links it selects it with `BROILER_JS_ENGINE=broiler-vm`. It is
 linked under the `-VM` configurations only, through the same conditional reference
 `Broiler.HtmlBridge.Scripting.Vm` already carries — so the default build has one engine and the

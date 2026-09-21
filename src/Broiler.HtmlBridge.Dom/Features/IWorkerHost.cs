@@ -20,9 +20,7 @@ internal interface IWorkerHost
     /// The page's realm (<see langword="null"/> before attach, and again after teardown).
     /// </summary>
     /// <remarks>
-    /// It replaces the former <c>JsContext</c> seam, which the module used for two things:
-    /// raising a <c>DOMException</c>, which <see cref="IJsCalls.DomError"/> now owns, and telling
-    /// "attached" from "not attached". Nullable rather than throwing, because the second use is
+    /// Nullable rather than throwing, because telling "attached" from "not attached" is
     /// load-bearing here in a way it is not for the other feature modules: a worker thread can call
     /// back while the bridge is tearing down, and a message that arrives then is dropped rather than
     /// turned into an exception on a thread that has nowhere to report it.

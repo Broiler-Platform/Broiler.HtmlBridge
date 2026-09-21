@@ -15,7 +15,7 @@ namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    // RF-BRIDGE-1b increment 6 cutover — the geometry entry points answer *exclusively* from
+    // The geometry entry points answer *exclusively* from
     // the shared snapshot: an element with a shared box reads its real geometry and any
     // snapshot-missing element (detached, display:none/contents, text/comment, or an
     // unmaterialised/cross-origin frame the provider cannot lay out) reports zero. The coarse
@@ -48,7 +48,7 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Looks up real-layout box geometry for <paramref name="element"/> via the injected
-    /// <see cref="ILayoutView"/> (RF-BRIDGE-1b), from the current pass's snapshot (built once
+    /// <see cref="ILayoutView"/>, from the current pass's snapshot (built once
     /// per pass). Returns <c>false</c> when the element produced no box (detached /
     /// <c>display:none</c>); the geometry entry points then report zero, since the coarse
     /// estimators they used to fall back to are gone. Active only when
@@ -190,7 +190,7 @@ public sealed partial class DomBridge
             var projection = CreateRenderProjection();
             var viewport = new SizeF(_viewportWidth, _viewportHeight);
 
-            // Native visual-viewport (Phase 5 endgame, blocker (b)): hand the document-root
+            // Native visual-viewport: hand the document-root
             // pinch-zoom scale to the geometry extraction (CollectLayoutGeometry scales the
             // BoxGeometry rects by it — patch 0006) via the thread-static channel, so the snapshot
             // carries the pinch scale natively instead of the DOM `zoom` bake. Thread-static
@@ -201,7 +201,7 @@ public sealed partial class DomBridge
                 NativeVisualViewport && HasActiveVisualViewport() ? GetVisualViewportScale() : 0.0;
             try
             {
-                // P4.4b: a materialised iframe/object sub-document is no longer an in-tree
+                // A materialised iframe/object sub-document is no longer an in-tree
                 // #subdoc-root child — hand the layout view the resolver so it projects each
                 // referenced content document as a sub-viewport and composes its geometry.
                 var projectedGeometry = LayoutView.GetGeometry(
@@ -265,8 +265,8 @@ public sealed partial class DomBridge
 }
 
 /// <summary>
-/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> (Phase 3 ratchet, 2026-07-17) to keep it
-/// under the 750-line guard: CSS <c>&lt;length&gt;</c> / <c>calc()</c>-style math evaluation against a
+/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> to keep it
+/// under the 750-line guideline: CSS <c>&lt;length&gt;</c> / <c>calc()</c>-style math evaluation against a
 /// viewport/containing-block basis, and the font-size / line-height reference resolution the length
 /// evaluation depends on. Pure partial-class relocation — no signature, accessibility, or logic change.
 /// </summary>
@@ -283,7 +283,42 @@ public sealed partial class DomBridge
             : 0;
     }
 
+    /// <summary>
+    /// The one exit every length evaluation passes through, so a non-finite one is refused in a
+    /// single place rather than in each unit's branch.
+    /// </summary>
+    /// <remarks>
+    /// Every branch below parses with <see cref="NumberStyles.Float"/>, which accepts .NET's
+    /// symbolic forms, and an exponent can overflow a double on its own — so <c>Infinityem</c> and
+    /// <c>1e400px</c> both used to arrive here as successful lengths. What is behind this method is
+    /// geometry that multiplies and adds what it is given without clamping, so an infinity reaches
+    /// script: <c>border-top-width: 1e400px</c> answered <c>element.clientTop === Infinity</c>.
+    /// <para>
+    /// A guard per branch would have to be repeated for every unit and every future one, and the
+    /// recursive <c>calc()</c> paths call back through here, so each part is checked on its own way
+    /// out too. An unparseable length and an unrepresentable one are both "not a length".
+    /// </para>
+    /// </remarks>
     private bool TryEvaluateCssLengthWithViewport(
+        string value,
+        DomElement? referenceElement,
+        bool forLineHeight,
+        double? percentageBasis,
+        out double result,
+        bool forFontSize = false)
+    {
+        if (!TryEvaluateCssLengthCore(
+                value, referenceElement, forLineHeight, percentageBasis, out result, forFontSize) ||
+            !double.IsFinite(result))
+        {
+            result = 0;
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool TryEvaluateCssLengthCore(
         string value,
         DomElement? referenceElement,
         bool forLineHeight,
@@ -481,9 +516,15 @@ public sealed partial class DomBridge
                 if (frameLength > 0)
                     return frameLength;
 
+                // TryParseFiniteScalar, not a bare NumberStyles.Float parse: the CSS spelling above
+                // reaches the length evaluator's finiteness exit and this one does not, so the
+                // attribute was the open half. `> 0` is not that test — it is false for NaN but true
+                // for +Infinity, which became the frame's viewport length and answered
+                // documentElement.clientWidth === Infinity inside the sub-document. A number this
+                // component cannot represent is not a dimension, and a frame with no readable
+                // dimension already falls through to the default viewport below.
                 if (TryGetAttribute(frameElement, vertical ? "height" : "width", out var frameAttribute) &&
-                    double.TryParse(frameAttribute, NumberStyles.Float,
-                        CultureInfo.InvariantCulture, out frameLength) &&
+                    TryParseFiniteScalar(frameAttribute, out frameLength) &&
                     frameLength > 0)
                 {
                     return frameLength;
@@ -520,10 +561,40 @@ public sealed partial class DomBridge
         return htmlElement ?? current;
     }
 
+    /// <summary>
+    /// The one exit every line-height resolution passes through, so a line height that cannot be
+    /// represented is refused once rather than in each of the three spellings below.
+    /// </summary>
+    /// <remarks>
+    /// The unitless multiplier is the spelling that needs it. It is the only one that does not
+    /// reach <see cref="TryEvaluateCssLengthWithViewport"/>, so the finiteness exit that method
+    /// gained never covered it, and it is parsed with <see cref="NumberStyles.Float"/> — which
+    /// admits <c>Infinity</c> and <c>NaN</c> by name and overflows a double on an exponent, or on
+    /// a long enough run of digits, with no symbol in the value at all.
+    /// <para>
+    /// Testing the resolved height rather than the token also covers the multiplication, which is
+    /// the half a guard at the parse would have missed: <c>line-height: 1e307</c> is a multiplier
+    /// a double holds perfectly well, and <c>16px</c> times it is not.
+    /// </para>
+    /// <para>
+    /// A refused line height is <c>normal</c> — the same <c>1.2</c> factor the unset and
+    /// <c>normal</c> cases take — and deliberately not zero. Zero is a line height a page can
+    /// write, and substituting it would make a value this component refused indistinguishable
+    /// from one the page chose. The font size is finite by construction (
+    /// <see cref="ResolveFontSizeForElement"/> resolves through the guarded evaluator and falls
+    /// back to <c>16</c>), so the refusal cannot itself answer with a non-finite number.
+    /// </para>
+    /// </remarks>
     private double ResolveLineHeightForElement(DomElement element)
     {
+        var resolved = ResolveLineHeightForElementCore(element, out var fontSize);
+        return double.IsFinite(resolved) ? resolved : fontSize * 1.2;
+    }
+
+    private double ResolveLineHeightForElementCore(DomElement element, out double fontSize)
+    {
         var props = GetComputedProps(element);
-        var fontSize = ResolveFontSizeForElement(element);
+        fontSize = ResolveFontSizeForElement(element);
         var lineHeight = props.GetValueOrDefault("line-height");
         if (string.IsNullOrWhiteSpace(lineHeight) ||
             string.Equals(lineHeight, "normal", StringComparison.OrdinalIgnoreCase))
@@ -619,6 +690,23 @@ public sealed partial class DomBridge
 
         if (!transformed)
             return box;
+
+        // The chain's own exit. Every matrix folded above is finite — ParseTransformFunctions
+        // refuses one that is not — but the point the chain rotates each box about is not part of
+        // the matrix: `transform-origin` is resolved by the shared grammar
+        // (Layout.IR.CssTransformOrigin), so `transform-origin: 1e400px` arrives here past every
+        // guard on the transform value and sends the corners to infinity by itself. Rather than
+        // testing that one input, the corners are tested, which covers the origin, the box the
+        // caller handed in, and whatever a later ancestor kind contributes.
+        //
+        // A chain that cannot place the box contributes nothing and the element reports its
+        // untransformed border box — the same rect `transform: none` answers, and the same answer
+        // a refused function gives one level down.
+        for (var i = 0; i < 4; i++)
+        {
+            if (!double.IsFinite(xs[i]) || !double.IsFinite(ys[i]))
+                return box;
+        }
 
         double minX = xs[0], maxX = xs[0], minY = ys[0], maxY = ys[0];
         for (var i = 1; i < 4; i++)

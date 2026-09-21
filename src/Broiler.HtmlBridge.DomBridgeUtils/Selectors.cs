@@ -1,5 +1,5 @@
 using System.Text;
-using Broiler.Dom;
+using Broiler.CSS;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge;
@@ -49,20 +49,11 @@ public static partial class DomBridgeUtils
     /// or the <c>null</c> a <c>querySelector</c> that matched nothing answers.
     /// </summary>
     /// <remarks>
-    /// It stopped being a conversion when the searches migrated, but it stays a filter: the arms it
-    /// guards all answer an object or <c>null</c> already, and this is where that invariant is
-    /// stated. <c>DomBridge/JsObjects.NonElementNodes.cs</c> is the other caller.
+    /// A filter, not a conversion: the arms it guards all answer an object or <c>null</c> already,
+    /// and this is where that invariant is stated.
+    /// <c>DomBridge/JsObjects.NonElementNodes.cs</c> is the other caller.
     /// </remarks>
     internal static JsValue FromEngineResult(JsValue value) => value.IsObject ? value : JsValue.Null;
-}
-
-public static partial class DomBridgeUtils
-{
-    internal static DomShadowRoot? FindContainingShadowRoot(DomNode? node) =>
-        node?.GetRootNode(composed: false) as DomShadowRoot;
-
-    internal static bool SlotAcceptsNode(DomElement slot, DomNode node) =>
-        DomSlotting.SlotAcceptsNode(slot, node);
 }
 
 public static partial class DomBridgeUtils
@@ -186,153 +177,37 @@ public static partial class DomBridgeUtils
     }
 
     /// <summary>Scopes each complex selector of a comma-separated selector list.</summary>
-    private static string ScopeSelectorList(string prelude, string token)
-    {
-        var leading = prelude.Length - prelude.TrimStart().Length;
-        var body = prelude[leading..];
-        if (body.Length == 0)
-            return prelude;
-
-        var sb = new StringBuilder(prelude.Length + 32);
-        sb.Append(prelude, 0, leading);
-
-        var start = 0;
-        var parens = 0;
-        var brackets = 0;
-        var first = true;
-
-        for (var i = 0; i <= body.Length; i++)
-        {
-            if (i == body.Length || (body[i] == ',' && parens == 0 && brackets == 0))
-            {
-                if (!first) sb.Append(", ");
-                sb.Append(ScopeComplexSelector(body[start..i], token));
-                first = false;
-                start = i + 1;
-                continue;
-            }
-
-            var c = body[i];
-            if (c is '"' or '\'') { i = SkipCssString(body, i, body.Length) - 1; continue; }
-            if (c == '(') parens++;
-            else if (c == ')') { if (parens > 0) parens--; }
-            else if (c == '[') brackets++;
-            else if (c == ']') { if (brackets > 0) brackets--; }
-        }
-
-        return sb.ToString();
-    }
+    private static string ScopeSelectorList(string prelude, string token) =>
+        string.Join(", ", CssSyntax.SplitTopLevel(prelude, ',').Select(part => ScopeComplexSelector(part, token)));
 
     /// <summary>
     /// Appends the scope marker to the subject (last) compound of one complex selector, leaving
     /// the combinators and every other compound exactly as written.
     /// </summary>
+    /// <remarks>
+    /// The marker goes just after the compound's type selector so that it precedes any
+    /// pseudo-element — the renderer's matcher strips everything from <c>::</c> onwards, so an
+    /// appended marker would be discarded. <see cref="CssCompoundSelector.TypeSelectorEnd"/> is
+    /// that index, measured in <see cref="CssSelector.Text"/>, which is what the parser was handed
+    /// with its outer whitespace trimmed; everything else here is copied through untouched.
+    /// A selector the parser will not model — an empty list entry, or text that is not a selector
+    /// at all — is left exactly as written rather than narrowed on a guess.
+    /// </remarks>
     private static string ScopeComplexSelector(string selector, string token)
     {
-        var trailing = selector.Length - selector.TrimEnd().Length;
-        var body = selector[..(selector.Length - trailing)];
-        if (body.Trim().Length == 0)
+        if (CssSelectorParser.Parse(selector).Selectors is not [{ Subject: { } subject } parsed])
             return selector;
-
-        var subjectStart = SubjectCompoundStart(body);
-        var subject = ScopeCompound(body[subjectStart..], token);
-        return body[..subjectStart] + subject + selector[(selector.Length - trailing)..];
-    }
-
-    /// <summary>
-    /// The index at which the subject compound of <paramref name="selector"/> begins — i.e. just
-    /// past the last top-level combinator. Combinator characters inside <c>[...]</c>,
-    /// <c>(...)</c> or a string do not count (<c>[a~="b"]</c>, <c>:nth-child(2n+1)</c>).
-    /// </summary>
-    private static int SubjectCompoundStart(string selector)
-    {
-        var parens = 0;
-        var brackets = 0;
-        var start = 0;
-
-        for (var i = 0; i < selector.Length; i++)
-        {
-            var c = selector[i];
-            if (c is '"' or '\'') { i = SkipCssString(selector, i, selector.Length) - 1; continue; }
-            if (c == '(') { parens++; continue; }
-            if (c == ')') { if (parens > 0) parens--; continue; }
-            if (c == '[') { brackets++; continue; }
-            if (c == ']') { if (brackets > 0) brackets--; continue; }
-
-            if (parens == 0 && brackets == 0 &&
-                (char.IsWhiteSpace(c) || c is '>' or '+' or '~' or '|'))
-            {
-                // `||` is the column combinator; a lone `|` is a namespace separator and part of
-                // the compound, so only treat it as a combinator when doubled.
-                if (c == '|')
-                {
-                    if (i + 1 >= selector.Length || selector[i + 1] != '|')
-                        continue;
-                    i++;
-                }
-                start = i + 1;
-            }
-        }
-
-        return start;
-    }
-
-    /// <summary>
-    /// Inserts the scope marker into one compound, just after its type selector so it precedes
-    /// any pseudo-element (the renderer's matcher strips everything from <c>::</c> onwards, so an
-    /// appended marker would be discarded).
-    /// </summary>
-    private static string ScopeCompound(string compound, string token)
-    {
-        if (compound.Length == 0)
-            return compound;
 
         // `:host`/`:host-context` address the host, which is not in this tree; `::slotted`/
         // `::part` address light-DOM nodes. Neither may be narrowed to tree membership.
+        var compound = parsed.Text.Substring(subject.Start, subject.Length);
         if (ContainsKeyword(compound, ":host") ||
             ContainsKeyword(compound, "::slotted") ||
             ContainsKeyword(compound, "::part"))
-            return compound;
+            return selector;
 
-        var pos = TypeSelectorEnd(compound);
-        return compound[..pos] + ScopeAttrSelector(token) + compound[pos..];
-    }
-
-    /// <summary>The index just past a compound's leading type selector (0 when it has none).</summary>
-    private static int TypeSelectorEnd(string compound)
-    {
-        var pos = 0;
-
-        if (compound[0] == '*')
-            pos = 1;
-        else if (IsIdentChar(compound[0]) && compound[0] != '-')
-            pos = ConsumeIdent(compound, 0);
-        else if (compound[0] != '|')
-            return 0;
-
-        // A namespace prefix: `ns|type`, `*|type`, `|type`.
-        if (pos < compound.Length && compound[pos] == '|' &&
-            (pos + 1 >= compound.Length || compound[pos + 1] != '='))
-        {
-            pos++;
-            if (pos < compound.Length && compound[pos] == '*')
-                pos++;
-            else if (pos < compound.Length && IsIdentChar(compound[pos]))
-                pos = ConsumeIdent(compound, pos);
-        }
-
-        return pos;
-    }
-
-    private static int ConsumeIdent(string text, int i)
-    {
-        while (i < text.Length && (IsIdentChar(text[i]) || text[i] == '\\'))
-        {
-            if (text[i] == '\\' && i + 1 < text.Length)
-                i++;
-            i++;
-        }
-        return i;
+        var leading = selector.Length - selector.TrimStart().Length;
+        return selector.Insert(leading + subject.TypeSelectorEnd, ScopeAttrSelector(token));
     }
 
     /// <summary>

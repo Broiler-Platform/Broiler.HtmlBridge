@@ -5,20 +5,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The DOM traversal / Range feature binding — <c>TreeWalker</c>, <c>NodeIterator</c>,
-/// <c>Range</c>, the node-filter machinery and <c>document.createComment</c>. This is the first
-/// co-located feature module of the HtmlBridge complexity-reduction roadmap Phase 3: the
-/// registration for the feature and every handler that implements it now live together in one file
+/// <c>Range</c>, the node-filter machinery and <c>document.createComment</c>. The
+/// registration for the feature and every handler that implements it live together in one file
 /// with semantic names, reachable and testable without loading the whole <c>DomBridge</c>
 /// implementation. The module owns the traversal-scoped state (the weak range and selection
 /// registries) and depends only on the narrow <see cref="ITraversalHost"/> contract plus the
-/// assembly's neutral static DOM-tree helpers on <c>DomBridge</c> (which Phase 4 promotes to
-/// <c>Broiler.Dom</c>).
+/// assembly's neutral static DOM-tree helpers on <c>DomBridge</c>.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): objects and functions are minted
 /// through the realm, an argument frame arrives as a <see cref="JsCall"/>, and a <c>DOMException</c>
 /// is raised with <see cref="IJsCalls.DomError"/> rather than by hand-constructing one against the
-/// context's <c>DOMException</c> global — which is what the provider now does on this module's
+/// context's <c>DOMException</c> global — the provider does that on this module's
 /// behalf, with the identical fallback.
 /// </remarks>
 internal sealed partial class TraversalBinding(ITraversalHost host)
@@ -57,13 +55,13 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
         realm.SetProperty(realm.Global, "NodeFilter", nodeFilter);
 
         // document.createTreeWalker(root, whatToShow, filter)
-        realm.DefineValue(document, "createTreeWalker", realm.NewMethod("createTreeWalker", CreateTreeWalker, 3));
+        realm.DefineMethod(document, "createTreeWalker", 3, CreateTreeWalker);
         // document.createNodeIterator(root, whatToShow, filter)
-        realm.DefineValue(document, "createNodeIterator", realm.NewMethod("createNodeIterator", CreateNodeIterator, 3));
+        realm.DefineMethod(document, "createNodeIterator", 3, CreateNodeIterator);
         // document.createRange()
-        realm.DefineValue(document, "createRange", realm.NewMethod("createRange", (in _) => BuildRange(), 0));
+        realm.DefineMethod(document, "createRange", 0, (in _) => BuildRange());
         // document.createComment(data)
-        realm.DefineValue(document, "createComment", realm.NewMethod("createComment", CreateComment, 1));
+        realm.DefineMethod(document, "createComment", 1, CreateComment);
 
         // window.getSelection() and document.getSelection(), which answer the same object — the
         // window is the global here, so one function installed in both places is what a browser has.
@@ -74,33 +72,35 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
         realm.SetProperty(realm.Global, "getSelection", getSelection);
     }
 
-    private JsValue CreateTreeWalker(in JsCall call)
+    /// <summary>
+    /// The shared <c>createTreeWalker</c>/<c>createNodeIterator</c> entry point: the two factories read
+    /// the same three arguments and differ only in the object <paramref name="build"/> mints.
+    /// </summary>
+    private JsValue CreateTraversalObject(
+        in JsCall call,
+        string member,
+        Func<DomElement, int, JsValue, JsValue> build)
     {
         // A plain Error, not a TypeError: it is what this site has always thrown, and the arity and
         // the type failure are reported the same way for the same reason.
         if (call.Length == 0)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createTreeWalker': 1 argument required.");
+            throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute '{member}': 1 argument required.");
         if (!call[0].IsObject)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createTreeWalker': parameter 1 is not of type 'Node'.");
+            throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute '{member}': parameter 1 is not of type 'Node'.");
         var rootEl = _host.FindElement(call[0]);
         if (rootEl == null)
             return JsValue.Null;
+        // whatToShow stays on its own line: ToNumber on argument 1 can run a page valueOf and the
+        // filter read can run a page getter, and argument 1 is the one read first.
         var whatToShow = WhatToShowArgument(in call);
-        return BuildTreeWalker(rootEl, whatToShow, FilterArgument(in call));
+        return build(rootEl, whatToShow, FilterArgument(in call));
     }
 
-    private JsValue CreateNodeIterator(in JsCall call)
-    {
-        if (call.Length == 0)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createNodeIterator': 1 argument required.");
-        if (!call[0].IsObject)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createNodeIterator': parameter 1 is not of type 'Node'.");
-        var rootEl = _host.FindElement(call[0]);
-        if (rootEl == null)
-            return JsValue.Null;
-        var whatToShow = WhatToShowArgument(in call);
-        return BuildNodeIterator(rootEl, whatToShow, FilterArgument(in call));
-    }
+    private JsValue CreateTreeWalker(in JsCall call) =>
+        CreateTraversalObject(in call, "createTreeWalker", BuildTreeWalker);
+
+    private JsValue CreateNodeIterator(in JsCall call) =>
+        CreateTraversalObject(in call, "createNodeIterator", BuildNodeIterator);
 
     /// <summary>
     /// The <c>whatToShow</c> bitmask: absent, <c>null</c> or <c>undefined</c> means SHOW_ALL. The
@@ -184,29 +184,21 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
 
         realm.DefineValue(tw, "whatToShow", JsValue.Number(whatToShow));
 
-        realm.DefineValue(tw, "parentNode",
-            realm.NewMethod("parentNode", (in _) => ToTraversalJsValue(walker.ParentNode())));
-        realm.DefineValue(tw, "firstChild",
-            realm.NewMethod("firstChild", (in _) => ToTraversalJsValue(walker.FirstChild())));
-        realm.DefineValue(tw, "lastChild",
-            realm.NewMethod("lastChild", (in _) => ToTraversalJsValue(walker.LastChild())));
-        realm.DefineValue(tw, "nextSibling",
-            realm.NewMethod("nextSibling", (in _) => ToTraversalJsValue(walker.NextSibling())));
-        realm.DefineValue(tw, "previousSibling",
-            realm.NewMethod("previousSibling", (in _) => ToTraversalJsValue(walker.PreviousSibling())));
+        realm.DefineMethod(tw, "parentNode", (in _) => ToTraversalJsValue(walker.ParentNode()));
+        realm.DefineMethod(tw, "firstChild", (in _) => ToTraversalJsValue(walker.FirstChild()));
+        realm.DefineMethod(tw, "lastChild", (in _) => ToTraversalJsValue(walker.LastChild()));
+        realm.DefineMethod(tw, "nextSibling", (in _) => ToTraversalJsValue(walker.NextSibling()));
+        realm.DefineMethod(tw, "previousSibling", (in _) => ToTraversalJsValue(walker.PreviousSibling()));
         // nextNode() — depth-first pre-order traversal forward
-        realm.DefineValue(tw, "nextNode",
-            realm.NewMethod("nextNode", (in _) => ToTraversalJsValue(walker.NextNode())));
+        realm.DefineMethod(tw, "nextNode", (in _) => ToTraversalJsValue(walker.NextNode()));
         // previousNode() — depth-first pre-order traversal backward
-        realm.DefineValue(tw, "previousNode",
-            realm.NewMethod("previousNode", (in _) => ToTraversalJsValue(walker.PreviousNode())));
+        realm.DefineMethod(tw, "previousNode", (in _) => ToTraversalJsValue(walker.PreviousNode()));
 
         return tw;
     }
 
-    // RF-BRIDGE-1c Phase F (F3c part 2c): a TreeWalker/NodeIterator result may be a text/comment
-    // node (SHOW_TEXT/SHOW_COMMENT), so convert any non-null node — not just elements — to its JS
-    // wrapper.
+    // A TreeWalker/NodeIterator result may be a text/comment node (SHOW_TEXT/SHOW_COMMENT), so
+    // convert any non-null node — not just elements — to its JS wrapper.
     private JsValue ToTraversalJsValue(DomNode? node) => node is not null ? _host.WrapNode(node) : JsValue.Null;
 
     /// <summary>Builds a DOM <c>NodeIterator</c> object.</summary>
@@ -230,16 +222,13 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
         realm.DefineAccessor(iter, "pointerBeforeReferenceNode",
             (in _) => JsValue.Boolean(iterator.PointerBeforeReferenceNode), null);
 
-        realm.DefineValue(iter, "nextNode",
-            realm.NewMethod("nextNode", (in _) => ToTraversalJsValue(iterator.NextNode())));
-        realm.DefineValue(iter, "previousNode",
-            realm.NewMethod("previousNode", (in _) => ToTraversalJsValue(iterator.PreviousNode())));
-        realm.DefineValue(iter, "detach",
-            realm.NewMethod("detach", (in _) =>
-            {
-                iterator.Dispose();
-                return JsValue.Undefined;
-            }));
+        realm.DefineMethod(iter, "nextNode", (in _) => ToTraversalJsValue(iterator.NextNode()));
+        realm.DefineMethod(iter, "previousNode", (in _) => ToTraversalJsValue(iterator.PreviousNode()));
+        realm.DefineMethod(iter, "detach", (in _) =>
+        {
+            iterator.Dispose();
+            return JsValue.Undefined;
+        });
 
         return iter;
     }
@@ -253,7 +242,7 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
     /// <c>AbstractRange.prototype</c>, and its boundaries are held in
     /// <see cref="_rangeStates"/> under the object itself — see
     /// <see cref="RegisterRangeInterface"/>. So <c>Object.getOwnPropertyNames</c> of a range is
-    /// empty, as it is in a browser, and the 29 own properties this used to install are gone.
+    /// empty, as it is in a browser.
     /// </remarks>
     internal JsValue BuildRange(DomNode? documentRoot = null)
     {
@@ -277,15 +266,10 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
     /// The identity a weak per-object registry keys on: the reference the handle carries.
     /// </summary>
     /// <remarks>
-    /// <b>This used to unwrap to the engine's own object, on the reasoning that a
-    /// <see cref="JsValue"/> is a struct and so cannot be a
-    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/> key.</b> The
-    /// struct is not the key; the reference it carries is, and
-    /// <see cref="JsValue.ObjectIdentity"/> is that reference. It is the same instance this table
-    /// was keyed on before, under the one provider that could reach it - so nothing about the
-    /// answers changes - and it is now an instance every provider supplies. The keys stay weak, so a
-    /// range or a selection the page has dropped is not kept alive by the registry, nor is its
-    /// mutation subscription.
+    /// See <see cref="Runtime.JsObjectRegistry"/> for why the reference the handle carries, and not
+    /// the <see cref="JsValue"/> struct itself, is the weak-table key. The keys stay weak, so a range
+    /// or a selection the page has dropped is not kept alive by the registry, nor is its mutation
+    /// subscription.
     /// </remarks>
     private static object IdentityOf(JsValue value) =>
         value.ObjectIdentity ?? throw new InvalidOperationException(
@@ -298,8 +282,8 @@ internal sealed partial class TraversalBinding(ITraversalHost host)
     /// fragments and clones that carry host runtime state, all registered so the host's
     /// <c>WrapNode</c> can wrap them. Constructed <c>trackMutations: true</c> — the range
     /// self-subscribes to its document's <see cref="DomDocument.Mutated"/> and runs the DOM
-    /// "removing steps" (boundary adjustment) itself, uniformly with NodeIterator, now that the
-    /// bridge no longer drives a separate notification channel.
+    /// "removing steps" (boundary adjustment) itself, uniformly with NodeIterator; the bridge drives
+    /// no separate notification channel.
     /// </summary>
     private sealed class BridgeDomRange(ITraversalHost host, DomNode root)
         : DomRange(root, trackMutations: true), IRangeBoundaries

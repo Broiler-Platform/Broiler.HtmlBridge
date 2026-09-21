@@ -18,8 +18,7 @@ namespace Broiler.HtmlBridge;
 public sealed partial class DomBridge
 {
     /// <summary>
-    /// Native anchor-placement mode (HtmlBridge complexity-reduction roadmap Phase 5
-    /// item 3, P5.8d). Default off. When on, the bridge stops pre-baking
+    /// Native anchor-placement mode. Default off. When on, the bridge stops pre-baking
     /// <c>position-area</c> into inline pixel styles <em>for the MVP subset</em> —
     /// a box with <c>position-area</c>, an explicit dashed-ident <c>position-anchor</c>,
     /// a non-inline containing block, no intervening scroll container, and no
@@ -36,7 +35,7 @@ public sealed partial class DomBridge
     internal bool NativeAnchorPlacement { get; set; }
 
     /// <summary>
-    /// Phase 5 LayoutSnapshot endgame, blocker (b) — visual-viewport. When on, the bridge stops
+    /// Native visual-viewport mode. When on, the bridge stops
     /// depending on the DOM `zoom` bake for the document-root pinch-zoom of the geometry read model:
     /// it sets <c>Broiler.Layout.Engine.NativeAnchorPlacement.VisualViewportScale</c> around the
     /// shared geometry snapshot (so the extracted <c>BoxGeometry</c> is scaled natively — requires
@@ -54,7 +53,7 @@ public sealed partial class DomBridge
     internal bool NativeVisualViewport { get; set; } = true;
 
     /// <summary>
-    /// Phase 5 native dialog/backdrop track — top-layer paint. When on, the bridge stamps a
+    /// Native top-layer paint. When on, the bridge stamps a
     /// benign <c>data-broiler-top-layer</c> order marker on open modal dialogs, open popovers,
     /// and synthesized <c>::backdrop</c>s (<c>Dialogs.cs</c>). The Broiler.Layout
     /// <c>FragmentTreeBuilder</c> projects it to <see cref="Broiler.Layout.IR.Fragment.TopLayerOrder"/>,
@@ -70,7 +69,7 @@ public sealed partial class DomBridge
     internal bool NativeTopLayer { get; set; } = true;
 
     /// <summary>
-    /// Phase 5 native dialog/backdrop track — native <c>::backdrop</c>. When on, the bridge stops
+    /// Native <c>::backdrop</c>. When on, the bridge stops
     /// synthesizing a backdrop <c>&lt;div&gt;</c> in <c>InsertDialogBackdrops</c> and instead
     /// stamps the resolved backdrop background (<c>data-broiler-backdrop</c>) on the top-layer
     /// element; the renderer generates the <c>::backdrop</c> box natively
@@ -148,7 +147,7 @@ public sealed partial class DomBridge
         //    treats it as an intervening clip container.
         var scrollContainersNeedingRelative = new HashSet<DomElement>();
         var deferredDomMoves = new List<(DomElement element, DomElement oldParent, DomElement newParent)>();
-        // Native mode (P5.8d) makes this a per-element decision: MVP-subset boxes are
+        // Native mode makes this a per-element decision: MVP-subset boxes are
         // left un-baked (their CSS survives for the engine post-pass) while every other
         // box is baked as usual — see ResolvePositionAreaValues.
         ResolvePositionAreaValues(
@@ -158,8 +157,7 @@ public sealed partial class DomBridge
         // 3a2. align-self/justify-self: anchor-center on elements with position-anchor but no
         //      position-area is centred natively by the engine post-pass
         //      (CssBox.TryApplyAnchorCenter), so the align-self/justify-self + position-anchor
-        //      CSS reaches the render un-baked. The redundant bridge `ResolveAnchorCenter` pass
-        //      was deleted in Phase 4 item-2 step 3 now that native is the default.
+        //      CSS reaches the render un-baked — the bridge does not pre-bake it.
 
         // 3b. Resolve position-try-fallbacks for elements whose base
         //     style overflows the containing block.
@@ -168,9 +166,8 @@ public sealed partial class DomBridge
         // 3c. position-visibility (hide anchor-positioned elements whose anchor is not visible or
         //     does not exist) is resolved natively by the Broiler.Layout engine post-pass
         //     (CssBox.ResolvePositionVisibility); the scroll-container marker stamped in step 3e
-        //     gives the engine the pre-position:relative CB view the decision needs. The redundant
-        //     bridge `ResolvePositionVisibility` display:none pre-bake was deleted in Phase 4
-        //     item-2 step 3 now that native is the default.
+        //     gives the engine the pre-position:relative CB view the decision needs. The bridge
+        //     pre-bakes no display:none of its own.
 
         // 3d. Apply deferred DOM moves (inline CB → block ancestor promotion).
         //     Must be done after all position-area resolution is complete
@@ -220,24 +217,20 @@ public sealed partial class DomBridge
 
         // 5. Fixed-position sizing from opposing insets (e.g. top:0;bottom:0) is resolved
         //    natively by the Broiler.Layout engine (CSS2.1 §10.3.7, incl. the fixed→viewport
-        //    containing block and the `inset` shorthand). The bridge's `ResolveFixedPositionSizing`
-        //    pre-bake was proven redundant (P5.8d.2b) and is deleted now that native is the
-        //    default (Phase 4 item-2 step 3) — see NativeFixedSizingTests for the engine parity.
+        //    containing block and the `inset` shorthand), so the bridge pre-bakes none of it —
+        //    see NativeFixedSizingTests for the engine parity.
 
         // 6. Elements that establish containing blocks via non-position properties
         //    (contain:layout, transform, will-change:transform) are resolved natively by the
         //    Broiler.Layout engine (CssBox.FindPositionedContainingBlock +
-        //    EstablishesNonPositionAbsPosContainingBlock), so no bridge pre-bake is needed. The
-        //    redundant `EnsureContainingBlockPositioning` pass — which baked position:relative
-        //    onto those establishers for the static renderer — was deleted in Phase 4 item-2
-        //    step 3 now that native is the default. See NativeAnchorContainCbWptTests for parity.
+        //    EstablishesNonPositionAbsPosContainingBlock), so no bridge pre-bake is needed — the
+        //    bridge bakes no position:relative onto those establishers.
+        //    See NativeAnchorContainCbWptTests for parity.
 
         // 7. The stylesheet's anchor-positioning rules (position-area, anchor-name,
         //    position-anchor, anchor()/anchor-size()) are consumed directly by the engine's
-        //    native post-pass, so they must reach the renderer un-stripped. The bridge's
-        //    `NeutralizeStyleElementsForAnchorRules` pass — which rewrote <style> text to strip
-        //    those rules for the static renderer — was deleted in Phase 4 item-2 step 3 now that
-        //    native is the default.
+        //    native post-pass, so they must reach the renderer un-stripped: the bridge never
+        //    rewrites <style> text to strip them.
 
         // 7a. Persist active visual-viewport pinch-zoom state into the DOM so
         //     the static renderer can reproduce zoomed fixed-position pages.
@@ -248,8 +241,7 @@ public sealed partial class DomBridge
         ApplyScrollSimulation(DocumentElement);
 
         // 8b. And for every nested browsing context, whose document is severed from the main tree
-        //     and so is never reached by the walk above — a frame's mutated scroll state used to be
-        //     recorded and then dropped on the way to the markup.
+        //     and so is never reached by the walk above.
         ApplySubDocumentScrollSimulation();
 
         // Drop any shared-layout-geometry snapshot built for anchor-box geometry
@@ -310,7 +302,6 @@ public sealed partial class DomBridge
             {
                 ["src"] = url,
             });
-        SetParent(img, body);
         body.AppendChild(img);
     }
 
@@ -356,7 +347,6 @@ public sealed partial class DomBridge
                 {
                     ["src"] = url,
                 });
-            SetParent(img, element);
             element.AppendChild(img);
         }
     }
@@ -417,7 +407,6 @@ public sealed partial class DomBridge
             ClearChildren(element);
 
             var img = CreateBridgeElement("img", attributes: attributes);
-            SetParent(img, element);
             element.AppendChild(img);
         }
     }
@@ -471,7 +460,7 @@ public sealed partial class DomBridge
 public sealed partial class DomBridge
 {
     /// <summary>
-    /// Per-element <b>baked-style overlay</b> (Phase 4 item 2, increment 3): the store for the bridge's
+    /// Per-element <b>baked-style overlay</b>: the store for the bridge's
     /// serialize-time bake writers (anchor resolver, animation-snapshot resolver, synthetic form-control
     /// styling, zoom bake), split out of the script-observable inline-style dict (<see cref="InlineStyle"/>).
     /// A <c>null</c> value is a <b>tombstone</b> — a bake resolver removing an authored/prior property (e.g.
@@ -491,16 +480,14 @@ public sealed partial class DomBridge
     /// zoom serialization bake. Each reads the element's effective inline style and writes resolved/baked
     /// values, as the passes build on one another.
     ///
-    /// HtmlBridge complexity-reduction roadmap Phase 4 item 2 (inline-style single authority). Increment 1
-    /// routed the anchor-resolver cluster (~98 sites) here; increment 2 routed the remaining bridge-internal
-    /// bake writers; increment 3 (this) backs the writes with a store distinct from the script-observable
-    /// inline style: writes land in the per-element <see cref="BakedStyleOverlayFor">baked overlay</see>,
+    /// The bake writes are backed by a store distinct from the script-observable inline style: they land
+    /// in the per-element <see cref="BakedStyleOverlayFor">baked overlay</see>,
     /// and reads return the <b>merged</b> base ∪ overlay view (overlay wins, tombstones remove). The script
     /// path (<c>element.style</c>/<c>setAttribute</c>, which write-throughs to the <c>style=</c> attribute),
-    /// the cascade cleanup and parse-time authored-style copy stay on <see cref="InlineStyle"/>. Because the
+    /// the cascade cleanup and parse-time authored-style copy stay on <see cref="InlineStyle"/>, so
+    /// <c>InlineStyleRuntimeState.Style</c> is never polluted by bakes. Because the
     /// bakes are strictly terminal (serialize-time, after all script/cascade writes), applying the overlay
-    /// last reproduces the old single-dict content exactly, so serialized output is byte-identical — while
-    /// <c>InlineStyleRuntimeState.Style</c> is no longer polluted by bakes. The serializer's own effective-
+    /// last is equivalent to writing into a single dict. The serializer's own effective-
     /// style reads (<see cref="EffectiveInlineStyle"/>) are the merge point.
     /// </summary>
     internal BakedStyleMap BakedInlineStyle(DomElement element) =>
@@ -533,10 +520,9 @@ public sealed partial class DomBridge
         return merged;
     }
 
-    // Phase 4 item 5 hook (CopyBridgeRuntimeStateTo): copy a source element's baked overlay onto its
-    // cloneNode copy, so a clone made after a bake carries the same resolved geometry (byte-identical with
-    // the pre-split behaviour, where bakes lived in the copied inline-style dict). A no-op when the source
-    // has no overlay (the common case — clones are made by script, before serialize-time baking).
+    // CopyBridgeRuntimeStateTo hook: copy a source element's baked overlay onto its cloneNode copy, so a
+    // clone made after a bake carries the same resolved geometry. A no-op when the source has no overlay
+    // (the common case — clones are made by script, before serialize-time baking).
     private void CopyBakedStyleOverlay(DomElement source, DomElement clone)
     {
         if (!_bakedStyleOverlays.TryGetValue(source, out var sourceOverlay) || sourceOverlay.Count == 0)

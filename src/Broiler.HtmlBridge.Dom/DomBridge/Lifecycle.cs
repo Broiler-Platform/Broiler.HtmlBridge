@@ -9,19 +9,12 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Session lifetime and deterministic disposal for <see cref="DomBridge"/> (HtmlBridge
-/// complexity-reduction roadmap Phase 2, P2.1). The bridge owns per-document runtime resources
+/// Session lifetime and deterministic disposal for <see cref="DomBridge"/>. The bridge owns per-document runtime resources
 /// — a headless layout view, timer/animation queues, event-listener stores, mutation observers,
-/// message ports and JavaScript wrapper caches — whose lifetime used to be purely GC-driven.
+/// message ports and JavaScript wrapper caches — none of which a GC alone releases in time.
 /// <see cref="Dispose"/> releases all of them so a host can tear a document down explicitly, and
 /// the same reset runs on re-attach so re-parsing leaves no state from the prior document.
 /// </summary>
-/// <remarks>
-/// Deferred to later Phase 2 PRs (kept out of scope here so this stays one concern): promoting the
-/// registry to a full <c>BrowserDocumentSession</c> and moving <see cref="IDisposable"/> onto
-/// <c>IDomBridgeRuntime</c>. (This also listed de-globalizing the process-static per-element runtime
-/// tables; each <c>*RuntimeState</c> table has since become a per-bridge instance field.)
-/// </remarks>
 public sealed partial class DomBridge : IDisposable
 {
     private readonly DomBridgeDisposalRegistry _disposal = new();
@@ -125,8 +118,8 @@ public sealed partial class DomBridge : IDisposable
 /// (see <c>Runtime/JsInterop.cs</c>). <c>_jsContext</c> has two readers left:
 /// <c>SyncWindowMembersOntoGlobal</c>, which swaps the context's code cache around the window mirror,
 /// and the sub-document module tail in <c>DomBridge/SubDocuments.cs</c>, which runs module roots on
-/// it when it is a module context. (This said a binding that had not migrated still built its
-/// objects on the field.) While those and <c>RegisterDocument</c>'s own cache swap need the context,
+/// it when it is a module context. While those and <c>RegisterDocument</c>'s own cache swap need the
+/// context,
 /// <c>IDomBridgeRuntime.Attach</c> takes a <c>JSContext</c> rather than an <see cref="IJsRealm"/>;
 /// changing that is the change this whole layer exists to make possible.
 /// </para>
@@ -162,8 +155,8 @@ public sealed partial class DomBridge
 // the engine value list the builder collected into.
 
 /// <summary>
-/// Sibling partial peeled out of <c>DomBridge.cs</c> (Phase 3 ratchet, 2026-07-17) to keep the
-/// facade under the 750-line guard: the window <c>load</c> lifecycle and window-target event
+/// Sibling partial peeled out of <c>DomBridge.cs</c> to keep the
+/// facade under the 750-line guideline: the window <c>load</c> lifecycle and window-target event
 /// dispatch. Fires <c>window.onload</c> / bare <c>onload</c>, the window <c>load</c> listeners,
 /// and the <c>&lt;body&gt;</c> load event, and builds the <c>window.frames</c> array from the
 /// document's same-origin iframes. Pure partial-class relocation — no signature, accessibility,
@@ -467,38 +460,14 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>This signature was never pinned from outside, and the four names this paragraph used to
-    /// give as its pins were all wrong.</b> <c>IWindowEventTargetHost</c>, <c>ILocationHost</c> and
-    /// <c>IMessagingHost</c> each declare <c>DispatchWindowEvent(JsValue)</c> and have since they
-    /// were extracted; the engine object was minted by the three bridge-side adapters that implement
-    /// them, and this parameter was its only reader. <c>DomBridge/LayoutMetrics.Scrolling.cs</c>, the
-    /// fourth, calls the string overload and discards what it answers. Of the seven call sites the two
-    /// overloads have between them, exactly one reads the return value at all -- and it converted it
-    /// to a handle on the same line.
-    /// </para>
-    /// <para>
-    /// <b>One pin was real, it was a call site rather than a signature, and it is gone.</b>
-    /// <c>InvokeEventListener</c> in <c>DomBridge/Events.cs</c> took the engine's event object and the
-    /// engine's value for the listener, because the listener came out of an
-    /// <c>EventListenerRegistration</c> whose field was engine-typed. That field is a
-    /// <see cref="JsValue"/> now and the invoker calls it through the realm, so the loop below hands over
-    /// the registration's listener and the event this method was given, and nothing converts either.
-    /// </para>
-    /// <para>
-    /// <b>The five propagation-control operations are local functions now, and that is what let them
-    /// move.</b> They were <c>DomBridge/JsObjects.cs</c>'s five
-    /// <c>JsCallback…Core</c> methods, taking an engine argument frame because the lambdas installing
-    /// them here were engine functions — the cycle described in the JSEAL migration notes, which only
-    /// breaks when the installer and the body change together. Both are here, so both changed: the
-    /// bodies close over the same four locals the <c>ref</c> parameters used to carry, in the shape
-    /// <see cref="Dom.Features.LegacyEventBinding"/> already uses for the same five operations on a
-    /// <c>createEvent</c> object. Nothing in this file calls the <c>Callback</c> helpers in <c>JsObjects.cs</c> any more.
+    /// The five propagation-control operations are local functions closing over the four locals
+    /// below, in the shape <see cref="Dom.Features.LegacyEventBinding"/> uses for the same five
+    /// operations on a <c>createEvent</c> object.
     /// </para>
     /// <para>
     /// The event's <c>type</c> is read with the realm's <c>ToString</c> rather than the handle's own
-    /// rendering, because that is what the engine-typed read it replaces did: a page that dispatches an
-    /// object whose <c>type</c> has a <c>toString</c> gets that <c>toString</c> run, and the listener
-    /// lookup keys on its result.
+    /// rendering, deliberately: a page that dispatches an object whose <c>type</c> has a
+    /// <c>toString</c> gets that <c>toString</c> run, and the listener lookup keys on its result.
     /// </para>
     /// </remarks>
     private bool DispatchWindowEvent(JsValue evt)
@@ -534,14 +503,12 @@ public sealed partial class DomBridge
 
         // Installed in the order they always were: Object.getOwnPropertyNames on the event is
         // observable, so the sequence of these six is part of the behaviour, not a detail.
-        realm.DefineValue(evt, "stopPropagation", realm.NewMethod("stopPropagation", StopPropagation, 0));
-        realm.DefineValue(evt, "stopImmediatePropagation",
-            realm.NewMethod("stopImmediatePropagation", StopImmediatePropagation, 0));
-        realm.DefineValue(evt, "preventDefault", realm.NewMethod("preventDefault", PreventDefault, 0));
+        realm.DefineMethod(evt, "stopPropagation", 0, StopPropagation);
+        realm.DefineMethod(evt, "stopImmediatePropagation", 0, StopImmediatePropagation);
+        realm.DefineMethod(evt, "preventDefault", 0, PreventDefault);
         realm.DefineAccessor(evt, "cancelBubble", GetCancelBubble, SetCancelBubble);
         realm.DefineAccessor(evt, "returnValue", GetReturnValue, SetReturnValue);
-        realm.DefineValue(evt, "composedPath",
-            realm.NewMethod("composedPath", (in _) => realm.NewArray([window]), 0));
+        realm.DefineMethod(evt, "composedPath", 0, (in _) => realm.NewArray([window]));
 
         if (_eventTargets.TryGetWindowListeners(eventType, out var listeners))
         {
@@ -569,10 +536,8 @@ public sealed partial class DomBridge
 
         JsValue PreventDefault(in JsCall _)
         {
-            // An absent `cancelable` reads as an absent value and is not truthy, which is the same
-            // answer the engine-typed `!= null && .BooleanValue` pair gave. A passive listener may
-            // not cancel, and the flag is read at call time rather than captured, exactly as the
-            // lambda that used to pass it did.
+            // An absent `cancelable` reads as an absent value and is not truthy. A passive listener
+            // may not cancel, and the flag is read at call time rather than captured.
             if (!currentListenerPassive && realm.GetProperty(evt, "cancelable").AsBoolean)
             {
                 prevented = true;
@@ -621,10 +586,9 @@ public sealed partial class DomBridge
     /// <c>DomBridge/Registration/Window.cs</c> returns what it is handed instead of converting it.
     /// </summary>
     /// <remarks>
-    /// The span is the list's own storage rather than a copy of it — the copy the collection
-    /// expression used to make on the way into the array constructor. The realm still materialises
-    /// an array from it, in the one pass the engine's constructor made. Same shape as
-    /// <c>BuildAnimationList</c> in <c>DomBridge/Registration/Window.cs</c>.
+    /// The span is the list's own storage rather than a copy of it; the realm materialises an array
+    /// from it in one pass. Same shape as <c>BuildAnimationList</c> in
+    /// <c>DomBridge/Registration/Window.cs</c>.
     /// </remarks>
     private JsValue BuildWindowFramesArray()
     {
@@ -635,9 +599,9 @@ public sealed partial class DomBridge
 
     private void CollectWindowFrames(DomElement element, List<JsValue> frames)
     {
-        // Phase 4 item 4/5: reuse canonical Descendants() (public, document-order, level-snapshotted)
+        // Reuse canonical Descendants() (public, document-order, level-snapshotted)
         // instead of a hand-rolled depth-first ChildElements recursion. Sub-documents are severed
-        // (P4.4b) — never in-tree children — so the walk never crosses a frame boundary, and a nested
+        // — never in-tree children — so the walk never crosses a frame boundary, and a nested
         // iframe's content (its own sub-document) is not a descendant here, matching the old walk.
         foreach (var child in element.Descendants().OfType<DomElement>())
         {

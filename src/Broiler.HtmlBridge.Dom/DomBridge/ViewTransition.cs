@@ -180,8 +180,8 @@ public sealed partial class DomBridge
 
         // skipTransition() ends the transition without animating; the still is already the final
         // state here, so it is a no-op beyond clearing the active state.
-        realm.DefineValue(transition, "skipTransition",
-            realm.NewMethod("skipTransition", (in _) => { _activeViewTransition = null; return JsValue.Undefined; }, 0));
+        realm.DefineMethod(transition, "skipTransition", 0,
+            (in _) => { _activeViewTransition = null; return JsValue.Undefined; });
 
         return transition;
     }
@@ -222,11 +222,11 @@ public sealed partial class DomBridge
             catch { }
         }
 
-        realm.DefineValue(thenable, "then",
-            realm.NewMethod("then", (in call) => { RunThen(ThenCallback(in call)); return thenable; }, 1));
-        realm.DefineValue(thenable, "catch", realm.NewMethod("catch", (in _) => thenable, 1));
-        realm.DefineValue(thenable, "finally",
-            realm.NewMethod("finally", (in call) => { RunFinally(ThenCallback(in call)); return thenable; }, 1));
+        realm.DefineMethod(thenable, "then", 1,
+            (in call) => { RunThen(ThenCallback(in call)); return thenable; });
+        realm.DefineMethod(thenable, "catch", 1, (in _) => thenable);
+        realm.DefineMethod(thenable, "finally", 1,
+            (in call) => { RunFinally(ThenCallback(in call)); return thenable; });
         return thenable;
     }
 
@@ -272,11 +272,11 @@ public sealed partial class DomBridge
         }
 
         var thenable = realm.NewObject();
-        realm.DefineValue(thenable, "then",
-            realm.NewMethod("then", (in call) => { Run(ThenCallback(in call)); return thenable; }, 1));
-        realm.DefineValue(thenable, "catch", realm.NewMethod("catch", (in _) => thenable, 1));
-        realm.DefineValue(thenable, "finally",
-            realm.NewMethod("finally", (in call) => { Run(ThenCallback(in call)); return thenable; }, 1));
+        realm.DefineMethod(thenable, "then", 1,
+            (in call) => { Run(ThenCallback(in call)); return thenable; });
+        realm.DefineMethod(thenable, "catch", 1, (in _) => thenable);
+        realm.DefineMethod(thenable, "finally", 1,
+            (in call) => { Run(ThenCallback(in call)); return thenable; });
         return thenable;
     }
 
@@ -340,11 +340,11 @@ public sealed partial class DomBridge
         }
 
         var thenable = realm.NewObject();
-        realm.DefineValue(thenable, "then",
-            realm.NewMethod("then", (in call) => { RunAndMaybeFinish(ThenCallback(in call)); return thenable; }, 1));
-        realm.DefineValue(thenable, "catch", realm.NewMethod("catch", (in _) => thenable, 1));
-        realm.DefineValue(thenable, "finally",
-            realm.NewMethod("finally", (in call) => { RunAndMaybeFinish(ThenCallback(in call)); return thenable; }, 1));
+        realm.DefineMethod(thenable, "then", 1,
+            (in call) => { RunAndMaybeFinish(ThenCallback(in call)); return thenable; });
+        realm.DefineMethod(thenable, "catch", 1, (in _) => thenable);
+        realm.DefineMethod(thenable, "finally", 1,
+            (in call) => { RunAndMaybeFinish(ThenCallback(in call)); return thenable; });
         return thenable;
     }
     // ── Serialize-time rendering ────────────────────────────────────────────

@@ -6,9 +6,9 @@ namespace Broiler.HtmlBridge.Scripting;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>A document can be bound by more than one policy, and this repository used to assume it was
-/// bound by at most one.</b> CSP is specified as a LIST — a document enforces every policy it was
-/// delivered, and each one can only narrow what the others allow. Two of those arrive here.
+/// <b>A document can be bound by more than one policy.</b> CSP is specified as a LIST — a document
+/// enforces every policy it was delivered, and each one can only narrow what the others allow.
+/// Two of those arrive here.
 /// A document may declare a policy in a <c>&lt;meta http-equiv&gt;</c> and receive another in a
 /// <c>Content-Security-Policy</c> response header. And a document with a LOCAL SCHEME —
 /// <c>about:srcdoc</c>, <c>about:blank</c>, <c>data:</c>, <c>blob:</c> — has no response of its own,
@@ -22,8 +22,7 @@ namespace Broiler.HtmlBridge.Scripting;
 /// </para>
 /// <para>
 /// <b>An empty set admits everything</b>, which is what "no policy was stated" has to mean, and it
-/// is the default. That is deliberately the same answer the single nullable policy gave, so the
-/// paths that never had a policy to consult behave exactly as they did.
+/// is the default.
 /// </para>
 /// <para>
 /// Two slots rather than a list: the two ways a policy reaches a document cannot both be doubled —

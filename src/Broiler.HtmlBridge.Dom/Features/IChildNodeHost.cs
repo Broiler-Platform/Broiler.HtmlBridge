@@ -13,13 +13,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// directly.
 /// </summary>
 /// <remarks>
-/// The argument builder is declared once. It was briefly a pair, because the mixin's three installers
-/// did not share a call frame — two minted through the realm and read a <see cref="JsCall"/> while
-/// <c>DomBridge/ElementInterface.cs</c> handed over the engine's own argument frame — and both
-/// overloads forwarded into one reading. That installer has migrated, so the engine overload is gone
-/// and every caller reads the span below.
+/// The argument builder is declared once: every caller reads the span below.
 /// </remarks>
-internal interface IChildNodeHost
+internal interface IChildNodeHost : INodeInsertionHost, IStyleInvalidationHost
 {
     /// <summary>
     /// The nodes a <c>before</c>/<c>after</c>/<c>replaceWith</c> argument list denotes: a node argument
@@ -27,7 +23,4 @@ internal interface IChildNodeHost
     /// else is coerced to a string and minted as a text node.
     /// </summary>
     List<DomNode> BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments);
-
-    void InsertNodeAt(DomNode parent, DomNode node, int index);
-    void InvalidateStyleScope(DomElement anchor);
 }

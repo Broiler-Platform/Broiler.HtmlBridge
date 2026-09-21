@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Globalization;
 using Broiler.CSS;
 using Broiler.Dom;
@@ -8,8 +9,8 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> (Phase 3 ratchet, 2026-07-17) to keep it
-/// under the 750-line guard: SVG geometry/text-metric resolution, element zoom / transform-scale
+/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> to keep it
+/// under the 750-line guideline: SVG geometry/text-metric resolution, element zoom / transform-scale
 /// resolution, and the border-box size helpers. Pure partial-class relocation — no signature,
 /// accessibility, or logic change.
 /// </summary>
@@ -20,7 +21,36 @@ public sealed partial class DomBridge
         var props = GetComputedProps(element);
         var specifiedZoom = props.GetValueOrDefault("zoom");
         var parentZoom = ParentEl(element) != null ? GetUsedZoomForElement(ParentEl(element)) : RootUsedZoomBase();
-        return CssZoom.ResolveUsed(specifiedZoom, parentZoom);
+        return ResolveUsedZoom(specifiedZoom, parentZoom);
+    }
+
+    /// <summary>
+    /// The one place a used zoom comes into existence in this component, so a zoom that cannot be
+    /// represented is refused once for all three walks that resolve one — this one, and the two in
+    /// <c>Serialization.Rendering.cs</c> that bake scaled lengths into the serialized document.
+    /// </summary>
+    /// <remarks>
+    /// The dependency answers a <c>zoom</c> from the declaration alone and hands the arithmetic
+    /// back, so nothing on that side can catch this: <c>zoom: 1e400</c> resolved to <c>+∞</c>, and
+    /// the rendered rect divides the snapshot box by the zoom and multiplies the size back — so
+    /// <c>getBoundingClientRect()</c> answered <c>NaN</c> for width and height off
+    /// <c>0 × ∞</c>, while serialization baked <c>width: Infinitypx</c> into the document.
+    /// <para>
+    /// Testing the used value rather than the declaration also covers the compounding: the used
+    /// zoom is the specified one times the parent's, so a chain of representable zooms need not
+    /// have a representable product. Each level is guarded, so a parent's zoom is finite by
+    /// induction and a refusal cannot cascade.
+    /// </para>
+    /// <para>
+    /// A refused zoom is <c>1</c> — no zoom, the identity this property already has when it is
+    /// unset or unreadable — rather than a clamp, which would scale the page by a factor nobody
+    /// wrote.
+    /// </para>
+    /// </remarks>
+    private static double ResolveUsedZoom(string? specifiedZoom, double parentZoom)
+    {
+        var usedZoom = CssZoom.ResolveUsed(specifiedZoom, parentZoom);
+        return double.IsFinite(usedZoom) ? usedZoom : 1.0;
     }
 
     /// <summary>
@@ -159,14 +189,14 @@ public sealed partial class DomBridge
                 var scalar = rawValue?
                     .Split([' ', '\t', '\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries)
                     .FirstOrDefault();
-                if (double.TryParse(
-                    scalar,
-                    NumberStyles.Float,
-                    CultureInfo.InvariantCulture,
-                    out var numericValue))
-                {
+
+                // A coordinate this component cannot hold is not an answer, so the walk carries on
+                // exactly as it does for one it cannot read at all: to the ancestor that has one,
+                // then to the path start, then to the SVG default of 0. Returning a zero from here
+                // instead would pin the text at the origin and lose the coordinate its <text>
+                // ancestor does have.
+                if (TryParseFiniteScalar(scalar, out var numericValue))
                     return numericValue;
-                }
             }
 
             if (IsSvgTextPathElement(current) &&
@@ -205,12 +235,14 @@ public sealed partial class DomBridge
             return false;
         }
 
+        // The regex admits neither a symbol nor an exponent, so the only way a moveto leaves the
+        // representable range is a digit string longer than a double can hold — which is an
+        // ordinary-looking coordinate, and still not one. A start point that cannot be represented
+        // is no start point, the same answer a path with no moveto at all gives.
         var moveMatch = TryResolveSvgTextPathStartRegex().Match(pathData);
         if (!moveMatch.Success ||
-            !double.TryParse(moveMatch.Groups["x"].Value, NumberStyles.Float,
-                CultureInfo.InvariantCulture, out var x) ||
-            !double.TryParse(moveMatch.Groups["y"].Value, NumberStyles.Float,
-                CultureInfo.InvariantCulture, out var y))
+            !TryParseFiniteScalar(moveMatch.Groups["x"].Value, out var x) ||
+            !TryParseFiniteScalar(moveMatch.Groups["y"].Value, out var y))
         {
             return false;
         }
@@ -240,7 +272,7 @@ public sealed partial class DomBridge
              + ParseCssLengthToPixelsWithViewport(props.GetValueOrDefault("border-bottom-width"), element);
     }
 
-    // CreateSvgLengthValue moved to the SvgElementBinding feature module (Phase 3 P3.50) — its only
+    // CreateSvgLengthValue moved to the SvgElementBinding feature module — its only
     // consumer (the SVGAnimatedLength stub) moved there too.
 }
 
@@ -270,9 +302,8 @@ public sealed partial class DomBridge
 /// exactly as every shape did before, rather than being given a wrong one. Of the transform
 /// functions only <c>translate()</c> is accumulated, which is what an ancestor chain overwhelmingly
 /// carries; a <c>rotate</c>/<c>scale</c>/<c>matrix</c> on the chain is ignored rather than
-/// approximated, so its subtree keeps the untransformed rect. <c>preserveAspectRatio</c> is
-/// modelled at its default (<c>xMidYMid meet</c>): uniform scale, centred. Each of these is a
-/// bounded, nameable gap rather than a silent zero.
+/// approximated, so its subtree keeps the untransformed rect. Each of these is a bounded, nameable
+/// gap rather than a silent zero.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -335,8 +366,27 @@ public sealed partial class DomBridge
             origin.Top + map.OffsetY + ((user.Y + offsetY) * map.ScaleY),
             width,
             height);
+
+        // One test on the way out, on the resolved rect rather than on any one input. Every input
+        // above is finite by now, but the mapping between them is a multiplication: a viewBox
+        // establishes a scale, and a user-space extent a double holds perfectly well can leave the
+        // representable range once it is multiplied by one. Testing the rect covers that, and
+        // covers whatever a later mapping or a further ancestor kind contributes, without either
+        // knowing what the other is made of. A shape with no representable place has no rect —
+        // the same answer a refused extent gives, and the one a <path> has always given.
+        if (!IsFiniteRect(rect))
+        {
+            rect = (0, 0, 0, 0);
+            return false;
+        }
+
         return true;
     }
+
+    /// <summary>Whether every number in a client rect is one this component can hold.</summary>
+    private static bool IsFiniteRect((double Left, double Top, double Width, double Height) rect) =>
+        double.IsFinite(rect.Left) && double.IsFinite(rect.Top) &&
+        double.IsFinite(rect.Width) && double.IsFinite(rect.Height);
 
     /// <summary>The shape's bounds in the user space of its nearest viewport.</summary>
     private bool TryGetSvgUserSpaceBounds(DomElement element, DomElement viewport,
@@ -411,6 +461,15 @@ public sealed partial class DomBridge
     /// and a percentage resolves against the viewport — so both spellings a page may use resolve the
     /// same way, and a bare <c>"50"</c> does not fall through the CSS length parser as zero.
     /// </summary>
+    /// <remarks>
+    /// Both spellings refuse a value they cannot represent, and both answer the attribute's SVG
+    /// default of <c>0</c> when they do — the CSS one because
+    /// <c>ParseCssLengthToPixelsWithViewport</c> already refuses at its own single exit, and the
+    /// number one because <see cref="DomBridgeUtils.TryParseFiniteScalar"/> declines it and leaves
+    /// the CSS path to answer <c>0</c> for a token it cannot read as a length. Zero is not a
+    /// shrunken shape: <c>TryGetSvgUserSpaceBounds</c> produces no bounds for a zero extent, which
+    /// is SVG 1.1 §9.2 — an extent of zero disables rendering of the element.
+    /// </remarks>
     private double ResolveSvgLength(DomElement element, DomElement viewport, string attributeName, bool vertical)
     {
         if (!TryGetAttribute(element, attributeName, out var raw) || string.IsNullOrWhiteSpace(raw))
@@ -418,7 +477,7 @@ public sealed partial class DomBridge
 
         raw = raw.Trim();
 
-        if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var plain))
+        if (TryParseFiniteScalar(raw, out var plain))
             return plain;
 
         var basis = GetSvgViewportUserLength(viewport, vertical);
@@ -438,14 +497,22 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// The user-space to viewport-space mapping a <c>viewBox</c> establishes.
+    /// The user-space to viewport-space mapping a <c>viewBox</c> establishes, under this
+    /// viewport's <c>preserveAspectRatio</c>.
     /// </summary>
     /// <remarks>
-    /// <c>preserveAspectRatio</c> is modelled at its default, <c>xMidYMid meet</c>: one scale for
-    /// both axes, chosen so the box fits, with the slack split evenly. A non-default value is not
-    /// read, so a <c>slice</c> or a corner alignment maps as if it were the default — visibly wrong
-    /// only when the viewBox aspect differs from the viewport's, and the same shape of gap the class
-    /// documentation lists rather than a silent zero.
+    /// The mapping used to be computed here at the default <c>xMidYMid meet</c> and nowhere else,
+    /// so a <c>slice</c> or a corner alignment was scaled and centred as if it had been written
+    /// <c>xMidYMid meet</c> — the one case where the attribute changes anything is a viewBox whose
+    /// aspect differs from the viewport's, which is the only case where anybody writes it.
+    /// <c>IR.SvgViewBox.Resolve</c> is SVG 1.1 §7.8 in full: <c>none</c> scales the axes
+    /// independently, <c>slice</c> covers rather than fits, all nine alignments place the slack,
+    /// and the legacy <c>defer</c> prefix is skipped. An absent or unparseable value falls back to
+    /// the default, which is what this answered for every value before.
+    /// <para>
+    /// The viewport rectangle is passed at the origin because the caller adds the viewport's own
+    /// rendered position separately, on the outside of the <c>&lt;g&gt;</c> translate chain.
+    /// </para>
     /// </remarks>
     private (double ScaleX, double ScaleY, double OffsetX, double OffsetY) GetSvgViewBoxMapping(DomElement viewport)
     {
@@ -456,12 +523,12 @@ public sealed partial class DomBridge
         if (rendered.Width <= 0 || rendered.Height <= 0)
             return (1, 1, 0, 0);
 
-        var scale = Math.Min(rendered.Width / box.Width, rendered.Height / box.Height);
-        return (
-            scale,
-            scale,
-            ((rendered.Width - (box.Width * scale)) / 2) - (box.X * scale),
-            ((rendered.Height - (box.Height * scale)) / 2) - (box.Y * scale));
+        var map = Layout.IR.SvgViewBox.Resolve(
+            GetAttr(viewport, "preserveAspectRatio"),
+            new RectangleF(0, 0, (float)rendered.Width, (float)rendered.Height),
+            new RectangleF((float)box.X, (float)box.Y, (float)box.Width, (float)box.Height));
+
+        return (map.ScaleX, map.ScaleY, map.TranslateX, map.TranslateY);
     }
 
     /// <summary>

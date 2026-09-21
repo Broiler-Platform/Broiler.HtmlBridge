@@ -1,5 +1,3 @@
-using Broiler.HtmlBridge;
-
 namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
@@ -40,27 +38,9 @@ public class ScriptInsertedElementTests
     /// program inserted here is inline, which <c>ScriptInsertionRunner</c> runs synchronously in
     /// <c>appendChild</c>; only a <c>src</c> script waits for its own turn on the event loop.
     /// </remarks>
-    private static string Run(string? policy, string script)
-    {
-        var pageHtml =
-            "<html><head>" +
-            (policy is null
-                ? string.Empty
-                : $"<meta http-equiv=\"Content-Security-Policy\" content=\"{policy}\">") +
-            "</head><body><div id=\"out\">nothing</div></body></html>";
-
-        var html = new ScriptEngine().Execute([script], pageHtml, PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string? policy, string script) =>
+        PageProbe.OutOf(PageProbe.Render(
+            [script], CspFixture.MetaPage(policy, "<div id=\"out\">nothing</div>"), PageUrl));
 
     /// <summary>Creates a script element carrying <paramref name="program"/> and appends it.</summary>
     private static string InsertScript(string program) =>

@@ -54,16 +54,24 @@ public sealed partial class DomBridge
     /// `quirks/` directory is doctype-less by construction.
     /// </para>
     /// <para>
-    /// The mode is what round-trips, not the doctype's text: <c>IsQuirksHtml</c> keys off the
-    /// doctype's *name* alone, so a public/system identifier (the XHTML doctypes the CSS2.1
-    /// <c>.xht</c> tests carry) selects standards through the bare form just as it did through the
-    /// original — those identifiers were already dropped here and still are. A doctype whose name
-    /// is not <c>html</c> selects quirks, so it is correctly serialised as no doctype at all.
+    /// The mode is what round-trips, not the doctype's text — the identifiers themselves are
+    /// dropped here and always were. But the mode is the HTML Standard's condition over the whole
+    /// name/public-id/system-id triple, not over the name: a legacy identifier such as
+    /// <c>-//W3C//DTD HTML 4.0 Transitional//EN</c> selects quirks on a doctype still named
+    /// <c>html</c>. Testing the name alone re-emitted the bare <c>&lt;!DOCTYPE html&gt;</c> for
+    /// exactly those, so the one kind of document a legacy doctype exists to describe was the one
+    /// kind that came back out in standards mode.
+    /// </para>
+    /// <para>
+    /// <c>IsQuirksDoctype</c> is the same predicate <c>IsQuirksHtml</c> applies to the raw markup
+    /// on the way in, so the parse and the serialisation cannot disagree about a document. A
+    /// limited-quirks doctype (the XHTML 1.0 Transitional the CSS2.1 <c>.xht</c> tests carry) still
+    /// serialises as standards, because full quirks is what it does not select.
     /// </para>
     /// </remarks>
     private bool SelectsStandardsMode() =>
         _document.DocumentType is { } doctype
-        && doctype.Name.Equals("html", StringComparison.OrdinalIgnoreCase);
+        && !Layout.DocumentModeContext.IsQuirksDoctype(doctype.Name, doctype.PublicId, doctype.SystemId);
 
     /// <summary>
     /// The document's current element child — what the canvas actually renders — or
@@ -93,8 +101,8 @@ public sealed partial class DomBridge
     /// <summary>
     /// Serializes the element's authoritative inline-style dict back into its canonical
     /// <c>style=</c> attribute in CSSOM serialization form (shorthand-first, <c>"; "</c>-joined),
-    /// removing the attribute when the dict is empty. This is the single inline-style write-through
-    /// (Phase 4 item 2): it runs at serialization (<see cref="ReflectRenderState"/>) and after every
+    /// removing the attribute when the dict is empty. This is the single inline-style write-through:
+    /// it runs at serialization (<see cref="ReflectRenderState"/>) and after every
     /// script <c>element.style</c> mutation, so a JS style mutation and <c>getAttribute("style")</c>
     /// observe the same state. Uses the node-model <see cref="DomBridgeUtils.SetAttr"/>/<see cref="DomBridgeUtils.RemoveAttr"/> (not
     /// the JS <c>setAttribute</c> binding), so there is no reparse loop back into the dict.
@@ -348,7 +356,6 @@ public sealed partial class DomBridge
         var head = FindFirstElementByTagName(root, "head");
         if (head != null)
         {
-            SetParent(styleElement, head);
             head.AppendChild(styleElement);
             return;
         }
@@ -474,7 +481,7 @@ public sealed partial class DomBridge
         element.AppendChild(fill);
     }
 
-    // RF-BRIDGE-1c Phase F (F3c part 2c): the serialization adapter is over canonical DomNode so
+    // The serialization adapter is over canonical DomNode so
     // text/comment children serialize; construction mints them as DomText/DomComment. GetKind keys
     // text/comment off NodeType (IsText/IsComment, canonical char-data) and the doctype/fragment
     // kinds off the canonical node types; everything else is an element. GetName/GetAttributes/
@@ -490,11 +497,12 @@ public sealed partial class DomBridge
             : HtmlSerializationNodeKind.Element,
         GetName: static node => node is DomDocumentType docType ? docType.Name
             : node is DomElement element ? element.TagName : string.Empty,
-        // A materialised nested-browsing-context document is no longer an in-tree child (P4.4b
-        // severed the #subdoc-root element); it is referenced off its <iframe>/<object>/<frame>
+        // A materialised nested-browsing-context document is not an in-tree child (the
+        // #subdoc-root element was severed); it is referenced off its <iframe>/<object>/<frame>
         // container and rasterised in isolation (srcdoc content round-trips via the srcdoc
         // attribute), so it can never appear in ChildNodes and needs no serialization skip.
-        // Not node.ChildNodes: a <template> serializes its fragment (see TemplateContents.cs).
+        // Not node.ChildNodes: a <template> serializes its TemplateContents (see
+        // SerializationChildrenOf).
         GetChildren: SerializationChildrenOf,
         GetAttributes: node => node is DomElement element
             ? GetSerializableAttributes(element, sourceResolver?.Invoke(element))
@@ -502,7 +510,7 @@ public sealed partial class DomBridge
         GetStyles: node => node is DomElement element
             ? EffectiveInlineStyle(element).OrderBy(kv => HtmlSerializer.IsShorthandProperty(kv.Key) ? 0 : 1)
             : [],
-        // RF-BRIDGE-1c Phase F (F3c part 2d): text nodes serialize with the same HTML escaping the
+        // Text nodes serialize with the same HTML escaping the
         // former element-store textContent path applied — except inside raw-text elements
         // (script/style/…), whose character data must stay literal. The bridge serializes with
         // EncodeTextNodes:false, so GetText returns the already-escaped form. Comments stay raw.
@@ -514,7 +522,7 @@ public sealed partial class DomBridge
             DomCharacterData other => other.Data,
             _ => BridgeText(node),
         },
-        // Phase 4 item 3: the parallel InnerHtml string is gone — raw-text content is always a
+        // The parallel InnerHtml string is gone — raw-text content is always a
         // canonical DomText child, serialized via GetChildren/GetText above. No raw fallback.
         GetRawInnerHtml: static _ => null);
 

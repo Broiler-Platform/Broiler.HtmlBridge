@@ -1,5 +1,3 @@
-using Broiler.HtmlBridge;
-
 namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
@@ -30,28 +28,8 @@ public class PageEvaluationPolicyTests
     /// Runs <paramref name="script"/> against a page carrying <paramref name="policy"/> and answers
     /// what it wrote to <c>#out</c>.
     /// </summary>
-    private static string Run(string policy, string script)
-    {
-        var pageHtml =
-            "<html><head>" +
-            $"<meta http-equiv=\"Content-Security-Policy\" content=\"{policy}\">" +
-            "</head><body><div id=\"out\">nothing</div></body></html>";
-
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            pageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string policy, string script) =>
+        PageProbe.RunAgainst(CspFixture.MetaPage(policy, "<div id=\"out\">nothing</div>"), PageUrl, script);
 
     /// <summary>
     /// Attempts <paramref name="expression"/> and answers either its value or the name of whatever
@@ -63,45 +41,56 @@ public class PageEvaluationPolicyTests
         "  catch (e) { return 'refused:' + ((e && e.name) || 'unnamed'); }" +
         "})()";
 
-    [Fact]
-    public void APolicyForbiddingUnsafeEvalRefusesTheFunctionConstructor()
+    /// <summary>
+    /// The routes this file asserts on directly, spelled as
+    /// <see cref="DocumentFreeEvaluationPolicyTests.RefusedRoutes"/> spells the document-free ones.
+    /// The three argumentless sibling constructors keep a theory of their own below, because a page
+    /// reaches each of those through a function's prototype rather than through a global.
+    /// </summary>
+    public static TheoryData<string> RefusedRoutes => new()
+    {
+        "new Function('return 7')()",
+        // Function.prototype.constructor is the route a global stub cannot fence, and it is refused
+        // by the same hook for the same reason.
+        "(function () {}).constructor('return 7')()",
+        // A Function constructor called with no arguments is an 'unsafe-eval' question however few
+        // strings it is handed.
+        "typeof new Function()",
+        // ShadowRealm.prototype.evaluate compiles the page's string in a realm of its own, and the
+        // policy that governs that string is still the page's.
+        "new ShadowRealm().evaluate('6 * 7')",
+    };
+
+    /// <summary>The same routes, and what each answers when it is allowed to compile.</summary>
+    public static TheoryData<string, string> PermittedRoutes => new()
+    {
+        { "new Function('return 7')()", "ok:7" },
+        { "(function () {}).constructor('return 7')()", "ok:7" },
+        { "typeof new Function()", "ok:function" },
+        { "new ShadowRealm().evaluate('6 * 7')", "ok:42" },
+    };
+
+    /// <summary>Under a policy that withholds <c>'unsafe-eval'</c>, every route is refused with a <c>SyntaxError</c>.</summary>
+    [Theory]
+    [MemberData(nameof(RefusedRoutes))]
+    public void APolicyForbiddingUnsafeEvalRefusesEveryCompilingRoute(string route)
     {
         Assert.Equal(
             "refused:SyntaxError",
-            Run("script-src 'self'", Attempt("new Function('return 7')()")));
+            Run("script-src 'self'", Attempt(route)));
     }
 
     /// <summary>
-    /// The control, and the one that says the refusal above is the policy's doing: the same page
-    /// under a policy that permits evaluation compiles and runs the same function.
+    /// The controls, and what says the refusals above are the policy's doing: the same page under a
+    /// policy that permits evaluation compiles and runs the same routes.
     /// </summary>
-    [Fact]
-    public void APolicyPermittingUnsafeEvalAllowsTheFunctionConstructor()
+    [Theory]
+    [MemberData(nameof(PermittedRoutes))]
+    public void APolicyPermittingUnsafeEvalCompilesEveryRoute(string route, string answer)
     {
         Assert.Equal(
-            "ok:7",
-            Run("script-src 'self' 'unsafe-eval'", Attempt("new Function('return 7')()")));
-    }
-
-    /// <summary>
-    /// <c>Function.prototype.constructor</c> is the route a global stub cannot fence, and it is
-    /// refused by the same hook for the same reason.
-    /// </summary>
-    [Fact]
-    public void APolicyForbiddingUnsafeEvalRefusesTheConstructorReachedThroughAFunction()
-    {
-        Assert.Equal(
-            "refused:SyntaxError",
-            Run("script-src 'self'", Attempt("(function () {}).constructor('return 7')()")));
-    }
-
-    /// <summary>The control for that route.</summary>
-    [Fact]
-    public void APolicyPermittingUnsafeEvalAllowsTheConstructorReachedThroughAFunction()
-    {
-        Assert.Equal(
-            "ok:7",
-            Run("script-src 'self' 'unsafe-eval'", Attempt("(function () {}).constructor('return 7')()")));
+            answer,
+            Run("script-src 'self' 'unsafe-eval'", Attempt(route)));
     }
 
     /// <summary>
@@ -125,29 +114,9 @@ public class PageEvaluationPolicyTests
     }
 
     /// <summary>
-    /// A <c>Function</c> constructor called with no arguments is refused under the same policy: it is
-    /// an <c>'unsafe-eval'</c> question however few strings it is handed.
-    /// </summary>
-    [Fact]
-    public void APolicyForbiddingUnsafeEvalRefusesAnArgumentlessFunctionConstructor()
-    {
-        Assert.Equal(
-            "refused:SyntaxError",
-            Run("script-src 'self'", Attempt("typeof new Function()")));
-    }
-
-    /// <summary>The control for that route.</summary>
-    [Fact]
-    public void APolicyPermittingUnsafeEvalAllowsAnArgumentlessFunctionConstructor()
-    {
-        Assert.Equal(
-            "ok:function",
-            Run("script-src 'self' 'unsafe-eval'", Attempt("typeof new Function()")));
-    }
-
-    /// <summary>
-    /// The async, generator and async-generator constructors share that path, and none of them is a
-    /// global a stub could replace: a page reaches each one through a function's prototype.
+    /// The async, generator and async-generator constructors share the dynamic-function constructor's
+    /// path, and none of them is a global a stub could replace: a page reaches each one through a
+    /// function's prototype.
     /// </summary>
     [Theory]
     [InlineData("async function () {}")]
@@ -170,26 +139,5 @@ public class PageEvaluationPolicyTests
         Assert.Equal(
             "ok:function",
             Run("script-src 'self' 'unsafe-eval'", Attempt($"typeof new (Object.getPrototypeOf({kind}).constructor)()")));
-    }
-
-    /// <summary>
-    /// <c>ShadowRealm.prototype.evaluate</c> compiles the page's string in a realm of its own, and the
-    /// policy that governs that string is still the page's.
-    /// </summary>
-    [Fact]
-    public void APolicyForbiddingUnsafeEvalRefusesShadowRealmEvaluate()
-    {
-        Assert.Equal(
-            "refused:SyntaxError",
-            Run("script-src 'self'", Attempt("new ShadowRealm().evaluate('6 * 7')")));
-    }
-
-    /// <summary>The control for that route.</summary>
-    [Fact]
-    public void APolicyPermittingUnsafeEvalAllowsShadowRealmEvaluate()
-    {
-        Assert.Equal(
-            "ok:42",
-            Run("script-src 'self' 'unsafe-eval'", Attempt("new ShadowRealm().evaluate('6 * 7')")));
     }
 }

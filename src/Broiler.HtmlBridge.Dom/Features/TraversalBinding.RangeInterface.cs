@@ -29,9 +29,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// method can find its own boundaries from its receiver and there is nothing left to put on the
 /// instance. <c>Object.getOwnPropertyNames(document.createRange())</c> is <c>[]</c>, as it is in a
 /// browser. The <c>Node</c>, character-data, <c>Element</c> and <c>HTMLElement</c> members have since
-/// moved onto their prototypes too, so <c>Text.prototype.splitText</c> is defined. (This said every
-/// other DOM wrapper here still installed its interface as own properties of each object, and that
-/// <c>Text.prototype.splitText</c> was <c>undefined</c>.)
+/// moved onto their prototypes too, so <c>Text.prototype.splitText</c> is defined.
 /// </para>
 /// <para>
 /// Reaching a range's state through the receiver is also what makes an illegal invocation —

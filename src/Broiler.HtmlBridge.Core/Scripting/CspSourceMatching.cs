@@ -4,8 +4,8 @@ using Broiler.HtmlBridge.Scripting;
 namespace Broiler.HtmlBridge.Internal.Scripting;
 
 /// <summary>
-/// URL/origin context for Content Security Policy source-expression matching (Phase 7 item 1, third
-/// concern): resolving a candidate URL against the page, same-origin comparison, and matching a CSP
+/// URL/origin context for Content Security Policy source-expression matching: resolving a candidate
+/// URL against the page, same-origin comparison, and matching a CSP
 /// source token — a scheme source (<c>https:</c>) or an absolute host-source (<c>https://host:port/path</c>)
 /// — against a resolved candidate URL. Deliberately separate from <see cref="ContentSecurityPolicy"/>'s
 /// directive parse/evaluation and from <see cref="CspMetaDiscovery"/>'s document discovery: discovery

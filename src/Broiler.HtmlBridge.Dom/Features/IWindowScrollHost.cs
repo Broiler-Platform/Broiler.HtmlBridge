@@ -15,10 +15,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// gives the sub-window contract instead of a second copy — see
 /// <c>DomBridge/Hosts.Window.cs</c>.
 /// </remarks>
-internal interface IWindowScrollHost
+internal interface IWindowScrollHost : IDocumentElementHost
 {
-    DomElement DocumentElement { get; }
-
     /// <summary>
     /// <c>scroll(x, y)</c> / <c>scroll({ left, top, behavior })</c>: an options object wins over
     /// positional coordinates, an absent or nullish member is "leave this axis alone", and a blank

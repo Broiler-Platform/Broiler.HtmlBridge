@@ -11,8 +11,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The <c>Response</c> static factories (<c>new Response</c> / <c>Response.json</c> /
-/// <c>Response.redirect</c>) and the <c>fetch</c> network call, moved out of the bridge's shared
-/// registration callbacks into the co-located <see cref="FetchBinding"/> module (P3.11). The fetch
+/// <c>Response.redirect</c>) and the <c>fetch</c> network call, in the co-located
+/// <see cref="FetchBinding"/> module. The fetch
 /// implementation performs its host I/O through the injected <see cref="Broiler.HtmlBridge.Dom.Runtime.ResourceLoader"/>.
 /// </summary>
 internal sealed partial class FetchBinding
@@ -67,7 +67,7 @@ internal sealed partial class FetchBinding
         }
 
         // §5.4 of Fetch: the input is parsed against the entry settings object's base URL. This is
-        // the same one shared resolver Response.redirect uses (Phase 7 item 4) — an absolute URL is
+        // the same one shared resolver Response.redirect uses — an absolute URL is
         // kept, a relative or root-relative one resolves against the page. Without it a root-relative
         // target went to HttpClient verbatim as a relative request URI, which is an
         // InvalidOperationException out of PrepareRequestMessage rather than a request. That is not

@@ -17,7 +17,6 @@ namespace Broiler.HtmlBridge;
 //   * AdoptRealm (DomBridge/Lifecycle.cs) takes that same context to produce the realm, so the context
 //     has to reach it.
 //
-// The adapters that used to be a further reason are gone; see the note at the foot of this file.
 // Everything the hubs install is built through the realm, and every module they register is handed
 // that realm rather than the context — which is not only tidier: a module handed the context adopted
 // it, and a second realm over one context has a job queue of its own that no event loop drains.
@@ -193,13 +192,14 @@ public sealed partial class DomBridge
             "CSSStyleSheet", (in _) => BuildConstructedStyleSheetObject([]), 0);
         realm.DefineValue(window, "CSSStyleSheet", cssStyleSheetCtor);
         realm.SetProperty(realm.Global, "CSSStyleSheet", cssStyleSheetCtor);
-        // getComputedStyle (CSSOM), co-located in the ComputedStyleBinding feature module (Phase 3).
+        // getComputedStyle (CSSOM), co-located in the ComputedStyleBinding feature module.
         // Keeps the name, arity and constructable shape it had; the module separates the element from
         // the pseudo-element string off the call's own frame.
-        realm.DefineValue(
+        realm.DefineMethod(
             window,
             "getComputedStyle",
-            realm.NewConstructor("getComputedStyle", (in c) => Dom.Features.ComputedStyleBinding.GetComputedStyle(this, in c), 2));
+            2,
+            (in c) => Dom.Features.ComputedStyleBinding.GetComputedStyle(this, in c));
         windowBasicsScope.Dispose();
 
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowGlobals))
@@ -278,13 +278,13 @@ public sealed partial class DomBridge
         if (window.IsMissing)
             return;
 
-        // THE MIRROR IS THE WORK; THE CACHE SWAP IS AN OPTIMISATION, AND THEY USED TO SHARE A GUARD.
-        // Asking for a context first meant a bridge holding a realm and no context returned here
+        // THE MIRROR IS THE WORK; THE CACHE SWAP IS AN OPTIMISATION, AND THEY MUST NOT SHARE A GUARD.
+        // Asking for a context first would mean a bridge holding a realm and no context returns here
         // having done nothing -- silently, which for this method is the worst shape available: a
         // host calls it after every script, and what it skips is the window-to-global mirror that
         // makes `window.foo = 1` in one script visible as `foo` in the next. Under an engine whose
         // window and global are distinct objects that is the difference between a page working and
-        // a page whose scripts cannot see each other. The mirror runs on the realm alone, so it now
+        // a page whose scripts cannot see each other. The mirror runs on the realm alone, so it
         // runs whenever there is one.
         if (_jsContext is not { } context)
         {
@@ -313,43 +313,32 @@ public sealed partial class DomBridge
     // ── inert members, in the realm's vocabulary ───────────────────────────────────────────────
 
     /// <summary>
-    /// The retired <c>UndefinedFunction</c> and <c>TrueFunction</c> (see DomBridge/JsObjects.cs) as the
-    /// realm mints them — an inert member that answers <c>undefined</c>, or one that answers <c>true</c>.
+    /// An inert member as the realm mints it — one that answers <c>undefined</c>, or one that
+    /// answers <c>true</c>.
     /// </summary>
     /// <remarks>
-    /// <c>NewConstructor</c> rather than <c>NewMethod</c> because the engine-built pair carried a
-    /// prototype object and was therefore constructable, and preserving that is what makes this a
-    /// refactor. (WebIDL says an operation should not be constructable; that is a pre-existing
-    /// deviation shared by every constructable-function member of the registration hubs, and
-    /// correcting it belongs in its own change.)
+    /// <c>NewMethod</c>, so the member carries no <c>prototype</c> and is not constructable, which
+    /// is the shape WebIDL gives an operation. These were minted the constructable way for a long
+    /// time; <c>OperationsAreNotConstructorsTests</c> pins the corrected shape.
     /// </remarks>
     private JsValue UndefinedMember(string name, int length = 0) =>
-        Realm.NewConstructor(name, static (in _) => JsValue.Undefined, length);
+        Realm.NewMethod(name, static (in _) => JsValue.Undefined, length);
 
     /// <inheritdoc cref="UndefinedMember"/>
     private JsValue TrueMember(string name, int length = 0) =>
-        Realm.NewConstructor(name, static (in _) => JsValue.True, length);
+        Realm.NewMethod(name, static (in _) => JsValue.True, length);
 
-    // The three engine-typed adapters that used to live here — PinnedMethod, PinnedConstructor and
-    // PinnedAccessor — are gone. Each existed because the feature module behind a member still took
-    // Broiler.JS's own `in Arguments` frame, and an Arguments cannot be built from a JsCall, so the
-    // function had to be minted by the engine and handed to the realm as a handle over it. Every one
-    // of those modules reads a JsCall now, and every member the hubs install is minted by
-    // realm.NewMethod / realm.NewConstructor / realm.DefineAccessor — which is where the shape each
-    // adapter was careful to reproduce came from in the first place.
+    // Every member the hubs install is minted by realm.NewMethod / realm.NewConstructor /
+    // realm.DefineAccessor.
 }
 
 public sealed partial class DomBridge
 {
-    // Phase 3: the DOM traversal surface (NodeFilter, TreeWalker, NodeIterator, Range and
-    // createComment) is installed by the co-located TraversalBinding feature module. This thin
-    // entry point keeps the historical registration call site source-compatible.
-    //
-    // Both sides speak JSEAL now, so the document wrapper crosses as a handle over the same object
-    // and nothing else crosses at all: the module reaches this realm through ITraversalHost.Realm
-    // rather than being handed a script context. The two parameters this had — a context it did not
-    // pass on and an engine object it converted — were the shape of the half-migrated seam, and the
-    // seam is gone.
+    // The DOM traversal surface (NodeFilter, TreeWalker, NodeIterator, Range and createComment) is
+    // installed by the co-located TraversalBinding feature module. Both sides speak JSEAL, so the
+    // document wrapper crosses as a handle over the same object and nothing else crosses at all:
+    // the module reaches this realm through ITraversalHost.Realm rather than being handed a script
+    // context.
     private void RegisterDocumentTraversalApis(JsValue document) =>
         _traversal.RegisterDocumentApis(document);
 }
@@ -360,10 +349,8 @@ public sealed partial class DomBridge
     /// Installs the typed-event constructor shims and the <c>MutationObserver</c> feature.
     /// </summary>
     /// <remarks>
-    /// This took a script context it never used: both halves speak JSEAL — the shims are host script
-    /// run through <c>Realm.EvaluateHostScript</c>, and the observer module asks the realm for
-    /// itself — and the parameter survived only because the registration hub that calls it was not
-    /// owned by the round that migrated this file. The hub has moved, so the adapter is gone.
+    /// Both halves speak JSEAL: the shims are host script run through
+    /// <c>Realm.EvaluateHostScript</c>, and the observer module asks the realm for itself.
     /// </remarks>
     private void RegisterDocumentEventsAndMutationObservers()
     {
@@ -497,7 +484,7 @@ public sealed partial class DomBridge
                 }
             ", "polyfill:event-constructors");
         // MutationObserver (constructor/prototype + host bridge functions) is installed by the
-        // Phase 3 MutationObserverBinding feature module.
+        // MutationObserverBinding feature module.
         _mutations.RegisterDocumentApis();
     }
 
@@ -509,7 +496,7 @@ public sealed partial class DomBridge
     {
         // Google Search Compliance content-rendering / fidelity polyfills — Image, IntersectionObserver,
         // ResizeObserver, TextEncoder/TextDecoder, URL/URLSearchParams and AbortController — are a versioned
-        // embedded .js asset (Phase 3 work item 6, externalized from inline C# string literals) evaluated
+        // embedded .js asset evaluated
         // once here. See Polyfills/content-rendering-polyfills*.js.
         //
         // Host script: this repository authored it, it ships in this assembly, and it is not subject
@@ -535,7 +522,7 @@ public sealed partial class DomBridge
     {
         var realm = Realm;
 
-        // window.crypto — the getRandomValues/randomUUID subset (Phase 3: co-located CryptoBinding module)
+        // window.crypto — the getRandomValues/randomUUID subset — co-located CryptoBinding module
         var cryptoObj = Dom.Features.CryptoBinding.Build(realm);
         realm.DefineValue(window, "crypto", cryptoObj);
         realm.SetProperty(realm.Global, "crypto", cryptoObj);
@@ -644,7 +631,7 @@ public sealed partial class DomBridge
 }
 
 /// <summary>
-/// Loads the embedded polyfill JavaScript assets (Phase 3 work item 6 — the content-rendering polyfills are
+/// Loads the embedded polyfill JavaScript assets (the content-rendering polyfills are
 /// versioned <c>.js</c> resources embedded in <c>Broiler.HtmlBridge.Dom</c> rather than inline C# string
 /// literals). Each asset is read from the assembly manifest once and cached for the process.
 /// </summary>

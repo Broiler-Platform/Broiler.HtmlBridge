@@ -11,21 +11,20 @@ public static partial class DomBridgeUtils
 {
     /// <summary>
     /// Finds the style-scope root ancestor for the given element by walking up the
-    /// parent chain. Stops at a <c>#</c>-prefixed boundary element (a <c>#shadow-root</c>;
-    /// the document/sub-document sentinels are gone — the canonical <c>DomDocument</c> parent
-    /// is not a <c>DomElement</c>, so <see cref="ParentEl"/> already stops the walk there).
-    /// Returns the topmost element within the element's scope.
+    /// parent chain, and returns the topmost element within the element's scope.
     /// </summary>
+    /// <remarks>
+    /// The scope boundary needs no test of its own: every root a scope can end at — a
+    /// <c>DomDocument</c>, a <c>DomDocumentFragment</c>, a <c>DomShadowRoot</c> — is a node kind
+    /// rather than a <c>DomElement</c> in the canonical model, so <see cref="ParentEl"/> answers
+    /// <c>null</c> there and ends the walk. The boundary-element sentinels this used to test for
+    /// are gone.
+    /// </remarks>
     internal static DomElement GetDocumentRootFor(DomElement el)
     {
         var root = el;
         while (ParentEl(root) is { } parent)
-        {
-            // If we've reached a scope root (shadow root), stop here
-            if (root.TagName.StartsWith('#'))
-                return root;
             root = parent;
-        }
         return root;
     }
 
@@ -43,11 +42,10 @@ public static partial class DomBridgeUtils
     /// facade's <c>LegacyChildList</c> projection, since removed, failed a second
     /// way as well: its <c>Count</c>-sized <c>CopyTo</c> overflowed when another
     /// thread appended in between, throwing <see cref="ArgumentException"/>
-    /// ("Destination array was not long enough" — signature
-    /// <c>DomBridge.CollectStyleElementsInTree</c>). Either previously aborted
-    /// style collection for the whole tree, leaving the document unstyled; both
-    /// are still caught. Retry a bounded number of times, then fall back to a
-    /// tolerant index walk.
+    /// ("Destination array was not long enough"). Either previously aborted style
+    /// collection for the whole tree, leaving the document unstyled; both are still
+    /// caught.
+    /// Retry a bounded number of times, then fall back to a tolerant index walk.
     /// </remarks>
     internal static List<DomElement> SnapshotChildren(DomElement root)
     {
@@ -135,10 +133,8 @@ public static partial class DomBridgeUtils
     /// <summary>
     /// Expands CSS shorthand properties into individual longhand properties (e.g.
     /// <c>margin: 10px 5px</c> → <c>margin-top/right/bottom/left</c>), only setting longhands
-    /// not already present. DOM/CSS promotion Phase 2: this now delegates to the single canonical
-    /// <see cref="CssStyleEngine.ExpandShorthands"/> — the bridge's own copy (which
-    /// had drifted to a narrower subset: no <c>outline</c>, no <c>font</c> slash line-height, and a
-    /// single-layer <c>background</c> parser) is deleted so it can no longer drift from the engine.
+    /// not already present. Delegates to the single canonical
+    /// <see cref="CssStyleEngine.ExpandShorthands"/>, so the expansion cannot drift from the engine's.
     /// </summary>
     internal static void ExpandCssShorthands(Dictionary<string, string> computed)
         => CssStyleEngine.ExpandShorthands(computed);
@@ -158,11 +154,11 @@ public static partial class DomBridgeUtils
     /// length.
     /// </summary>
     /// <remarks>
-    /// This used to search the raw <c>style</c> text for the first occurrence of the name and read
-    /// up to the next <c>;</c>. That found <c>width</c> inside <c>max-width</c> and
-    /// <c>border-width</c> and <c>height</c> inside <c>line-height</c>, read declarations out of
-    /// comments, took the first of two declarations where CSS takes the last, and read
-    /// <c>450px !important</c> as no length at all. The map is the one the element's own inline style
+    /// Searching the raw <c>style</c> text for the first occurrence of the name and reading up to the
+    /// next <c>;</c> would find <c>width</c> inside <c>max-width</c> and <c>border-width</c> and
+    /// <c>height</c> inside <c>line-height</c>, read declarations out of comments, take the first of
+    /// two declarations where CSS takes the last, and read <c>450px !important</c> as no length at
+    /// all. The map is the one the element's own inline style
     /// is built from, so the declarations are parsed and validated exactly as that style's are, and a
     /// declaration the renderer drops is not read here either. <see cref="ParseStyle"/> keeps
     /// <c> !important</c> on the value, hence the strip.
@@ -179,16 +175,28 @@ public static partial class DomBridgeUtils
             return 0;
 
         var px = ParseCssLengthToPixels(CssPriority.Strip(value));
-        return !double.IsNaN(px) ? (int)px : 0;
+        return double.IsFinite(px) ? (int)px : 0;
     }
 
+    /// <summary>
+    /// The frame's viewport dimension named by its <c>width</c>/<c>height</c> content attribute, or
+    /// <c>0</c> when the attribute is absent or is not a dimension this component can represent.
+    /// </summary>
+    /// <remarks>
+    /// The finiteness test is not decoration. A double-to-int conversion <em>saturates</em> rather
+    /// than failing, so <c>+∞</c> used to arrive here, pass <c>&gt; 0</c>, and leave as
+    /// <c>int.MaxValue</c> — a viewport 2 147 483 647 px wide that the page never wrote, matching
+    /// every <c>min-width</c> media query the frame's document could ask. That is the clamp this
+    /// round exists to remove, performed by the cast instead of by a guard. An unrepresentable
+    /// dimension is no dimension, which is what the caller already does with an unreadable one.
+    /// </remarks>
     internal static int ParseViewportDimensionAttribute(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return 0;
 
         var px = ParseCssLengthToPixels(value.Trim());
-        return !double.IsNaN(px) && px > 0 ? (int)px : 0;
+        return double.IsFinite(px) && px > 0 ? (int)px : 0;
     }
 }
 

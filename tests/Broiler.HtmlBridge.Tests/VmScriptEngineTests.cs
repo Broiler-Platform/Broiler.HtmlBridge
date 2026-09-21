@@ -227,8 +227,7 @@ public partial class VmScriptEngineTests
     public void EvalIsRefusedWhenThePolicyForbidsIt()
     {
         var engine = Engine();
-        var csp = new ContentSecurityPolicy();
-        csp.Parse("script-src 'self'");
+        var csp = CspFixture.CspOf("script-src 'self'");
 
         Assert.False(csp.AllowsEval);
 
@@ -258,8 +257,7 @@ public partial class VmScriptEngineTests
     public void APermissivePolicyAnswersEvaluation()
     {
         var engine = Engine();
-        var csp = new ContentSecurityPolicy();
-        csp.Parse("script-src 'self' 'unsafe-eval'");
+        var csp = CspFixture.CspOf("script-src 'self' 'unsafe-eval'");
 
         Assert.True(csp.AllowsEval);
 
@@ -287,16 +285,14 @@ public partial class VmScriptEngineTests
     [InlineData("typeof new Function()", "ok:function")]
     public void TheFunctionConstructorIsAnsweredExactlyWhenThePolicyPermitsEvaluation(string route, string permitted)
     {
-        var forbidding = new ContentSecurityPolicy();
-        forbidding.Parse("script-src 'self'");
+        var forbidding = CspFixture.CspOf("script-src 'self'");
         var refusing = Engine();
         refusing.Csp = forbidding;
 
         Assert.True(refusing.Execute(
             [$"var r = {AttemptOnTheProfile(route)}; if (r.indexOf('refused:') !== 0) throw 0;"]));
 
-        var permitting = new ContentSecurityPolicy();
-        permitting.Parse("script-src 'self' 'unsafe-eval'");
+        var permitting = CspFixture.CspOf("script-src 'self' 'unsafe-eval'");
         var answering = Engine();
         answering.Csp = permitting;
 
@@ -322,12 +318,7 @@ public partial class VmScriptEngineTests
         foreach (var text in new string?[] { "script-src 'self'", "script-src 'self' 'unsafe-eval'", null })
         {
             var engine = Engine();
-            if (text is not null)
-            {
-                var csp = new ContentSecurityPolicy();
-                csp.Parse(text);
-                engine.Csp = csp;
-            }
+            engine.Csp = CspFixture.Csp(text);
 
             Assert.True(
                 engine.Execute(
@@ -397,8 +388,7 @@ public partial class VmScriptEngineTests
     [Fact]
     public void ADynamicImportIsRefusedWhenThePolicyForbidsEvaluation()
     {
-        var csp = new ContentSecurityPolicy();
-        csp.Parse("script-src 'self'");
+        var csp = CspFixture.CspOf("script-src 'self'");
 
         var written = Printed(engine =>
         {

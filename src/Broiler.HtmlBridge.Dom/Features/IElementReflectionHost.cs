@@ -7,7 +7,6 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// against the live document base. The content-attribute reads/writes themselves go through the bridge's
 /// neutral <c>internal static</c> <c>TryGetAttribute</c>/<c>SetAttr</c> helpers, called directly.
 /// </summary>
-internal interface IElementReflectionHost
+internal interface IElementReflectionHost : IPageUrlHost
 {
-    string PageUrl { get; }
 }

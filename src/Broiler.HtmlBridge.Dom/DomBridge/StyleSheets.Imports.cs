@@ -635,7 +635,7 @@ public sealed partial class DomBridge
         while (j < text.Length)
         {
             if (CssSyntax.IsValidEscape(text, j))
-                AppendCssEscape(text, ref j, null);
+                SkipCssEscape(text, ref j);
             else if (IsNameChar(text[j]))
                 j++;
             else
@@ -649,7 +649,10 @@ public sealed partial class DomBridge
             k < s.Length && (IsNameStartChar(s[k]) || CssSyntax.IsValidEscape(s, k));
     }
 
-    private static void AppendCssEscape(string text, ref int i, StringBuilder? into)
+    /// <summary>Advances <paramref name="i"/> past one CSS escape sequence (CSS Syntax 3
+    /// §4.3.7). Skip-only: the decoded code point has no consumer here — prelude values are
+    /// decoded by <c>CssomRuleMetadata.ParseImportPrelude</c>.</summary>
+    private static void SkipCssEscape(string text, ref int i)
     {
         i++;
         if (i >= text.Length)
@@ -657,20 +660,12 @@ public sealed partial class DomBridge
 
         if (char.IsAsciiHexDigit(text[i]))
         {
-            var codePoint = 0;
             var digitsEnd = Math.Min(text.Length, i + 6);
             while (i < digitsEnd && char.IsAsciiHexDigit(text[i]))
-            {
-                var digit = text[i++];
-                codePoint = (codePoint * 16) + (digit <= '9' ? digit - '0' : (digit | 0x20) - 'a' + 10);
-            }
+                i++;
 
             if (i < text.Length && IsCssWhitespace(text[i]))
                 i += text[i] == '\r' && i + 1 < text.Length && text[i + 1] == '\n' ? 2 : 1;
-
-            into?.Append(codePoint == 0 || codePoint > 0x10FFFF || codePoint is >= 0xD800 and <= 0xDFFF
-                ? "\uFFFD"
-                : char.ConvertFromUtf32(codePoint));
             return;
         }
 
@@ -680,7 +675,6 @@ public sealed partial class DomBridge
             return;
         }
 
-        into?.Append(text[i]);
         i++;
     }
 }

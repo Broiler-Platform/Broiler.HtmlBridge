@@ -5,21 +5,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The <c>&lt;iframe&gt;</c>-element browsing-context IDL accessors, co-located as an HtmlBridge feature
-/// module (Phase 3): <c>contentDocument</c> / <c>contentWindow</c> / <c>getSVGDocument()</c> (each the
+/// module: <c>contentDocument</c> / <c>contentWindow</c> / <c>getSVGDocument()</c> (each the
 /// same-origin sub-document or sub-window, or <c>null</c> across origins), the <c>src</c> / <c>srcdoc</c>
 /// read/write pair (whose setters reload the frame), and the read-only <c>sandbox</c> reflection. The
 /// browsing-context machinery is reached through the <see cref="IIframeElementHost"/> contract; the plain
 /// content-attribute reads/writes use the bridge's neutral <c>internal static</c> <c>SetAttr</c>/
-/// <c>TryGetAttribute</c> helpers directly. Sibling of the P3.52 <c>&lt;object&gt;</c> <c>ObjectElementBinding</c>.
-/// Was the bridge's <c>JsJsObjectsGetContentDocument135Core</c>/<c>GetContentWindow136Core</c>/
-/// <c>GetSVGDocument137Core</c>/<c>SetSrc139Core</c>/<c>SetSrcdoc141Core</c>.
+/// <c>TryGetAttribute</c> helpers directly. Sibling of the <c>&lt;object&gt;</c> <c>ObjectElementBinding</c>.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>) throughout, installer and accessor
-/// bodies alike, so this file names no engine type. It carried one engine-typed adapter until 5282d02:
-/// the element-wrapper hub that installs these members (<c>DomBridge/JsObjects.cs</c>) held the
-/// wrapper as an engine object and the handle was minted here. That hub mints the wrapper through the
-/// realm now and passes the handle, so the adapter is gone.
+/// bodies alike, so this file names no engine type. The element-wrapper hub that installs these
+/// members (<c>DomBridge/JsObjects.cs</c>) mints the wrapper through the realm and passes the handle.
 /// </remarks>
 internal static class IframeElementBinding
 {
@@ -42,8 +38,7 @@ internal static class IframeElementBinding
             (in _) => GetContentWindow(host, element), null);
 
         // getSVGDocument() — returns contentDocument (same as contentDocument for same-origin)
-        realm.DefineValue(obj, "getSVGDocument",
-            realm.NewMethod("getSVGDocument", (in _) => GetContentDocument(host, element), 0));
+        realm.DefineMethod(obj, "getSVGDocument", 0, (in _) => GetContentDocument(host, element));
 
         // src property (read/write) — for iframe elements
         realm.DefineAccessor(obj, "src",

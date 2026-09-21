@@ -89,23 +89,22 @@ public sealed class PreloadScanResult
 }
 
 /// <summary>
-/// Finds every sub-resource URL an HTML document names, without building a DOM. Multithreading
-/// roadmap item #17 — the speculative preload scan.
+/// Finds every sub-resource URL an HTML document names, without building a DOM: the speculative
+/// preload scan.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The roadmap's shape for item #17 is "a worker scans raw bytes for <c>src</c>/<c>href</c> while
-/// the main parse runs, feeding #2". This type is the scan; <see cref="SpeculativePreloadScan"/> is
-/// the worker. It exists because the two remaining sub-resource families of item #2 — sub-documents
+/// The shape is a worker scanning raw source for <c>src</c>/<c>href</c> while the main parse runs,
+/// feeding the prefetcher. This type is the scan; <see cref="SpeculativePreloadScan"/> is
+/// the worker. It exists because two sub-resource families — sub-documents
 /// and <c>fetch()</c>/XHR — have no point at which their URL set is known before it is consumed: a
 /// frame's URL becomes known when the element is reached, which is the moment it is loaded. A
-/// speculative scan is the only thing that can produce a URL set earlier than the parse does, which
-/// is why the roadmap calls it their <em>only</em> source of a prefetch trigger rather than an
-/// amplifier.
+/// speculative scan is the only thing that can produce a URL set earlier than the parse does, so for
+/// those two it is their <em>only</em> source of a prefetch trigger rather than an amplifier.
 /// </para>
 /// <para>
-/// <b>It tokenizes rather than pattern-matching bytes.</b> The roadmap says "scans raw bytes", and a
-/// regex over the buffer is what that phrasing suggests, but <see cref="HtmlTokenizer"/> is already
+/// <b>It tokenizes rather than pattern-matching bytes.</b> A regex over the raw buffer is the
+/// obvious reading of "scan the bytes", but <see cref="HtmlTokenizer"/> is already
 /// available, is a pure function of an immutable string, and gets the cases a pattern gets wrong:
 /// a <c>&lt;img src&gt;</c> inside a comment or inside a <c>&lt;script&gt;</c> body is not a
 /// resource, a <c>&gt;</c> inside a quoted attribute does not end a tag, and attribute names are
@@ -148,6 +147,19 @@ public sealed class PreloadScanResult
 /// values and resolves them at the end; the pass is microseconds and the requests it triggers are
 /// milliseconds, so there is nothing to gain by resolving early.
 /// </para>
+/// <para>
+/// <b>Which <c>&lt;base&gt;</c> counts is not decided here.</b> That rule — first in document
+/// order, outside a <c>&lt;template&gt;</c>, carrying a non-whitespace <c>href</c>, trimmed — is
+/// <see cref="HtmlDocumentQueries.GetEffectiveBaseHref(string)"/>'s, the same answer the DOM walk
+/// and the WPT stylesheet inliner get. Spotting the tag while this pass went past it was free, but
+/// it was a fourth reading of §4.2.3 and it disagreed with the other three on a blank <c>href</c>:
+/// it latched the blank value, which resolves to nothing, so the document silently fell back to the
+/// page URL and every prefetch on it was keyed to a URL no consume site would ask for — a scan that
+/// doubles the requests instead of overlapping them, which is the one failure this type exists to
+/// avoid. Re-reading the source costs a vectorized <c>"&lt;base"</c> search on a document that has
+/// none, and stops at the tag — which HTML puts in the head — on a document that has one; both are
+/// under 2% of this pass, measured, so the shared rule is bought with noise.
+/// </para>
 /// </remarks>
 public static class PreloadScanner
 {
@@ -183,7 +195,6 @@ public static class PreloadScanner
 
         var raw = new List<PreloadCandidate>();
         var seen = new HashSet<(PreloadKind, string)>();
-        string? baseHref = null;
 
         // Depth counters rather than booleans: `<template><template>` is legal, and an inner
         // element's end tag must not re-open the outer one's contents to the scan.
@@ -214,14 +225,6 @@ public static class PreloadScanner
             if (inertDepth > 0)
                 continue;
 
-            if (baseHref is null &&
-                string.Equals(token.Name, "base", StringComparison.OrdinalIgnoreCase) &&
-                Attribute(token, "href") is { Length: > 0 } declaredBase)
-            {
-                baseHref = declaredBase;
-                continue;
-            }
-
             if (CandidateFor(token) is not { } candidate)
                 continue;
 
@@ -229,7 +232,7 @@ public static class PreloadScanner
                 raw.Add(candidate with { Nonce = Attribute(token, "nonce") });
         }
 
-        var documentBase = ResolveDocumentBase(baseHref, pageUrl);
+        var documentBase = ResolveDocumentBase(HtmlDocumentQueries.GetEffectiveBaseHref(html), pageUrl);
         return new PreloadScanResult(
             documentBase,
             [.. raw.Select(c => c with { ResolvedUrl = UrlResolver.Resolve(c.RawUrl, documentBase)?.AbsoluteUri })]);

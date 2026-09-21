@@ -10,8 +10,8 @@ namespace Broiler.HtmlBridge.Tests;
 /// carried two builders over one <c>DocumentUrl</c> and one navigation implementation, one in the
 /// engine's own types and one through the realm, and a frame's window was the last caller of the
 /// first. The first is gone: <c>Build(IJsRealm, string)</c> is the only builder, and
-/// <c>Features/SubWindowBinding.cs:188</c> is its only caller. The six navigation members it
-/// installs are the top-level Location's own (<c>Registration/Window.cs:52</c>). This paragraph went
+/// <c>Features/SubWindowBinding.cs</c> is its only caller. The six navigation members it
+/// installs are the top-level Location's own (<c>Registration/Window.cs</c>). This paragraph went
 /// on describing the swap as still to come, and citing that call site at a line that no longer held
 /// it, until a commit moving that file had to recompute the number. What the tests below assert is
 /// what they asserted before it: thirteen members, in one order, in the kinds and arities a page can
@@ -44,29 +44,7 @@ public class FrameLocationTests
         "<div id=\"out\"></div>" +
         "</body></html>";
 
-    /// <summary>
-    /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
-    /// <c>#out</c>. Reading the result out of the serialized DOM keeps the test to the engine's public
-    /// surface — the binding under test is internal, and reaching for it directly would pin its shape
-    /// rather than its behaviour.
-    /// </summary>
-    private static string Run(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string script) => PageProbe.RunAgainst(PageHtml, PageUrl, script);
 
     [Fact]
     public void AFramesLocationCarriesTheseThirteenMembersInThisOrder()
@@ -172,8 +150,8 @@ public class FrameLocationTests
 
     [Fact(Skip =
         "A frame's Location derives every component from its own URL, so an about:srcdoc frame gets " +
-        "the nonsense serialization \"about://\" from Scripting/Origin.cs:26 over a URI with no " +
-        "authority (Features/LocationBinding.cs:251). HTML gives a srcdoc document the origin of the " +
+        "the nonsense serialization \"about://\" from Scripting/Origin.cs over a URI with no " +
+        "authority (Features/LocationBinding.cs). HTML gives a srcdoc document the origin of the " +
         "document that embeds it, so location.origin must answer the embedder's — which is the whole " +
         "of what a framed script tests before it postMessages back, and \"about://\" matches nothing " +
         "and equals no other frame's.")]

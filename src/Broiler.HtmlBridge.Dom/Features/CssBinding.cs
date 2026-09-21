@@ -19,15 +19,15 @@ internal static class CssBinding
     /// <remarks>
     /// The two members are minted by the realm rather than wrapped in a function object here: naming
     /// them, giving them their declared <c>length</c>, and making them non-constructable is the
-    /// provider's business now (it is what the engine function wrapper did here before), and the
-    /// enumerable/configurable data-property attributes are <see cref="JsPropertyFlags.Default"/>.
+    /// provider's business, and the enumerable/configurable data-property attributes are
+    /// <see cref="JsPropertyFlags.Default"/>.
     /// </remarks>
     public static JsValue Build(IJsRealm realm)
     {
         var css = realm.NewObject();
 
-        realm.DefineValue(css, "supports", realm.NewMethod("supports", Supports, 2));
-        realm.DefineValue(css, "escape", realm.NewMethod("escape", Escape, 1));
+        realm.DefineMethod(css, "supports", 2, Supports);
+        realm.DefineMethod(css, "escape", 1, Escape);
 
         return css;
     }
@@ -77,12 +77,6 @@ internal static class CssBinding
     /// Defers to the CSS engine's <c>@supports</c> evaluator — the same grammar and the same
     /// feature-support oracle the cascade applies to an <c>@supports</c> prelude.
     /// </summary>
-    /// <remarks>
-    /// This was reached by name for a while, because the evaluator arrived as a patch against
-    /// <c>Broiler.CSS</c> rather than as a pointer bump landing with this file, and a direct call
-    /// would not have compiled until it was applied. It is in the pinned pointer now, so the
-    /// lookup is gone and so is the conservative false it fell back to.
-    /// </remarks>
     private static bool Evaluate(string condition) =>
         CSS.Dom.CssStyleEngine.EvaluatesSupportsCondition(condition);
 

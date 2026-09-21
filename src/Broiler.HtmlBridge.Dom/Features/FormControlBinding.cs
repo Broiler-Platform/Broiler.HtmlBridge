@@ -4,7 +4,7 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The form-control IDL reflectors (HtmlBridge complexity-reduction roadmap Phase 3) — <c>value</c>,
+/// The form-control IDL reflectors — <c>value</c>,
 /// <c>checked</c>, <c>type</c>, <c>name</c>, <c>disabled</c> and <c>required</c> on every element
 /// wrapper, and <c>hidden</c>/<c>tabIndex</c> on <c>HTMLElement.prototype</c>.
 /// <c>value</c>/<c>checked</c> read and write the input's dirty IDL state (and, for
@@ -12,8 +12,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="IFormControlHost"/> contract; the remaining members are plain
 /// content-attribute reflection through the assembly's static <c>DomBridge</c> attribute helpers, with
 /// the boolean setters invalidating the style scope (the <c>:disabled</c>/<c>[hidden]</c>/<c>:required</c>
-/// selectors depend on it). Was the bridge's <c>JsJsObjectsGetValue106Core</c>..<c>SetRequired121Core</c>
-/// callbacks plus their inline registration.
+/// selectors depend on it).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,18 +20,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the realm and every body runs on a <see cref="JsCall"/>, so this file names no engine type.
 /// </para>
 /// <para>
-/// <b>The two <c>HTMLElement</c> members were the last thing here that did not.</b> <c>hidden</c> and
-/// <c>tabIndex</c> go on <c>HTMLElement.prototype</c>, so they serve every element and have to resolve
-/// the receiver on each call — through a delegate whose parameter used to be the engine's own argument
-/// frame, which is what kept <see cref="InstallHtmlElementMembers"/> engine-typed. That delegate is
-/// one JSEAL declaration now (<see cref="JsElementSource"/>) and
-/// <c>DomBridge/ElementInterface.cs</c> installs against it, so the pair is minted by the realm
-/// with the same attributes and in the same position. Each body still does nothing but read its
+/// <c>hidden</c> and <c>tabIndex</c> go on <c>HTMLElement.prototype</c>, so they serve every element
+/// and have to resolve the receiver on each call — through <see cref="JsElementSource"/>, which
+/// <c>DomBridge/ElementInterface.cs</c> installs against. Each body does nothing but read its
 /// argument and call the shared CLR-typed operation, so the two spellings cannot drift apart.
 /// </para>
 /// <para>
-/// The <c>tabIndex</c> setter's coercion moved with the frame and is the same ECMAScript operation on
-/// the same value: the engine's <c>DoubleValue</c> is <c>ToNumber</c>, and so is
+/// The <c>tabIndex</c> setter coerces with the realm's <c>ToNumber</c>, which is
 /// <see cref="IJsValues.ToNumber"/> — which matters, because <c>el.tabIndex = "3"</c> is a string a
 /// page really does assign.
 /// </para>
@@ -206,10 +200,9 @@ internal sealed class FormControlBinding(IFormControlHost host)
         // A textarea sets its dirty value flag exactly as an input does (HTML §4.10.11: "set the
         // element's raw value ... set its dirty value flag to true"), and specifically does NOT
         // touch its children — writing `value` does not rewrite the markup, which is what separates
-        // it from writing `defaultValue`. It used to fall through to a `value` content attribute
-        // that nothing reads on a textarea; harmless while the getter read that same attribute back,
-        // and a lost write once the getter started falling back to the child text the specification
-        // names as the default.
+        // it from writing `defaultValue`. Falling through to a `value` content attribute instead
+        // would be a lost write, because the getter falls back to the child text the specification
+        // names as the default and nothing reads that attribute on a textarea.
         if (tag is "input" or "textarea")
             _host.SetFormControlValue(element, v); // IDL value, not reflected
         else if (tag == "select")
@@ -299,8 +292,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
 
     /// <summary>
     /// <c>tabIndex</c>'s write half. It takes the already-coerced number rather than the argument, so
-    /// that the coercion stays where the argument is — the realm's <c>ToNumber</c> now, the engine's
-    /// <c>DoubleValue</c> before the installer migrated; both are the same ECMAScript operation.
+    /// that the coercion stays where the argument is — the realm's <c>ToNumber</c>.
     /// </summary>
     private static void SetTabIndex(DomElement element, double tabIndex) =>
         DomBridgeUtils.SetAttr(element, "tabindex", ((int)Math.Truncate(tabIndex)).ToString());

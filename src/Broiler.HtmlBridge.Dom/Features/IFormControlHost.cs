@@ -4,11 +4,11 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The narrow bridge services the <see cref="FormControlBinding"/> feature module needs (HtmlBridge
-/// complexity-reduction roadmap Phase 3). The form-control IDL reflectors move into the module, but the
+/// The narrow bridge services the <see cref="FormControlBinding"/> feature module needs. The
+/// form-control IDL reflectors live in the module, but the
 /// per-element form-control state they read/write — the input's dirty IDL <c>value</c> and <c>checked</c>
 /// state — lives in the bridge's <c>FormControlRuntimeState</c> table. It is exposed here as named
-/// primitives (the P3.7 pattern) so the module never touches the runtime-state object, together with the
+/// primitives so the module never touches the runtime-state object, together with the
 /// realm, the <c>&lt;select&gt;</c> value resolution (owned by <see cref="SelectBinding"/>), the
 /// radio-group mutual-exclusion walk, and style-scope invalidation for the reflected boolean setters.
 /// Neutral attribute reflection uses the assembly's static <c>DomBridge</c> helpers directly.
@@ -17,13 +17,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
 /// type. The bridge builds the <c>FileList</c> through <see cref="DomCollectionBinding"/>, which
 /// takes the realm and answers a handle, and keeps one per element; this contract asks for that
-/// finished list. (This said that builder was not migrated, and gave that as the reason.)
+/// finished list.
 /// </remarks>
-internal interface IFormControlHost
+internal interface IFormControlHost : IRealmHost, IStyleInvalidationHost
 {
-    /// <summary>The realm the reflectors are installed in and their bodies run against.</summary>
-    IJsRealm Realm { get; }
-
     /// <summary>
     /// The file input's <c>FileList</c> — one object per element, so <c>input.files ===
     /// input.files</c> holds as it does in a browser. Always empty: there is no file selection.
@@ -47,7 +44,4 @@ internal interface IFormControlHost
 
     /// <summary>Sets the input's dirty IDL <c>checked</c> state.</summary>
     void SetFormControlChecked(DomElement element, bool value);
-
-    /// <summary>Invalidates the cascade/computed style scope anchored at <paramref name="anchor"/>.</summary>
-    void InvalidateStyleScope(DomElement anchor);
 }

@@ -13,34 +13,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// The validations are on the contract rather than called as statics. The bridge's helpers take the
 /// realm to raise their <c>DOMException</c> against, and the bridge's side of this contract hands them
-/// its own (this said they took the script context, which the module would have had to be handed).
-/// What the module wants is "reject this name", which is what it asks for.
+/// its own. What the module wants is "reject this name", which is what it asks for.
 /// </remarks>
-internal interface IDocumentLevelFactoryHost
+internal interface IDocumentLevelFactoryHost : IJsObjectHost, INameValidationHost, ITextNodeFactoryHost
 {
-    /// <summary>
-    /// The single JS wrapper identity for <paramref name="node"/>, as the JSEAL handle the bridge
-    /// caches for it. The registry's reverse table keys on <see cref="JsValue.ObjectIdentity"/>, not on
-    /// an engine object, which is what this used to say of the wrapper tables.
-    /// </summary>
-    JsValue ToJsObject(DomNode node);
-
     /// <summary>Reverse wrapper lookup: the node whose JS wrapper is <paramref name="wrapper"/>.</summary>
     DomNode? FindDomNode(JsValue wrapper);
 
     DomDocumentType CreateBridgeDocumentType(string name, string publicId, string systemId);
     DomElement CreateBridgeElement(string tagName);
     DomElement CreateBridgeElementNS(string? namespaceUri, string tagName);
-    DomText CreateBridgeTextNode(string data);
 
     DomDocument CreateBrowsingContextDocument();
     JsValue BuildDocument(DomNode docRoot);
-
-    /// <summary>Throws an <c>InvalidCharacterError</c> when <paramref name="name"/> is not a valid
-    /// element name (DOM's Name production).</summary>
-    void ValidateElementName(string name);
-
-    /// <summary>Throws an <c>InvalidCharacterError</c> or a <c>NamespaceError</c> when
-    /// <paramref name="qualifiedName"/> is malformed, or is inconsistent with <paramref name="ns"/>.</summary>
-    void ValidateQualifiedName(string qualifiedName, string? ns);
 }

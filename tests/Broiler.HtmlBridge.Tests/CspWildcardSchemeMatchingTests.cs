@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.HtmlBridge.Scripting;
@@ -31,12 +30,6 @@ public class CspWildcardSchemeMatchingTests
     private const string DataCssRule = "#data-target { color: rgb(0, 128, 0); }";
     private const string OwnCssRule = "#own { color: rgb(0, 0, 255); }";
 
-    private static string Base64DataUrl(string css) =>
-        "data:text/css;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(css));
-
-    private static string Meta(string policy) =>
-        $"<meta http-equiv=\"Content-Security-Policy\" content=\"{policy}\">";
-
     private static string Page(string head, string body = "") =>
         $"<!DOCTYPE html><html><head>{head}</head><body>{body}</body></html>";
 
@@ -47,13 +40,6 @@ public class CspWildcardSchemeMatchingTests
         return match.Groups[1].Value;
     }
 
-    private static ContentSecurityPolicy ParseCsp(string header)
-    {
-        var csp = new ContentSecurityPolicy();
-        csp.Parse(header);
-        return csp;
-    }
-
     // =========================================================================
     //  1. <link rel="stylesheet"> with data: URL
     // =========================================================================
@@ -62,13 +48,13 @@ public class CspWildcardSchemeMatchingTests
     public void LinkStylesheet_DataUrl_RefusedUnderWildcardWithoutDataSource()
     {
         // Under style-src * 'unsafe-inline', data: stylesheet is NOT admitted by *
-        var csp = ParseCsp("style-src * 'unsafe-inline'");
-        var dataUrl = Base64DataUrl(DataCssRule);
+        var csp = CspFixture.CspOf("style-src * 'unsafe-inline'");
+        var dataUrl = CspFixture.DataUrl(DataCssRule);
 
         Assert.False(csp.AllowsExternalStyle(dataUrl, HttpsPageUrl));
 
         var html = Page(
-            Meta("style-src * 'unsafe-inline'") +
+            CspFixture.Meta("style-src * 'unsafe-inline'") +
             $"<link rel=\"stylesheet\" id=\"l\" href=\"{dataUrl}\">",
             "<div id=\"data-target\">text</div><div id=\"out\"></div>");
 
@@ -88,13 +74,13 @@ public class CspWildcardSchemeMatchingTests
     public void LinkStylesheet_DataUrl_AdmittedUnderWildcardWithDataSource()
     {
         // Control: adding data: to style-src * admits the data: stylesheet
-        var csp = ParseCsp("style-src * 'unsafe-inline' data:");
-        var dataUrl = Base64DataUrl(DataCssRule);
+        var csp = CspFixture.CspOf("style-src * 'unsafe-inline' data:");
+        var dataUrl = CspFixture.DataUrl(DataCssRule);
 
         Assert.True(csp.AllowsExternalStyle(dataUrl, HttpsPageUrl));
 
         var html = Page(
-            Meta("style-src * 'unsafe-inline' data:") +
+            CspFixture.Meta("style-src * 'unsafe-inline' data:") +
             $"<link rel=\"stylesheet\" id=\"l\" href=\"{dataUrl}\">",
             "<div id=\"data-target\">text</div><div id=\"out\"></div>");
 
@@ -118,14 +104,14 @@ public class CspWildcardSchemeMatchingTests
     public void ImportStylesheet_DataUrl_RefusedUnderWildcardWithoutDataSource()
     {
         // Under style-src * 'unsafe-inline', @import url(data:...) is blocked; own rule survives
-        var csp = ParseCsp("style-src * 'unsafe-inline'");
-        var dataUrl = Base64DataUrl(DataCssRule);
+        var csp = CspFixture.CspOf("style-src * 'unsafe-inline'");
+        var dataUrl = CspFixture.DataUrl(DataCssRule);
 
         Assert.False(csp.AllowsExternalStyle(dataUrl, HttpsPageUrl));
 
         var importCss = $"@import url({dataUrl}); {OwnCssRule}";
         var html = Page(
-            Meta("style-src * 'unsafe-inline'") +
+            CspFixture.Meta("style-src * 'unsafe-inline'") +
             $"<style id=\"s\">{importCss}</style>",
             "<p>text</p>");
 
@@ -142,14 +128,14 @@ public class CspWildcardSchemeMatchingTests
     public void ImportStylesheet_DataUrl_AdmittedUnderWildcardWithDataSource()
     {
         // Control: adding data: admits @import url(data:...)
-        var csp = ParseCsp("style-src * 'unsafe-inline' data:");
-        var dataUrl = Base64DataUrl(DataCssRule);
+        var csp = CspFixture.CspOf("style-src * 'unsafe-inline' data:");
+        var dataUrl = CspFixture.DataUrl(DataCssRule);
 
         Assert.True(csp.AllowsExternalStyle(dataUrl, HttpsPageUrl));
 
         var importCss = $"@import url({dataUrl}); {OwnCssRule}";
         var html = Page(
-            Meta("style-src * 'unsafe-inline' data:") +
+            CspFixture.Meta("style-src * 'unsafe-inline' data:") +
             $"<style id=\"s\">{importCss}</style>",
             "<p>text</p>");
 
@@ -170,7 +156,7 @@ public class CspWildcardSchemeMatchingTests
     public void Stylesheet_HttpUrl_AdmittedUnderWildcard()
     {
         // Under style-src *, HTTP(S) stylesheets are admitted
-        var csp = ParseCsp("style-src * 'unsafe-inline'");
+        var csp = CspFixture.CspOf("style-src * 'unsafe-inline'");
         Assert.True(csp.AllowsExternalStyle("https://cdn.example.test/style.css", HttpsPageUrl));
         Assert.True(csp.AllowsExternalStyle("http://cdn.example.test/style.css", HttpsPageUrl));
 
@@ -182,7 +168,7 @@ public class CspWildcardSchemeMatchingTests
         using var server = new LoopbackStyleServer(sheets);
 
         var html = Page(
-            Meta("style-src * 'unsafe-inline'") +
+            CspFixture.Meta("style-src * 'unsafe-inline'") +
             $"<style id=\"s\">@import url(/test.css); {OwnCssRule}</style>",
             "<p>text</p>");
 
@@ -204,7 +190,7 @@ public class CspWildcardSchemeMatchingTests
     public void ExternalStyle_FileUrl_RefusedUnderWildcardOnHttpPage()
     {
         // On an https page, file: URL is NOT admitted under style-src *
-        var csp = ParseCsp("style-src *");
+        var csp = CspFixture.CspOf("style-src *");
         Assert.False(csp.AllowsExternalStyle("file:///styles/sheet.css", HttpsPageUrl));
     }
 
@@ -212,7 +198,7 @@ public class CspWildcardSchemeMatchingTests
     public void ExternalStyle_FileUrl_AdmittedUnderExplicitFileSource()
     {
         // Control: an explicit file: scheme source admits file: URLs
-        var csp = ParseCsp("style-src * file:");
+        var csp = CspFixture.CspOf("style-src * file:");
         Assert.True(csp.AllowsExternalStyle("file:///styles/sheet.css", HttpsPageUrl));
     }
 
@@ -224,7 +210,7 @@ public class CspWildcardSchemeMatchingTests
     public void ExternalStyle_FileUrl_AdmittedUnderWildcardOnFilePage()
     {
         // On a file: page, another file: URL is admitted by * because candidate scheme == origin scheme
-        var csp = ParseCsp("style-src *");
+        var csp = CspFixture.CspOf("style-src *");
         Assert.True(csp.AllowsExternalStyle("file:///app/sheet.css", FilePageUrl));
     }
 
@@ -232,7 +218,7 @@ public class CspWildcardSchemeMatchingTests
     public void ExternalStyle_DataUrl_RefusedUnderWildcardOnFilePage()
     {
         // On a file: page, data: is STILL refused by * because data is a local scheme
-        var csp = ParseCsp("style-src *");
+        var csp = CspFixture.CspOf("style-src *");
         Assert.False(csp.AllowsExternalStyle("data:text/css,#a{}", FilePageUrl));
     }
 
@@ -243,7 +229,7 @@ public class CspWildcardSchemeMatchingTests
     [Fact]
     public void AllowsExternalScript_DataUrl_RefusedUnderWildcardWithoutDataSource()
     {
-        var csp = ParseCsp("script-src *");
+        var csp = CspFixture.CspOf("script-src *");
         Assert.False(csp.AllowsExternalScript("data:text/javascript,console.log(1)", HttpsPageUrl));
     }
 
@@ -251,14 +237,14 @@ public class CspWildcardSchemeMatchingTests
     public void AllowsExternalScript_DataUrl_AdmittedUnderWildcardWithDataSource()
     {
         // Control
-        var csp = ParseCsp("script-src * data:");
+        var csp = CspFixture.CspOf("script-src * data:");
         Assert.True(csp.AllowsExternalScript("data:text/javascript,console.log(1)", HttpsPageUrl));
     }
 
     [Fact]
     public void AllowsExternalScript_FileUrl_RefusedUnderWildcardOnHttpPage()
     {
-        var csp = ParseCsp("script-src *");
+        var csp = CspFixture.CspOf("script-src *");
         Assert.False(csp.AllowsExternalScript("file:///scripts/main.js", HttpsPageUrl));
     }
 
@@ -266,21 +252,21 @@ public class CspWildcardSchemeMatchingTests
     public void AllowsExternalScript_FileUrl_AdmittedUnderExplicitFileSource()
     {
         // Control
-        var csp = ParseCsp("script-src * file:");
+        var csp = CspFixture.CspOf("script-src * file:");
         Assert.True(csp.AllowsExternalScript("file:///scripts/main.js", HttpsPageUrl));
     }
 
     [Fact]
     public void AllowsExternalScript_FileUrl_AdmittedUnderWildcardOnFilePage()
     {
-        var csp = ParseCsp("script-src *");
+        var csp = CspFixture.CspOf("script-src *");
         Assert.True(csp.AllowsExternalScript("file:///app/main.js", FilePageUrl));
     }
 
     [Fact]
     public void AllowsExternalScript_HttpUrl_AdmittedUnderWildcard()
     {
-        var csp = ParseCsp("script-src *");
+        var csp = CspFixture.CspOf("script-src *");
         Assert.True(csp.AllowsExternalScript("https://cdn.example.test/main.js", HttpsPageUrl));
         Assert.True(csp.AllowsExternalScript("http://cdn.example.test/main.js", HttpsPageUrl));
     }

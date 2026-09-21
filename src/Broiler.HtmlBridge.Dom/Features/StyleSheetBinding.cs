@@ -6,9 +6,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The CSSOM style-sheet / CSS-rule <b>object model</b> feature binding (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.15) — the sibling of <see cref="StyleDeclarationBinding"/>
-/// (P3.14). It builds the JS <c>CSSRuleList</c>, the per-rule <c>CSSRule</c> objects (every at-rule
+/// The CSSOM style-sheet / CSS-rule <b>object model</b> feature binding — the sibling of
+/// <see cref="StyleDeclarationBinding"/>. It builds the JS <c>CSSRuleList</c>, the per-rule <c>CSSRule</c> objects (every at-rule
 /// kind plus style/keyframe rules) and their <c>cssText</c>/<c>insertRule</c>/<c>deleteRule</c>
 /// callbacks from the neutral <see cref="Broiler.CSS.CssRule"/> model and the
 /// <see cref="Broiler.CSS.Cssom.CssomRuleMetadata"/> projection.
@@ -220,14 +219,13 @@ internal static partial class StyleSheetBinding
 
         realm.DefineAccessor(cssRuleList, "length", (in _) => JsValue.Number(rules.Count), null);
 
-        realm.DefineValue(cssRuleList, "item",
-            realm.NewMethod("item", (in call) => JsStyleSheetsItem008Core(rules, in call), 1));
+        realm.DefineMethod(cssRuleList, "item", 1, (in call) => JsStyleSheetsItem008Core(rules, in call));
 
-        realm.DefineValue(cssRuleList, "insertRule",
-            realm.NewMethod("insertRule", (in call) => JsStyleSheetsInsertRule009Core(SyncIndices, ruleFactory, rules, in call), 2));
+        realm.DefineMethod(cssRuleList, "insertRule", 2,
+            (in call) => JsStyleSheetsInsertRule009Core(SyncIndices, ruleFactory, rules, in call));
 
-        realm.DefineValue(cssRuleList, "deleteRule",
-            realm.NewMethod("deleteRule", (in call) => JsStyleSheetsDeleteRule010Core(SyncIndices, rules, in call), 1));
+        realm.DefineMethod(cssRuleList, "deleteRule", 1,
+            (in call) => JsStyleSheetsDeleteRule010Core(SyncIndices, rules, in call));
 
         return cssRuleList;
     }

@@ -4,32 +4,19 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The narrow bridge service the <see cref="FormBinding"/> feature module needs (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.9). The HTMLFormElement interface — the form-controls
+/// The narrow bridge service the <see cref="FormBinding"/> feature module needs. The HTMLFormElement
+/// interface — the form-controls
 /// collection (with named access) and validity — is otherwise pure tree/attribute work over the
 /// assembly's static <c>DomBridge</c> helpers; the only bridge coupling is the realm the collection
-/// is built in and turning a resolved form control into its JS wrapper. This replaces the
-/// <c>DomBridge</c> back-reference the old <c>FormElementsCollection</c> carried purely for that
-/// purpose.
+/// is built in and turning a resolved form control into its JS wrapper.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. <see cref="WrapNode"/> was <c>ToJSObject</c>, a name that spelled the engine's object type.
-/// The engine-reference count in <c>eng/jseal-budget.json</c> matches namespaces, not method names,
-/// so it never saw that one; the name went with the type.
+/// type. The realm inherited from <see cref="IRealmHost"/> is what mints <c>form.elements</c> as a
+/// host-completed object (see <see cref="IJsExotic"/>), which is what its named access is.
 /// </remarks>
-internal interface IFormHost
+internal interface IFormHost : INodeWrapperHost, IRealmHost
 {
-    /// <summary>
-    /// The realm the <c>form.elements</c> collection and the <c>HTMLFormElement</c> members are built
-    /// in. It is what mints the collection as a host-completed object (see
-    /// <see cref="IJsExotic"/>), which is what its named access is.
-    /// </summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
     /// <summary>
     /// Runs the form-reset algorithm (HTML §4.10.21.4) over <paramref name="form"/>'s controls.
     /// </summary>

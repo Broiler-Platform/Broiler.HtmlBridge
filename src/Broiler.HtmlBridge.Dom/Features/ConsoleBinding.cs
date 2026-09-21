@@ -5,11 +5,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The <c>console</c> object (<c>log</c>/<c>warn</c>/<c>error</c>/<c>info</c>), co-located
-/// with its callbacks as an HtmlBridge feature module (Phase 3). It formats its arguments and
+/// with its callbacks as an HtmlBridge feature module. It formats its arguments and
 /// routes them to <see cref="RenderLogger"/>, touching no bridge instance state, so — like
-/// <c>ClassListBinding</c> — it is a pure static class with no host contract. Previously split
-/// between the bridge's <c>BuildConsoleObject</c> (Registration/Console.cs) and four numbered
-/// callbacks buried in the shared JsFunctionCallbacks/Registration.cs grab-bag.
+/// <c>ClassListBinding</c> — it is a pure static class with no host contract.
 /// </summary>
 internal static class ConsoleBinding
 {
@@ -23,10 +21,10 @@ internal static class ConsoleBinding
     {
         var console = realm.NewObject();
 
-        realm.DefineValue(console, "log", realm.NewMethod("log", Log));
-        realm.DefineValue(console, "warn", realm.NewMethod("warn", Warn));
-        realm.DefineValue(console, "error", realm.NewMethod("error", Error));
-        realm.DefineValue(console, "info", realm.NewMethod("info", Info));
+        realm.DefineMethod(console, "log", Log);
+        realm.DefineMethod(console, "warn", Warn);
+        realm.DefineMethod(console, "error", Error);
+        realm.DefineMethod(console, "info", Info);
 
         return console;
     }

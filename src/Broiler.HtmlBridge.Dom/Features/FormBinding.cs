@@ -4,7 +4,7 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The HTMLFormElement feature binding (HtmlBridge complexity-reduction roadmap Phase 3, P3.9) —
+/// The HTMLFormElement feature binding —
 /// <c>form.elements</c> (an <c>HTMLFormControlsCollection</c> with numeric and named access),
 /// <c>form.length</c>, <c>form.action</c>, and the constraint-validation checks
 /// (<c>checkValidity</c>/<c>reportValidity</c>) that the bridge exposes on form-associated elements.
@@ -69,8 +69,7 @@ internal sealed class FormBinding(IFormHost host)
         // reset() — HTML §4.10.21.4. It did not exist, so `form.reset()` was a TypeError on
         // undefined: the call that a "clear this form" control is written as aborted the handler
         // rather than clearing anything, and every edited control kept its edited state.
-        realm.DefineValue(obj, "reset",
-            realm.NewMethod("reset", (in _) => { _host.ResetForm(element); return JsValue.Undefined; }, 0));
+        realm.DefineMethod(obj, "reset", 0, (in _) => { _host.ResetForm(element); return JsValue.Undefined; });
     }
 
     /// <summary>
@@ -195,10 +194,10 @@ internal sealed class FormBinding(IFormHost host)
 /// <para>
 /// <b><paramref name="missingIsNull"/> is the one thing the two callers disagree about.</b> The
 /// collection answers <c>null</c> for a name nothing carries and the form leaves the property
-/// undefined, which is what both did before. The collection's <c>null</c> is why it answers every
-/// name: a handler that declined would let the miss fall through to <c>undefined</c>. That has one
-/// visible consequence — <c>'nothing' in form.elements</c> is now <see langword="true"/> where it was
-/// <see langword="false"/>, since the realm asks this same question for <c>in</c>. Answering the read
+/// undefined. The collection's <c>null</c> is why it answers every name: a handler that declined
+/// would let the miss fall through to <c>undefined</c>. That has one visible consequence —
+/// <c>'nothing' in form.elements</c> is <see langword="true"/>, since the realm asks this same
+/// question for <c>in</c>. Answering the read
 /// the way it has always been answered is the behaviour worth keeping; the <c>null</c> itself is a
 /// pre-existing deviation (WebIDL's named-property getter yields <c>undefined</c> for an unsupported
 /// name — it is <c>namedItem()</c> that returns <c>null</c>) and correcting it belongs in its own

@@ -4,9 +4,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// The single owner of a document's registered <c>MutationObserver</c>s (HtmlBridge
-/// complexity-reduction roadmap Phase 2, P2.5): each observer's JS object, its observed target and
-/// its options. It replaces the bare observer list the bridge kept, giving one place to register,
+/// The single owner of a document's registered <c>MutationObserver</c>s: each observer's JS object,
+/// its observed target and its options. One place to register,
 /// unregister and enumerate observers when a mutation is delivered.
 /// </summary>
 /// <remarks>
@@ -16,11 +15,10 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// owning bridge/document; <see cref="Clear"/> runs on re-parse and disposal.
 /// </para>
 /// <para>
-/// The observer is held as a <see cref="JsValue"/> handle rather than an engine object. Identity is
-/// the same question it was: a handle carries the engine's own object, and the
+/// The observer is held as a <see cref="JsValue"/> handle rather than an engine object, and that
+/// keeps identity: a handle carries the engine's own object, and the
 /// <see cref="JsValue.Equals(JsValue)"/> this file's <see cref="List{T}.RemoveAll"/> predicates reach
-/// is reference identity for two object handles — which is what
-/// <c>ReferenceEquals(entry.Observer, observer)</c> asked before.
+/// is reference identity for two object handles.
 /// </para>
 /// </remarks>
 internal sealed class MutationObserverHub

@@ -40,28 +40,10 @@ public class WrapperIdentityTests
         "</body></html>";
 
     /// <summary>
-    /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
-    /// <c>#out</c>. Reading the result out of the serialized DOM keeps the test to the engine's public
-    /// surface — the registry under test is internal, and reaching for it directly would pin its shape
-    /// rather than its behaviour, and the shape is what the re-type (45607c6) changed.
+    /// The page's own view of the registry, which is the only one these tests take: the registry is
+    /// internal, and its shape is what the re-type (45607c6) changed.
     /// </summary>
-    private static string Run(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string script) => PageProbe.RunAgainst(PageHtml, PageUrl, script);
 
     [Fact]
     public void TheSameNodeFetchedTwiceIsOneObject()

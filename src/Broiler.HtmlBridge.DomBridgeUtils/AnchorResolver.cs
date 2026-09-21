@@ -47,32 +47,57 @@ public static partial class DomBridgeUtils
     // Helpers
     // -----------------------------------------------------------------
 
-    internal static double? TryParsePx(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        var v = value!.Trim();
-        if (v.EndsWith("px", StringComparison.OrdinalIgnoreCase))
-            v = v[..^2];
-        // Don't parse pure numbers without px suffix if they contain '%'
-        if (v.Contains('%')) return null;
-        if (double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var result))
-            return result;
-        return null;
-    }
+    /// <summary>
+    /// Tries to parse a CSS pixel length (<c>"12px"</c>) or a bare number (<c>"12"</c>, which the
+    /// callers rely on) and returns the numeric value. A percentage — or any other unit — is
+    /// <c>null</c>.
+    /// </summary>
+    /// <remarks>
+    /// The scan is <see cref="CssValueParser.TryParseNumeric"/>, the shared
+    /// Broiler.CSS number-plus-unit parser, rather than a local strip-the-suffix pass; the unit
+    /// test is what keeps this helper's contract, and it is what rejects the percentage the old
+    /// body rejected with an explicit <c>'%'</c> guard.
+    /// <para>
+    /// Two differences from the <c>double.TryParse(NumberStyles.Float, …)</c> it replaces, both
+    /// deliberate. <c>NumberStyles.Float</c> accepted .NET's <c>NaN</c> and <c>Infinity</c>
+    /// symbols, so <c>"NaNpx"</c> and <c>"Infinitypx"</c> parsed as <em>successes</em> and fed a
+    /// NaN or an infinity straight into anchor and box geometry; the shared parser requires a
+    /// digit and rejects both. It also rejects whitespace before the unit — <c>"12 px"</c> parsed
+    /// before and does not now, which is invalid CSS either way.
+    /// </para>
+    /// <para>
+    /// <b>The finiteness test is this component's, not the parser's, and has to stay.</b>
+    /// <c>TryParseNumeric</c> scans an exponent since Broiler.CSS #53, so <c>"1e2px"</c> parses —
+    /// and so does <c>"1e400px"</c>, which overflows a double and answers +∞. That is the right
+    /// answer downstream: it matches <c>CssLengthParser</c> in the same package, and CSS Values 4
+    /// §11.1 clamps an out-of-range number rather than making the declaration invalid. It is not
+    /// an answer geometry here can take, because the ~94 call sites behind these two helpers treat
+    /// a returned number as a measured length and have no clamp of their own — which is the same
+    /// defect <c>"Infinitypx"</c> used to cause by the other door. A non-finite result therefore
+    /// takes the caller's not-a-length path, as a rejected parse always has.
+    /// </para>
+    /// </remarks>
+    internal static double? TryParsePx(string? value) =>
+        CssValueParser.TryParseNumeric(value, out var numeric) &&
+        numeric.Unit is CssUnit.Px or CssUnit.None &&
+        double.IsFinite(numeric.Number)
+            ? numeric.Number
+            : null;
+
     /// <summary>
     /// Tries to parse a CSS percentage value (e.g. "50%") and returns
     /// the numeric value (e.g. 50.0).
     /// </summary>
-    internal static double? TryParsePercent(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        var v = value!.Trim();
-        if (!v.EndsWith('%')) return null;
-        v = v[..^1];
-        if (double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var result))
-            return result;
-        return null;
-    }
+    /// <remarks>
+    /// Same shared parser as <see cref="TryParsePx"/>, and the same behaviour notes including the
+    /// finiteness test; the unit test here is <see cref="CssNumericValue.IsPercentage"/>.
+    /// </remarks>
+    internal static double? TryParsePercent(string? value) =>
+        CssValueParser.TryParseNumeric(value, out var numeric) &&
+        numeric.IsPercentage &&
+        double.IsFinite(numeric.Number)
+            ? numeric.Number
+            : null;
 
     /// <summary>
     /// Resolves a CSS value that may be a percentage or a pixel length.
@@ -174,9 +199,9 @@ public static partial class DomBridgeUtils
     /// laid-out extent (<c>Bounds.Width</c>) for its overflow test, so the box is handed off (the
     /// engine's size is at least as correct as — and, where the bridge's crude
     /// <c>EstimateMinContentWidth</c> heuristic mis-measures a max/fit box <em>as</em> min-content,
-    /// more correct than — the baked estimate). All three go through the identical engine mechanism
-    /// (P5.8d.2b validated <c>min-content</c>; <c>max-content</c>/<c>fit-content</c> differ only in
-    /// the laid-out size the engine already computes). The functional <c>fit-content(&lt;length&gt;)</c>
+    /// more correct than — the baked estimate). All three go through the identical engine mechanism:
+    /// <c>max-content</c>/<c>fit-content</c> differ from <c>min-content</c> only in the laid-out size
+    /// the engine already computes. The functional <c>fit-content(&lt;length&gt;)</c>
     /// form is intentionally excluded (it is not a bare keyword).
     /// </summary>
     internal static bool IsEngineSizedIntrinsic(string? value)
@@ -223,12 +248,11 @@ public static partial class DomBridgeUtils
     // Containing block establishment (shared helper)
     // -----------------------------------------------------------------
     //
-    // The bridge's EnsureContainingBlockPositioning pre-bake (which added position:relative to
-    // transform/contain/will-change CB establishers so the static renderer treated them as CBs)
-    // was deleted in Phase 4 item-2 step 3 — the Broiler.Layout engine resolves these containing
-    // blocks natively (CssBox.EstablishesNonPositionAbsPosContainingBlock, the engine mirror of
-    // the helper below). EstablishesContainingBlock stays: PositionArea / InlineContainingBlocks /
-    // AnchorRegistry / Visibility still use it.
+    // The bridge does not pre-bake position:relative onto transform/contain/will-change containing-
+    // block establishers: the Broiler.Layout engine resolves these containing blocks natively
+    // (CssBox.EstablishesNonPositionAbsPosContainingBlock, the engine mirror of the helper below).
+    // EstablishesContainingBlock is used by PositionArea / InlineContainingBlocks / AnchorRegistry /
+    // Visibility.
 
     /// <summary>
     /// Determines whether an element with the given CSS properties
@@ -325,7 +349,7 @@ public static partial class DomBridgeUtils
             return "0px";
 
         // Edge coordinate math (no scroll adjustment on the fallback path) is the
-        // canonical Broiler.Layout.AnchorGeometry model (Phase 5 item 3).
+        // canonical Broiler.Layout.AnchorGeometry model.
         double value = AnchorGeometry.ResolveEdge(
             anchor.Left, anchor.Top, anchor.Right, anchor.Bottom,
             reference.Side, 0, 0, MapAnchorInsetProperty(contextProp), cbWidth, cbHeight);

@@ -14,30 +14,25 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The contract names no engine type. Where it used to hand the binding the bridge's script context
-/// — so the binding could pass it straight back to <c>ValidateSelector</c> and to the collection
-/// factory, which are the only two things it did with it — it now names the two operations that
-/// needed it, and nothing else. That is the difference the
-/// migration is after: the binding says what it wants done, and which engine does it is the bridge's
-/// business.
+/// The contract names no engine type. It names the two operations that need a realm — selector
+/// validation and collection construction — rather than handing the binding a script context to pass
+/// straight back to them. The binding says what it wants done, and which engine does it is the
+/// bridge's business.
 /// </para>
 /// <para>
-/// <see cref="ElementsByTagName"/> and <see cref="ElementsByClassName"/> replace the pair of
-/// "collect into this list" members for the same reason. The bridge builds the whole
+/// <see cref="ElementsByTagName"/> and <see cref="ElementsByClassName"/> follow that rule rather than
+/// being a pair of "collect into this list" members. The bridge builds the whole
 /// <c>HTMLCollection</c> — the live contents walk, the DOM §4.2.10.2 named getter and the
 /// <c>DomCollectionBinding.HtmlCollection</c> call, which takes the realm and answers a handle —
-/// and the binding receives it finished. (This said that call was still engine-typed work.)
+/// and the binding receives it finished.
+/// </para>
+/// <para>
+/// The inherited <see cref="ISelectorMatchHost.ValidateSelector"/> is a no-op before the bridge is
+/// attached: there is then no realm to raise a <c>DOMException</c> in.
 /// </para>
 /// </remarks>
-internal interface ISelectorsHost
+internal interface ISelectorsHost : ISelectorMatchHost
 {
-    /// <summary>
-    /// Validates a selector argument per DOM §4.2.6, throwing <c>SyntaxError</c> when it does not
-    /// parse as a selector list. A no-op before the bridge is attached, as it always has been —
-    /// there is then no realm to raise a <c>DOMException</c> in.
-    /// </summary>
-    void ValidateSelector(string selector);
-
     /// <summary>
     /// The descendant selector search: the first hit (or <see cref="JsValue.Null"/>) when
     /// <paramref name="all"/> is <see langword="false"/>, and a static <c>NodeList</c> when it is
@@ -55,8 +50,4 @@ internal interface ISelectorsHost
 
     /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
     JsValue ToWrapper(DomNode node);
-
-    // Selector matching moved onto the host (Phase 2 item 4 de-globalization): MatchesSelector reads
-    // the per-bridge `:checked` state, so it is now a bridge-instance method rather than a static helper.
-    bool MatchesSelector(DomElement element, string selector, DomElement? scope = null);
 }

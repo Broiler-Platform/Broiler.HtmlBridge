@@ -4,18 +4,16 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// <c>window.matchMedia(query)</c>, co-located as an HtmlBridge feature module (Phase 3). It
+/// <c>window.matchMedia(query)</c>, co-located as an HtmlBridge feature module. It
 /// evaluates the query against the current viewport via the canonical
 /// <see cref="CssStyleEngine.MatchesMediaQuery"/> and returns a <c>MediaQueryList</c>-shaped object
 /// (<c>matches</c>/<c>media</c> plus no-op legacy <c>addListener</c>/<c>removeListener</c> stubs).
 /// The only bridge coupling is the live viewport, reached through the narrow
-/// <see cref="IMatchMediaHost"/> contract. Previously the bridge's
-/// <c>JsRegistrationMatchMedia069Core</c> in the shared JsFunctionCallbacks/Registration.cs grab-bag,
-/// with its media-query evaluation in the (now removed) <c>DomBridge.EvaluateMediaQuery</c> wrapper.
+/// <see cref="IMatchMediaHost"/> contract.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the realm arrives on the call frame,
-/// so nothing here names an engine type. The media-query evaluation never was engine-coupled.
+/// so nothing here names an engine type.
 /// </remarks>
 internal static class MatchMediaBinding
 {
@@ -55,10 +53,7 @@ internal static class MatchMediaBinding
         // error. `dispatchEvent` reports false — nothing was dispatched — for the same reason.
         realm.DefineValue(result, "addEventListener", NoOp(realm, "addEventListener"));
         realm.DefineValue(result, "removeEventListener", NoOp(realm, "removeEventListener"));
-        realm.DefineValue(
-            result,
-            "dispatchEvent",
-            realm.NewConstructor("dispatchEvent", static (in _) => JsValue.False, 1));
+        realm.DefineMethod(result, "dispatchEvent", 1, static (in _) => JsValue.False);
         realm.DefineValue(result, "onchange", JsValue.Null);
 
         return result;
@@ -73,9 +68,8 @@ internal static class MatchMediaBinding
     /// constructor rather than with the bridge's non-constructable helper, so each carries a
     /// <c>prototype</c> object and <c>new mql.addListener()</c> answers an object where a browser
     /// throws. <see cref="IJsValues.NewConstructor"/> is the mapping that preserves that exactly;
-    /// tightening the five to <see cref="IJsValues.NewMethod"/> is a real fix and belongs in its own
-    /// commit, not smuggled in under a vocabulary change.
+    /// the five now use <see cref="IJsValues.NewMethod"/>, so none is constructable.
     /// </remarks>
     private static JsValue NoOp(IJsRealm realm, string name) =>
-        realm.NewConstructor(name, static (in _) => JsValue.Undefined, 1);
+        realm.NewMethod(name, static (in _) => JsValue.Undefined, 1);
 }

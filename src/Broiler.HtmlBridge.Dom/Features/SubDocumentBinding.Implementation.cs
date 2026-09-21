@@ -7,7 +7,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="SubDocumentBinding"/> — the <c>document.implementation</c> factories
 /// (<c>createDocumentType</c>/<c>createDocument</c>/<c>createHTMLDocument</c>) and the sub-document's
 /// <c>createTreeWalker</c>/<c>createNodeIterator</c>. The created documents are canonical
-/// <see cref="DomDocument"/> browsing-context roots (P4.4a) wrapped by <see cref="Build"/>.
+/// <see cref="DomDocument"/> browsing-context roots wrapped by <see cref="Build"/>.
 /// </summary>
 internal sealed partial class SubDocumentBinding
 {
@@ -40,9 +40,8 @@ internal sealed partial class SubDocumentBinding
         var doctypeArg = call[2];
         if (!string.IsNullOrEmpty(qName))
             _host.ValidateQualifiedName(qName, ns);
-        // Phase 4 item 1 (P4.4a): a createDocument root is a canonical DomDocument (was a #subdoc-root).
-        // Phase 4 item 1 (P4.4c): structural nodes are appended under subDocRoot (a canonical
-        // DomDocument), so GetOwningDocument derives their owner from tree position — no OwnerDocRoot.
+        // A createDocument root is a canonical DomDocument, and structural nodes are appended under
+        // it, so GetOwningDocument derives their owner from tree position — no OwnerDocRoot.
         var subDocRoot = _host.CreateBrowsingContextDocument();
         if (doctypeArg.IsObject && _host.FindNode(doctypeArg) is { } dtNode)
             subDocRoot.AppendChild(dtNode);
@@ -61,10 +60,9 @@ internal sealed partial class SubDocumentBinding
     private JsValue CreateHTMLDocument(in JsCall call)
     {
         var subTitle = call.Length > 0 && !call[0].IsNullish ? call.Realm.ToJsString(call[0]) : null;
-        // Phase 4 item 1 (P4.4a): a createHTMLDocument root is a canonical DomDocument (was a
-        // #subdoc-root); doctype + <html> are appended as canonical document children.
-        // Phase 4 item 1 (P4.4c): structural nodes are appended under subDocRoot (a canonical
-        // DomDocument), so GetOwningDocument derives their owner from tree position — no OwnerDocRoot.
+        // A createHTMLDocument root is a canonical DomDocument; doctype + <html> are appended as
+        // canonical document children, so GetOwningDocument derives their owner from tree position
+        // — no OwnerDocRoot.
         var subDocRoot = _host.CreateBrowsingContextDocument();
         var dt = _host.CreateDocumentType("html", string.Empty, string.Empty);
         subDocRoot.AppendChild(dt);
@@ -72,47 +70,48 @@ internal sealed partial class SubDocumentBinding
         var subHtml = _host.CreateElement("html");
         subDocRoot.AppendChild(subHtml);
         var subHead = _host.CreateElement("head");
-        DomBridgeUtils.SetParent(subHead, subHtml);
         subHtml.AppendChild(subHead);
         if (subTitle != null)
         {
             var subTitleEl = _host.CreateElement("title");
-            DomBridgeUtils.SetParent(subTitleEl, subHead);
             subHead.AppendChild(subTitleEl);
             var subTitleText = _host.CreateTextNode(subTitle);
-            DomBridgeUtils.SetParent(subTitleText, subTitleEl);
             subTitleEl.AppendChild(subTitleText);
         }
 
         var subBody = _host.CreateElement("body");
-        DomBridgeUtils.SetParent(subBody, subHtml);
         subHtml.AppendChild(subBody);
         return Build(subDocRoot);
     }
 
-    private JsValue CreateTreeWalker(in JsCall call)
+    /// <summary>
+    /// The shared <c>createTreeWalker</c>/<c>createNodeIterator</c> entry point on a sub-document: the
+    /// two factories read the same three arguments and differ only in the object
+    /// <paramref name="build"/> mints, which the traversal module owns on this module's behalf.
+    /// </summary>
+    private JsValue CreateTraversalObject(
+        in JsCall call,
+        string member,
+        Func<DomElement, int, JsValue, JsValue> build)
     {
         if (call.Length == 0)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createTreeWalker': 1 argument required.");
+            throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute '{member}': 1 argument required.");
         if (!call[0].IsObject)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createTreeWalker': parameter 1 is not of type 'Node'.");
+            throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute '{member}': parameter 1 is not of type 'Node'.");
         var rootEl = _host.FindElement(call[0]);
         if (rootEl == null)
             return JsValue.Null;
-        return _host.BuildTreeWalker(rootEl, WhatToShowArgument(in call), FilterArgument(in call));
+        // whatToShow stays on its own line: ToNumber on argument 1 can run a page valueOf and the
+        // filter read can run a page getter, and argument 1 is the one read first.
+        var whatToShow = WhatToShowArgument(in call);
+        return build(rootEl, whatToShow, FilterArgument(in call));
     }
 
-    private JsValue CreateNodeIterator(in JsCall call)
-    {
-        if (call.Length == 0)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createNodeIterator': 1 argument required.");
-        if (!call[0].IsObject)
-            throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'createNodeIterator': parameter 1 is not of type 'Node'.");
-        var rootEl = _host.FindElement(call[0]);
-        if (rootEl == null)
-            return JsValue.Null;
-        return _host.BuildNodeIterator(rootEl, WhatToShowArgument(in call), FilterArgument(in call));
-    }
+    private JsValue CreateTreeWalker(in JsCall call) =>
+        CreateTraversalObject(in call, "createTreeWalker", _host.BuildTreeWalker);
+
+    private JsValue CreateNodeIterator(in JsCall call) =>
+        CreateTraversalObject(in call, "createNodeIterator", _host.BuildNodeIterator);
 
     /// <summary>
     /// The <c>whatToShow</c> bitmask: absent, <c>null</c> or <c>undefined</c> means SHOW_ALL. The

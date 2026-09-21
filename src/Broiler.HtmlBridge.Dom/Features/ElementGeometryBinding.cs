@@ -4,24 +4,22 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The HTML/CSSOM element box-model and scrolling interface, co-located as an HtmlBridge feature module
-/// (Phase 3): the box metrics (<c>clientTop</c>/<c>clientLeft</c>/<c>clientWidth</c>/<c>clientHeight</c>,
+/// The HTML/CSSOM element box-model and scrolling interface, co-located as an HtmlBridge feature
+/// module: the box metrics (<c>clientTop</c>/<c>clientLeft</c>/<c>clientWidth</c>/<c>clientHeight</c>,
 /// <c>offsetWidth</c>/<c>offsetHeight</c>, <c>scrollWidth</c>/<c>scrollHeight</c>, <c>offsetTop</c>/
 /// <c>offsetLeft</c>, <c>offsetParent</c>, <c>getBoundingClientRect</c>/<c>getClientRects</c>) and the
 /// imperative scrolling API (<c>scrollTop</c>/<c>scrollLeft</c> get/set, <c>scroll</c>/<c>scrollTo</c>/
 /// <c>scrollBy</c>, <c>scrollIntoView</c>, <c>scrollParent</c>). Every value here reads the live layout, so
 /// the module depends on the bridge through the deliberately wide <see cref="IElementGeometryHost"/>
-/// contract (the Phase 3 "wide-explicit-host" template) rather than a one-member seam — the point is that
-/// the exact geometry surface is now named instead of the callbacks reaching into arbitrary bridge
-/// internals. Was the bridge's box-model block in <c>DomBridge/NodeInterfaces.cs</c> and the
-/// <c>JsElementInterfacesGetScrollTop072Core</c>..<c>ScrollParent085Core</c> callbacks.
+/// contract (the "wide-explicit-host" template) rather than a one-member seam — the point is that the
+/// exact geometry surface is named instead of the callbacks reaching into arbitrary bridge internals.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type:
 /// the members and the <c>DOMRect</c>-like objects come from the realm, and each body reads a
 /// <see cref="JsCall"/>. The two scroll-offset setters coerce with the realm's <c>ToNumber</c> rather
-/// than reading the handle's own number, because <c>el.scrollTop = "120"</c> is a string the engine was
-/// coercing before and <see cref="JsValue.AsNumber"/> deliberately answers NaN for one.
+/// than reading the handle's own number, because <c>el.scrollTop = "120"</c> is a string that must
+/// coerce and <see cref="JsValue.AsNumber"/> deliberately answers NaN for one.
 /// </remarks>
 internal static class ElementGeometryBinding
 {
@@ -67,27 +65,21 @@ internal static class ElementGeometryBinding
             (in call) => SetScrollLeft(host, element(in call, "scrollLeft"), in call));
 
         // getBoundingClientRect() — returns DOMRect-like object
-        realm.DefineValue(target, "getBoundingClientRect",
-            realm.NewMethod("getBoundingClientRect",
-                (in call) => Rect(call.Realm, host, element(in call, "getBoundingClientRect"), GetBoundingClientRect), 0));
+        realm.DefineMethod(target, "getBoundingClientRect", 0,
+            (in call) => Rect(call.Realm, host, element(in call, "getBoundingClientRect"), GetBoundingClientRect));
 
         // getClientRects() — returns array with one DOMRect for root elements
-        realm.DefineValue(target, "getClientRects",
-            realm.NewMethod("getClientRects",
-                (in call) => Rect(call.Realm, host, element(in call, "getClientRects"), GetClientRects), 0));
+        realm.DefineMethod(target, "getClientRects", 0,
+            (in call) => Rect(call.Realm, host, element(in call, "getClientRects"), GetClientRects));
 
-        realm.DefineValue(target, "scrollIntoView",
-            realm.NewMethod("scrollIntoView",
-                (in call) => ScrollIntoView(host, element(in call, "scrollIntoView"), in call), 1));
+        realm.DefineMethod(target, "scrollIntoView", 1,
+            (in call) => ScrollIntoView(host, element(in call, "scrollIntoView"), in call));
 
-        realm.DefineValue(target, "scroll",
-            realm.NewMethod("scroll", (in call) => Scroll(host, element(in call, "scroll"), in call), 2));
+        realm.DefineMethod(target, "scroll", 2, (in call) => Scroll(host, element(in call, "scroll"), in call));
 
-        realm.DefineValue(target, "scrollTo",
-            realm.NewMethod("scrollTo", (in call) => Scroll(host, element(in call, "scrollTo"), in call), 2));
+        realm.DefineMethod(target, "scrollTo", 2, (in call) => Scroll(host, element(in call, "scrollTo"), in call));
 
-        realm.DefineValue(target, "scrollBy",
-            realm.NewMethod("scrollBy", (in call) => ScrollBy(host, element(in call, "scrollBy"), in call), 2));
+        realm.DefineMethod(target, "scrollBy", 2, (in call) => ScrollBy(host, element(in call, "scrollBy"), in call));
     }
 
     /// <summary>
@@ -119,8 +111,7 @@ internal static class ElementGeometryBinding
     /// </summary>
     public static void InstallBridgeMembers(IElementGeometryHost host, IJsRealm realm, JsValue obj, DomElement element)
     {
-        realm.DefineValue(obj, "scrollParent",
-            realm.NewMethod("scrollParent", (in _) => GetScrollParent(host, element), 0));
+        realm.DefineMethod(obj, "scrollParent", 0, (in _) => GetScrollParent(host, element));
     }
 
     /// <summary>One metric read, with the viewport test the metrics take resolved for this element.</summary>

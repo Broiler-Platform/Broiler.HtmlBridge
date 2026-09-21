@@ -6,18 +6,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>document.createEvent(type)</c> — the legacy DOM Events Level 3 factory that returns a plain
 /// event object pre-populated with the union of UI/Mouse/Keyboard/Wheel/Custom event fields and
 /// the legacy <c>init*Event</c> / propagation-control methods. Co-located as an HtmlBridge feature
-/// module (Phase 3). It builds a self-contained JS object with closures over its own state and
+/// module. It builds a self-contained JS object with closures over its own state and
 /// touches no bridge instance state, so — like ConsoleBinding / CryptoBinding — it is a pure static
-/// class with no host contract. Previously the bridge's JsRegistrationCreateEvent033Core in the
-/// shared JsFunctionCallbacks/Registration.cs grab-bag.
+/// class with no host contract.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. The event object and the flag behind <c>cancelBubble</c> are still captured by the operation
-/// closures exactly as before; what changed is that the object is minted by the realm, its members are
-/// installed through <see cref="IJsMembers"/>, and its own fields are read and written through the
-/// realm rather than through the engine's indexer.
+/// type. The event object and the flag behind <c>cancelBubble</c> are captured by the operation
+/// closures; the object is minted by the realm, its members are installed through
+/// <see cref="IJsMembers"/>, and its own fields are read and written through the realm.
 /// </para>
 /// <para>
 /// <b>Every numeric argument goes through the realm's <c>ToNumber</c>, not the handle's
@@ -72,19 +70,19 @@ internal static class LegacyEventBinding
         realm.DefineValue(evt, "deltaMode", JsValue.Number(0));
         realm.DefineValue(evt, "relatedTarget", JsValue.Null);
 
-        realm.DefineValue(evt, "stopPropagation", realm.NewMethod("stopPropagation", StopPropagation, 0));
-        realm.DefineValue(evt, "stopImmediatePropagation", realm.NewMethod("stopImmediatePropagation", StopImmediatePropagation, 0));
-        realm.DefineValue(evt, "preventDefault", realm.NewMethod("preventDefault", PreventDefault, 0));
+        realm.DefineMethod(evt, "stopPropagation", 0, StopPropagation);
+        realm.DefineMethod(evt, "stopImmediatePropagation", 0, StopImmediatePropagation);
+        realm.DefineMethod(evt, "preventDefault", 0, PreventDefault);
         realm.DefineAccessor(evt, "cancelBubble", GetCancelBubble, SetCancelBubble);
         realm.DefineAccessor(evt, "returnValue", GetReturnValue, SetReturnValue);
-        realm.DefineValue(evt, "initEvent", realm.NewMethod("initEvent", InitEvent, 3));
-        realm.DefineValue(evt, "initUIEvent", realm.NewMethod("initUIEvent", InitUIEvent, 5));
-        realm.DefineValue(evt, "initInputEvent", realm.NewMethod("initInputEvent", InitInputEvent, 7));
-        realm.DefineValue(evt, "initCustomEvent", realm.NewMethod("initCustomEvent", InitCustomEvent, 4));
-        realm.DefineValue(evt, "initFocusEvent", realm.NewMethod("initFocusEvent", InitFocusEvent, 6));
-        realm.DefineValue(evt, "initKeyboardEvent", realm.NewMethod("initKeyboardEvent", InitKeyboardEvent, 13));
-        realm.DefineValue(evt, "initMouseEvent", realm.NewMethod("initMouseEvent", InitMouseEvent, 15));
-        realm.DefineValue(evt, "initWheelEvent", realm.NewMethod("initWheelEvent", InitWheelEvent, 16));
+        realm.DefineMethod(evt, "initEvent", 3, InitEvent);
+        realm.DefineMethod(evt, "initUIEvent", 5, InitUIEvent);
+        realm.DefineMethod(evt, "initInputEvent", 7, InitInputEvent);
+        realm.DefineMethod(evt, "initCustomEvent", 4, InitCustomEvent);
+        realm.DefineMethod(evt, "initFocusEvent", 6, InitFocusEvent);
+        realm.DefineMethod(evt, "initKeyboardEvent", 13, InitKeyboardEvent);
+        realm.DefineMethod(evt, "initMouseEvent", 15, InitMouseEvent);
+        realm.DefineMethod(evt, "initWheelEvent", 16, InitWheelEvent);
 
         return evt;
 
@@ -142,24 +140,19 @@ internal static class LegacyEventBinding
         JsValue InitUIEvent(in JsCall initCall)
         {
             InitBase(in initCall);
-            if (initCall.Length > 3)
-                initCall.Realm.SetProperty(evt, "view", initCall[3]);
-            if (initCall.Length > 4)
-                initCall.Realm.SetProperty(evt, "detail", initCall[4]);
+            Raw(in initCall, 3, "view");
+            // `detail` arrives uncoerced here, unlike the Focus/Mouse/Wheel forms below.
+            Raw(in initCall, 4, "detail");
             return JsValue.Undefined;
         }
 
         JsValue InitInputEvent(in JsCall initCall)
         {
             InitBase(in initCall);
-            if (initCall.Length > 3)
-                initCall.Realm.SetProperty(evt, "view", initCall[3]);
-            if (initCall.Length > 4)
-                initCall.Realm.SetProperty(evt, "data", initCall[4]);
-            if (initCall.Length > 5)
-                initCall.Realm.SetProperty(evt, "inputType", JsValue.String(initCall.Realm.ToJsString(initCall[5])));
-            if (initCall.Length > 6)
-                initCall.Realm.SetProperty(evt, "isComposing", JsValue.Boolean(initCall[6].AsBoolean));
+            Raw(in initCall, 3, "view");
+            Raw(in initCall, 4, "data");
+            Str(in initCall, 5, "inputType");
+            Bool(in initCall, 6, "isComposing");
             return JsValue.Undefined;
         }
 
@@ -175,34 +168,23 @@ internal static class LegacyEventBinding
         JsValue InitFocusEvent(in JsCall initCall)
         {
             InitBase(in initCall);
-            if (initCall.Length > 3)
-                initCall.Realm.SetProperty(evt, "view", initCall[3]);
-            if (initCall.Length > 4)
-                initCall.Realm.SetProperty(evt, "detail", JsValue.Number(initCall.Realm.ToNumber(initCall[4])));
-            if (initCall.Length > 5)
-                initCall.Realm.SetProperty(evt, "relatedTarget", initCall[5]);
+            Raw(in initCall, 3, "view");
+            Num(in initCall, 4, "detail");
+            Raw(in initCall, 5, "relatedTarget");
             return JsValue.Undefined;
         }
 
         JsValue InitKeyboardEvent(in JsCall initCall)
         {
             InitBase(in initCall);
-            if (initCall.Length > 3)
-                initCall.Realm.SetProperty(evt, "view", initCall[3]);
-            if (initCall.Length > 4)
-                initCall.Realm.SetProperty(evt, "key", JsValue.String(initCall.Realm.ToJsString(initCall[4])));
-            if (initCall.Length > 5)
-                initCall.Realm.SetProperty(evt, "location", JsValue.Number(initCall.Realm.ToNumber(initCall[5])));
-            if (initCall.Length > 6)
-                initCall.Realm.SetProperty(evt, "ctrlKey", JsValue.Boolean(initCall[6].AsBoolean));
-            if (initCall.Length > 7)
-                initCall.Realm.SetProperty(evt, "altKey", JsValue.Boolean(initCall[7].AsBoolean));
-            if (initCall.Length > 8)
-                initCall.Realm.SetProperty(evt, "shiftKey", JsValue.Boolean(initCall[8].AsBoolean));
-            if (initCall.Length > 9)
-                initCall.Realm.SetProperty(evt, "metaKey", JsValue.Boolean(initCall[9].AsBoolean));
-            if (initCall.Length > 10)
-                initCall.Realm.SetProperty(evt, "repeat", JsValue.Boolean(initCall[10].AsBoolean));
+            Raw(in initCall, 3, "view");
+            Str(in initCall, 4, "key");
+            Num(in initCall, 5, "location");
+            Bool(in initCall, 6, "ctrlKey");
+            Bool(in initCall, 7, "altKey");
+            Bool(in initCall, 8, "shiftKey");
+            Bool(in initCall, 9, "metaKey");
+            Bool(in initCall, 10, "repeat");
             if (initCall.Length > 11)
             {
                 var keyCode = initCall.Realm.ToNumber(initCall[11]);
@@ -226,36 +208,11 @@ internal static class LegacyEventBinding
         JsValue InitMouseEvent(in JsCall initCall)
         {
             InitBase(in initCall);
-            if (initCall.Length > 3)
-                initCall.Realm.SetProperty(evt, "view", initCall[3]);
-            if (initCall.Length > 4)
-                initCall.Realm.SetProperty(evt, "detail", JsValue.Number(initCall.Realm.ToNumber(initCall[4])));
-            if (initCall.Length > 5)
-                initCall.Realm.SetProperty(evt, "screenX", JsValue.Number(initCall.Realm.ToNumber(initCall[5])));
-            if (initCall.Length > 6)
-                initCall.Realm.SetProperty(evt, "screenY", JsValue.Number(initCall.Realm.ToNumber(initCall[6])));
-            if (initCall.Length > 7)
-            {
-                var clientX = initCall.Realm.ToNumber(initCall[7]);
-                initCall.Realm.SetProperty(evt, "clientX", JsValue.Number(clientX));
-                initCall.Realm.SetProperty(evt, "x", JsValue.Number(clientX));
-            }
-
-            if (initCall.Length > 8)
-            {
-                var clientY = initCall.Realm.ToNumber(initCall[8]);
-                initCall.Realm.SetProperty(evt, "clientY", JsValue.Number(clientY));
-                initCall.Realm.SetProperty(evt, "y", JsValue.Number(clientY));
-            }
-
-            if (initCall.Length > 9)
-                initCall.Realm.SetProperty(evt, "ctrlKey", JsValue.Boolean(initCall[9].AsBoolean));
-            if (initCall.Length > 10)
-                initCall.Realm.SetProperty(evt, "altKey", JsValue.Boolean(initCall[10].AsBoolean));
-            if (initCall.Length > 11)
-                initCall.Realm.SetProperty(evt, "shiftKey", JsValue.Boolean(initCall[11].AsBoolean));
-            if (initCall.Length > 12)
-                initCall.Realm.SetProperty(evt, "metaKey", JsValue.Boolean(initCall[12].AsBoolean));
+            InitPointerBase(in initCall);
+            Bool(in initCall, 9, "ctrlKey");
+            Bool(in initCall, 10, "altKey");
+            Bool(in initCall, 11, "shiftKey");
+            Bool(in initCall, 12, "metaKey");
             if (initCall.Length > 13)
             {
                 var button = initCall.Realm.ToNumber(initCall[13]);
@@ -271,22 +228,55 @@ internal static class LegacyEventBinding
                 }));
             }
 
-            if (initCall.Length > 14)
-                initCall.Realm.SetProperty(evt, "relatedTarget", initCall[14]);
+            Raw(in initCall, 14, "relatedTarget");
             return JsValue.Undefined;
         }
 
         JsValue InitWheelEvent(in JsCall initCall)
         {
             InitBase(in initCall);
-            if (initCall.Length > 3)
-                initCall.Realm.SetProperty(evt, "view", initCall[3]);
-            if (initCall.Length > 4)
-                initCall.Realm.SetProperty(evt, "detail", JsValue.Number(initCall.Realm.ToNumber(initCall[4])));
-            if (initCall.Length > 5)
-                initCall.Realm.SetProperty(evt, "screenX", JsValue.Number(initCall.Realm.ToNumber(initCall[5])));
-            if (initCall.Length > 6)
-                initCall.Realm.SetProperty(evt, "screenY", JsValue.Number(initCall.Realm.ToNumber(initCall[6])));
+            InitPointerBase(in initCall);
+            // The wheel form diverges from the mouse form here: `button` is a number at slot 9 where
+            // mouse takes ctrlKey, and `relatedTarget` sits at 10 rather than at 14.
+            Num(in initCall, 9, "button");
+            Raw(in initCall, 10, "relatedTarget");
+            if (initCall.Length > 11)
+            {
+                // The wheel form takes its modifiers as a whitespace-separated key list rather than as
+                // four booleans, so each flag is the presence of a name in it.
+                var modifiers = initCall.Realm.ToJsString(initCall[11])
+                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                initCall.Realm.SetProperty(evt, "ctrlKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Control", StringComparison.OrdinalIgnoreCase))));
+                initCall.Realm.SetProperty(evt, "altKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Alt", StringComparison.OrdinalIgnoreCase))));
+                initCall.Realm.SetProperty(evt, "shiftKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Shift", StringComparison.OrdinalIgnoreCase))));
+                initCall.Realm.SetProperty(evt, "metaKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Meta", StringComparison.OrdinalIgnoreCase))));
+            }
+
+            Num(in initCall, 12, "deltaX");
+            Num(in initCall, 13, "deltaY");
+            Num(in initCall, 14, "deltaZ");
+            Num(in initCall, 15, "deltaMode");
+            return JsValue.Undefined;
+        }
+
+        // (type, bubbles, cancelable) — the first three arguments every one of the eight init forms
+        // takes, and the eight copies of this that were written out in full.
+        void InitBase(in JsCall initCall)
+        {
+            Str(in initCall, 0, "type");
+            Bool(in initCall, 1, "bubbles");
+            Bool(in initCall, 2, "cancelable");
+        }
+
+        // (view, detail, screenX, screenY, clientX/x, clientY/y) — argument slots 3-8, which
+        // initMouseEvent and initWheelEvent spell identically before diverging at slot 9. Not named
+        // for coordinates alone: it also writes `view` and `detail`.
+        void InitPointerBase(in JsCall initCall)
+        {
+            Raw(in initCall, 3, "view");
+            Num(in initCall, 4, "detail");
+            Num(in initCall, 5, "screenX");
+            Num(in initCall, 6, "screenY");
             if (initCall.Length > 7)
             {
                 var clientX = initCall.Realm.ToNumber(initCall[7]);
@@ -300,44 +290,43 @@ internal static class LegacyEventBinding
                 initCall.Realm.SetProperty(evt, "clientY", JsValue.Number(clientY));
                 initCall.Realm.SetProperty(evt, "y", JsValue.Number(clientY));
             }
-
-            if (initCall.Length > 9)
-                initCall.Realm.SetProperty(evt, "button", JsValue.Number(initCall.Realm.ToNumber(initCall[9])));
-            if (initCall.Length > 10)
-                initCall.Realm.SetProperty(evt, "relatedTarget", initCall[10]);
-            if (initCall.Length > 11)
-            {
-                // The wheel form takes its modifiers as a whitespace-separated key list rather than as
-                // four booleans, so each flag is the presence of a name in it.
-                var modifiers = initCall.Realm.ToJsString(initCall[11])
-                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                initCall.Realm.SetProperty(evt, "ctrlKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Control", StringComparison.OrdinalIgnoreCase))));
-                initCall.Realm.SetProperty(evt, "altKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Alt", StringComparison.OrdinalIgnoreCase))));
-                initCall.Realm.SetProperty(evt, "shiftKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Shift", StringComparison.OrdinalIgnoreCase))));
-                initCall.Realm.SetProperty(evt, "metaKey", JsValue.Boolean(Array.Exists(modifiers, m => string.Equals(m, "Meta", StringComparison.OrdinalIgnoreCase))));
-            }
-
-            if (initCall.Length > 12)
-                initCall.Realm.SetProperty(evt, "deltaX", JsValue.Number(initCall.Realm.ToNumber(initCall[12])));
-            if (initCall.Length > 13)
-                initCall.Realm.SetProperty(evt, "deltaY", JsValue.Number(initCall.Realm.ToNumber(initCall[13])));
-            if (initCall.Length > 14)
-                initCall.Realm.SetProperty(evt, "deltaZ", JsValue.Number(initCall.Realm.ToNumber(initCall[14])));
-            if (initCall.Length > 15)
-                initCall.Realm.SetProperty(evt, "deltaMode", JsValue.Number(initCall.Realm.ToNumber(initCall[15])));
-            return JsValue.Undefined;
         }
 
-        // (type, bubbles, cancelable) — the first three arguments every one of the eight init forms
-        // takes, and the eight copies of this that were written out in full.
-        void InitBase(in JsCall initCall)
+        // The four coercions an init* argument slot can carry, each written once instead of at the
+        // 39 sites that spelled out the same `if (length > i) SetProperty(...)` pair. They stay four
+        // separate helpers rather than one taking a ready-made JsValue: C# evaluates an argument
+        // eagerly, so a single `Set(call, i, name, value)` would coerce an index that is not there.
+        //
+        // Each reads the realm off the call it was handed, never the realm captured by Create: this
+        // factory is also installed on a sub-document, where the realm invoking an init* method need
+        // not be the one that minted the event.
+
+        // Raw — the argument as it arrived, with no coercion at all.
+        void Raw(in JsCall initCall, int index, string name)
         {
-            if (initCall.Length > 0)
-                initCall.Realm.SetProperty(evt, "type", JsValue.String(initCall.Realm.ToJsString(initCall[0])));
-            if (initCall.Length > 1)
-                initCall.Realm.SetProperty(evt, "bubbles", JsValue.Boolean(initCall[1].AsBoolean));
-            if (initCall.Length > 2)
-                initCall.Realm.SetProperty(evt, "cancelable", JsValue.Boolean(initCall[2].AsBoolean));
+            if (initCall.Length > index)
+                initCall.Realm.SetProperty(evt, name, initCall[index]);
+        }
+
+        // Str — ECMAScript ToString of the argument.
+        void Str(in JsCall initCall, int index, string name)
+        {
+            if (initCall.Length > index)
+                initCall.Realm.SetProperty(evt, name, JsValue.String(initCall.Realm.ToJsString(initCall[index])));
+        }
+
+        // Num — ECMAScript ToNumber of the argument; see the class remarks on why not AsNumber.
+        void Num(in JsCall initCall, int index, string name)
+        {
+            if (initCall.Length > index)
+                initCall.Realm.SetProperty(evt, name, JsValue.Number(initCall.Realm.ToNumber(initCall[index])));
+        }
+
+        // Bool — the argument's truthiness.
+        void Bool(in JsCall initCall, int index, string name)
+        {
+            if (initCall.Length > index)
+                initCall.Realm.SetProperty(evt, name, JsValue.Boolean(initCall[index].AsBoolean));
         }
     }
 }

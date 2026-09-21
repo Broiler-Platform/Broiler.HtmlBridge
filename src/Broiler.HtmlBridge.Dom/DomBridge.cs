@@ -20,77 +20,53 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 /// <remarks>
 /// That parameter is what <c>IDomBridgeRuntime.Attach</c> hands over, and the interface lives in
-/// <c>Broiler.HtmlBridge.Core</c>. It is not the last thing holding the bridge to one engine (this
-/// said it was): <c>DomBridge/Lifecycle.cs</c>, <c>Runtime/JsInterop.cs</c> and <c>BridgeModuleContext.cs</c>
+/// <c>Broiler.HtmlBridge.Core</c>. It is not the last thing holding the bridge to one engine:
+/// <c>DomBridge/Lifecycle.cs</c>, <c>Runtime/JsInterop.cs</c> and <c>BridgeModuleContext.cs</c>
 /// say what else still does.
 /// </remarks>
 public sealed partial class DomBridge : IDomBridgeRuntime
 {
-    // P2.6: sub-resource HTTP and the local base path now live in ResourceLoader, the single host
-    // resource loader (was the static SharedHttpClient plus the _localBasePath field). Feature
-    // callbacks ask the loader instead of reaching a static HttpClient.
+    // Sub-resource HTTP and the local base path live in ResourceLoader, the single host resource
+    // loader. Feature callbacks ask the loader instead of reaching a static HttpClient.
     private readonly Dom.Runtime.ResourceLoader _resources = new();
     private Dom.Features.WorkerBinding? _workers;
-    // Phase 3 (P3.2): the whole MutationObserver feature — the observer registry (P2.5
-    // MutationObserverHub), the observe()/disconnect() registration and childList/attribute/
-    // characterData record delivery — lives in the MutationObserverBinding module, reached through
-    // the narrow IMutationObserverHost contract (see DomBridge/Hosts.Window.cs).
+    // The whole MutationObserver feature — the observer registry (MutationObserverHub), the
+    // observe()/disconnect() registration and childList/attribute/characterData record delivery —
+    // lives in the MutationObserverBinding module, reached through the narrow IMutationObserverHost
+    // contract (see DomBridge/Hosts.Window.cs).
     private readonly Dom.Features.MutationObserverBinding _mutations;
-    // Phase 3 (P3.3): the DOM event dispatch engine — capture/target/bubble propagation, the event
-    // object's propagation-control methods and composedPath() — lives in EventDispatchBinding,
-    // reached through the narrow IEventDispatchHost contract (see DomBridge/Hosts.Window.cs).
+    // The DOM event dispatch engine — capture/target/bubble propagation, the event object's
+    // propagation-control methods and composedPath() — lives in EventDispatchBinding, reached
+    // through the narrow IEventDispatchHost contract (see DomBridge/Hosts.Window.cs).
     private readonly Dom.Features.EventDispatchBinding _eventDispatch;
-    // Phase 3 (P3.5): the HTML table DOM interfaces (HTMLTableElement / HTMLTableSectionElement /
+    // The HTML table DOM interfaces (HTMLTableElement / HTMLTableSectionElement /
     // HTMLTableRowElement) live in TableBinding, reached through the narrow ITableHost contract
     // (see DomBridge/Hosts.Elements.cs).
     private readonly Dom.Features.TableBinding _tables;
-    // Phase 3 (P3.7): the dialog / popover / details JS API (showModal/show/close/showPopover/
-    // hidePopover/open/returnValue) lives in DialogBinding, reached through the narrow IDialogHost
-    // contract (see DomBridge/Hosts.Elements.cs); backdrop/top-layer rendering stays in the bridge.
+    // The dialog / popover / details JS API (showModal/show/close/showPopover/hidePopover/open/
+    // returnValue) lives in DialogBinding, reached through the narrow IDialogHost contract
+    // (see DomBridge/Hosts.Elements.cs); backdrop/top-layer rendering stays in the bridge.
     private readonly Dom.Features.DialogBinding _dialogs;
-    // Phase 3 (P3.8): HTMLSelectElement / HTMLOptionElement (add/options/selectedIndex/size/value +
+    // HTMLSelectElement / HTMLOptionElement (add/options/selectedIndex/size/value +
     // option.defaultSelected/text) live in SelectBinding, reached through the narrow ISelectHost contract
     // (see DomBridge/Hosts.Elements.cs); the shared value property delegates its select branch to it.
     private readonly Dom.Features.SelectBinding _select;
-    // Phase 3 (P3.9): HTMLFormElement (elements/length/action) and constraint validation
-    // (checkValidity/reportValidity) live in FormBinding, reached through the narrow IFormHost
-    // contract (see DomBridge/Hosts.Elements.cs).
+    // HTMLFormElement (elements/length/action) and constraint validation (checkValidity/
+    // reportValidity) live in FormBinding, reached through the narrow IFormHost contract
+    // (see DomBridge/Hosts.Elements.cs).
     private readonly Dom.Features.FormBinding _forms;
-    // Phase 3 (P3.60): the form-control IDL reflectors (value/checked/type/name/disabled/hidden/
-    // tabIndex/required) live in FormControlBinding, reached through the narrow IFormControlHost
-    // contract (see DomBridge/Hosts.Elements.cs).
+    // The form-control IDL reflectors (value/checked/type/name/disabled/hidden/tabIndex/required)
+    // live in FormControlBinding, reached through the narrow IFormControlHost contract
+    // (see DomBridge/Hosts.Elements.cs).
     private readonly Dom.Features.FormControlBinding _formControl;
-    // Phase 3 (first feature-module slice): TreeWalker/NodeIterator/Range construction, every Range
-    // callback and the traversal-scoped active-range / active-node-iterator registries live in the
-    // co-located TraversalBinding module. The bridge holds the module through the narrow
-    // ITraversalHost contract it implements (see DomBridge/Hosts.Nodes.cs).
+    // TreeWalker/NodeIterator/Range construction, every Range callback and the traversal-scoped
+    // active-range / active-node-iterator registries live in the co-located TraversalBinding module.
+    // The bridge holds the module through the narrow ITraversalHost contract it implements
+    // (see DomBridge/Hosts.Nodes.cs).
     private readonly Dom.Features.TraversalBinding _traversal;
     private readonly DomDocument _document;
-    // Per-element inline-style runtime state (the last concern de-globalized off the former process-static
-    // ElementRuntimeState table, 2026-07-17); reached via InlineStyleStateFor.
+    // Per-element inline-style runtime state; reached via InlineStyleStateFor.
     private readonly ConditionalWeakTable<DomNode, InlineStyleRuntimeState> _inlineStyleStates = [];
-    // The three wrapper roots: the JS objects for `document`, `window` and `window.visualViewport`,
-    // held as the handles the realm minted. Registration assigns each once (the first two in
-    // DomBridge/Registration/Registration.cs, the third in DomBridge/Registration/Window.cs) and
-    // ClearWrapperRoots below drops them.
-    //
-    // THEY WERE THE ENGINE'S OWN OBJECTS BECAUSE THIS COMMENT SAID FOURTEEN OTHER FILES READ THEM AS
-    // SUCH, AND ITS ROSTER WAS WRONG IN BOTH DIRECTIONS. Twelve other files named a root. The roster
-    // listed DomBridge/CharacterDataInterface and DomBridge/ShadowDom, neither of which still does -- both
-    // stopped in 5282d02 and 38815c8 and read DocumentHandle now; the roster was right when it was
-    // written and went stale -- and left out DomBridge/Registration/CustomElements and the guard in
-    // DomBridge/Registration/Registration.cs's SyncWindowMembersOntoGlobal, which did. Nor did the
-    // readers all "do nothing but wrap the field the way the sibling already does": four answer
-    // something other than Missing for a root that is not there yet -- null from
-    // DomBridge/Registration/CustomElements and DomBridge.MessagingHost, undefined from
-    // DomBridge/DomBridge.CanvasHost and DomBridge.WindowContextHost -- and each of the four still
-    // does, explicitly, because Missing is neither.
-    //
-    // THE NAMES WENT WITH THE TYPE, AND THAT IS WHAT MADE THE RETYPE SAFE. Against a struct,
-    // `root == null` is at most a warning that it is always false, and `root is { } x` is no
-    // diagnostic at all and always true; in this assembly two guards were written the first way and
-    // ten reads the second. With the engine-typed names gone every one of them had to be rewritten or
-    // fail to compile, so none of them could go on compiling while it stopped testing anything.
     private JSContext? _jsContext;
 
     /// <summary>
@@ -131,11 +107,10 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         VisualViewportHandle = JsValue.Missing;
     }
 
-    // P2.4: the timer/interval/requestAnimationFrame/frame-action queues, their id counters and the
-    // drain (FlushTimerStep/FlushTimers) now live in BrowserEventLoop, the single owner of the
-    // document's task queues (was the eight scattered _timerIdCounter/_timeoutCallbacks/… fields).
-    // Built in the constructor rather than initialised in place because it takes the bridge's JSEAL
-    // realm accessor — a queued page callback is invoked through the realm, which is adopted at
+    // The timer/interval/requestAnimationFrame/frame-action queues, their id counters and the drain
+    // (FlushTimerStep/FlushTimers) live in BrowserEventLoop, the single owner of the document's task
+    // queues. Built in the constructor rather than initialised in place because it takes the bridge's
+    // JSEAL realm accessor — a queued page callback is invoked through the realm, which is adopted at
     // Attach and so does not exist when this field does.
     private readonly Dom.Runtime.BrowserEventLoop _eventLoop;
     // Runs the <script> elements the page's own JavaScript inserts — nothing did, so the loader
@@ -147,47 +122,43 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     // scroll/frame-action callbacks that can run on ThreadPool threads, so keep it concurrent.
     private int _smoothScrollTokenCounter;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<DomElement, int> _smoothScrollTokens = new();
-    // P2.5: the event-listener stores (per-node addEventListener listeners, window listeners,
-    // generic JS-target listeners, target→owner-window map, and visual-viewport scroll listeners)
-    // now live in EventTargetRegistry, the single listener owner (was the scattered
-    // _windowEventListeners/_eventTargetListeners/_eventTargetOwnerWindows/_visualViewportScrollListeners
-    // fields plus ElementRuntimeState.EventListeners for node listeners).
+    // The event-listener stores (per-node addEventListener listeners, window listeners, generic
+    // JS-target listeners, target→owner-window map, and visual-viewport scroll listeners) live in
+    // EventTargetRegistry, the single listener owner.
     private readonly Dom.Runtime.EventTargetRegistry _eventTargets = new();
-    // Phase 3 (P3.16): the nested-browsing-context state — the per-container sub-document/sub-window
-    // JS-object identity, location/base-URL caches, object-load-failure and onload-fired marks, the
-    // reverse sub-window→container map, the current-window override, and the P4.4b content-document
-    // maps — is owned by the single BrowsingContextManager (was ten fields scattered across
-    // SubDocuments.cs / DomBridge/Lifecycle.cs / DomBridge.cs). The bridge keeps the algorithms.
+    // The nested-browsing-context state — the per-container sub-document/sub-window JS-object
+    // identity, location/base-URL caches, object-load-failure and onload-fired marks, the reverse
+    // sub-window→container map, the current-window override, and the content-document maps — is
+    // owned by the single BrowsingContextManager. The bridge keeps the algorithms.
     private readonly Dom.Runtime.BrowsingContextManager _browsingContexts = new();
-    // Phase 3 (P3.18): the browsing-context window-resolution behaviour (canonicalise/resolve a window,
-    // and the RunWithWindowContext global switch) is owned by WindowContextManager, reached through the
+    // The browsing-context window-resolution behaviour (canonicalise/resolve a window, and the
+    // RunWithWindowContext global switch) is owned by WindowContextManager, reached through the
     // narrow IWindowContextHost contract (see DomBridge/Hosts.Window.cs), which also
     // keeps the thin delegators. It reads the sub-window state from _browsingContexts and _eventTargets.
     private readonly Dom.Runtime.WindowContextManager _windowContext;
-    // Phase 3 (P3.10): the whole web-messaging feature — window.postMessage, MessageChannel/
-    // MessagePort (which own the P2.6 MessagePortRegistry state) and the generic EventTarget dispatch
-    // shared with sub-windows — lives in MessagingBinding, reached through the narrow IMessagingHost
+    // The whole web-messaging feature — window.postMessage, MessageChannel/MessagePort (which own
+    // the MessagePortRegistry state) and the generic EventTarget dispatch shared with sub-windows —
+    // lives in MessagingBinding, reached through the narrow IMessagingHost
     // contract (see DomBridge/Hosts.Window.cs). The module holds a reference to the shared
     // _eventTargets registry (generic-target listeners it does not own).
     private readonly Dom.Features.MessagingBinding _messaging;
-    // Phase 3 (P3.11): the fetch / XMLHttpRequest networking surface (fetch + Headers/Request/Response/
+    // The fetch / XMLHttpRequest networking surface (fetch + Headers/Request/Response/
     // FormData/Blob/AbortController + the XHR polyfill) lives in FetchBinding, backed by the injected
-    // P2.6 ResourceLoader; the only bridge coupling (page URL for redirect resolution) is reached
+    // ResourceLoader; the only bridge coupling (page URL for redirect resolution) is reached
     // through the narrow IFetchHost contract (see DomBridge/Hosts.Window.cs).
     private readonly Dom.Features.FetchBinding _fetch;
-    // Phase 3 (P3.12): the DOM attribute object model — the element.attributes NamedNodeMap and its
+    // The DOM attribute object model — the element.attributes NamedNodeMap and its
     // Attr nodes — plus the setAttribute/removeAttribute write path live in AttributesBinding, reached
     // through the narrow IAttributesHost contract (see DomBridge/Hosts.Nodes.cs) for the write
     // path's cross-cutting side effects (inline style, inline event handlers, style invalidation,
     // mutation records). The low-level attribute scans stay shared static helpers on DomBridge.
     private readonly Dom.Features.AttributesBinding _attributes;
-    // Phase 3 (P3.13): the nested-browsing-context `document` object surface (BuildDocument + every
+    // The nested-browsing-context `document` object surface (BuildDocument + every
     // getElementById/createElement/querySelector/… callback + document.implementation) lives in
     // SubDocumentBinding, reached through the ISubDocumentHost contract (see DomBridge/Hosts.Documents.cs).
-    // Unblocked by P4.4b's #subdoc-root sever — a sub-document root is now a canonical DomNode. The
-    // browsing-context state (sub-document/-window caches, content-document maps, current-window
-    // override) is owned by BrowsingContextManager (P3.16); the builders / resource loading / onload
-    // algorithms stay bridge-owned and reach that state through it.
+    // A sub-document root is a canonical DomNode. The browsing-context state (sub-document/-window
+    // caches, content-document maps, current-window override) is owned by BrowsingContextManager; the
+    // builders / resource loading / onload algorithms stay bridge-owned and reach that state through it.
     /// <summary>The File API data surfaces — Blob, File and the URL object-URL pair. It needs nothing
     /// from the bridge (a blob is bytes, not a node), so it takes no host contract.</summary>
     private readonly Dom.Features.BlobBinding _blobs;
@@ -203,10 +174,10 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     /// </remarks>
     private readonly Dom.Features.StreamsBinding _streams;
     private readonly Dom.Features.SubDocumentBinding _subDocuments;
-    // Phase 3 (P3.17): the nested-browsing-context `window` (sub-window) object — its
+    // The nested-browsing-context `window` (sub-window) object — its
     // document/location/scroll/getComputedStyle surface and the sub-window-scoped helpers — lives in
     // SubWindowBinding, reached through the narrow ISubWindowHost contract (see DomBridge/Hosts.Documents.cs);
-    // it holds the P3.16 BrowsingContextManager + the shared EventTargetRegistry/MessagingBinding it installs.
+    // it holds the BrowsingContextManager + the shared EventTargetRegistry/MessagingBinding it installs.
     private readonly Dom.Features.SubWindowBinding _subWindows;
     private double _visualViewportScale = 1.0;
     private double _visualViewportPageLeftOffset;
@@ -328,9 +299,9 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         // A sheet's text changing through the DOM invalidates computed style; see OnStyleSheetSourceMutation.
         _document.Mutated += OnStyleSheetSourceMutation;
         DocumentElement = CreateBridgeElement("html");
-        // Phase 4 item 1 (final sentinel): the canonical DomDocument is the document root — the JS
-        // `document` object maps to it and <html>/doctype are its direct children (no #document
-        // wrapper element). DomDocument enforces DOM child validity (one documentElement, doctype
+        // The canonical DomDocument is the document root — the JS `document` object maps to it and
+        // <html>/doctype are its direct children (no #document wrapper element).
+        // DomDocument enforces DOM child validity (one documentElement, doctype
         // first); the constructor's single <html> child satisfies it.
         _document.AppendChild(DocumentElement);
     }
@@ -354,8 +325,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     internal InlineStyleRuntimeState InlineStyleStateFor(DomNode node) =>
         _inlineStyleStates.GetValue(node, static _ => new InlineStyleRuntimeState());
 
-    /// <summary>Mints a canonical <see cref="DomText"/> carrying <paramref name="data"/>
-    /// (RF-BRIDGE-1c Phase F, F3c part 2d — construction cutover). The funnel for every text node the
+    /// <summary>Mints a canonical <see cref="DomText"/> carrying <paramref name="data"/>.
+    /// The funnel for every text node the
     /// bridge constructs itself; callers treat the result as a <see cref="DomNode"/>. A
     /// <c>textContent</c> write does not come through here: the canonical <see cref="DomNode.TextContent"/>
     /// setter mints its text node from the written node's own document.</summary>
@@ -366,8 +337,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     private DomComment CreateBridgeCommentNode(string data) => NodeFactoryDocument.CreateComment(data);
 
     /// <summary>
-    /// The single construction funnel for bridge element nodes (RF-BRIDGE-1c Phase F, F4). Every
-    /// former <c>new Broiler.Dom.DomElement(...)</c> site routes through here (or <see cref="CreateBridgeElementNS"/>)
+    /// The single construction funnel for bridge element nodes. Every
+    /// <c>new Broiler.Dom.DomElement(...)</c> site routes through here (or <see cref="CreateBridgeElementNS"/>)
     /// so element construction lives in exactly one place over the canonical <c>Broiler.Dom</c>
     /// document factories. The tag name may be an HTML element literal (HTML namespace) or a
     /// <c>#</c>-sentinel (<c>#document</c>, <c>#subdoc-root</c>, …), which keeps a null namespace and
@@ -397,25 +368,24 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         return element;
     }
 
-    /// <summary>Mints a canonical <see cref="DomDocumentType"/> (Phase 4 item 1 — the former
-    /// <c>#doctype</c> sentinel element). The doctype name is lowercased to preserve the historical
-    /// bridge behaviour (doctype name was always surfaced lowercase via the old <c>GetDocTypeName</c>);
+    /// <summary>Mints a canonical <see cref="DomDocumentType"/>. The doctype name is lowercased to
+    /// preserve the historical bridge behaviour of always surfacing it lowercase;
     /// publicId/systemId keep their case. The funnel for the doctypes script creates
     /// (<c>createDocumentType</c>, <c>createHTMLDocument</c>) over the canonical document factory; a
     /// parsed document's doctype is the shared parser's own node, moved across with the tree.</summary>
     private DomDocumentType CreateBridgeDocumentType(string name, string publicId, string systemId) =>
         NodeFactoryDocument.CreateDocumentType(name.ToLowerInvariant(), publicId, systemId);
 
-    /// <summary>Mints a canonical <see cref="DomDocumentFragment"/> (Phase 4 item 1 — the former
-    /// <c>#document-fragment</c> sentinel element). The single funnel for fragment construction over
+    /// <summary>Mints a canonical <see cref="DomDocumentFragment"/>.
+    /// The single funnel for fragment construction over
     /// the canonical document factory (used by <c>createDocumentFragment</c>, Range clone/extract
     /// results, and a template's contents). A parsed HTML fragment is the shared parser's own
     /// fragment instead.</summary>
     private DomDocumentFragment CreateBridgeDocumentFragment() => NodeFactoryDocument.CreateDocumentFragment();
 
-    /// <summary>Mints a canonical <see cref="DomDocument"/> for a detached browsing context (Phase 4
-    /// item 1, P4.4a — the former <c>#subdoc-root</c> sentinel for <c>createDocument</c>/
-    /// <c>createHTMLDocument</c>). It is its own document (not the main <c>_document</c>) and, being a
+    /// <summary>Mints a canonical <see cref="DomDocument"/> for a detached browsing context
+    /// (<c>createDocument</c>/<c>createHTMLDocument</c>).
+    /// It is its own document (not the main <c>_document</c>) and, being a
     /// programmatic non-rendered document, is marked viewport-less so hit-testing skips it. Its
     /// children (doctype/documentElement) are appended as true canonical document children.</summary>
     private DomDocument CreateBrowsingContextDocument()
@@ -462,10 +432,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         out double width,
         out double height)
     {
-        // RF-BRIDGE-1b (Milestone 2.5): reads the memoized position-area resolution,
-        // relocated from ElementRuntimeState.Layout to the bridge-level
-        // PositionAreaResolutions cache. The four values are always set (and cleared)
-        // together, so a cached entry is equivalent to the old "all four slots present".
+        // Reads the memoized position-area resolution. The four values are always set (and
+        // cleared) together, so a cached entry either has all four or none.
         if (TryGetPositionAreaResolution(element, out var rect))
         {
             (left, top, width, height) = rect;
@@ -529,9 +497,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     /// <summary>
     /// Enforces the CSP <c>style-src</c> family on the freshly parsed DOM as the final step of attach, so
     /// the document the host hands to scripts and rendering already excludes CSP-blocked inline styles and
-    /// <c>&lt;style&gt;</c> elements (Phase 7 item 5: CSP is a host-layer decision, and DOM/CSS receive
-    /// already-authorised content on every path — not just the CLI/WPT hosts that used to call
-    /// <see cref="ApplyStyleContentSecurityPolicy"/> by hand). Runs only when a policy is configured via
+    /// <c>&lt;style&gt;</c> elements (CSP is a host-layer decision, and DOM/CSS receive
+    /// already-authorised content on every path). Runs only when a policy is configured via
     /// <see cref="Csp"/>; idempotent, so a host that still applies the policy explicitly removes nothing more.
     /// </summary>
     private void EnforceConfiguredStyleContentSecurityPolicy()
@@ -542,28 +509,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime
 
     /*
      * HTML "named access on the Window object" -- `window.myId` resolving to the element with
-     * id="myId" -- IS NOT IMPLEMENTED HERE, and a RegisterNamedElementGlobals that looked like an
-     * implementation of it used to sit at this point in the file.
-     *
-     * It was public, took a JSContext, and had no caller: not in this repository, and not at any
-     * point in its history -- `git log -S` finds the one commit that imported it and nothing since.
-     * It was also not on IDomBridgeRuntime, so nothing on the sanctioned surface could reach it
-     * either. Its own remarks said it "takes a script context for the same reason Attach does, and
-     * it moves when that does", which read as a note about a live seam and was a note about code
-     * nothing ran.
-     *
-     * The absence is stated rather than left implicit because the method made the feature look
-     * present. Anyone implementing it does so fresh, against IJsRealm, and inherits none of what
-     * that body had: an existence probe that evaluated a `typeof` expression through its context --
-     * one of this project's budgeted eval sites, spent on a question the realm answers directly --
-     * and a documented defect in that same probe, where the engine's lowercase "true" never
-     * matched C#'s "True", so the shadowing skip it exists for was a no-op and a same-named
-     * read-only lexical binding threw "Cannot assign to read only variable" and took the render
-     * with it. Both are in this repository's history at the commit that removed them.
-     *
-     * (Spelled without the method name on purpose: the eval-site metric in
-     * eng/jseal-budget.json is textual and counts a mention in a comment the same as a call, which
-     * is deliberate -- telling prose from code would need a parser and would then be arguable.)
+     * id="myId" -- IS NOT IMPLEMENTED HERE. The absence is stated rather than left implicit;
+     * anyone implementing it does so fresh, against IJsRealm.
      */
 
     /// <summary>

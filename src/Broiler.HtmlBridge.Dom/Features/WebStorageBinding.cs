@@ -4,11 +4,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The Web Storage areas (HTML §12.2) — <c>localStorage</c> and <c>sessionStorage</c>, each a
-/// <c>Storage</c> object over an in-memory string map — co-located as an HtmlBridge feature module
-/// (Phase 3). A fully self-contained slice: the store is a plain dictionary and the callbacks touch
+/// <c>Storage</c> object over an in-memory string map — co-located as an HtmlBridge feature module.
+/// A fully self-contained slice: the store is a plain dictionary and the callbacks touch
 /// no bridge state, so — like <c>ClassListBinding</c> — it is an <b>internal static class with no
-/// host contract</b>. Was the bridge's <c>BuildLocalStorageObject</c> plus
-/// <c>JsUtilitiesGetItem029Core</c>..<c>Clear032Core</c>.
+/// host contract</b>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -17,28 +16,26 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// for — gets a consistent answer either way.
 /// </para>
 /// <para>
-/// Both areas exist because a missing one is not an empty one. <c>sessionStorage</c> was never
-/// registered, and since <c>window</c> IS the global object that made the unqualified
+/// Both areas exist because a missing one is not an empty one: since <c>window</c> IS the global
+/// object, an unregistered <c>sessionStorage</c> makes the unqualified
 /// <c>sessionStorage</c> a <c>ReferenceError</c> rather than an undefined property — which aborts
 /// the whole script, not the statement that read it. <c>www.mediawiki.org</c> loads its modules
 /// through one <c>load.php</c> bundle, so the abort took the entire bundle with it (ResourceLoader,
 /// the Vector skin's scripts and every module queued behind them) off one identifier.
 /// </para>
 /// <para>
-/// <b>This was the last of the six lookup-completing objects to name an engine type, and the gap that
-/// kept it here was a missing hook rather than a missing realm.</b> <c>Storage</c> is the only one of
-/// the six whose behaviour includes a <em>deletion</em> — <c>delete localStorage.foo</c> takes the
-/// item out of the area, so <c>getItem</c> stops answering for it and <c>length</c> and <c>key(n)</c>
-/// stop counting it — and <see cref="IJsExotic"/> declared a named read, an indexed read and a named
-/// write and no delete. Converting without one would have left the ordinary property deleted and the
-/// item still in the store, which is a wrong answer rather than a missing feature. The hook is
-/// <see cref="IJsExoticDelete"/>, and <see cref="StorageArea"/> implements both.
+/// <b><c>Storage</c> needs a deletion hook, not just a realm.</b> <c>delete localStorage.foo</c> takes
+/// the item out of the area, so <c>getItem</c> stops answering for it and <c>length</c> and
+/// <c>key(n)</c> stop counting it, while <see cref="IJsExotic"/> declares a named read, an indexed
+/// read and a named write and no delete. Without a delete hook the ordinary property would go and
+/// the item would stay in the store, which is a wrong answer rather than a missing feature. The hook
+/// is <see cref="IJsExoticDelete"/>, and <see cref="StorageArea"/> implements both.
 /// </para>
 /// <para>
-/// <b>The area no longer mirrors its items into ordinary properties; it answers for them.</b> That is
+/// <b>The area does not mirror its items into ordinary properties; it answers for them.</b> That is
 /// what a legacy platform object with named getters and setters is, and it is what makes the two
 /// spellings genuinely one item rather than two copies kept in step. It also settles by construction
-/// two things the mirror had to arrange by hand: an interface member outranks a key of the same name
+/// two things a mirror would have to arrange by hand: an interface member outranks a key of the same name
 /// because ordinary properties are consulted first, and a value assigned as a property is stored as
 /// the string HTML §12.2.2 requires because the handler coerces it on the way in rather than after a
 /// raw copy has already been written.
@@ -79,24 +76,19 @@ internal static class WebStorageBinding
         // `Object.keys(storage)` yield keys alone. A bridge storage area carries its members directly
         // (see RegisterStorageConstructor), so hiding them from enumeration is what keeps a
         // page that iterates a storage area from finding four methods among its keys.
-        realm.DefineValue(area, "getItem",
-            realm.NewMethod("getItem", (in call) => GetItem(storage, in call), 1),
+        realm.DefineMethod(area, "getItem", 1, (in call) => GetItem(storage, in call),
             JsPropertyFlags.NonEnumerable);
 
-        realm.DefineValue(area, "setItem",
-            realm.NewMethod("setItem", (in call) => SetItem(storage, in call), 2),
+        realm.DefineMethod(area, "setItem", 2, (in call) => SetItem(storage, in call),
             JsPropertyFlags.NonEnumerable);
 
-        realm.DefineValue(area, "removeItem",
-            realm.NewMethod("removeItem", (in call) => RemoveItem(storage, in call), 1),
+        realm.DefineMethod(area, "removeItem", 1, (in call) => RemoveItem(storage, in call),
             JsPropertyFlags.NonEnumerable);
 
-        realm.DefineValue(area, "clear",
-            realm.NewMethod("clear", (in call) => Clear(storage, in call), 0),
+        realm.DefineMethod(area, "clear", 0, (in call) => Clear(storage, in call),
             JsPropertyFlags.NonEnumerable);
 
-        realm.DefineValue(area, "key",
-            realm.NewMethod("key", (in call) => Key(storage, in call), 1),
+        realm.DefineMethod(area, "key", 1, (in call) => Key(storage, in call),
             JsPropertyFlags.NonEnumerable);
 
         realm.DefineAccessor(area, "length",
@@ -265,9 +257,8 @@ internal static class WebStorageBinding
 
         /// <inheritdoc />
         /// <remarks>
-        /// The reason this file could not become an <see cref="IJsExotic"/> until the contract had a
-        /// delete hook: without it the property would go and the item would stay, so <c>getItem</c>
-        /// would keep answering for something the page had deleted.
+        /// Without a delete hook the ordinary property would go and the item would stay, so
+        /// <c>getItem</c> would keep answering for something the page had deleted.
         /// </remarks>
         public bool TryDeleteNamed(string name) => !InterfaceMembers.Contains(name) && Remove(name);
 

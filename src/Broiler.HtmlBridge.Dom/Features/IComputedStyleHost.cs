@@ -11,10 +11,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The contract names no engine type. The wrapper lookup takes a <see cref="JsValue"/>, and is named
-/// for what it does rather than for the engine type it used to take: a member named after that type
-/// could never grep to zero, and the round-1 rename of <see cref="ITraversalHost"/>'s lookups is the
-/// pattern this follows.
+/// The contract names no engine type. The wrapper lookup takes a <see cref="JsValue"/> and is named
+/// for what it does rather than for the type it takes.
 /// </para>
 /// <para>
 /// <see cref="Realm"/> is here because <see cref="ComputedStyleBinding.GetUsedDimension"/> reads a
@@ -23,11 +21,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// object it reads was built in, which is what makes the read the one a page would have made.
 /// </para>
 /// </remarks>
-internal interface IComputedStyleHost
+internal interface IComputedStyleHost : IRealmHost
 {
-    /// <summary>The realm the bridge is attached to.</summary>
-    IJsRealm Realm { get; }
-
     /// <summary>The canonical element behind a JS wrapper, or <see langword="null"/> for anything else.</summary>
     DomElement? FindElement(JsValue wrapper);
 

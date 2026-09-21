@@ -8,25 +8,22 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// One installer for what used to be five hand-copied blocks — on the element wrapper, the three
-/// non-element node wrappers, the document, and a sub-document. Each copy carried the same eight of
-/// the twelve type constants, and none carried the position bits, so the omissions were identical
-/// everywhere by construction and a sixth copy would have inherited them too.
+/// One installer, used by the element wrapper, the three non-element node wrappers, the document
+/// and a sub-document, so no copy can carry a different subset of the constants.
 /// </para>
 /// <para>
-/// The <c>DOCUMENT_POSITION_*</c> bits are the half that was load-bearing.
-/// <c>compareDocumentPosition</c> already returned a correct DOM bitmask, but with the names absent a
-/// page could not decode it: <c>result &amp; Node.DOCUMENT_POSITION_CONTAINED_BY</c> is
-/// <c>result &amp; undefined</c>, which is <c>0</c> rather than an error — so a containment test did
-/// not throw, it silently answered "not contained" for every pair of nodes. That is the failure mode
-/// a missing constant has here, and it is why the returned bitmask being right was not enough.
+/// The <c>DOCUMENT_POSITION_*</c> bits are the load-bearing half.
+/// <c>compareDocumentPosition</c> returns a correct DOM bitmask, but without the names a
+/// page cannot decode it: <c>result &amp; Node.DOCUMENT_POSITION_CONTAINED_BY</c> is
+/// <c>result &amp; undefined</c>, which is <c>0</c> rather than an error — so a containment test
+/// would not throw, it would silently answer "not contained" for every pair of nodes. That is the
+/// failure mode a missing constant has here, and it is why a correct bitmask is not enough on its own.
 /// </para>
 /// <para>
 /// <c>ENTITY_REFERENCE_NODE</c> (5), <c>ENTITY_NODE</c> (6) and <c>NOTATION_NODE</c> (12) are legacy
 /// values that no node in a modern tree reports, but the specification still defines them on the
-/// interface and the <c>Node</c> global polyfill already listed them; they are here so an instance
-/// and the global agree. <c>PROCESSING_INSTRUCTION_NODE</c> (7) is not legacy — it was simply
-/// missing from the instance copies.
+/// interface and the <c>Node</c> global polyfill lists them; they are here so an instance
+/// and the global agree. <c>PROCESSING_INSTRUCTION_NODE</c> (7) is not legacy.
 /// </para>
 /// </remarks>
 internal static class NodeConstantsBinding

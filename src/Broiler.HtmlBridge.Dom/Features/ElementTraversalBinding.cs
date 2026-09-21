@@ -4,10 +4,9 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// Phase 3 feature module for the DOM element-traversal accessors — <c>children</c>,
+/// The feature module for the DOM element-traversal accessors — <c>children</c>,
 /// <c>firstElementChild</c>, <c>lastElementChild</c>, <c>nextElementSibling</c> and
-/// <c>previousElementSibling</c> (the element-only siblings of the P3.41 node accessors). These were the
-/// bridge's <c>JsJsObjectsGetChildren081Core</c>..<c>GetPreviousElementSibling086Core</c> callbacks; only
+/// <c>previousElementSibling</c>, the element-only siblings of the node accessors. Only
 /// the realm and the JS-wrapper factory reach the bridge, through the two-member
 /// <see cref="IElementTraversalHost"/> contract, while the views themselves are the canonical
 /// <see cref="DomNode"/> members (<c>ChildElements</c>, <c>FirstElementChild</c>, <c>LastElementChild</c>,
@@ -23,8 +22,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// None of these five reads an argument — they are IDL attributes, and a getter's call frame carries
 /// nothing they want — so each takes the node it operates on and no call at all. Their callers,
 /// <c>DomBridge/ElementInterface.cs</c> and the fragment wrapper in
-/// <c>DomBridge/JsObjects.NonElementNodes.cs</c>, mint the getters through the realm. (This said the
-/// <c>ElementInterface.cs</c> site had not migrated and passed an engine frame.)
+/// <c>DomBridge/JsObjects.NonElementNodes.cs</c>, mint the getters through the realm.
 /// </para>
 /// <para>
 /// <b>The three <c>ParentNode</c> views take any node, and the two siblings an element.</b> A fragment

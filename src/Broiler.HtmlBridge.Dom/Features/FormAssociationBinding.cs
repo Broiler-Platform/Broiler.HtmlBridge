@@ -34,12 +34,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// use its own position) gives <c>null</c> there and is wrong.
 /// </para>
 /// <para>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), and this file now names no engine
-/// type at all. Both adapters that made it name one are gone: <c>LabelsNodeList</c> with the
-/// migration of <see cref="IElementInternalsHost"/>, whose <c>LabelsFor</c> takes a
-/// <see cref="JsValue"/> back and reads <see cref="LabelsList"/> directly, and the engine-typed
-/// <c>Install</c> with the one line in <c>DomBridge/NodeInterfaces.cs</c> that used to convert a
-/// handle into an engine object for the sole purpose of letting this file convert it back.
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), and this file names no engine type
+/// at all: <see cref="IElementInternalsHost"/>'s <c>LabelsFor</c> takes a <see cref="JsValue"/> back
+/// and reads <see cref="LabelsList"/> directly, and <c>DomBridge/NodeInterfaces.cs</c> hands
+/// <c>Install</c> the handle it already holds.
 /// </para>
 /// </remarks>
 internal static class FormAssociationBinding

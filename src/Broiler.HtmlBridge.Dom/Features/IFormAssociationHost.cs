@@ -12,24 +12,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. Where the contract used to hand the binding the bridge's script context — so the binding
-/// could pass it straight back to the collection factory, which is the only thing it did with it —
-/// it now names the one operation that needed it. The bridge builds the <c>NodeList</c>, handing
+/// type. The contract names the one operation that needs a realm rather than handing the binding one
+/// to pass back: the bridge builds the <c>NodeList</c>, handing
 /// <see cref="DomCollectionBinding"/> the realm and a contents function that re-runs the binding's
 /// own label walk and wraps each element on every read, and gets a handle back — the same shape
-/// <c>ISelectorsHost.ElementsByTagName</c> took. (This said building one was still engine-typed.)
+/// <c>ISelectorsHost.ElementsByTagName</c> takes.
 /// </remarks>
-internal interface IFormAssociationHost
+internal interface IFormAssociationHost : IElementsHost, INodeWrapperHost, IRealmHost
 {
-    /// <summary>The realm the <c>form</c>/<c>labels</c>/<c>control</c> accessors are installed in.</summary>
-    IJsRealm Realm { get; }
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
-    /// <summary>Every element in the document, in document order.</summary>
-    IReadOnlyList<DomElement> Elements { get; }
-
     /// <summary>The element carrying <paramref name="id"/>, or <see langword="null"/>.</summary>
     DomElement? GetElementById(string id);
 

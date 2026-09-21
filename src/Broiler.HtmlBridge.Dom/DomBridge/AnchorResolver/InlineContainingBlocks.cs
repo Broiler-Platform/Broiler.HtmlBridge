@@ -329,8 +329,7 @@ public sealed partial class DomBridge
     /// Whether the inline containing block <paramref name="inlineCB"/> directly holds an
     /// absolutely-positioned <c>position-area</c> box that native mode routes to the
     /// engine (<see cref="IsNativeMvpPositionAreaBox"/>). When it does, the whole inline
-    /// CB is left un-promoted so the engine can lay out the intact anchor + target subtree
-    /// (P5.8d.2b inline-CB expansion).
+    /// CB is left un-promoted so the engine can lay out the intact anchor + target subtree.
     /// </summary>
     private bool InlineCbHasNativeAnchorBox(DomElement inlineCB)
     {
@@ -353,8 +352,7 @@ public sealed partial class DomBridge
         // geometry, so this bridge promotion must NOT DOM-move any of that inline CB's abspos
         // children — doing so would tear the anchor out of the target's containing block and break
         // the native placement. Skip collecting from such an inline CB (still recurse for nested
-        // ones). The NativeAnchorPlacement flag check is dropped in Phase 4 item-2 step 5 (a
-        // provable no-op on the native default path, where it was already true).
+        // ones).
         if (!IsText(element) && IsInlineContainingBlock(element) &&
             !InlineCbHasNativeAnchorBox(element))
         {
@@ -486,15 +484,9 @@ public sealed partial class DomBridge
         foreach (var sibling in SnapshotChildren(parent))
         {
             if (sibling == element) break;
-            if (IsText(sibling))
-            {
-                // Count line breaks in text content.
-                var text = BridgeText(sibling);
-                int lineBreaks = text.Count(c => c == '\n');
-                // Don't count text node line breaks as they're usually
-                // just whitespace in the HTML source.
-                continue;
-            }
+            // Don't count text node line breaks as they're usually just whitespace in
+            // the HTML source.
+            if (IsText(sibling)) continue;
 
             var sibProps = GetComputedProps(sibling);
             string? sibPos = sibProps.GetValueOrDefault("position");

@@ -7,16 +7,14 @@
     <Nullable>enable</Nullable>
     <Description>DOM bridge, HTML tree building, and JavaScript DOM object integration for HtmlBridge.</Description>
     <!--
-      Scoped nullable warnings suppressed for legacy DOM bridge code during its phased migration
-      to Broiler.DOM, Broiler.CSS, and Broiler.Layout (Sprint 5). All other projects enforce
+      Scoped nullable warnings suppressed for legacy DOM bridge code. All other projects enforce
       nullability cleanly with zero suppressions.
     -->
     <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8619;CS8620;CS8622;CS8625;CS8631;CS8632;CS8765;CS8767</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Phase 3 work item 6: content-rendering polyfill JavaScript as a versioned embedded asset
-         (externalized from inline C# string literals in DomBridge/Registration/Registration.cs). -->
+    <!-- Content-rendering polyfill JavaScript as a versioned embedded asset. -->
     <!-- And ReadableStream, ProgressEvent and FileReader, JavaScript for the same reason the
          specification is: the stream is a state machine over promises. Each script is split across
          several files that PolyfillAssets joins back into one; the logical names are the file names. -->
@@ -29,9 +27,9 @@
     <InternalsVisibleTo Include="Broiler" />
     <InternalsVisibleTo Include="Broiler.Browser.Core" />
     <InternalsVisibleTo Include="Broiler.Browser.Core.Tests" />
-    <!-- This component's own suite, which is where the bridge tests moved when the bridge
-         left Broiler.Browser. The grant above stays: the browser keeps the tests that need
-         its own host (page loading, the UI form controls, the render list). -->
+    <!-- This component's own suite. The Broiler.Browser.Core.Tests grant above stays: the browser
+         keeps the tests that need its own host (page loading, the UI form controls, the render
+         list). -->
     <InternalsVisibleTo Include="Broiler.HtmlBridge.Tests" />
     <InternalsVisibleTo Include="Broiler.HtmlBridge.Scripting" />
     <InternalsVisibleTo Include="Broiler.Cli" />
@@ -66,12 +64,6 @@
          media image abstraction, which is what makes getImageData/toDataURL report real pixels. Both
          are dependency leaves here: Broiler.Graphics references only Broiler.Media.Image, and neither
          references this assembly, so there is no cycle. -->
-    <!--
-      Broiler.JavaScript.Globals is GONE from this project: the only thing the bridge used it for was
-      JSGlobalStatic.StructuredClone, and structured clone is now IJsClone on the realm contract, so the
-      reference moved to the provider that implements it. That is the shape every one of these should
-      eventually take: an engine assembly reached by the provider and not by the bridge.
-    -->
   </ItemGroup>
 
 </Project>

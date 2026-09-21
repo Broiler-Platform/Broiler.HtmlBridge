@@ -42,7 +42,7 @@ public static partial class DomBridgeUtils
             {
                 var val = declaration.Important ? rawValue + " !important" : rawValue;
                 result[prop] = val;
-                // Map vendor-prefixed property to unprefixed equivalent (TODO-G9)
+                // Map vendor-prefixed property to unprefixed equivalent.
                 var unprefixed = CssPropertyNames.StripVendorPrefix(prop);
                 if (unprefixed != prop && !result.ContainsKey(unprefixed))
                     result[unprefixed] = val;
@@ -70,13 +70,6 @@ public static partial class DomBridgeUtils
     /// </summary>
     internal static bool IsAcceptableInlineValue(string property, string value) =>
         CssDeclarationValidator.IsAcceptableDeclarationValue(property, CssPriority.Strip(value));
-}
-
-public static partial class DomBridgeUtils
-{
-    /// <summary>Whether <paramref name="element"/> is an HTML <c>&lt;template&gt;</c>.</summary>
-    internal static bool IsTemplateElement(DomElement element) =>
-        string.Equals(element.TagName, "template", StringComparison.OrdinalIgnoreCase);
 }
 
 public static partial class DomBridgeUtils
@@ -128,12 +121,9 @@ public static partial class DomBridgeUtils
 public static partial class DomBridgeUtils
 {
     // -----------------------------------------------------------------
-    // RF-BRIDGE-1c Phase C: string-keyed attribute access over canonical
-    // Broiler.Dom attributes, replacing the removed Broiler.Dom.DomElement.Attributes
-    // (LegacyAttributeDictionary) facade. Each helper mirrors the legacy
-    // dictionary's semantics exactly — a case-insensitive scan by qualified
-    // name over the canonical (namespace-keyed) attribute set — so the
-    // migration is behaviour-preserving (same O(n) scan the shim did).
+    // String-keyed attribute access over canonical Broiler.Dom attributes: each helper is a
+    // case-insensitive O(n) scan by qualified name over the canonical (namespace-keyed)
+    // attribute set.
     // -----------------------------------------------------------------
 
     /// <summary>Lookup by qualified name; <paramref name="value"/> is <c>""</c> when absent.</summary>

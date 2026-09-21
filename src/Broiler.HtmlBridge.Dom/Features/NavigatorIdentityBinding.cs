@@ -11,11 +11,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// All of these read <c>undefined</c> before this, and <c>undefined</c> is the one answer none of
+/// <c>undefined</c> is the one answer none of
 /// them is allowed to have: five are constants the specification *mandates* for every user agent,
 /// and the rest are read inside arithmetic and comparisons where an absent value propagates rather
 /// than announcing itself. <c>navigator.appVersion.indexOf(…)</c> — still the shape of a great deal
-/// of legacy sniffing — threw outright.
+/// of legacy sniffing — would throw outright.
 /// </para>
 /// <para>
 /// The five legacy constants are not identity claims about a vendor. HTML §8.9 fixes them at

@@ -5,8 +5,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The CSSOM <c>CSSStyleDeclaration</c> feature binding (HtmlBridge complexity-reduction roadmap Phase 3,
-/// P3.14) — the JS style-declaration object in its three flavours: the writable <c>element.style</c>
+/// The CSSOM <c>CSSStyleDeclaration</c> feature binding — the JS style-declaration object in its
+/// three flavours: the writable <c>element.style</c>
 /// (backed by the element's inline-style map), the writable rule declaration (<c>rule.style</c>, backed
 /// by a <see cref="RuleDeclarationStore"/> — the rule in its sheet for a style rule, a plain property map for
 /// the declaration blocks that are not written through) and the read-only <c>getComputedStyle</c> result
@@ -101,14 +101,12 @@ internal static partial class StyleDeclarationBinding
             (in _) => InlineGetCssText(host, element),
             (in call) => InlineSetCssText(host, element, onMutation, in call));
 
-        realm.DefineValue(style, "setProperty",
-            realm.NewMethod("setProperty", (in call) => InlineSetProperty(host, element, onMutation, in call), 2));
+        realm.DefineMethod(style, "setProperty", 2, (in call) => InlineSetProperty(host, element, onMutation, in call));
 
-        realm.DefineValue(style, "getPropertyValue",
-            realm.NewMethod("getPropertyValue", (in call) => InlineGetPropertyValue(host, element, in call), 1));
+        realm.DefineMethod(style, "getPropertyValue", 1, (in call) => InlineGetPropertyValue(host, element, in call));
 
-        realm.DefineValue(style, "removeProperty",
-            realm.NewMethod("removeProperty", (in call) => InlineRemoveProperty(host, element, onMutation, in call), 1));
+        realm.DefineMethod(style, "removeProperty", 1,
+            (in call) => InlineRemoveProperty(host, element, onMutation, in call));
 
         realm.DefineAccessor(style, "cssFloat",
             (in _) => InlineGetCssFloat(host, element),
@@ -117,11 +115,10 @@ internal static partial class StyleDeclarationBinding
         realm.DefineAccessor(style, "length",
             (in _) => JsValue.Number(GetStylePropertyNames(host, element).Count), null);
 
-        realm.DefineValue(style, "item",
-            realm.NewMethod("item", (in call) => InlineItem(host, element, in call), 1));
+        realm.DefineMethod(style, "item", 1, (in call) => InlineItem(host, element, in call));
 
-        realm.DefineValue(style, "getPropertyPriority",
-            realm.NewMethod("getPropertyPriority", (in call) => InlineGetPropertyPriority(host, element, in call), 1));
+        realm.DefineMethod(style, "getPropertyPriority", 1,
+            (in call) => InlineGetPropertyPriority(host, element, in call));
 
         realm.DefineAccessor(style, "parentRule",
             (in _) => parentRule.IsMissing ? JsValue.Null : parentRule, null);
@@ -149,14 +146,11 @@ internal static partial class StyleDeclarationBinding
             (in _) => RuleGetCssText(store),
             (in call) => RuleSetCssText(store, in call));
 
-        realm.DefineValue(style, "setProperty",
-            realm.NewMethod("setProperty", (in call) => RuleSetProperty(store, in call), 2));
+        realm.DefineMethod(style, "setProperty", 2, (in call) => RuleSetProperty(store, in call));
 
-        realm.DefineValue(style, "getPropertyValue",
-            realm.NewMethod("getPropertyValue", (in call) => RuleGetPropertyValue(store, in call), 1));
+        realm.DefineMethod(style, "getPropertyValue", 1, (in call) => RuleGetPropertyValue(store, in call));
 
-        realm.DefineValue(style, "removeProperty",
-            realm.NewMethod("removeProperty", (in call) => RuleRemoveProperty(store, in call), 1));
+        realm.DefineMethod(style, "removeProperty", 1, (in call) => RuleRemoveProperty(store, in call));
 
         realm.DefineAccessor(style, "cssFloat",
             (in _) => RuleGetCssFloat(store),
@@ -165,11 +159,9 @@ internal static partial class StyleDeclarationBinding
         realm.DefineAccessor(style, "length",
             (in _) => JsValue.Number(GetStylePropertyNames(store.Declared).Count), null);
 
-        realm.DefineValue(style, "item",
-            realm.NewMethod("item", (in call) => RuleItem(store, in call), 1));
+        realm.DefineMethod(style, "item", 1, (in call) => RuleItem(store, in call));
 
-        realm.DefineValue(style, "getPropertyPriority",
-            realm.NewMethod("getPropertyPriority", (in call) => RuleGetPropertyPriority(store, in call), 1));
+        realm.DefineMethod(style, "getPropertyPriority", 1, (in call) => RuleGetPropertyPriority(store, in call));
 
         realm.DefineAccessor(style, "parentRule",
             (in _) => parentRule.IsMissing ? JsValue.Null : parentRule, null);
@@ -200,14 +192,11 @@ internal static partial class StyleDeclarationBinding
         }
 
         // getPropertyValue method (supports both kebab-case and camelCase lookups)
-        realm.DefineValue(obj, "getPropertyValue",
-            realm.NewMethod("getPropertyValue", (in call) => ComputedGetPropertyValue(computed, in call), 1));
+        realm.DefineMethod(obj, "getPropertyValue", 1, (in call) => ComputedGetPropertyValue(computed, in call));
         realm.DefineAccessor(obj, "length", (in _) => JsValue.Number(propertyNames.Count), null);
 
-        realm.DefineValue(obj, "item",
-            realm.NewMethod("item", (in call) => ComputedItem(propertyNames, in call), 1));
-        realm.DefineValue(obj, "getPropertyPriority",
-            realm.NewMethod("getPropertyPriority", (in _) => JsValue.String(string.Empty), 1));
+        realm.DefineMethod(obj, "item", 1, (in call) => ComputedItem(propertyNames, in call));
+        realm.DefineMethod(obj, "getPropertyPriority", 1, (in _) => JsValue.String(string.Empty));
 
         realm.DefineAccessor(obj, "parentRule", (in _) => JsValue.Null, null);
 

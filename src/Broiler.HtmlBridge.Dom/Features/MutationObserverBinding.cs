@@ -5,8 +5,8 @@ using Broiler.Dom;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The <c>MutationObserver</c> feature binding module (HtmlBridge complexity-reduction roadmap
-/// Phase 3). It owns the observer registry (the Phase 2 <see cref="MutationObserverHub"/> state
+/// The <c>MutationObserver</c> feature binding module. It owns the observer registry (the
+/// <see cref="MutationObserverHub"/> state
 /// authority) and co-locates the whole feature: the JS-side <c>MutationObserver</c> polyfill and
 /// its host bridge functions, the <c>observe()</c>/<c>disconnect()</c> registration callbacks, the
 /// option parsing, and the childList/attribute/characterData record delivery. It depends only on
@@ -16,7 +16,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type. Two seams moved rather than disappeared: the polyfill is <em>host</em> script — this
+/// type. Two seams are worth naming: the polyfill is <em>host</em> script — this
 /// repository authored it and a page's Content-Security-Policy has no say over it — so it runs
 /// through <see cref="IJsSource.EvaluateHostScript"/> rather than a member that policy governs; and
 /// the two <c>__broiler…MutationObserver</c> host functions are installed on
@@ -27,8 +27,8 @@ internal sealed class MutationObserverBinding(IMutationObserverHost host)
 {
     private readonly IMutationObserverHost _host = host;
 
-    // P2.5 state authority for registered observers (observe() replace semantics, disconnect,
-    // snapshot for delivery). Owned here now that the whole feature is co-located.
+    // State authority for registered observers (observe() replace semantics, disconnect,
+    // snapshot for delivery). Owned here because the whole feature is co-located.
     private readonly MutationObserverHub _hub = new();
 
     // The documents whose canonical DomDocument.Mutated we have subscribed to. Delivery is driven

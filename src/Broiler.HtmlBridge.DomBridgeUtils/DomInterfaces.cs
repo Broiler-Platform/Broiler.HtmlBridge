@@ -21,13 +21,12 @@ public static partial class DomBridgeUtils
     /// </para>
     /// <para>
     /// <b>Every entry is single-valued: one tag names exactly one interface, its most derived one.</b>
-    /// That is what lets the table answer <c>constructor.name</c> as well as <c>instanceof</c>. It
-    /// used to carry an overlapping <c>("HTMLMediaElement", "audio video")</c> entry beside
-    /// <c>HTMLAudioElement</c> and <c>HTMLVideoElement</c>, so <c>audio</c> named two interfaces and a
-    /// reverse lookup had no answer — which is precisely why naming an element's interface was left
-    /// undone. The abstract bases now come from <see cref="HtmlInterfaceBases"/> instead and are
-    /// expanded into the <c>instanceof</c> sets at registration, so <c>audio instanceof
-    /// HTMLMediaElement</c> still holds while <c>audio.constructor.name</c> can be
+    /// That is what lets the table answer <c>constructor.name</c> as well as <c>instanceof</c>: an
+    /// overlapping entry — <c>("HTMLMediaElement", "audio video")</c> beside <c>HTMLAudioElement</c>
+    /// and <c>HTMLVideoElement</c>, say — would make <c>audio</c> name two interfaces and leave a
+    /// reverse lookup with no answer. The abstract bases come from <see cref="HtmlInterfaceBases"/>
+    /// instead and are expanded into the <c>instanceof</c> sets at registration, so <c>audio
+    /// instanceof HTMLMediaElement</c> still holds while <c>audio.constructor.name</c> can be
     /// <c>HTMLAudioElement</c>.
     /// </para>
     /// <para>
@@ -388,8 +387,8 @@ public static partial class DomBridgeUtils
     /// The selector and collection members read their argument here rather than inside
     /// <c>Dom.Features.SelectorsBinding</c>, because the module's entry points take the string
     /// their caller has already produced and this file is their only caller; the sub-document and
-    /// <c>DocumentFragment</c> forms read their own (this said they shared them). It is the realm's
-    /// <c>ToString</c> and not the handle's rendering, the same read the engine frame performed.
+    /// <c>DocumentFragment</c> forms read their own. It is the realm's <c>ToString</c> and not the
+    /// handle's rendering, so the ECMAScript coercion runs.
     /// </remarks>
     internal static string StringArgument(in JsCall call) =>
         call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
@@ -570,20 +569,18 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    private const double DefaultBodyMarginPixels = 8;
     internal const int MaxScrollContinuationDepth = 16;
 }
 
 public static partial class DomBridgeUtils
 {
-    // Phase 4 item 1 (P4.4a): docRoot may be a legacy #subdoc-root element OR a canonical
-    // DomDocument browsing-context root; ChildElements works over both. Returns the documentElement,
-    // or — for an element root with none — the root itself (the prior `?? docRoot` fallback). A
-    // canonical DomDocument with no documentElement yields null (per DOM; e.g. createDocument with an
-    // empty qualifiedName), so callers must null-check.
+    // docRoot is a canonical DomDocument browsing-context root, or any other node standing in for
+    // one; ChildElements works over both. Returns the documentElement, or — for an element root
+    // with none — the root itself. A canonical DomDocument with no documentElement yields null (per
+    // DOM; e.g. createDocument with an empty qualifiedName), so callers must null-check.
     internal static DomElement? GetDocumentElement(DomNode docRoot) => docRoot switch
     {
         DomDocument doc => doc.DocumentElement,
-        _ => docRoot.ChildElements.FirstOrDefault(c => !c.TagName.StartsWith('#')) ?? docRoot as DomElement
+        _ => docRoot.ChildElements.FirstOrDefault() ?? docRoot as DomElement
     };
 }

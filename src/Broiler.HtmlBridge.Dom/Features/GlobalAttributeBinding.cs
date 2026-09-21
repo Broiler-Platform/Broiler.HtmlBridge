@@ -4,8 +4,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The global content-attribute reflectors, co-located as an HtmlBridge feature module
-/// (Phase 3): <c>id</c>, <c>className</c> (↔ <c>class</c>), <c>title</c>, <c>lang</c>, <c>accessKey</c>
+/// The global content-attribute reflectors, co-located as an HtmlBridge feature module:
+/// <c>id</c>, <c>className</c> (↔ <c>class</c>), <c>title</c>, <c>lang</c>, <c>accessKey</c>
 /// (↔ <c>accesskey</c>), <c>dir</c>, and the enumerated <c>draggable</c>. They are installed in two
 /// halves because Web IDL splits them in two: <c>id</c> and <c>className</c> belong to
 /// <c>Element</c> and live on its prototype, the other five to <c>HTMLElement</c>. The selector-affecting three
@@ -13,9 +13,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="IGlobalAttributeHost"/> contract; everything else is a plain reflected read/write over the
 /// bridge's neutral <c>internal static</c> <c>SetAttr</c>/<c>TryGetAttribute</c> helpers, and the canonical
 /// <c>id</c>/<c>class</c> mirrors are kept on <see cref="DomElement.Id"/>/<see cref="DomElement.ClassName"/>
-/// directly. Was the bridge's <c>JsJsObjectsSetId002Core</c>/<c>GetClassName003Core</c>/<c>SetClassName004Core</c>/
-/// <c>SetTitle006Core</c>/<c>SetLang008Core</c>/<c>SetAccessKey010Core</c>/<c>SetDir012Core</c>/
-/// <c>GetDraggable013Core</c>/<c>SetDraggable014Core</c>.
+/// directly.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type.

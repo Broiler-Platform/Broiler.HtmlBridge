@@ -13,16 +13,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// The contract names no engine type, the two wrapper members' own names included: they are
 /// <see cref="WrapNode"/> and <see cref="FindDomNode"/>, the signatures <c>IDocumentLevelFactoryHost</c>
-/// gives <c>ToJsObject</c> and <c>FindDomNode</c>. (This said that contract took these names too.)
-/// The name validations moved onto the contract for the same reason they did there —
-/// they raise a <c>DOMException</c> against the realm the bridge's side hands them, so the module only
-/// asks to reject a name. (This said the bridge's script context, which the validators took then.)
+/// gives <c>ToJsObject</c> and <c>FindDomNode</c>. The name validations are on the contract for the
+/// same reason they are there — they raise a <c>DOMException</c> against the realm the bridge's side
+/// hands them, so the module only asks to reject a name. This module is the one that puts the
+/// inherited <see cref="INameValidationHost.ValidateElementName"/> to a second use: it guards doctype
+/// names (XML) as well as element names.
 /// </remarks>
-internal interface IDocumentFactoryHost
+internal interface IDocumentFactoryHost : INameValidationHost, INodeWrapperHost, ITextNodeFactoryHost
 {
-    /// <summary>The single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue WrapNode(DomNode node);
-
     /// <summary>The element a defined custom tag creates by running its own constructor, or
     /// <see cref="JsValue.Missing"/> when nothing is defined for it and the ordinary path applies.
     /// <paramref name="isValue"/> is <c>createElement</c>'s <c>is</c> option, which selects a
@@ -38,7 +36,6 @@ internal interface IDocumentFactoryHost
 
     DomElement CreateBridgeElement(string tagName);
     DomElement CreateBridgeElementNS(string? namespaceUri, string tagName);
-    DomText CreateBridgeTextNode(string data);
     DomDocumentFragment CreateBridgeDocumentFragment();
 
     JsValue BuildStandaloneAttrNode(string qualifiedName, string? namespaceUri);
@@ -48,12 +45,4 @@ internal interface IDocumentFactoryHost
 
     /// <summary>Clones a node, deeply when asked — the copy <c>importNode</c> hands back.</summary>
     DomNode CloneDomNode(DomNode source, bool deep);
-
-    /// <summary>Raises <c>InvalidCharacterError</c> when <paramref name="name"/> is not a valid
-    /// element or doctype name (XML).</summary>
-    void ValidateElementName(string name);
-
-    /// <summary>Raises <c>InvalidCharacterError</c>/<c>NamespaceError</c> when
-    /// <paramref name="qualifiedName"/> is not valid in <paramref name="ns"/>.</summary>
-    void ValidateQualifiedName(string qualifiedName, string? ns);
 }

@@ -51,28 +51,10 @@ public class FrameDocumentTests
         "</body></html>";
 
     /// <summary>
-    /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
-    /// <c>#out</c>. Reading the result out of the serialized DOM keeps the test to the engine's public
-    /// surface — the bindings under test are internal, and reaching for them directly would pin their
-    /// shape rather than their behaviour, which is what these commits are about to change.
+    /// The public-surface read of <paramref name="script"/>'s result. The bindings under test are
+    /// internal, and their shape is what these commits are about to change.
     /// </summary>
-    private static string Run(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string script) => PageProbe.RunAgainst(PageHtml, PageUrl, script);
 
     [Fact]
     public void TheFramesDocumentFindsItsOwnElementsAndThePageDoesNot()

@@ -2,11 +2,6 @@ using Broiler.HtmlBridge.Scripting;
 
 namespace Broiler.HtmlBridge;
 
-// Phase 8 item 1: the monolithic IScriptEngine is split into the four narrow capability contracts
-// below (execution+config, interactive sessions, profiling, event loop). IScriptEngine (see
-// IScriptEngine.cs) aggregates them and stays the v2 compatibility surface, so existing consumers
-// and implementers are unaffected while new consumers can depend on just the capability they use.
-
 /// <summary>
 /// The core execution capability: run scripts against a fresh JS context — optionally with a
 /// <c>document</c> built from HTML and a page <c>url</c> — returning serialised post-execution HTML or a

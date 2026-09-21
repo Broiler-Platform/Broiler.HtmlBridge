@@ -12,16 +12,14 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <see cref="BrowsingContextManager"/> and <see cref="EventTargetRegistry"/> it holds directly.
 /// </summary>
 /// <remarks>
-/// The whole contract is spelled in JSEAL, so nothing here names an engine type. The three members the
-/// engine context used to be reached through — <c>Eval</c>, <c>GetGlobal</c> and <c>SetGlobal</c> —
-/// are gone: all three are operations on <see cref="IJsRealm"/> (<c>EvaluateHostScript</c>, and
-/// get/set on <see cref="IJsRealm.Global"/>, which under an engine whose global <em>is</em> its
-/// variable scope is the same binding a bare <c>window = …</c> would write). <see cref="Realm"/> is
-/// nullable for the reason the old <c>HasJsContext</c> flag existed: the bridge has no realm before
-/// <c>Attach</c> and none after teardown, and the context switch is expected to degrade to running its
-/// callback rather than to throw.
+/// The whole contract is spelled in JSEAL, so nothing here names an engine type. Evaluation and
+/// global get/set are operations on <see cref="IJsRealm"/> (<c>EvaluateHostScript</c>, and get/set on
+/// <see cref="IJsRealm.Global"/>, which under an engine whose global <em>is</em> its variable scope is
+/// the same binding a bare <c>window = …</c> would write). <see cref="Realm"/> is nullable because
+/// the bridge has no realm before <c>Attach</c> and none after teardown, and the context switch is
+/// expected to degrade to running its callback rather than to throw.
 /// </remarks>
-internal interface IWindowContextHost
+internal interface IWindowContextHost : Features.ISubDocumentFactoryHost
 {
     /// <summary>
     /// The realm the window/document/location/parent/postMessage/self/top bindings live in, or
@@ -36,7 +34,4 @@ internal interface IWindowContextHost
 
     /// <summary>The top-level document object, or <c>undefined</c> when absent.</summary>
     JsValue MainDocumentOrUndefined { get; }
-
-    /// <summary>The sub-document object for a container (a target window's <c>document</c>).</summary>
-    JsValue GetOrCreateSubDocument(DomElement container);
 }

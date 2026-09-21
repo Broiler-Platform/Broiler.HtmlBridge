@@ -10,7 +10,7 @@ namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    // RF-BRIDGE-1b: tracks whether a shared-geometry read pass is active. The pass reads
+    // Tracks whether a shared-geometry read pass is active. The pass reads
     // one static post-script layout snapshot (_sharedGeometrySnapshot, built up front by
     // WithLayoutGeometryCache); nested WithLayoutGeometryCache calls share the outermost
     // pass's snapshot, and only the owner builds and tears it down — so live JS geometry
@@ -32,7 +32,7 @@ public sealed partial class DomBridge
         if (owner)
         {
             _layoutGeometryPassActive = true;
-            // RF-BRIDGE-1b: build the shared-geometry snapshot up front, before the read
+            // Build the shared-geometry snapshot up front, before the read
             // pass enumerates the element tree. BuildSharedGeometrySnapshot calls
             // GetRenderDocument, which mutates the document (reflects style into
             // attributes); doing that lazily mid-traversal modified a Children collection
@@ -53,7 +53,7 @@ public sealed partial class DomBridge
         {
             if (owner)
             {
-                // RF-BRIDGE-1b: the shared-geometry snapshot is scoped to the same pass.
+                // The shared-geometry snapshot is scoped to the same pass.
                 ClearSharedGeometrySnapshot();
                 _layoutGeometryPassActive = false;
             }
@@ -66,7 +66,7 @@ public sealed partial class DomBridge
             if (isRoot)
                 return GetViewportReferenceLength(element, vertical: false);
 
-            // RF-BRIDGE-1b: clientWidth is the padding-box width (content + padding),
+            // clientWidth is the padding-box width (content + padding),
             // reported in the element's own unzoomed CSS pixels (the shared snapshot is
             // in zoom-baked space, so divide out the element's own used zoom). An element
             // with no shared box (detached / display:none) reports zero.
@@ -82,7 +82,7 @@ public sealed partial class DomBridge
             if (isRoot)
                 return GetViewportReferenceLength(element, vertical: true);
 
-            // RF-BRIDGE-1b: clientHeight is the padding-box height (content + padding),
+            // clientHeight is the padding-box height (content + padding),
             // reported in the element's own unzoomed CSS pixels (see GetClientWidth). An
             // element with no shared box (detached / display:none) reports zero.
             if (TryGetSharedLayoutGeometry(element, out var shared))
@@ -161,7 +161,7 @@ public sealed partial class DomBridge
         });
 
     /// <summary>
-    /// RF-BRIDGE-1b: derive <c>offsetTop</c>/<c>offsetLeft</c> straight from the renderer's
+    /// Derive <c>offsetTop</c>/<c>offsetLeft</c> straight from the renderer's
     /// real box geometry when the shared snapshot is active. <c>offsetTop/Left</c> is the
     /// element's border-box edge relative to the offset parent's padding edge (HTML
     /// <c>offsetParent.clientLeft/Top</c> already excludes that border), or the initial
@@ -337,7 +337,7 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// RF-BRIDGE-1b: computes an element's scrollable overflow extent
+    /// Computes an element's scrollable overflow extent
     /// (<c>scrollWidth</c>/<c>scrollHeight</c>) from the shared renderer-layout
     /// snapshot — the union of the element's own padding-box (client) extent and the
     /// end edges of its rendered descendants' border boxes, expressed in the element's
@@ -501,7 +501,7 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// RF-BRIDGE-1b: converts a shared-snapshot extent (in the renderer's zoom-baked
+    /// Converts a shared-snapshot extent (in the renderer's zoom-baked
     /// document space) into <paramref name="element"/>'s own unzoomed CSS pixels by
     /// dividing out its cumulative used zoom. A no-op for unzoomed elements
     /// (used zoom == 1). Reads used zoom from the live document, which the geometry
@@ -515,7 +515,7 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// RF-BRIDGE-1b: <paramref name="element"/>'s border-box extent along the axis from
+    /// <paramref name="element"/>'s border-box extent along the axis from
     /// the shared renderer layout, in the element's own unzoomed CSS pixels. Returns
     /// <c>false</c> (caller falls back to the estimator) when the shared path is off or the
     /// element has no box.
@@ -535,7 +535,7 @@ public sealed partial class DomBridge
             if (TryGetSelectListBoxScrollExtent(element, verticalAxis: false, out var selectScrollWidth))
                 return selectScrollWidth;
 
-            // RF-BRIDGE-1b: scroll overflow comes from the shared renderer layout — the
+            // Scroll overflow comes from the shared renderer layout — the
             // union of the element's own box and its rendered descendants, including the
             // root/viewport scrolling area, computed by TryGetSharedScrollExtent. An
             // element with no shared box (detached / display:none) reports zero.
@@ -551,7 +551,7 @@ public sealed partial class DomBridge
             if (TryGetSelectListBoxScrollExtent(element, verticalAxis: true, out var selectScrollHeight))
                 return selectScrollHeight;
 
-            // RF-BRIDGE-1b: scroll overflow comes from the shared renderer layout (see
+            // Scroll overflow comes from the shared renderer layout (see
             // GetScrollWidth). An element with no shared box reports zero.
             if (TryGetSharedScrollExtent(element, vertical: true, out var sharedScrollHeight))
                 return sharedScrollHeight;
@@ -592,7 +592,7 @@ public sealed partial class DomBridge
         // / position-try) are resolved natively in the shared snapshot itself — HeadlessLayoutView enables
         // the engine's NativeAnchorPlacement post-pass, so the snapshot already carries their placed/sized
         // geometry. No bridge live resolver is needed; the plain snapshot path below serves every element.
-        // RF-BRIDGE-1b: the element's rect comes from the renderer's real layout (border
+        // the element's rect comes from the renderer's real layout (border
         // box, document coords), which powers getBoundingClientRect and offset top/left.
         // The snapshot is in zoom-baked space and ComputeRenderedRect re-applies zoom to
         // the SIZE, so the size is divided back to the element's own unzoomed CSS pixels

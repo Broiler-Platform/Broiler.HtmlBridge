@@ -18,8 +18,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// than to contradict it.
 /// </para>
 /// <para>
-/// They were absent, which is a different and worse answer than <c>false</c>: the objects are
-/// containers, so a page reading the documented <c>window.locationbar.visible</c> got
+/// Absent is a different and worse answer than <c>false</c>: the objects are
+/// containers, so a page reading the documented <c>window.locationbar.visible</c> would get
 /// "Cannot get property visible of undefined" — an abort that costs the rest of the calling
 /// function — rather than a boolean it could branch on. The commonest reader is chrome-detection
 /// code deciding whether it is running in a popup or a full window, and that check runs early, in

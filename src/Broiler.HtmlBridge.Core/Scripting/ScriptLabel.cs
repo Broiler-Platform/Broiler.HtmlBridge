@@ -6,19 +6,18 @@ namespace Broiler.HtmlBridge.Scripting;
 /// The name one of a document's scripts is known by — in a stack trace, in the profiling timeline,
 /// and in the error the host logs when it throws.
 /// <para>
-/// <c>JSContext.Eval</c> takes the location it reports in stack frames, and every host used to pass
-/// none, so every frame of every script read <c>vm.js</c>. A page's scripts are then
-/// indistinguishable: an exception at <c>vm.js:3,159</c> could be any of a dozen scripts, one of
-/// which is a megabyte of minified vendor code. The labels here are what the hosts already used for
-/// their profiling entries and their error messages, so naming the evaluation as well makes the
-/// three agree rather than introducing a fourth vocabulary.
+/// <c>JSContext.Eval</c> takes the location it reports in stack frames, and passing none makes every
+/// frame of every script read <c>vm.js</c>, which leaves a page's scripts indistinguishable: an
+/// exception at <c>vm.js:3,159</c> could be any of a dozen scripts, one of which is a megabyte of
+/// minified vendor code. The labels here are the ones the hosts use for their profiling entries and
+/// their error messages, so naming the evaluation with them makes the three agree rather than
+/// introducing a fourth vocabulary.
 /// </para>
 /// <para>
 /// The numbering is per bucket and in document order, matching the order the host executes them in:
 /// <c>inline-0</c> is the first non-deferred script the document names, whether its program came
 /// from the element's text, a <c>data:</c> URI or a fetched <c>src</c>. That is a document-relative
-/// identity rather than a URL — enough to point at one script, which is what a trace could not do
-/// at all before.
+/// identity rather than a URL — enough to point at one script.
 /// </para>
 /// </summary>
 public static class ScriptLabel

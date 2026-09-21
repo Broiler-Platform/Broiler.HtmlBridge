@@ -19,23 +19,11 @@ public class CanvasCompositeOperationTests
     /// Runs <paramref name="body"/> with <c>ctx</c> bound to the fixture canvas's 2D context and returns
     /// what its final expression evaluated to, read back out of the serialized <c>#out</c>.
     /// </summary>
-    private static string Run(string body)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"var ctx = document.getElementById('c').getContext('2d'); document.getElementById('out').textContent = String((function () {{ {body} }})());"],
+    private static string Run(string body) =>
+        PageProbe.OutOf(PageProbe.Render(
+            ["var ctx = document.getElementById('c').getContext('2d'); " + PageProbe.Probe($"(function () {{ {body} }})()")],
             PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+            PageUrl));
 
     [Fact]
     public void ANewContextReadsSourceOver() =>

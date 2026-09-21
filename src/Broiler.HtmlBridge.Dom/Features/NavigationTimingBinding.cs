@@ -76,14 +76,12 @@ internal static class NavigationTimingBinding
     {
         var navigation = BuildNavigationEntry(realm, pageUrl, pageProtocol, timing, fetchTiming);
 
-        realm.DefineValue(performance, "getEntries",
-            realm.NewMethod("getEntries", (in call) => call.Realm.NewArray([navigation]), 0));
+        realm.DefineMethod(performance, "getEntries", 0, (in call) => call.Realm.NewArray([navigation]));
 
-        realm.DefineValue(performance, "getEntriesByType",
-            realm.NewMethod("getEntriesByType", (in call) => EntriesByType(navigation, in call), 1));
+        realm.DefineMethod(performance, "getEntriesByType", 1, (in call) => EntriesByType(navigation, in call));
 
-        realm.DefineValue(performance, "getEntriesByName",
-            realm.NewMethod("getEntriesByName", (in call) => EntriesByName(navigation, pageUrl, in call), 1));
+        realm.DefineMethod(performance, "getEntriesByName", 1,
+            (in call) => EntriesByName(navigation, pageUrl, in call));
     }
 
     /// <summary>
@@ -194,7 +192,7 @@ internal static class NavigationTimingBinding
         AddTimingConstant(realm, entry, "encodedBodySize", fetchTiming?.EncodedBodySize ?? 0);
         AddTimingConstant(realm, entry, "decodedBodySize", fetchTiming?.DecodedBodySize ?? 0);
 
-        realm.DefineValue(entry, "toJSON", realm.NewMethod("toJSON", (in _) => entry, 0));
+        realm.DefineMethod(entry, "toJSON", 0, (in _) => entry);
 
         return entry;
     }

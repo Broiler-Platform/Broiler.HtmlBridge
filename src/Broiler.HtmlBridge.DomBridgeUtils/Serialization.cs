@@ -68,21 +68,33 @@ public static partial class DomBridgeUtils
         }
     }
 
-    internal static DomElement? FindFirstElementByTagName(DomElement root, string tagName)
-    {
-        if (string.Equals(root.TagName, tagName, StringComparison.OrdinalIgnoreCase))
-            return root;
+    /// <summary>
+    /// The first element named <paramref name="tagName"/> in tree order, the root included.
+    /// </summary>
+    /// <remarks>
+    /// Canonical <see cref="DomNode.InclusiveDescendants"/> is root-first document order, filtered
+    /// to elements because it yields every node kind. The tag comparison stays case-insensitive:
+    /// callers pass a lowercase literal ("html", "head", "body") against a <c>TagName</c> the
+    /// parser may have cased either way.
+    /// </remarks>
+    internal static DomElement? FindFirstElementByTagName(DomElement root, string tagName) =>
+        root.InclusiveDescendants()
+            .OfType<DomElement>()
+            .FirstOrDefault(element => string.Equals(element.TagName, tagName, StringComparison.OrdinalIgnoreCase));
 
-        foreach (var child in ChildElements(root))
-        {
-            var match = FindFirstElementByTagName(child, tagName);
-            if (match != null)
-                return match;
-        }
-
-        return null;
-    }
-
+    /// <summary>
+    /// A pixel length read out of a declaration, or <paramref name="fallback"/> when the value is
+    /// absent, unreadable, or not a length this component can represent.
+    /// </summary>
+    /// <remarks>
+    /// The finiteness test is what keeps the number out of the document this component hands back.
+    /// <see cref="System.Globalization.NumberStyles.Float"/> accepts <c>Infinity</c> by name and
+    /// overflows a double on an exponent, and the caller multiplies this by a ratio and formats
+    /// the product into an inline style — so <c>&lt;progress style="width: 1e400px"&gt;</c>
+    /// serialized its track placeholder as <c>width: Infinitypx</c>, a declaration the page never
+    /// wrote. The fallback is already the answer for a length this cannot read, and unlike an
+    /// infinity it is one the caller can draw.
+    /// </remarks>
     internal static double ReadPixelLength(string? rawValue, double fallback)
     {
         if (string.IsNullOrWhiteSpace(rawValue))
@@ -96,7 +108,8 @@ public static partial class DomBridgeUtils
             trimmed,
             System.Globalization.NumberStyles.Float,
             System.Globalization.CultureInfo.InvariantCulture,
-            out var parsed)
+            out var parsed) &&
+            double.IsFinite(parsed)
             ? parsed
             : fallback;
     }
@@ -136,7 +149,7 @@ public static partial class DomBridgeUtils
     /// <summary>Whether <paramref name="node"/>'s parent is an HTML raw-text element whose text
     /// content is serialized literally (not HTML-escaped). The standard raw-text element set is
     /// owned by <see cref="HtmlSerializer.RawTextElements"/> (§13.3); this bridge predicate
-    /// only applies it to the node's parent. (RF-BRIDGE-1c Phase F, F3c part 2d.)</summary>
+    /// only applies it to the node's parent.</summary>
     internal static bool IsRawTextSerializationParent(DomNode node) =>
         node.ParentNode is DomElement parent &&
         HtmlSerializer.IsRawTextElement(parent.TagName);
@@ -144,6 +157,18 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
+    /// <summary>
+    /// One number of an SVG <c>points</c> list or <c>path</c> data string, scaled by the element's
+    /// used zoom for serialization — or the token exactly as the page wrote it, when there is no
+    /// number this component can represent to put in its place.
+    /// </summary>
+    /// <remarks>
+    /// The scale is a multiplication, so a coordinate a double holds perfectly well need not have
+    /// a representable product: at <c>zoom: 2</c>, <c>d="M 1e308 5"</c> used to serialize as
+    /// <c>d="M Infinity 10"</c> — a token the page never wrote, invented here and handed to
+    /// whatever reads the document back. Leaving the token alone is what this already does for one
+    /// it cannot parse, and it is the honest answer: the number the page wrote, unscaled.
+    /// </remarks>
     internal static string ScaleSvgNumericMatch(Match match, double factor)
     {
         if (!double.TryParse(match.Value, System.Globalization.NumberStyles.Float,
@@ -152,7 +177,11 @@ public static partial class DomBridgeUtils
             return match.Value;
         }
 
-        return (number * factor).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        var scaled = number * factor;
+        if (!double.IsFinite(scaled))
+            return match.Value;
+
+        return scaled.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     internal static double GetSvgFontRelativeUnitRatio(string unit) => unit.ToLowerInvariant() switch

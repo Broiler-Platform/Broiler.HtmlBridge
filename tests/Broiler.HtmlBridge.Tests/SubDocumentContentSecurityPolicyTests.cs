@@ -2,8 +2,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
-using Broiler.HtmlBridge;
-
 namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
@@ -52,37 +50,15 @@ public class SubDocumentContentSecurityPolicyTests
     /// a loopback frame's document has to serve its page from that same origin or it reads nothing
     /// and learns nothing about policy.
     /// </param>
-    private static string Run(string pageHtml, string script, string? pageUrl = null)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            pageHtml,
-            pageUrl ?? PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string pageHtml, string script, string? pageUrl = null) =>
+        PageProbe.RunAgainst(pageHtml, pageUrl ?? PageUrl, script);
 
     /// <summary>
     /// A page carrying <paramref name="policy"/> as its own meta policy, embedding
     /// <paramref name="frameMarkup"/>, plus the <c>#out</c> sink the probe writes into.
     /// </summary>
     private static string PageWithPolicy(string? policy, string frameMarkup) =>
-        "<html><head>" +
-        (policy is null
-            ? string.Empty
-            : $"<meta http-equiv=\"Content-Security-Policy\" content=\"{policy}\">") +
-        "</head><body>" +
-        frameMarkup +
-        "<div id=\"out\"></div>" +
-        "</body></html>";
+        CspFixture.MetaPage(policy, frameMarkup + "<div id=\"out\"></div>");
 
     // ---------------------------------------------------------------------
     //  HTML frames: srcdoc and data:, which run against the frame's own window

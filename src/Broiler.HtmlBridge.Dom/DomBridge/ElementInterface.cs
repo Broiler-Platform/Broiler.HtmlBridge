@@ -5,11 +5,6 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
 
-// No engine namespace is imported here. This said the engine namespaces were here for animate(),
-// whose body read the engine's argument frame, and named AddPrototypeMethod as the helper lent to
-// the HTMLElement partial below for click/focus/blur. ElementAnimate takes a JsCall now, and
-// click/focus/blur are installed with AddInterfaceMethod, which mints through the realm.
-
 /// <summary>
 /// <c>Element</c> as a real interface: its members on <c>Element.prototype</c>, found through the
 /// receiver, rather than copied onto every element wrapper in the document.
@@ -55,12 +50,8 @@ namespace Broiler.HtmlBridge;
 /// <c>Object.getOwnPropertyNames</c> reports the order it always did. That includes <c>animate</c>:
 /// its body, <c>DomBridge/Animations.cs</c>'s <see cref="ElementAnimate"/>, takes a
 /// <see cref="JsCall"/> and reads the keyframes and the options object through the realm, and it is
-/// installed with <see cref="AddInterfaceMethod"/>, minted through the realm like every other member.
-/// This remark said <c>animate</c> was the one member left in the engine's vocabulary, minted with the
-/// engine's argument frame and asking an engine-receiver helper for its element; that helper no longer
-/// exists. The four <c>ChildNode</c> members and the fullscreen pair were engine-framed too — the
-/// <c>ChildNode</c> bodies read that frame, and the fullscreen pair was minted with it because its
-/// element source was — and all six are realm-minted now.
+/// installed with <c>Realm.DefineMethod</c>, minted through the realm like every other member.
+/// The four <c>ChildNode</c> members and the fullscreen pair are realm-minted the same way.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -121,8 +112,7 @@ public sealed partial class DomBridge
     private DomElement RequireElementReceiver(in JsCall call, string member)
     {
         // The wrapper registry keys on JsValue.ObjectIdentity, so the receiver is looked up as it
-        // stands; this said the registry had not migrated and the handle was unwrapped. A non-object
-        // receiver answers the same TypeError the engine-object test used to, without a lookup.
+        // stands. A non-object receiver answers the TypeError without a lookup.
         if (call.This.IsObject &&
             _jsObjects.TryGetNode(call.This, out var node) &&
             node is DomElement element)
@@ -147,16 +137,6 @@ public sealed partial class DomBridge
         throw call.Realm.Error(JsErrorKind.TypeError,
             $"Failed to execute '{member}' on 'Element': Illegal invocation");
     }
-
-    /// <summary>Adds a WebIDL operation to an interface prototype.</summary>
-    /// <remarks>
-    /// Enumerable and configurable but not writable-as-data is what the instance properties were, and
-    /// what Web IDL asks for on a prototype; keeping the same attributes means only the *location* of
-    /// the member changes. <see cref="JsPropertyFlags.Default"/> is that pair, which is why it is not
-    /// spelled at any of these call sites.
-    /// </remarks>
-    private void AddInterfaceMethod(JsValue target, string name, int length, JsNativeFunction body) =>
-        Realm.DefineValue(target, name, Realm.NewMethod(name, body, length));
 
     /// <summary>Adds a WebIDL attribute to an interface prototype, read-only unless a setter is given.</summary>
     private void AddInterfaceAccessor(JsValue target, string name,
@@ -185,7 +165,7 @@ public sealed partial class DomBridge
         // which is this bridge's count rather than Web IDL's 1; correcting that is a separate
         // decision from moving a frame, and DomEnumerationAndArityTests pins the 2 so it cannot move
         // by accident.
-        AddInterfaceMethod(target, "animate", 2,
+        Realm.DefineMethod(target, "animate", 2,
             (in call) => ElementAnimate(element(in call, "animate"), in call));
     }
 
@@ -209,7 +189,7 @@ public sealed partial class DomBridge
 
         AddInterfaceAccessor(target, "shadowRoot",
             (in call) => Dom.Features.ShadowDomBinding.GetShadowRoot(this, element(in call, "shadowRoot")));
-        AddInterfaceMethod(target, "attachShadow", 1,
+        Realm.DefineMethod(target, "attachShadow", 1,
             (in call) => Dom.Features.ShadowDomBinding.AttachShadow(
                 this,
                 element(in call, "attachShadow"),
@@ -234,41 +214,41 @@ public sealed partial class DomBridge
         AddInterfaceAccessor(target, "attributes", (in call) =>
             _attributes.BuildNamedNodeMap(element(in call, "attributes"), wrapper(in call, "attributes")));
 
-        AddInterfaceMethod(target, "getAttribute", 1,
+        Realm.DefineMethod(target, "getAttribute", 1,
             (in call) => _attributes.GetAttribute(element(in call, "getAttribute"), in call));
-        AddInterfaceMethod(target, "getAttributeNS", 2,
+        Realm.DefineMethod(target, "getAttributeNS", 2,
             (in call) => _attributes.GetAttributeNS(element(in call, "getAttributeNS"), in call));
-        AddInterfaceMethod(target, "getAttributeNames", 0, (in call) =>
+        Realm.DefineMethod(target, "getAttributeNames", 0, (in call) =>
             Realm.NewArray([.. AttributeNames(element(in call, "getAttributeNames")).Select(static name => JsValue.String(name))]));
 
-        AddInterfaceMethod(target, "setAttribute", 2,
+        Realm.DefineMethod(target, "setAttribute", 2,
             (in call) => _attributes.SetAttribute(element(in call, "setAttribute"), in call));
-        AddInterfaceMethod(target, "setAttributeNS", 3,
+        Realm.DefineMethod(target, "setAttributeNS", 3,
             (in call) => _attributes.SetAttributeNS(element(in call, "setAttributeNS"), in call));
 
-        AddInterfaceMethod(target, "removeAttribute", 1,
+        Realm.DefineMethod(target, "removeAttribute", 1,
             (in call) => _attributes.RemoveAttribute(element(in call, "removeAttribute"), in call));
-        AddInterfaceMethod(target, "removeAttributeNS", 2,
+        Realm.DefineMethod(target, "removeAttributeNS", 2,
             (in call) => _attributes.RemoveAttributeNS(element(in call, "removeAttributeNS"), in call));
-        AddInterfaceMethod(target, "toggleAttribute", 2,
+        Realm.DefineMethod(target, "toggleAttribute", 2,
             (in call) => _attributes.ToggleAttribute(element(in call, "toggleAttribute"), in call));
 
-        AddInterfaceMethod(target, "hasAttribute", 1,
+        Realm.DefineMethod(target, "hasAttribute", 1,
             (in call) => _attributes.HasAttribute(element(in call, "hasAttribute"), in call));
-        AddInterfaceMethod(target, "hasAttributeNS", 2,
+        Realm.DefineMethod(target, "hasAttributeNS", 2,
             (in call) => _attributes.HasAttributeNS(element(in call, "hasAttributeNS"), in call));
-        AddInterfaceMethod(target, "hasAttributes", 0, (in call) =>
+        Realm.DefineMethod(target, "hasAttributes", 0, (in call) =>
             JsValue.Boolean(element(in call, "hasAttributes").Attributes.Count > 0));
 
-        AddInterfaceMethod(target, "getAttributeNode", 1, (in call) =>
+        Realm.DefineMethod(target, "getAttributeNode", 1, (in call) =>
             _attributes.GetAttributeNode(element(in call, "getAttributeNode"), wrapper(in call, "getAttributeNode"), in call));
-        AddInterfaceMethod(target, "getAttributeNodeNS", 2, (in call) =>
+        Realm.DefineMethod(target, "getAttributeNodeNS", 2, (in call) =>
             _attributes.GetAttributeNodeNS(element(in call, "getAttributeNodeNS"), wrapper(in call, "getAttributeNodeNS"), in call));
-        AddInterfaceMethod(target, "setAttributeNode", 1, (in call) =>
+        Realm.DefineMethod(target, "setAttributeNode", 1, (in call) =>
             _attributes.SetAttributeNode(element(in call, "setAttributeNode"), wrapper(in call, "setAttributeNode"), in call));
-        AddInterfaceMethod(target, "setAttributeNodeNS", 1, (in call) =>
+        Realm.DefineMethod(target, "setAttributeNodeNS", 1, (in call) =>
             _attributes.SetAttributeNodeNS(element(in call, "setAttributeNodeNS"), wrapper(in call, "setAttributeNodeNS"), in call));
-        AddInterfaceMethod(target, "removeAttributeNode", 1, (in call) =>
+        Realm.DefineMethod(target, "removeAttributeNode", 1, (in call) =>
             _attributes.RemoveAttributeNode(element(in call, "removeAttributeNode"), wrapper(in call, "removeAttributeNode"), in call));
     }
 
@@ -298,14 +278,14 @@ public sealed partial class DomBridge
         AddInterfaceAccessor(target, "previousElementSibling", (in call) =>
             Dom.Features.ElementTraversalBinding.GetPreviousElementSibling(this, element(in call, "previousElementSibling")));
 
-        AddInterfaceMethod(target, "append", 0,
+        Realm.DefineMethod(target, "append", 0,
             (in call) => Dom.Features.TreeMutationBinding.Append(this, element(in call, "append"), in call));
-        AddInterfaceMethod(target, "prepend", 0,
+        Realm.DefineMethod(target, "prepend", 0,
             (in call) => Dom.Features.TreeMutationBinding.Prepend(this, element(in call, "prepend"), in call));
         // replaceChildren is the ParentNode member the wrapper never had: the document's has been
         // here since the mixin was bound there, and an element's — the commoner one, since
         // `container.replaceChildren()` is how a page empties a node — threw as undefined.
-        AddInterfaceMethod(target, "replaceChildren", 0,
+        Realm.DefineMethod(target, "replaceChildren", 0,
             (in call) => Dom.Features.TreeMutationBinding.ReplaceChildren(this, element(in call, "replaceChildren"), in call));
 
         // The ChildNode mixin. These four bodies were the last engine-framed group in this file, and
@@ -315,30 +295,30 @@ public sealed partial class DomBridge
         // three callers at once and kept a second, engine-framed entry point per operation to do it.
         // All three mint through the realm now, so there is one entry point again and these are
         // ordinary interface methods.
-        AddInterfaceMethod(target, "remove", 0,
+        Realm.DefineMethod(target, "remove", 0,
             (in call) => Dom.Features.ChildNodeBinding.Remove(this, element(in call, "remove"), in call));
-        AddInterfaceMethod(target, "before", 0,
+        Realm.DefineMethod(target, "before", 0,
             (in call) => Dom.Features.ChildNodeBinding.Before(this, element(in call, "before"), in call));
-        AddInterfaceMethod(target, "after", 0,
+        Realm.DefineMethod(target, "after", 0,
             (in call) => Dom.Features.ChildNodeBinding.After(this, element(in call, "after"), in call));
-        AddInterfaceMethod(target, "replaceWith", 0,
+        Realm.DefineMethod(target, "replaceWith", 0,
             (in call) => Dom.Features.ChildNodeBinding.ReplaceWith(this, element(in call, "replaceWith"), in call));
     }
 
     /// <summary>The selector and collection lookups scoped to an element.</summary>
     private void InstallElementSelectionMembers(JsValue target, Dom.Features.JsElementSource element)
     {
-        AddInterfaceMethod(target, "querySelector", 1, (in call) =>
+        Realm.DefineMethod(target, "querySelector", 1, (in call) =>
             Dom.Features.SelectorsBinding.QuerySelector(this, element(in call, "querySelector"), StringArgument(in call)));
-        AddInterfaceMethod(target, "querySelectorAll", 1, (in call) =>
+        Realm.DefineMethod(target, "querySelectorAll", 1, (in call) =>
             Dom.Features.SelectorsBinding.QuerySelectorAll(this, element(in call, "querySelectorAll"), StringArgument(in call)));
-        AddInterfaceMethod(target, "matches", 1, (in call) =>
+        Realm.DefineMethod(target, "matches", 1, (in call) =>
             Dom.Features.SelectorsBinding.Matches(this, element(in call, "matches"), StringArgument(in call)));
-        AddInterfaceMethod(target, "closest", 1, (in call) =>
+        Realm.DefineMethod(target, "closest", 1, (in call) =>
             Dom.Features.SelectorsBinding.Closest(this, element(in call, "closest"), StringArgument(in call)));
-        AddInterfaceMethod(target, "getElementsByTagName", 1, (in call) =>
+        Realm.DefineMethod(target, "getElementsByTagName", 1, (in call) =>
             Dom.Features.SelectorsBinding.GetElementsByTagName(this, element(in call, "getElementsByTagName"), StringArgument(in call)));
-        AddInterfaceMethod(target, "getElementsByClassName", 1, (in call) =>
+        Realm.DefineMethod(target, "getElementsByClassName", 1, (in call) =>
             Dom.Features.SelectorsBinding.GetElementsByClassName(this, element(in call, "getElementsByClassName"), StringArgument(in call)));
     }
 
@@ -389,15 +369,9 @@ public sealed partial class DomBridge
 /// <c>el.dataset === el.dataset</c> hold while the element itself carries neither.
 /// </para>
 /// <para>
-/// <b>The installer speaks JSEAL, all of it.</b> This remark said <c>click</c>, <c>focus</c> and
-/// <c>blur</c> were what was left of the engine vocabulary: that
-/// <see cref="Dom.Features.EventTargetBinding"/> read the engine's own argument frame, so the three
-/// were minted with that frame and asked an engine-receiver helper for their element. They are
-/// installed like every other member here, and the comment at their site gives the circle that kept
-/// them; the helper no longer exists. The form-control reflectors beside them were a fourth case and
-/// are not any more. Every member is minted through <see cref="Realm"/> onto the handle the installer
-/// is given, and nothing converts it on the way (this called that handle a cast rather than a
-/// conversion), so every member lands in the order it is written in.
+/// <b>The installer speaks JSEAL, all of it.</b> Every member is minted through <see cref="Realm"/>
+/// onto the handle the installer is given, and nothing converts it on the way, so every member lands
+/// in the order it is written in.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -496,21 +470,18 @@ public sealed partial class DomBridge
             (in call) => DatasetFor(element(in call, "dataset")), null);
 
         // click/focus/blur are EventTargetBinding's, and they are installed the way attachInternals
-        // is below -- same object, same position, same element source. Their pin used to read that
-        // "that module's bodies read the engine frame because unmigrated files install the same
-        // members elsewhere", which was circular: the bodies took a frame because this installer
-        // minted an engine function, and this installer minted one because the bodies took a frame.
-        AddInterfaceMethod(target, "click", 0,
+        // is below -- same object, same position, same element source.
+        Realm.DefineMethod(target, "click", 0,
             (in call) => Dom.Features.EventTargetBinding.Click(this, element(in call, "click"), in call));
-        AddInterfaceMethod(target, "focus", 0,
+        Realm.DefineMethod(target, "focus", 0,
             (in call) => Dom.Features.EventTargetBinding.Focus(this, element(in call, "focus"), in call));
-        AddInterfaceMethod(target, "blur", 0,
+        Realm.DefineMethod(target, "blur", 0,
             (in call) => Dom.Features.EventTargetBinding.Blur(this, element(in call, "blur"), in call));
 
         // attachInternals() — HTML §4.13.5, a member of HTMLElement rather than of the custom
         // elements only, which is what makes the standard feature-detect answer the right way. It
         // refuses at call time for an element that is not a form-associated custom element.
-        AddInterfaceMethod(target, "attachInternals", 0,
+        Realm.DefineMethod(target, "attachInternals", 0,
             (in call) => ElementInternals.AttachInternals(element(in call, "attachInternals")));
 
         InstallInlineEventHandlerMembers(target, element);
@@ -631,13 +602,10 @@ public sealed partial class DomBridge
 /// has deleted its own five and its constants; the rest of its surface, bar the routed
 /// <c>EventTarget</c> three, stays its own. A doctype and a fragment still install most of the
 /// <c>Node.prototype</c> members on themselves (<c>DomBridge/JsObjects.NonElementNodes.cs</c>).
-/// (This said an element and a document still installed their whole interface, 166 members for
-/// an element.)
 /// </para>
 /// <para>
-/// Linking the prototype was a real gain on its own even before any member moved: a page that
-/// extends <c>Text.prototype</c> — the ordinary polyfill idiom — reaches instances, where before the
-/// assignment went to an object nothing inherited from.
+/// Linking the prototype is a gain on its own, independently of which members moved: a page that
+/// extends <c>Text.prototype</c> — the ordinary polyfill idiom — reaches instances.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -647,12 +615,9 @@ public sealed partial class DomBridge
     /// otherwise, and for a node kind this does not name.
     /// </summary>
     /// <remarks>
-    /// It was engine-typed because the wrapper factories that call it were: each held the wrapper it
-    /// had just minted as the engine's own object. Both callers hold a handle now:
-    /// <c>DomBridge/JsObjects.cs</c> mints one through the realm and passes it straight here, and
-    /// the re-link sweep at the end of <c>DomBridge/Registration/Registration.cs</c> reads them
-    /// out of a registry that stores handles. <c>LinkToInterface</c> below is the only one there
-    /// is; the engine-typed overload it used to sit beside is gone.
+    /// Both callers hold a handle: <c>DomBridge/JsObjects.cs</c> mints one through the realm and
+    /// passes it straight here, and the re-link sweep at the end of
+    /// <c>DomBridge/Registration/Registration.cs</c> reads them out of a registry that stores handles.
     /// </remarks>
     internal void ApplyInterfacePrototype(JsValue wrapper, DomNode node)
     {

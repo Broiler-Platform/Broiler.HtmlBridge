@@ -4,37 +4,28 @@ using System.Runtime.CompilerServices;
 
 using Broiler.JSeal;
 
-// NO ENGINE TYPE IS LEFT IN THIS FILE, NOT EVEN AS A WEAK TABLE'S KEY. All five collection adapters
-// that took a script context have gone with their callers — the interface-registration hub
-// (DomBridgeUtils/DomInterfaces.cs), the query/selector/form-association/node-accessor hosts,
-// DomBridge/Utilities.cs, the frame projection in DomBridge/Hosts.Documents.cs, and last
-// DomBridge/Hosts.Elements.cs, whose file-input `files` was the call this file's previous
-// header said everything below it existed to serve. It did, and it went with it: 104 lines of
-// adapter, contents-marshalling and per-context realm adoption, none of it reachable once that caller
-// passed a realm.
-//
-// OperationsByMap, the ConditionalWeakTable that finds a NamedNodeMap's operations, keys on
-// JsValue.ObjectIdentity (see IdentityOf): the reference the handle carries. This header said it was
-// keyed on the engine's object because a JSEAL handle is a struct; the struct was never the key.
+// No engine type appears in this file, not even as a weak table's key. OperationsByMap, the
+// ConditionalWeakTable that finds a NamedNodeMap's operations, keys on JsValue.ObjectIdentity (see
+// IdentityOf): the reference the handle carries, not the struct handle itself.
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// <c>NodeList</c> and <c>HTMLCollection</c> (DOM §4.2.10 and §4.2.10.2), CSSOM's <c>StyleSheetList</c>
 /// (§6.1), and the <c>NamedNodeMap</c> and <c>FileList</c> that share their machinery, as real
-/// interfaces with real prototypes rather than the plain JavaScript arrays the bridge used to hand back.
+/// interfaces with real prototypes rather than plain JavaScript arrays.
 /// </summary>
 /// <remarks>
 /// <para>
 /// An array is wrong in three separate ways, and the third is the one that silently changes results.
-/// <c>NodeList</c> and <c>HTMLCollection</c> were not defined at all, so <c>instanceof</c> was a
-/// <c>ReferenceError</c> and <c>childNodes.constructor.name</c> answered <c>"Array"</c>.
-/// <c>item()</c> and <c>namedItem()</c> did not exist, while <c>map</c>, <c>filter</c> and
-/// <c>slice</c> did — the opposite of a browser both ways round, so feature-detecting code branched
-/// wrongly in both directions. And <b>an array is a snapshot</b>: <c>childNodes</c> and
+/// With no <c>NodeList</c> or <c>HTMLCollection</c> defined, <c>instanceof</c> is a
+/// <c>ReferenceError</c> and <c>childNodes.constructor.name</c> answers <c>"Array"</c>.
+/// <c>item()</c> and <c>namedItem()</c> are missing while <c>map</c>, <c>filter</c> and
+/// <c>slice</c> are present — the opposite of a browser both ways round, so feature-detecting code
+/// branches wrongly in both directions. And <b>an array is a snapshot</b>: <c>childNodes</c> and
 /// <c>getElementsByTagName</c> are specified as <em>live</em>, so
-/// <c>var kids = el.childNodes; el.appendChild(x); kids.length</c> grows in a browser and did not
-/// here. That last one produces a wrong number rather than an error, which is why it could sit under
+/// <c>var kids = el.childNodes; el.appendChild(x); kids.length</c> grows in a browser and would not
+/// here. That last one produces a wrong number rather than an error, which is why it can sit under
 /// passing tests.
 /// </para>
 /// <para>
@@ -48,23 +39,22 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// <b>The collection is an <see cref="IJsExotic"/> handler rather than an engine subclass.</b> A
 /// collection's members are not a fixed list — every integer below <c>length</c> and, for an
-/// <c>HTMLCollection</c>, every <c>id</c> and <c>name</c> its members carry — so it used to derive
-/// from the engine's own object type and override its lookup protocol. It now declares the hook
-/// instead: <see cref="IJsValues.NewExotic"/> takes the handler and the provider owns the protocol.
-/// <b>The ordering the subclass established is the ordering the contract mandates</b> — ordinary
-/// properties and the prototype chain are consulted first and the handler answers only what they did
-/// not — which is what keeps a collection containing an element named <c>item</c> from shadowing its
-/// own <c>item()</c> method. That rule used to be written here, in a comment above a
-/// <c>base.GetValue</c> call; it is now written in <see cref="IJsExotic"/> and enforced by the realm.
+/// <c>HTMLCollection</c>, every <c>id</c> and <c>name</c> its members carry — so rather than derive
+/// from an engine object type and override its lookup protocol, it declares the hook:
+/// <see cref="IJsValues.NewExotic"/> takes the handler and the provider owns the protocol.
+/// <b>The ordering the contract mandates</b> — ordinary properties and the prototype chain are
+/// consulted first and the handler answers only what they did not — is what keeps a collection
+/// containing an element named <c>item</c> from shadowing its own <c>item()</c> method. That rule is
+/// written in <see cref="IJsExotic"/> and enforced by the realm.
 /// </para>
 /// <para>
-/// <b>The index materialisation moved with it, into the provider, because it was never a fact about
-/// the DOM.</b> The indices are real own properties rather than intercepted reads, because an array
+/// <b>The index materialisation belongs to the provider, because it was never a fact about the
+/// DOM.</b> The indices are real own properties rather than intercepted reads, because an array
 /// generic asks whether index <c>i</c> is <em>present</em> before reading it and
 /// <c>Object.keys</c>/<c>for…in</c>/spread ask the same way — presence, enumeration and retrieval are
 /// separate entry points with no single hook between them. Which of those entry points exist, and
 /// that they cannot be served by one override, is a property of an engine's property storage. So the
-/// handler now says only how many indexed elements there are
+/// handler says only how many indexed elements there are
 /// (<see cref="IJsExotic.IndexedLength"/>) and what is at each one, and the provider materialises —
 /// growing <em>and</em> shrinking, which matters as much: a live collection whose element was removed
 /// must stop offering the index rather than keep a stale wrapper at it.
@@ -79,11 +69,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// reading it off the prototype finds the same function the instance uses.
 /// </para>
 /// <para>
-/// This is roadmap track 6 action 1, "establish real interface prototypes and Web IDL collection
-/// behavior <em>before</em> adding more compatibility-only constructor globals" — so none of the five
-/// is one of the <c>@@hasInstance</c> shims the per-tag <c>HTML*Element</c> interfaces use. Each
-/// instance's prototype really is its interface's (<c>NodeList.prototype</c> and so on), so
-/// <c>instanceof</c> answers through the chain rather than through a hook. (This said "these two".)
+/// None of the five is one of the <c>@@hasInstance</c> shims the per-tag <c>HTML*Element</c>
+/// interfaces use. Each instance's prototype really is its interface's
+/// (<c>NodeList.prototype</c> and so on), so <c>instanceof</c> answers through the chain rather than
+/// through a hook.
 /// </para>
 /// </remarks>
 internal static class DomCollectionBinding
@@ -279,7 +268,7 @@ internal static class DomCollectionBinding
     /// <b><c>length</c> is answered rather than installed</b>, so it stays off <c>Object.keys</c>,
     /// out of <c>for…in</c> and out of <c>Object.getOwnPropertyNames</c> — a browser's is an accessor
     /// on the prototype, not an own property, and the difference is observable exactly there. It is
-    /// answered before the named lookup is consulted, as it was before, so a member named
+    /// answered before the named lookup is consulted, so a member named
     /// <c>length</c> cannot displace the count.
     /// </para>
     /// </remarks>
@@ -321,7 +310,7 @@ internal static class DomCollectionBinding
             }
 
             // Past the end declines, so the read falls through to the ordinary miss — undefined,
-            // which is what an out-of-range index answered before.
+            // which is what an out-of-range index must answer.
             value = JsValue.Undefined;
             return false;
         }
@@ -409,13 +398,8 @@ internal static class DomCollectionBinding
     /// The identity a weak per-object registry keys on: the reference the handle carries.
     /// </summary>
     /// <remarks>
-    /// <b>This used to unwrap to the engine's own object, on the reasoning that a
-    /// <see cref="JsValue"/> is a struct and so cannot be a
-    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/> key.</b> The
-    /// struct is not the key; the reference it carries is, and
-    /// <see cref="JsValue.ObjectIdentity"/> is that reference. It is the same instance this table
-    /// was keyed on before, under the one provider that could reach it - so nothing about the
-    /// answers changes - and it is now an instance every provider supplies.
+    /// See <see cref="Runtime.JsObjectRegistry"/> for why the reference the handle carries, and
+    /// not the <see cref="JsValue"/> struct itself, is the weak-table key.
     /// </remarks>
     private static object IdentityOf(JsValue value) =>
         value.ObjectIdentity ?? throw new InvalidOperationException(

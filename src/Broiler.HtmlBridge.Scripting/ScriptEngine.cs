@@ -41,13 +41,13 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     public MicroTaskQueue MicroTasks { get; } = new();
 
     /// <summary>
-    /// Phase 8 item 3: diagnostic for async-drain-limit exhaustion. <see langword="true"/> when a
-    /// call to <see cref="DrainAsyncWork"/> ran out its iteration budget
+    /// Diagnostic for async-drain-limit exhaustion. <see langword="true"/> when a call to
+    /// <see cref="DrainAsyncWork"/> ran out its iteration budget
     /// (<see cref="DomBridgeRuntimeLimits.AsyncDrainIterationLimit"/>) while microtasks or timers were
-    /// still queued — i.e. the async work did not settle and draining stopped. This makes the former
-    /// silent stop observable (also logged as a warning). A fresh <see cref="ScriptEngine"/> per page
-    /// means this reflects whether that page's async work exhausted the budget. Stays
-    /// <see langword="false"/> when every drain settled normally.
+    /// still queued — i.e. the async work did not settle and draining stopped, which is also logged
+    /// as a warning. A fresh <see cref="ScriptEngine"/> per page means this reflects whether that
+    /// page's async work exhausted the budget. Stays <see langword="false"/> when every drain
+    /// settled normally.
     /// </summary>
     public bool AsyncDrainLimitExhausted { get; private set; }
 
@@ -100,8 +100,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// As <see cref="Execute(IReadOnlyList{string}, IReadOnlyList{string}, string, string?)"/>, with the
     /// document's authorised ES-module roots. When the engine binds imports (<see cref="EngineModuleSupport"/>),
     /// the roots run through the engine's own module machinery on a <see cref="BridgeModuleContext"/> after the
-    /// <paramref name="deferredScripts"/>; otherwise they are left unrun (the string-rewriting linker fallback
-    /// was retired in the Phase 7 tail).
+    /// <paramref name="deferredScripts"/>; otherwise they are left unrun.
     /// </summary>
     public string? Execute(IReadOnlyList<string> scripts, IReadOnlyList<string> deferredScripts, string html, string? url, IReadOnlyList<ModuleRoot>? moduleRoots)
         => ExecuteCore(scripts, deferredScripts, html, url, moduleRoots, static bridge => bridge.SerializeToHtml());
@@ -170,7 +169,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
                 else
                     bridge.Attach(context, html);
 
-                // Event-loop ordering (EL-3): run the synchronous script phases (regular → deferred → modules)
+                // Event-loop ordering: run the synchronous script phases (regular → deferred → modules)
                 // with only microtask checkpoints between them, then — after the window load event — drain the
                 // timer queue to completion. So a timer scheduled by an early script fires after all script
                 // execution (in deadline order), not eagerly between scripts, matching the HTML task model.
@@ -203,9 +202,9 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// the regular <paramref name="scripts"/> (tracking each one's <c>&lt;script&gt;</c> DOM element index for
     /// <c>document.write</c> and applying the <see cref="Profiler"/> when set), the
     /// <paramref name="deferredScripts"/> (end-of-parse for <c>defer</c>), and the authorised engine-driven
-    /// module <paramref name="roots"/> (Phase 7 item 6, only when <paramref name="moduleContext"/> is non-null),
+    /// module <paramref name="roots"/> (only when <paramref name="moduleContext"/> is non-null),
     /// then fires the window <c>load</c> event (critical for <c>&lt;body onload&gt;</c> harnesses like Acid3).
-    /// Async work is settled in two phases (EL-3 event-loop ordering): <paramref name="interScriptDrain"/> runs
+    /// Async work is settled in two phases of the event-loop ordering: <paramref name="interScriptDrain"/> runs
     /// after each eval and drains only microtasks (a microtask checkpoint), so timers are <em>not</em> fired
     /// eagerly between synchronous scripts; <paramref name="finalDrain"/> runs once after the load event. The
     /// render path passes a full timer-draining <c>finalDrain</c> (so timers fire, in deadline order, after all
@@ -254,9 +253,8 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         // Execute deferred scripts after all regular scripts (end-of-parsing for <script defer>).
         for (var i = 0; i < deferredScripts.Count; i++)
         {
-            // A deferred script is as much the running script as a non-deferred one; this bucket
-            // never set the index, so document.currentScript was null and document.write appended
-            // to <body> for the whole of it.
+            // A deferred script is as much the running script as a non-deferred one, so it names
+            // document.currentScript and takes document.write at its own position.
             bridge.CurrentScriptIndex = i < deferredScriptElements.Count ? deferredScriptElements[i] : -1;
             var label = ScriptLabel.Deferred(i);
             try
@@ -273,7 +271,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
 
         bridge.CurrentScriptIndex = -1;
 
-        // Engine-driven ES modules (Phase 7 item 6): modules are deferred, so run the authorised roots
+        // Engine-driven ES modules: modules are deferred, so run the authorised roots
         // after the classic deferred scripts. Each root executes on the same realm the DOM is attached to,
         // and the engine loads its transitive imports itself (CSP-gated) via BridgeModuleContext's resolution
         // seams — no EsModuleLinker involved. Reached only when EngineModuleSupport.Available.
@@ -304,7 +302,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// <see cref="Profiler"/> when a hook is attached and running it directly otherwise. Every script the
     /// engine executes — inline (<c>inline-{i}</c>), deferred (<c>deferred-{i}</c>) and engine-driven module
     /// roots (<c>module-{key}</c>) — funnels through here so the profiling hook, when set, sees a complete
-    /// and consistent timeline rather than the inline scripts alone (Phase 8 item 4).
+    /// and consistent timeline rather than the inline scripts alone.
     /// </summary>
     private void RunMeasured(string label, Action work)
     {
@@ -345,8 +343,8 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
 
         // Ownership of the context + bridge transfers to the returned InteractiveSession, which
         // disposes both. If setup throws before the session is built, the catch disposes them so a
-        // failed ExecuteInteractive never leaks a JS context or an event loop (Phase 8 item 2). The
-        // CSP is restored in the finally on every path.
+        // failed ExecuteInteractive never leaks a JS context or an event loop. The CSP is restored
+        // in the finally on every path.
         // Scoped to setup: the promises created while the page's scripts run capture it here. A
         // later session Step() runs on the caller's thread, which installs nothing — the interactive
         // path drains explicitly between steps, so a reaction that lands on the pool there is the
@@ -446,7 +444,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     private string PrepareSource(string script) => StrictModeEnabled ? "\"use strict\";\n" + script : script;
 
     /// <summary>
-    /// Register Milestone 4 runtime extensions on the JS context:
+    /// Register runtime extensions on the JS context:
     /// <c>queueMicrotask</c>, CSP-gated <c>eval</c>, and fallback <c>WeakRef</c> and
     /// <c>FinalizationRegistry</c> constructors, each installed only when the context does not
     /// already define it. Broiler.JS defines both natively, so on this engine the fallbacks stay out.

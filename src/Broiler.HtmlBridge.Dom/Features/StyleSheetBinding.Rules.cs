@@ -5,8 +5,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The per-rule <c>CSSRule</c> object builder half of <see cref="StyleSheetBinding"/> (Phase 3,
-/// P3.15): maps a parsed <see cref="Broiler.CSS.CssRule"/> onto the JS <c>CSSRule</c> object for every
+/// The per-rule <c>CSSRule</c> object builder half of <see cref="StyleSheetBinding"/>:
+/// maps a parsed <see cref="Broiler.CSS.CssRule"/> onto the JS <c>CSSRule</c> object for every
 /// rule kind the CSSOM shows — style, <c>@media</c>/<c>@supports</c>/<c>@layer</c> condition groups,
 /// <c>@keyframes</c> (and its <c>@-webkit-</c> alias), <c>@font-face</c>, <c>@page</c>, <c>@property</c>,
 /// <c>@counter-style</c>, <c>@import</c>, <c>@namespace</c>, the <c>@container</c>/<c>@scope</c>/

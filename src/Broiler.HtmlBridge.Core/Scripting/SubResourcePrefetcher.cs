@@ -8,13 +8,13 @@ namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// Issues sub-resource fetches concurrently ahead of the synchronous call sites that consume
-/// them. Multithreading roadmap item #2.
+/// them.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Every sub-resource call site in the bridge — external scripts, stylesheets, iframes,
 /// <c>fetch()</c> — blocks on <c>GetAwaiter().GetResult()</c>, one resource at a time, so a page
-/// with twenty sub-resources pays twenty serial round trips. The roadmap's answer is not to make
+/// with twenty sub-resources pays twenty serial round trips. The answer is not to make
 /// those call sites <c>async</c> (they are ordering-sensitive: <c>document.write</c> and script
 /// execution order both depend on running in document order), but to split them in two:
 /// </para>
@@ -35,22 +35,20 @@ namespace Broiler.HtmlBridge;
 /// </para>
 /// <para>
 /// <b>Lifetime is per document, deliberately.</b> A process-wide cache would serve one document's
-/// bytes to the next and would be exactly the kind of unsynchronised shared cache the static-state
-/// audit (<c>docs/architecture/multithreading-static-state.md</c>) exists to keep out of the
-/// render path. An instance is created by whoever owns the document and dies with it.
+/// bytes to the next and would be exactly the kind of unsynchronised shared cache that must stay
+/// off the render path. An instance is created by whoever owns the document and dies with it.
 /// </para>
 /// <para>
 /// <b>Fetch failures are cached as failures.</b> A prefetch that throws yields <c>null</c>, and
-/// the consumer treats that exactly as its own failed fetch would have — a resource is attempted
-/// once per document, as it was before.
+/// the consumer treats that exactly as its own failed fetch would — a resource is attempted
+/// once per document.
 /// </para>
 /// </remarks>
 public sealed class SubResourcePrefetcher
 {
     /// <summary>
-    /// Concurrent requests allowed per host. Six is the browser convention for HTTP/1.1 and the
-    /// figure the roadmap names; more than this is rude to the origin and, past the connection
-    /// limit, buys nothing.
+    /// Concurrent requests allowed per host. Six is the browser convention for HTTP/1.1; more than
+    /// this is rude to the origin and, past the connection limit, buys nothing.
     /// </summary>
     public const int DefaultMaxConcurrentRequestsPerHost = 6;
 

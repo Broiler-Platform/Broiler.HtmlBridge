@@ -7,13 +7,9 @@ namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    // Phase 2 item 4 (de-globalization, 2026-07-17): the per-element dialog / popover top-layer state
-    // (modal flag, top-layer order, popover-open flag) was the Dialog slot of the process-static
-    // ElementRuntimeState table; it is now a per-bridge instance table, owned by the session's bridge.
-    // Still element-keyed, so it GCs with the element and the cloneNode copy (see CloneDomElement) is
-    // preserved. The former static TopLayerOrderOf / IsAnchorAccessible / FindModalDialogs /
-    // FindOpenPopovers helpers became instance methods (all their callers were already on the bridge
-    // instance), so no cross-class host threading was needed.
+    // The per-element dialog / popover top-layer state (modal flag, top-layer order, popover-open
+    // flag) lives in a per-bridge instance table owned by the session's bridge. It is element-keyed,
+    // so it GCs with the element and the cloneNode copy (see CloneDomElement) is preserved.
     private readonly ConditionalWeakTable<DomElement, DialogRuntimeState> _dialogRuntimeStates = [];
 
     private DialogRuntimeState DialogStateFor(DomElement element) =>
@@ -201,8 +197,8 @@ public sealed partial class DomBridge
             // non-top-layer content (e.g. a plain position:fixed sibling) and later popovers paint over
             // earlier ones. Native path: the renderer's top-layer paint pass (patch 0010, pinned) keys on
             // the `data-broiler-top-layer` marker and lifts the box out of normal stacking. The very-large
-            // z-index is the older approximate emulation, now needed only on the retired baked
-            // (NativeTopLayer-off) rollback path — so the two are mutually exclusive rather than both.
+            // z-index is the approximate emulation, needed only on the NativeTopLayer-off rollback
+            // path — so the two are mutually exclusive rather than both.
             int order = TopLayerOrderOf(el);
             if (NativeTopLayer)
                 StampTopLayerOrder(el, order);
@@ -329,7 +325,7 @@ public sealed partial class DomBridge
             }
 
             // The modal <dialog> box chrome (display:block, border:1px solid black, padding:1em,
-            // white background) is no longer baked here — the native UA rule
+            // white background) is not baked here — the native UA rule
             // `dialog { display: block; border: 1px solid black; padding: 1em; background-color: white }`
             // (Broiler.HTML CssDefaults, patches 0001+0002 + the box-chrome patch 0004, all applied and
             // pinned) supplies it through the real cascade, with the shorthand-vs-longhand origin fix so an

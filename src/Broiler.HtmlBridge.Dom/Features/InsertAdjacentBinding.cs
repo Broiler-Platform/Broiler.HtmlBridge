@@ -6,10 +6,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The DOM <c>insertAdjacentElement</c> / <c>insertAdjacentText</c> / <c>insertAdjacentHTML</c> methods,
-/// co-located as an HtmlBridge feature module (Phase 3): each resolves the <c>beforebegin</c> /
+/// co-located as an HtmlBridge feature module: each resolves the <c>beforebegin</c> /
 /// <c>afterbegin</c> / <c>beforeend</c> / <c>afterend</c> position to a (parent, index) target and inserts
 /// an element, a text node, or the parsed fragment there. Position parsing and target resolution
-/// delegate to canonical <see cref="HtmlAdjacentPositionResolver"/> (Sprint 5.6 D6), raising the spec's
+/// delegate to canonical <see cref="HtmlAdjacentPositionResolver"/>, raising the spec's
 /// <c>SyntaxError</c> / <c>NoModificationAllowedError</c> through the realm.
 /// </summary>
 internal static class InsertAdjacentBinding
@@ -20,17 +20,14 @@ internal static class InsertAdjacentBinding
     /// </summary>
     public static void Install(IInsertAdjacentHost host, IJsRealm realm, JsValue target, JsElementSource element)
     {
-        realm.DefineValue(target, "insertAdjacentElement",
-            realm.NewMethod("insertAdjacentElement",
-                (in call) => InsertAdjacentElement(host, element(in call, "insertAdjacentElement"), in call), 2));
+        realm.DefineMethod(target, "insertAdjacentElement", 2,
+            (in call) => InsertAdjacentElement(host, element(in call, "insertAdjacentElement"), in call));
 
-        realm.DefineValue(target, "insertAdjacentText",
-            realm.NewMethod("insertAdjacentText",
-                (in call) => InsertAdjacentText(host, element(in call, "insertAdjacentText"), in call), 2));
+        realm.DefineMethod(target, "insertAdjacentText", 2,
+            (in call) => InsertAdjacentText(host, element(in call, "insertAdjacentText"), in call));
 
-        realm.DefineValue(target, "insertAdjacentHTML",
-            realm.NewMethod("insertAdjacentHTML",
-                (in call) => InsertAdjacentHtml(host, element(in call, "insertAdjacentHTML"), in call), 2));
+        realm.DefineMethod(target, "insertAdjacentHTML", 2,
+            (in call) => InsertAdjacentHtml(host, element(in call, "insertAdjacentHTML"), in call));
     }
 
     private static JsValue InsertAdjacentElement(IInsertAdjacentHost host, DomElement element, in JsCall call)

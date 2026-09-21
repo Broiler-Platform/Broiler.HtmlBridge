@@ -8,14 +8,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="StyleDeclarationBinding"/> — the per-method CSSSStyleDeclaration callbacks, in three
 /// families: <c>Inline*</c> (the writable <c>element.style</c>, over the inline-style store),
 /// <c>Rule*</c> (the writable rule declaration, over a <see cref="RuleDeclarationStore"/>) and <c>Computed*</c> (the read-only
-/// getComputedStyle result). Was the numbered <c>JsUtilities…003…023Core</c> / <c>JsCss…001/003Core</c>
-/// callbacks.
+/// getComputedStyle result).
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's: each callback reads its arguments off the
-/// <see cref="JsCall"/> frame and coerces them through the frame's realm, so a string argument runs the
-/// same ECMAScript <c>ToString</c>/<c>ToNumber</c> a page observed before. A callback that never looked
-/// at its arguments no longer takes a frame at all.
+/// <see cref="JsCall"/> frame and coerces them through the frame's realm, so a string argument runs
+/// the ECMAScript <c>ToString</c>/<c>ToNumber</c> a page observes. A callback that reads no argument
+/// takes no frame at all.
 /// </remarks>
 internal static partial class StyleDeclarationBinding
 {
@@ -237,10 +236,10 @@ internal static partial class StyleDeclarationBinding
     }
 
     /// <remarks>
-    /// Answers from the store alone. It used to fall back to the declaration object's own properties, which is
-    /// where a camel-cased attribute write used to leave a copy; nothing is left there now
-    /// (<see cref="RuleDeclaration.TrySetNamed"/>), and the fallback only ever answered that stale copy — or,
-    /// for <c>getPropertyValue('cssText')</c>, the declaration's own <c>cssText</c>.
+    /// Answers from the store alone, with no fallback to the declaration object's own properties: a
+    /// camel-cased attribute write leaves no copy there (<see cref="RuleDeclaration.TrySetNamed"/>),
+    /// so such a fallback could only answer a stale copy — or, for
+    /// <c>getPropertyValue('cssText')</c>, the declaration's own <c>cssText</c>.
     /// </remarks>
     private static JsValue RuleGetPropertyValue(RuleDeclarationStore store, in JsCall call)
     {

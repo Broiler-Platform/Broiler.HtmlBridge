@@ -3,8 +3,8 @@
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The narrow bridge service the <see cref="FetchBinding"/> feature module needs (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.11). Networking is otherwise self-contained — host I/O
+/// The narrow bridge service the <see cref="FetchBinding"/> feature module needs.
+/// Networking is otherwise self-contained — host I/O
 /// goes through the injected <see cref="Broiler.HtmlBridge.Dom.Runtime.ResourceLoader"/> — so the
 /// bridge couplings are the current page URL (the base for a relative <c>Response.redirect</c>
 /// target), the realm the surface is installed into, and the three objects a fetch body is made of
@@ -15,25 +15,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The contract names no engine type: every JavaScript value it carries is a <see cref="JsValue"/>
 /// and the realm is an <see cref="IJsRealm"/>. No member of the bridge side, <c>DomBridge/Hosts.Window.cs</c>,
 /// converts: the streams module is typed in <see cref="JsValue"/> wherever it carries a JavaScript value,
-/// and the wrapper-to-node lookup takes a handle. (This said those two were not migrated and the bridge
-/// side held the conversions for a seam half of which was engine-typed.)
+/// and the wrapper-to-node lookup takes a handle.
+/// <para>
+/// The realm is read through the host rather than captured at construction because the bridge builds
+/// this module in its constructor and adopts its realm only when a document is attached.
+/// </para>
 /// </remarks>
-internal interface IFetchHost
+internal interface IFetchHost : IPageUrlHost, IRealmHost
 {
-    /// <summary>
-    /// The realm the networking surface is installed into and mints its objects in.
-    /// </summary>
-    /// <remarks>
-    /// Read through the host rather than captured at construction because the bridge builds this
-    /// module in its constructor and adopts its realm only when a document is attached — the same
-    /// reason <see cref="Broiler.HtmlBridge.Dom.Features.IAttributesHost.Realm"/> and
-    /// <see cref="Broiler.HtmlBridge.Dom.Features.ITraversalHost.Realm"/> are host members.
-    /// </remarks>
-    IJsRealm Realm { get; }
-
-    /// <summary>The document's current URL, used as the base for resolving relative redirect URLs.</summary>
-    string PageUrl { get; }
-
     /// <summary>
     /// A real <c>Blob</c> over <paramref name="bytes"/>, for <c>response.blob()</c>. The interface
     /// belongs to <c>BlobBinding</c>, not here — this seam exists so the fetch path hands back the

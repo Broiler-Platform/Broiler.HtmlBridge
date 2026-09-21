@@ -4,8 +4,8 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The bridge services the <see cref="SubDocumentBinding"/> feature module consumes (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.13). The nested-browsing-context <c>document</c> object is
+/// The bridge services the <see cref="SubDocumentBinding"/> feature module consumes.
+/// The nested-browsing-context <c>document</c> object is
 /// essentially the whole DOM re-projected onto a sub-document root, so — unlike the small feature
 /// contracts — it genuinely needs many bridge services: JS-wrapper identity, the node-construction
 /// funnels, and the shared builders for the sub-surfaces a document exposes (Range, TreeWalker,
@@ -17,39 +17,33 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The whole contract is spelled in JSEAL: a JS object is a <see cref="JsValue"/>, and the script
-/// context this interface used to carry beside its <see cref="Realm"/> is gone. It was there for four
-/// things and only four — raising a <c>DOMException</c> from the two name validations and the selector
-/// check, and being handed straight back to the two collection builders — so each is now a named
-/// operation instead (<see cref="ValidateElementName"/>, <see cref="ValidateQualifiedName"/>,
+/// The whole contract is spelled in JSEAL: a JS object is a <see cref="JsValue"/>, and beside
+/// <see cref="Realm"/> it carries no script context. Raising a <c>DOMException</c> from the two name
+/// validations and the selector check, and building the collections, are named operations instead
+/// (<see cref="ValidateElementName"/>, <see cref="ValidateQualifiedName"/>,
 /// <see cref="ValidateSelector"/>, <see cref="NodeList"/>/<see cref="HtmlCollection"/>/
 /// <see cref="DocumentCollection"/>). The module says what it wants done and which engine does it is
 /// the bridge's business.
 /// </para>
 /// <para>
-/// The renames are part of that: a member whose own name spells the engine's object type spells it
-/// again in every call site that mentions it, so the bridge's wrapper factory and its two reverse
-/// lookups are <see cref="ToJsObject"/>, <see cref="FindNode"/> and <see cref="FindElement"/> here —
-/// the shape <c>ITraversalHost</c> already took.
+/// Three inherited members carry a condition of their own here: the sub-document surface is only
+/// reachable after attach, so <see cref="Realm"/> — which this module also raises its errors through —
+/// is never null for it; <see cref="ISelectorMatchHost.ValidateSelector"/> is a no-op before the
+/// bridge is attached, there being no realm to raise a <c>DOMException</c> in; and
+/// <see cref="ISelectorMatchHost.MatchesSelector"/> is a host member rather than a static helper
+/// because it reads the per-bridge <c>:checked</c> state. A sub-document's element list is read the
+/// way the main document's is, from the root's own <c>InclusiveDescendants</c>, so there is one
+/// definition of "the elements of this document" rather than a second walk that could order or filter
+/// them differently.
 /// </para>
 /// </remarks>
-internal interface ISubDocumentHost
+internal interface ISubDocumentHost : IJsObjectHost, INameValidationHost, INodeInsertionHost, IRealmHost, ISelectorMatchHost
 {
-    /// <summary>
-    /// The realm every object this module builds belongs to, and through which it raises errors.
-    /// Never null while a document is attached; the sub-document surface is only reachable after
-    /// attach.
-    /// </summary>
-    IJsRealm Realm { get; }
-
     /// <summary>
     /// The main window object, used for the sub-document's <c>defaultView</c>, or a non-object when
     /// the bridge has no window yet.
     /// </summary>
     JsValue MainWindow { get; }
-
-    /// <summary>Returns the single JS wrapper identity for <paramref name="node"/>.</summary>
-    JsValue ToJsObject(DomNode node);
 
     /// <summary>Points a wrapper at a named interface's prototype. A sub-document object is built
     /// rather than minted as a node wrapper, so it does not pass the choke point that links every
@@ -77,7 +71,7 @@ internal interface ISubDocumentHost
 
     /// <summary>Adopts a freshly-created, still-detached <paramref name="node"/> into the sub-document
     /// <paramref name="docRoot"/> (a canonical <c>DomDocument</c>) so its canonical
-    /// <c>ownerDocument</c> is the sub-document, not the main document it was minted from (P4.4c).</summary>
+    /// <c>ownerDocument</c> is the sub-document, not the main document it was minted from.</summary>
     void AdoptDetachedNode(DomNode node, DomNode docRoot);
 
     // -------- node construction funnels --------
@@ -87,25 +81,8 @@ internal interface ISubDocumentHost
     DomComment CreateComment(string data);
     DomDocumentType CreateDocumentType(string name, string publicId, string systemId);
 
-    /// <summary>Mints a canonical <c>DomDocument</c> browsing-context root (P4.4a funnel).</summary>
+    /// <summary>Mints a canonical <c>DomDocument</c> browsing-context root.</summary>
     DomDocument CreateBrowsingContextDocument();
-
-    // -------- name and selector validation --------
-
-    /// <summary>Throws an <c>InvalidCharacterError</c> when <paramref name="name"/> is not a valid
-    /// element name (DOM's Name production).</summary>
-    void ValidateElementName(string name);
-
-    /// <summary>Throws an <c>InvalidCharacterError</c> or a <c>NamespaceError</c> when
-    /// <paramref name="qualifiedName"/> is malformed, or is inconsistent with <paramref name="ns"/>.</summary>
-    void ValidateQualifiedName(string qualifiedName, string? ns);
-
-    /// <summary>
-    /// Throws a <c>SyntaxError</c> <c>DOMException</c> when <paramref name="selector"/> is not a valid
-    /// selector list (DOM §4.2.6), and returns quietly when it is. A no-op before the bridge is
-    /// attached, as it always has been — there is then no realm to raise a <c>DOMException</c> in.
-    /// </summary>
-    void ValidateSelector(string selector);
 
     // -------- collections --------
 
@@ -130,9 +107,7 @@ internal interface ISubDocumentHost
     /// </summary>
     /// <remarks>
     /// Asked for by name rather than built here because the bridge owns collection construction: the
-    /// module names the collection it wants and the host picks the builder. That used to be the harder
-    /// constraint — the builder took the script context, which this contract deliberately does not
-    /// carry — and is now only the division of labour. The
+    /// module names the collection it wants and the host picks the builder. The
     /// eight collections are seven kinds because <c>embeds</c> and <c>plugins</c> are required to
     /// answer the same object (HTML §3.1.5), so the module builds <see cref="DocumentCollectionKind.Embeds"/>
     /// once and installs it twice.
@@ -141,9 +116,9 @@ internal interface ISubDocumentHost
 
     /// <summary>The per-element <c>CSSStyleSheet</c> object, and whether the element has an
     /// associated sheet at all — the two services <see cref="DocumentCollectionBinding.StyleSheets"/>
-    /// needs, mirroring <see cref="IDocumentCollectionHost"/>. They replace the sub-document's own
-    /// <c>BuildStyleSheetsCollection</c>, which handed back a snapshot array where CSSOM §6.1 requires
-    /// a live <c>StyleSheetList</c>; see <see cref="SubDocumentCollectionHost"/>.</summary>
+    /// needs, mirroring <see cref="IDocumentCollectionHost"/>. CSSOM §6.1 requires a live
+    /// <c>StyleSheetList</c>, not a snapshot array, which is why the sub-document goes through the
+    /// shared builder (see <see cref="SubDocumentCollectionHost"/>) rather than assembling its own.</summary>
     JsValue BuildStyleSheetObject(DomElement styleElement);
 
     /// <inheritdoc cref="IDocumentCollectionHost.HasAssociatedStyleSheet"/>
@@ -165,15 +140,6 @@ internal interface ISubDocumentHost
     /// <inheritdoc cref="BuildTreeWalker"/>
     JsValue BuildNodeIterator(DomElement root, int whatToShow, JsValue filter);
 
-    // The two tree-walking collectors this contract used to carry — CollectByTagName and
-    // CollectMatching — are gone with the snapshot collections that were their only callers. A
-    // sub-document's element list is now read the way the main document's is, from the root's own
-    // InclusiveDescendants, so there is one definition of "the elements of this document" rather
-    // than a second walk that could order or filter them differently.
-    // Selector matching moved onto the host (Phase 2 item 4 de-globalization): it reads the per-bridge
-    // `:checked` state, so it is now a bridge-instance method rather than a static helper.
-    bool MatchesSelector(DomElement element, string selector, DomElement? scope = null);
-
     // -------- mutation seams (append/prepend on the sub-document) --------
 
     /// <summary>
@@ -182,8 +148,6 @@ internal interface ISubDocumentHost
     /// coerced to a string and minted as a text node.
     /// </summary>
     List<DomNode> BuildChildNodeArgumentNodes(ReadOnlySpan<JsValue> arguments);
-
-    void InsertNodeAt(DomNode parent, DomNode node, int index);
 
     // -------- view transitions --------
 

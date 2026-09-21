@@ -9,15 +9,12 @@ namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    private static DomShadowRoot? GetShadowRoot(DomElement element) =>
-        element.InternalShadowRoot;
-
     private static DomElement? GetShadowHost(DomNode? node) =>
         (node as DomShadowRoot)?.Host ?? (node?.GetRootNode(composed: false) as DomShadowRoot)?.Host;
 
-    // Walk to the absolute root. For a connected node this is the canonical DomDocument (Phase 4: the
+    // Walk to the absolute root. For a connected node this is the canonical DomDocument (the
     // document root is the DomDocument, not a #document wrapper element); a detached subtree roots to its
-    // topmost node. Phase 4 item 4/5: this is exactly canonical DomNode.GetRootNode(), so delegate to it
+    // topmost node. This is exactly canonical DomNode.GetRootNode(), so delegate to it
     // rather than re-implement the `while ParentNode` climb.
     private DomNode GetTreeRoot(DomNode node) => node.GetRootNode();
 
@@ -26,34 +23,21 @@ public sealed partial class DomBridge
     /// document has none yet.
     /// </summary>
     /// <remarks>
-    /// <b>It answered a <c>JSValue</c> until its one caller stopped needing one, and between them
-    /// they were a round trip.</b> This built an engine value; <c>WrapRootNode</c> tested it with
-    /// <c>is JSObject</c> and wrapped it straight back into a handle. Both halves are the same
-    /// object either way — a handle carries the engine's own — so the conversion was work with no
-    /// observer, and removing it removes two engine references rather than relocating them.
-    /// <para>
     /// <b>The <see cref="JsValue.Null"/> arm is not the same as an absent one and is kept
     /// deliberately.</b> <c>DocumentHandle</c> answers <see cref="JsValue.Missing"/> before a
     /// document wrapper exists, which is "the bridge has not registered a document yet" — a state no
     /// page can observe. What a page asking <c>getRootNode()</c> in that window must see is
-    /// <c>null</c>, which is what the engine's own null meant here, so the translation is explicit.
-    /// </para>
+    /// <c>null</c>, so the translation is explicit.
     /// </remarks>
     private JsValue ToJSRootNode(DomNode root)
     {
         if (ReferenceEquals(root, _document))
             return DocumentHandle.IsMissing ? JsValue.Null : DocumentHandle;
 
-        // A severed sub-document root is a canonical DomDocument (P4.4b); WrapNode resolves it to
+        // A severed sub-document root is a canonical DomDocument; WrapNode resolves it to
         // its document wrapper via the document-wrapper map, so no #subdoc-root special case remains.
         return WrapNode(root);
     }
-
-    private static DomElement? GetSlotHost(DomElement slot) =>
-        (slot.GetRootNode(composed: false) as DomShadowRoot)?.Host;
-
-    private static DomElement? FindAssignedSlot(DomElement root, DomElement node) =>
-        DomSlotting.FindAssignedSlot(node);
 
     private static DomElement? GetAssignedSlot(DomElement element) =>
         DomSlotting.FindAssignedSlot(element);
@@ -244,8 +228,7 @@ public sealed partial class DomBridge
             var token = index.ToString(CultureInfo.InvariantCulture);
             index++;
 
-            var styles = new List<DomElement>();
-            CollectStylesInShadowRoot(shadowRoot, styles);
+            var styles = StylesInShadowRoot(shadowRoot).ToList();
             if (styles.Count == 0)
                 continue;
 
@@ -336,8 +319,7 @@ public sealed partial class DomBridge
             var token = index.ToString(CultureInfo.InvariantCulture);
             index++;
 
-            var styles = new List<DomElement>();
-            CollectStylesInShadowRoot(shadowRoot, styles);
+            var styles = StylesInShadowRoot(shadowRoot).ToList();
 
             var stamped = false;
             foreach (var style in styles)
@@ -359,20 +341,14 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Collects the <c>&lt;style&gt;</c> elements belonging to <paramref name="shadowRoot"/>,
-    /// without descending into a nested shadow root (whose styles are scoped to their
-    /// own host by that root's own pass).
+    /// The <c>&lt;style&gt;</c> elements belonging to <paramref name="shadowRoot"/>, in document
+    /// order, without descending into a nested shadow root (whose styles are scoped to their
+    /// own host by that root's own pass) — <see cref="DomNode.Descendants"/> never crosses into
+    /// <c>InternalShadowRoot</c>.
     /// </summary>
-    private void CollectStylesInShadowRoot(DomNode shadowRoot, List<DomElement> styles)
-    {
-        foreach (var child in shadowRoot.ChildNodes.OfType<DomElement>())
-        {
-            if (child.TagName.Equals("style", StringComparison.OrdinalIgnoreCase))
-                styles.Add(child);
-
-            CollectStylesInShadowRoot(child, styles);
-        }
-    }
+    private static IEnumerable<DomElement> StylesInShadowRoot(DomNode shadowRoot) =>
+        shadowRoot.Descendants().OfType<DomElement>()
+            .Where(style => style.TagName.Equals("style", StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>
@@ -469,9 +445,7 @@ public sealed partial class DomBridge
         }
 
         if (element.InternalShadowRoot is { } shadowRoot)
-        {
-            CollectStylesInShadowRoot(shadowRoot, styles);
-        }
+            styles.AddRange(StylesInShadowRoot(shadowRoot));
     }
 }
 

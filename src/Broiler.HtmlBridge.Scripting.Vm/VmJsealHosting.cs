@@ -29,13 +29,11 @@ namespace Broiler.HtmlBridge;
 /// this file states rather than something it inherits.
 /// </para>
 /// <para>
-/// <b>The reason it must not become the default is no longer that it declares less than
-/// <c>Document</c>, because it no longer does.</b> The reason is that Broiler.JS is the reference
-/// engine: it is what every other configuration builds, the engine whose context the bridge's
-/// <c>Attach</c> takes, and the only engine a page has ever loaded on. Selecting a second engine is a
-/// decision a host makes deliberately with <c>BROILER_JS_ENGINE=broiler-vm</c>, and a registration
-/// order is the wrong place to make it. Stated because the old reason has expired and a later
-/// reader finding an unexplained ordering line will be tempted to tidy it away.
+/// <b>It must not become the default, because Broiler.JS is the reference engine:</b> it is what
+/// every other configuration builds, the engine whose context the bridge's <c>Attach</c> takes, and
+/// the only engine a page has ever loaded on. Selecting a second engine is a decision a host makes
+/// deliberately with <c>BROILER_JS_ENGINE=broiler-vm</c>, and a registration order is the wrong
+/// place to make it.
 /// </para>
 /// </remarks>
 public static class VmJsealHosting

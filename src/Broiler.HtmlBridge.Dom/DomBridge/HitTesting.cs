@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using Broiler.CSS;
 using Broiler.Dom;
-using Broiler.Dom.Html;
 using Broiler.HtmlBridge.Dom.Runtime;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
@@ -10,7 +9,7 @@ namespace Broiler.HtmlBridge;
 
 public sealed partial class DomBridge
 {
-    // Phase 2 item 4 (de-globalization, 2026-07-17): the per-document-root "has an explicit viewport
+    // The per-document-root "has an explicit viewport
     // meta" flag was the Document slot of the process-static ElementRuntimeState table; it is now a
     // per-bridge instance table, owned by the session's bridge. Still an element-keyed
     // ConditionalWeakTable, so it GCs with the document root and the cloneNode copy (see
@@ -27,11 +26,11 @@ public sealed partial class DomBridge
         if (!double.IsFinite(x) || !double.IsFinite(y))
             return [];
 
-        // Phase 4 item 1 (P4.4a): docRoot may be a canonical DomDocument (regime-B) — resolve the
+        // docRoot may be a canonical DomDocument (regime-B) — resolve the
         // documentElement from its element children; only an element docRoot can itself be one.
         var documentElement = docRoot is DomElement docRootElement && IsDocumentElement(docRootElement)
             ? docRootElement
-            : ChildElements(docRoot).FirstOrDefault(c => !IsText(c) && !c.TagName.StartsWith('#'));
+            : ChildElements(docRoot).FirstOrDefault(c => !c.TagName.StartsWith('#'));
 
         if (documentElement == null)
             return [];
@@ -116,12 +115,6 @@ public sealed partial class DomBridge
         if (IsDocumentElement(element))
             return GetBoundingClientRectForDomElement(element, isRoot: true);
 
-        if (IsTableCellElement(element) &&
-            TryGetSimpleTableCellHitTestRect(element, out var tableCellRect))
-        {
-            return tableCellRect;
-        }
-
         if (TryGetListItemMarkerHitTestRect(element, out var listItemRect))
             return listItemRect;
 
@@ -192,97 +185,6 @@ public sealed partial class DomBridge
         return Math.Min(40, markerCore + 8);
     }
 
-    private bool TryGetSimpleTableCellHitTestRect(
-        DomElement element,
-        out (double Left, double Top, double Width, double Height) rect)
-    {
-        rect = default;
-        var row = ParentEl(element);
-        if (row == null || !string.Equals(row.TagName, "tr", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var table = ParentEl(row);
-        if (table != null &&
-            (string.Equals(table.TagName, "thead", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(table.TagName, "tbody", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(table.TagName, "tfoot", StringComparison.OrdinalIgnoreCase)))
-        {
-            table = ParentEl(table);
-        }
-
-        if (table == null || !string.Equals(table.TagName, "table", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var rows = HtmlElementQueries.CollectTableRows(table);
-        var rowIndex = rows.FindIndex(candidate => ReferenceEquals(candidate, row));
-        if (rowIndex < 0)
-            return false;
-
-        var cells = ChildElements(row)
-            .Where(child => !IsText(child) && IsTableCellElement(child))
-            .ToList();
-        var cellIndex = cells.FindIndex(candidate => ReferenceEquals(candidate, element));
-        if (cellIndex < 0)
-            return false;
-
-        var columnCount = rows
-            .Select(candidate => ChildElements(candidate).Count(child => !IsText(child) && IsTableCellElement(child)))
-            .DefaultIfEmpty(0)
-            .Max();
-        if (columnCount <= 0 || rows.Count <= 0)
-            return false;
-
-        var (Left, Top, Width, Height) = GetBoundingClientRectForDomElement(table, isRoot: false);
-        if (Width <= 0 || Height <= 0)
-            return false;
-
-        var (spacingX, spacingY) = GetEffectiveTableBorderSpacing(table);
-        var cellWidth = Math.Max(0, (Width - (columnCount + 1) * spacingX) / columnCount);
-        var cellHeight = Math.Max(0, (Height - (rows.Count + 1) * spacingY) / rows.Count);
-        if (cellWidth <= 0 || cellHeight <= 0)
-            return false;
-
-        var tableProps = GetComputedProps(table);
-        var isVertical = CssWritingMode.IsVertical(tableProps.GetValueOrDefault("writing-mode"));
-        var isRtl = string.Equals(tableProps.GetValueOrDefault("direction"), "rtl", StringComparison.OrdinalIgnoreCase);
-        var visualCellIndex = isRtl ? Math.Max(0, columnCount - 1 - cellIndex) : cellIndex;
-
-        rect = !isVertical
-            ? (
-                Left + spacingX + visualCellIndex * (cellWidth + spacingX),
-                Top + spacingY + rowIndex * (cellHeight + spacingY),
-                cellWidth,
-                cellHeight)
-            : (
-                Left + spacingX + rowIndex * (cellWidth + spacingX),
-                Top + spacingY + visualCellIndex * (cellHeight + spacingY),
-                cellWidth,
-                cellHeight);
-        return true;
-    }
-
-    private (double Horizontal, double Vertical) GetEffectiveTableBorderSpacing(DomElement table)
-    {
-        var rawValue = GetComputedProps(table).GetValueOrDefault("border-spacing");
-        if (string.IsNullOrWhiteSpace(rawValue))
-            return (2, 2);
-
-        var parts = rawValue
-            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length == 0)
-            return (2, 2);
-
-        var horizontal = ParseCssLengthToPixelsWithViewport(parts[0], table);
-        var vertical = parts.Length > 1
-            ? ParseCssLengthToPixelsWithViewport(parts[1], table)
-            : horizontal;
-
-        if (horizontal <= 0 && vertical <= 0)
-            return (2, 2);
-
-        return (horizontal, vertical);
-    }
-
     private bool IsImageMapAreaHit(DomElement area, double x, double y)
     {
         var image = FindAssociatedImageMapImage(area);
@@ -334,7 +236,7 @@ public sealed partial class DomBridge
     {
         foreach (var child in ChildElements(root))
         {
-            if (IsText(child) || child.TagName.StartsWith('#'))
+            if (child.TagName.StartsWith('#'))
                 continue;
 
             yield return child;
@@ -429,9 +331,6 @@ public sealed partial class DomBridge
     {
         for (var current = element; current != null; current = ParentEl(current))
         {
-            if (IsText(current))
-                return false;
-
             if (current.TagName.StartsWith('#'))
                 continue;
 
@@ -454,7 +353,7 @@ public sealed partial class DomBridge
     private bool DocumentHasViewport(DomElement documentElement)
     {
         var docRoot = GetOwningDocument(documentElement);
-        // Phase 4 item 1 (P4.4c): the owning document comes from the canonical tree, not OwnerDocRoot.
+        // The owning document comes from the canonical tree, not OwnerDocRoot.
         // The main document and rendered nested browsing contexts (iframe/object/frame — reachable
         // through a container frame in the content-document map) have a viewport. This replaces the
         // former heuristic that relied on regime-A iframe nodes carrying a null OwnerDocRoot: those

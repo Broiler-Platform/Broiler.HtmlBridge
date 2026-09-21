@@ -18,8 +18,7 @@ namespace Broiler.HtmlBridge;
 /// <c>CSSStyleSheet</c> objects (per-element identity cache, the live <c>cssRules</c>
 /// collection, and <c>insertRule</c>/<c>deleteRule</c> mutation bookkeeping). The
 /// <c>CSSRuleList</c>/<c>CSSRule</c> object model and the <c>JsStyleSheets*Core</c> callbacks
-/// this builds on live in the <see cref="Dom.Features.StyleSheetBinding"/> feature module
-/// (Phase 3, P3.15).
+/// this builds on live in the <see cref="Dom.Features.StyleSheetBinding"/> feature module.
 /// </summary>
 public sealed partial class DomBridge
 {
@@ -109,8 +108,7 @@ public sealed partial class DomBridge
         var sheet = realm.NewObject();
 
         // ownerNode — the element's wrapper from WrapNode, the handle JsObjectRegistry caches, so
-        // sheet.ownerNode === el still holds. (This said the factory kept an engine-shaped name
-        // because DomBridge/Utilities.cs, owning the wrapper cache, had not migrated.)
+        // sheet.ownerNode === el holds.
         realm.DefineAccessor(sheet, "ownerNode",
             (in _) => WrapNode(styleElement), null);
 
@@ -133,8 +131,8 @@ public sealed partial class DomBridge
             });
 
         // Internal rules storage for this stylesheet — the single shared, mutable
-        // Broiler.CSS rule model held in the element's runtime state (Phase 6 store
-        // unification). The same list backs the renderer text and the
+        // Broiler.CSS rule model held in the element's runtime state. The same list backs the
+        // renderer text and the
         // getComputedStyle engine, so a script insertRule/deleteRule here, or a write to a
         // style rule's style (ruleModel), is observed by both. CurrentRules() reparses on
         // textContent change before returning it; MarkRulesMutated is every edit's one report,
@@ -150,9 +148,8 @@ public sealed partial class DomBridge
         realm.DefineAccessor(liveCssRules, "length",
             (in _) => Dom.Features.StyleSheetBinding.JsStyleSheetsGetLength002Core(CurrentRules), null);
 
-        realm.DefineValue(liveCssRules, "item",
-            realm.NewMethod("item",
-                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsItem003Core(SyncLiveCssRulesIndices, liveCssRules, CurrentRules, in call), 1));
+        realm.DefineMethod(liveCssRules, "item", 1,
+            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsItem003Core(SyncLiveCssRulesIndices, liveCssRules, CurrentRules, in call));
 
         // Syncs indexed properties on the live cssRules object with the CSSOM view of the shared model
         void SyncLiveCssRulesIndices()
@@ -179,14 +176,12 @@ public sealed partial class DomBridge
         // insertRule(rule, index) — mutates the shared model (marking it mutated so
         // the renderer/engine serialize from it and computed style is re-resolved) and
         // resyncs the live collection
-        realm.DefineValue(sheet, "insertRule",
-            realm.NewMethod("insertRule",
-                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call), 2));
+        realm.DefineMethod(sheet, "insertRule", 2,
+            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call));
 
         // deleteRule(index) — removes a rule from the shared model
-        realm.DefineValue(sheet, "deleteRule",
-            realm.NewMethod("deleteRule",
-                (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsDeleteRule006Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call), 1));
+        realm.DefineMethod(sheet, "deleteRule", 1,
+            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsDeleteRule006Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call));
 
         _styleSheetCache[styleElement] = sheet;
         return sheet;
@@ -381,7 +376,7 @@ public sealed partial class DomBridge
     /// from <paramref name="href"/> (a <c>&lt;link rel="stylesheet"&gt;</c>, whose own <c>nonce</c> attribute is
     /// the request's nonce). When no policy is configured every stylesheet is allowed. Mirrors the script-side
     /// <see cref="ContentSecurityPolicy.AllowsExternalScript"/> gate so DOM/CSS never fetch or apply a
-    /// <c>style-src</c>-blocked external stylesheet (Phase 7 item 5: CSP stays in the host layer; DOM and CSS
+    /// <c>style-src</c>-blocked external stylesheet (CSP stays in the host layer; DOM and CSS
     /// receive already-authorised content).
     /// </summary>
     private bool IsExternalStyleAllowedByCsp(DomElement linkEl, string href) =>
@@ -444,8 +439,7 @@ public sealed partial class DomBridge
         {
             // The event object is built through the realm (JSEAL); the two members keep the
             // enumerable/configurable data-property attributes they had, which is what
-            // JsPropertyFlags.Default spells. The dispatcher takes that handle as it is. (This said
-            // dispatch was still engine-typed and unwrapped the handle through the JsInterop seam.)
+            // JsPropertyFlags.Default spells. The dispatcher takes that handle as it is.
             var evt = Realm.NewObject();
             Realm.DefineValue(evt, "type", JsValue.String(loaded ? "load" : "error"));
             Realm.DefineValue(evt, "bubbles", JsValue.False);
@@ -531,7 +525,7 @@ public sealed partial class DomBridge
     {
         try
         {
-            // The file/http dispatch policy lives in the loader (Phase 7 item 4), not here.
+            // The file/http dispatch policy lives in the loader, not here.
             return _resources.LoadText(url);
         }
         catch (Exception ex)

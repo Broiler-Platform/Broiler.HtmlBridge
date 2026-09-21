@@ -13,8 +13,8 @@
     THE CONFIGURATION MAPPING, VENDORED.
 
     Debug-VM/Release-VM are this component's own build types: they select
-    Broiler.HtmlBridge.Scripting.Vm and Broiler.HtmlBridge.Jseal.Vm over the Broiler.JS
-    pair, so the names have to decompose here whether or not a parent repository is
+    Broiler.HtmlBridge.Scripting.Vm and the Broiler.JSeal.Vm package it references over the
+    Broiler.JS pair, so the names have to decompose here whether or not a parent repository is
     above us. The imported file carries its own guards — $(BroilerConfigurationMappingApplied)
     for the whole mapping and '$(BroilerBaseConfiguration)' == '' for the decomposition —
     so when a parent has already applied it (an in-tree Broiler.Browser build, which
@@ -43,7 +43,7 @@
     Both are one defect seen from two sides, and both are about JsValue — the JSEAL
     handle provided by the Broiler.JSeal package. It is a STRUCT, and the
     engine-typed storage it replaced (JSObject, JSValue) was a class. What each reader
-    of a retyped field would do on the day it happened, measured rather than assumed:
+    of such a field does:
 
         f is null              error CS0037    loud
         f is not { }           error CS8518    loud
@@ -62,28 +62,21 @@
     nothing and the code runs on with an empty handle.
 
     THE SHAPE NEITHER OF THEM SEES: `f is { } x` on a struct is legal, always true, and
-    carries no diagnostic at all. There is nothing to promote. Ten sites in
-    Broiler.HtmlBridge.Dom read an engine-typed root that way before the roots were
-    retyped, and four of them would have changed which value they answered — Undefined
-    or Null rather than the Missing a retyped root carries, and the bridge reads
-    argument presence on exactly that distinction. Each tests IsMissing and coalesces
-    explicitly now.
+    carries no diagnostic at all. There is nothing to promote, so a site that has to know
+    whether a handle is absent tests IsMissing and coalesces explicitly.
 
     Nor does CA2013 see JsValue.ObjectIdentity, which is declared `object?`: passing it
     to ReferenceEquals compares two REFERENCE types, so the rule is blind by
     construction, and it answers TRUE for any two non-object handles because
-    ObjectIdentity is null for every one of them. No site writes it today; the reads
-    that exist all null-guard first.
-
-    This promotion used to live in Broiler.Browser's root Directory.Build.props, where
-    it reached this code by chaining. It moved here with the code, because this is the
-    component the rules are about and a standalone build has to carry them too. It is
-    still declared there as well, for the rest of that tree — Broiler.Graphics declares
-    seven `readonly struct` types with an `operator ==`, which is the CS8073-capable
-    shape. Appending an id twice is harmless.
+    ObjectIdentity is null for every one of them. The reads that exist all null-guard
+    first.
 
     CS0472 is the same diagnostic for a BUILT-IN value type (`i == null` on an int). No
     handle is a built-in, so it guards nothing here and is deliberately not promoted.
+
+    Both ids are declared in Broiler.Browser's root Directory.Build.props as well, for the
+    rest of that tree. Appending an id twice is harmless, so an in-tree build carrying both
+    declarations is intended, not a duplicate to clean up.
     ════════════════════════════════════════════════════════════════════
   -->
   <PropertyGroup>
@@ -91,14 +84,14 @@
   </PropertyGroup>
 
   <!--
-    Inherited noise, kept only so that a STANDALONE build is readable. Every id here was
-    already suppressed for this code by Broiler.Browser's root Directory.Build.props;
-    listing them means the two builds report the same thing rather than the standalone one
-    burying a real diagnostic under warnings the in-tree build never showed.
+    Inherited noise, kept only so that a STANDALONE build is readable: listing these ids
+    means the standalone build reports what the in-tree build does rather than burying a
+    real diagnostic under warnings the in-tree build never showed.
 
-    CS8600-CS8767 (nullable family) are no longer globally suppressed here; they are
-    enforced cleanly across Broiler.HtmlBridge.Core, DomBridgeUtils, Scripting, Scripting.Vm,
-    and Tests, and narrowed to Broiler.HtmlBridge.Dom.csproj during its phased migration.
+    The nullable family is deliberately NOT suppressed here. It is enforced everywhere
+    except Broiler.HtmlBridge.Dom, which narrows it in its own csproj for the duration of
+    that project's migration. That list may shrink and may not grow.
+
     CS9113 covers primary-constructor parameters kept for API shape. CA1416 is the Windows-only
     surface the canvas rasteriser reaches through Broiler.Graphics. CA2255 is the ModuleInitializer
     advisory: a JSEAL provider registers itself from one, which is the advanced scenario the

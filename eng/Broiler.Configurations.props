@@ -14,9 +14,9 @@
     A few passages below describe the BROWSER's tree - which submodules chain, and
     src/Broiler.Browser.Core being the one site that reads $(BroilerJavaScriptEngine). They
     are left as written because they explain why the mechanism is shaped this way. What is
-    true here: the property selects Broiler.HtmlBridge.Scripting.Vm and
-    Broiler.HtmlBridge.Jseal.Vm, and it defines BROILER_VM_JS, which the VM-only test cases
-    are guarded on.
+    true here: the property selects Broiler.HtmlBridge.Scripting.Vm and the Broiler.JSeal.Vm
+    package it references, and it defines BROILER_VM_JS, which the VM-only test cases are
+    guarded on.
     ════════════════════════════════════════════════════════════════════
   -->
 
@@ -134,14 +134,11 @@
       WHICH JAVASCRIPT ENGINE THE BROWSER'S SCRIPT ENGINE IS. `BroilerJs` is the
       default and what every configuration outside the -VM pair builds.
 
-      `Vm` does NOT remove Broiler.JS from the graph. The second half of that sentence
-      used to be "and cannot", on the grounds that the profile's host-capability ABI is
-      opaque bytes (VmBytes -> VmOpaqueRef) and a DOM cannot be projected through one.
-      That argument is true about the capability channel and was never about the whole
-      engine: the profile publishes an in-realm host surface a DOM-shaped embedder can
-      use, and src/Broiler.HtmlBridge.Jseal.Vm is a JSEAL provider over it that declares
-      JsCapabilities.Document. What keeps Broiler.JS in the graph is this repository's
-      own seam — IDomBridgeRuntime.Attach takes a JSContext — and not the VM.
+      `Vm` does NOT remove Broiler.JS from the graph. The profile publishes an in-realm
+      host surface a DOM-shaped embedder can use, and the Broiler.JSeal.Vm package is a
+      JSEAL provider over it that declares JsCapabilities.Document. What keeps Broiler.JS
+      in the graph is this repository's own seam — IDomBridgeRuntime.Attach takes a
+      JSContext — and not the VM.
 
       What `Vm` selects is which IScriptEngine the browser instantiates — see
       docs/vm-javascript-profile.md for what that engine does and does not run on the VM,

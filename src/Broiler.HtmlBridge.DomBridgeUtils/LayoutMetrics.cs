@@ -16,14 +16,9 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    // RF-BRIDGE-1b: when true, element-geometry queries (offset*/client*/
-    // getBoundingClientRect/check-layout) resolve through the renderer's real layout
-    // engine via the injected ILayoutView instead of the coarse LayoutMetrics
-    // estimators. Enabled once increments 1-3 landed (the LayoutMetrics entry points and
-    // the anchor resolver route through the provider, and the Broiler.HTML inline-box
-    // geometry fix is live on CI) and the increment-4 parity gate confirmed the shared
-    // path matches or improves on the estimators — see
-    // SharedLayoutGeometryParityTests.Shared_Geometry_Matches_Or_Beats_Estimator_On_CheckLayout_Corpus.
+    // When true, element-geometry queries (offset*/client*/getBoundingClientRect/check-layout)
+    // resolve through the renderer's real layout engine via the injected ILayoutView instead of the
+    // coarse LayoutMetrics estimators.
     internal static bool UseSharedLayoutGeometry = true;
 
     // The preferred binding is the per-session factory supplied through DomBridgeSessionOptions,
@@ -200,7 +195,7 @@ public static partial class DomBridgeUtils
 
     internal static string GetDirectTextContent(DomElement element)
     {
-        // RF-BRIDGE-1c Phase F (F3c part 2d): a node's direct text is its text-node children.
+        // A node's direct text is its text-node children.
         var sb = new StringBuilder();
         foreach (var child in element.ChildNodes)
         {
@@ -239,6 +234,41 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
+    /// <summary>
+    /// The one place a bare SVG attribute number is read: a scalar this component can hold, or no
+    /// answer at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// SVG geometry does not travel through the CSS box tree, so it does not travel through
+    /// <c>TryEvaluateCssLengthWithViewport</c>'s finiteness exit either; an SVG attribute is a
+    /// number <em>or</em> a CSS length, and the number spelling is a bare
+    /// <see cref="NumberStyles.Float"/> parse. That parse accepts .NET's symbolic <c>NaN</c> and
+    /// <c>Infinity</c>, and it overflows a double on an exponent — or on a long enough digit
+    /// string — with no symbol in the value at all, so <c>width="1e400"</c> parsed successfully to
+    /// <c>+∞</c>. What is behind these attributes multiplies and adds them without clamping, so
+    /// the infinity reached <c>getBoundingClientRect</c> and hit testing.
+    /// </para>
+    /// <para>
+    /// Refusing here rather than at each reader is what makes "cannot be represented" and "cannot
+    /// be parsed" the same thing: every caller already has a defined answer for a value it cannot
+    /// read — the ancestor's coordinate, the path's start point, the CSS length spelling, the SVG
+    /// default — and an unrepresentable value now takes that same answer instead of a number
+    /// nobody wrote.
+    /// </para>
+    /// </remarks>
+    internal static bool TryParseFiniteScalar(string? text, out double value)
+    {
+        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value) &&
+            double.IsFinite(value))
+        {
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
     /// <summary>Whether this element's client rect comes from SVG geometry attributes rather than
     /// from the CSS box tree.</summary>
     internal static bool IsSvgGeometryElement(DomElement element) =>
@@ -266,10 +296,7 @@ public static partial class DomBridgeUtils
 
         var numbers = raw
             .Split([' ', '\t', '\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries)
-            .Select(static token =>
-                double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
-                    ? value
-                    : double.NaN)
+            .Select(static token => TryParseFiniteScalar(token, out var value) ? value : double.NaN)
             .ToArray();
 
         double minX = 0, minY = 0, maxX = 0, maxY = 0;
@@ -309,10 +336,7 @@ public static partial class DomBridgeUtils
 
         var parts = raw
             .Split([' ', '\t', '\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries)
-            .Select(static token =>
-                double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
-                    ? value
-                    : double.NaN)
+            .Select(static token => TryParseFiniteScalar(token, out var value) ? value : double.NaN)
             .ToArray();
 
         if (parts.Length < 4 || parts.Any(static value => !double.IsFinite(value)))
@@ -367,9 +391,6 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    internal static bool IsTableCellElement(DomElement element) =>
-        HtmlTableOperations.IsTableCell(element);
-
     internal static bool IsAreaElement(DomElement element) =>
         string.Equals(element.TagName, "area", StringComparison.OrdinalIgnoreCase);
 

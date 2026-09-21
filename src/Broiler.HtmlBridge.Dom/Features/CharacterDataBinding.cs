@@ -7,11 +7,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The DOM <c>CharacterData</c> interface — <c>data</c> get/set, <c>length</c>, <c>splitText</c>
 /// (Text), and the mutation methods <c>substringData</c>/<c>appendData</c>/<c>deleteData</c>/
 /// <c>insertData</c>/<c>replaceData</c> — shared by Text and Comment nodes, co-located as an HtmlBridge
-/// feature module (Phase 3, first slice off the 1599-line DomBridge/JsObjects.cs member file).
+/// feature module.
 /// Read-side text access (<c>BridgeText</c>), node-type tests and the neutral tree helpers are the
 /// bridge's <c>internal static</c> helpers; the notifying setter, text-node factory and wrapper factory
-/// are reached through the narrow <see cref="ICharacterDataHost"/> contract. Previously the bridge's
-/// <c>JsJsObjectsGetData045Core</c>..<c>ReplaceData053Core</c>.
+/// are reached through the narrow <see cref="ICharacterDataHost"/> contract.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -32,18 +31,18 @@ internal static class CharacterDataBinding
     /// </summary>
     /// <remarks>
     /// <para>
-    /// These used to throw a plain error whose <em>message</em> was the string <c>"INDEX_SIZE_ERR"</c>
-    /// — the legacy constant's name used as prose. Nothing a page can branch on came out of that:
-    /// <c>e instanceof DOMException</c> was false, <c>e.name</c> was <c>"Error"</c> and <c>e.code</c>
-    /// was <c>0</c>, so the two checks a caller actually writes both failed and the error read as an
+    /// A plain error whose <em>message</em> is the string <c>"INDEX_SIZE_ERR"</c> — the legacy
+    /// constant's name used as prose — gives a page nothing to branch on:
+    /// <c>e instanceof DOMException</c> is false, <c>e.name</c> is <c>"Error"</c> and <c>e.code</c>
+    /// is <c>0</c>, so the two checks a caller actually writes both fail and the error reads as an
     /// internal fault rather than the specified, recoverable one.
     /// </para>
     /// <para>
     /// It returns rather than throws so that each call site reads <c>throw IndexSizeError(…)</c>: that
-    /// tells the compiler the path ends — the old helper threw from inside, so control appeared to
-    /// continue past an out-of-range offset — and the reader that the throw is deliberate. The former
-    /// second arm, a plain <c>JSException</c> for when no script context had been attached yet, is
-    /// gone with the context: an operation reached through a call frame always has that frame's realm.
+    /// tells the compiler the path ends — a helper that threw from inside would leave control
+    /// appearing to continue past an out-of-range offset — and tells the reader that the throw is
+    /// deliberate. It needs no realm fallback: an operation reached through a call frame always has
+    /// that frame's realm.
     /// </para>
     /// </remarks>
     private static Exception IndexSizeError(IJsRealm realm, string method, int offset, int length) =>
@@ -78,9 +77,8 @@ internal static class CharacterDataBinding
     {
         if (call.Length == 0)
         {
-            // A plain Error, which is what the bare `new JSException(message)` this replaces produced.
-            // A browser raises a TypeError for a missing required argument; that difference is
-            // pre-existing and left alone here, because this pass is a change of vocabulary.
+            // A plain Error. A browser raises a TypeError for a missing required argument; that
+            // difference is long-standing and deliberately left alone here.
             throw call.Realm.Error(
                 JsErrorKind.Error,
                 "Failed to execute 'splitText' on 'Text': 1 argument required, but only 0 present.");

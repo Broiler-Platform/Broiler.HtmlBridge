@@ -21,9 +21,9 @@ public sealed class PageContent(string html, IReadOnlyList<string> scripts, stri
     public string? Url { get; } = url;
 
     /// <summary>
-    /// Authorised ES-module roots for the engine-driven module path — the sole module-execution input since
-    /// the string-rewriting linker fallback was retired (Phase 7 tail). Run through the engine's own module
-    /// machinery when it binds imports (<c>EngineModuleSupport.Available</c>); left unrun otherwise.
+    /// Authorised ES-module roots for the engine-driven module path — the sole module-execution input.
+    /// Run through the engine's own module machinery when it binds imports
+    /// (<c>EngineModuleSupport.Available</c>); left unrun otherwise.
     /// </summary>
     public IReadOnlyList<ModuleRoot> ModuleRoots { get; } = moduleRoots ?? [];
 }

@@ -4,28 +4,21 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// The single owner of a document's nested-browsing-context state (HtmlBridge complexity-reduction
-/// roadmap Phase 3, P3.16 — the browsing-context slice Phase 2/P2.6 deferred): the per-container
+/// The single owner of a document's nested-browsing-context state: the per-container
 /// (<c>&lt;iframe&gt;</c>/<c>&lt;object&gt;</c>/<c>&lt;frame&gt;</c>) sub-document and sub-window JS-object
 /// identity, their location/base-URL caches, the object load-failure and onload-fired marks, the
 /// reverse sub-window→container map, the current-window override for the window-context switch, and the
-/// P4.4b severed content-document maps. It replaces the ten fields that were scattered across
-/// <c>SubDocuments.cs</c>, <c>DomBridge/Lifecycle.cs</c> and <c>DomBridge.cs</c>.
+/// severed content-document maps.
 /// </summary>
 /// <remarks>
 /// <para>The bridge keeps the browsing-context <em>algorithms</em> (sub-document/sub-window builders,
 /// window resolution, resource loading, onload dispatch); they read and mutate this state through the
 /// narrow surface here. Instance-scoped to the owning bridge/document.</para>
 ///
-/// <para><b>A sub-document and a sub-window are both a <see cref="JsValue"/>, and what kept the second
-/// one engine-typed was this remark.</b> It said the sub-window maps were keyed on a JS object that
-/// <c>Dom.Features.SubWindowBinding</c> and <see cref="WindowContextManager"/> hold engine-typed, so
-/// narrowing them here would break each of them at the seam rather than at a boundary. Neither held
-/// one. The binding mints its window through the realm and the manager takes and answers handles
-/// throughout; between them they crossed the seam at seven places, and all seven were there to reach
-/// this class. The header comment that stood above this file was wrong in the same direction: it said
-/// the binding's one unwrap served both this cache and <c>RegisterWindowMessaging</c>, and that method
-/// had been taking the handle since the commit before the header was written.</para>
+/// <para><b>A sub-document and a sub-window are both a <see cref="JsValue"/>.</b>
+/// <c>Dom.Features.SubWindowBinding</c> mints its window through the realm and
+/// <see cref="WindowContextManager"/> takes and answers handles throughout, so no caller of this
+/// class holds an engine type.</para>
 ///
 /// <para><b>Keyed on the handle itself rather than on <see cref="JsValue.ObjectIdentity"/>, and the
 /// difference is the lifecycle.</b> The tables that key on the identity are weak and need a reference
@@ -34,8 +27,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <see cref="EventTargetRegistry"/>'s owner map. The reverse map takes the default comparer: for an
 /// object handle <see cref="JsValue.Equals(JsValue)"/> compares kind and then the carried reference by
 /// <c>ReferenceEquals</c>, and <see cref="JsValue.GetHashCode"/> hashes that reference with
-/// <c>RuntimeHelpers.GetHashCode</c> — the two questions the reference comparer it used to take asked,
-/// plus kind. Every key filed here is a plain object minted by <see cref="IJsValues.NewObject"/>, and
+/// <c>RuntimeHelpers.GetHashCode</c>. Every key filed here is a plain object minted by <see cref="IJsValues.NewObject"/>, and
 /// <c>SubWindowMapKeyTests</c> looks one up again under the handle a later property read produces.</para>
 ///
 /// <para><b>The struct key opens exactly one hole, and <see cref="SetSubWindow"/> closes it.</b>
@@ -47,8 +39,8 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// Release and Release-VM: a <c>Debug.Assert</c> would compile out of every one of them.
 /// <c>Runtime/JsObjectRegistry.cs</c>'s <c>IdentityOf</c> is the same guard for the same reason.</para>
 ///
-/// <para>The sub-window maps have deliberately asymmetric lifecycles, preserved from the pre-consolidation
-/// code: the container→sub-window map (<see cref="TryGetSubWindow"/>) is dropped per container when a
+/// <para>The sub-window maps have deliberately asymmetric lifecycles:
+/// the container→sub-window map (<see cref="TryGetSubWindow"/>) is dropped per container when a
 /// sub-document is invalidated (<see cref="RemoveContainerCaches"/>), while the reverse sub-window→container
 /// map is bulk-cleared only on session reset (<see cref="ResetSession"/>). Both are set together by
 /// <see cref="SetSubWindow"/>.</para>
@@ -57,8 +49,8 @@ internal sealed class BrowsingContextManager
 {
     // Per-container JS-object identity for the sub-document and sub-window objects. Both maps hold
     // handles; JsValue's own equality is reference equality for an object, so the identity rules
-    // (`frame.contentDocument === frame.contentDocument`, and the same of `contentWindow`) are decided
-    // exactly as they were. Both are keyed on the container element, so neither key moved.
+    // (`frame.contentDocument === frame.contentDocument`, and the same of `contentWindow`) hold.
+    // Both are keyed on the container element.
     private readonly Dictionary<DomElement, JsValue> _subDocuments = [];
     private readonly Dictionary<DomElement, JsValue> _subWindows = [];
 
@@ -76,7 +68,7 @@ internal sealed class BrowsingContextManager
     // per-container.
     private readonly Dictionary<JsValue, DomElement> _subWindowContainers = [];
 
-    // P4.4b severed content documents: a nested-browsing-context container ↔ its canonical DomDocument.
+    // Severed content documents: a nested-browsing-context container ↔ its canonical DomDocument.
     private readonly Dictionary<DomElement, DomDocument> _contentDocuments = [];
     private readonly Dictionary<DomDocument, DomElement> _documentContainers = [];
 
@@ -86,9 +78,8 @@ internal sealed class BrowsingContextManager
     /// <remarks>
     /// Not nullable, and nothing normalises what is stored. Both readers are in
     /// <see cref="WindowContextManager"/>: <see cref="WindowContextManager.ResolveCurrentWindow"/> asks
-    /// <see cref="JsValue.IsObject"/> of it, which treats a primitive exactly as the former write-side
-    /// narrowing to <see langword="null"/> did, and <see cref="WindowContextManager.RunWithWindowContext"/>
-    /// saves and restores it as it stands.
+    /// <see cref="JsValue.IsObject"/> of it, so a primitive reads as "no override", and
+    /// <see cref="WindowContextManager.RunWithWindowContext"/> saves and restores it as it stands.
     /// </remarks>
     public JsValue CurrentWindowOverride { get; set; }
 
@@ -109,12 +100,8 @@ internal sealed class BrowsingContextManager
     /// onto one reverse entry, and why this is a throw rather than an assertion.
     /// </para>
     /// <para>
-    /// The engine-typed signature refused the same case, but not here. Its one caller unwrapped the
-    /// window on the line before, and that unwrap throws <see cref="InvalidOperationException"/> for a
-    /// handle carrying no object, so no null ever reached this method. Had one arrived, the forward map
-    /// was written first and the reverse map's null-key <see cref="ArgumentNullException"/> fired second,
-    /// leaving the container half filed. A caller handing over a non-object sees the exception type it
-    /// saw before, raised here and before any write rather than by the unwrap it ran before the call.
+    /// The check runs before either write, so a refused handle cannot leave the forward map filed and
+    /// the reverse map not.
     /// </para>
     /// </remarks>
     public void SetSubWindow(DomElement container, JsValue subWindow)
@@ -154,7 +141,7 @@ internal sealed class BrowsingContextManager
     public void MarkOnloadFired(DomElement element) => _onloadFired.Add(element);
     public void ClearOnloadFired(DomElement element) => _onloadFired.Remove(element);
 
-    // ── Content documents (P4.4b) ────────────────────────────────────────────
+    // ── Content documents ──────────────────────────────────────────────────
     public DomDocument? GetContentDocument(DomElement container) =>
         _contentDocuments.TryGetValue(container, out var document) ? document : null;
     public DomElement? GetContainerForDocument(DomDocument document) =>
@@ -179,8 +166,8 @@ internal sealed class BrowsingContextManager
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
-    /// <summary>Drops the per-container caches when a sub-document is invalidated. Mirrors the
-    /// pre-consolidation <c>InvalidateCachedSubDocument</c>: removes the container→sub-window entry but
+    /// <summary>Drops the per-container caches when a sub-document is invalidated. Called from
+    /// <c>DomBridge.InvalidateCachedSubDocument</c>: removes the container→sub-window entry but
     /// deliberately NOT the reverse sub-window→container entry (that is bulk-cleared on session reset).</summary>
     public void RemoveContainerCaches(DomElement container)
     {
@@ -190,9 +177,9 @@ internal sealed class BrowsingContextManager
         _subDocumentBaseUrls.Remove(container);
     }
 
-    /// <summary>Session reset (re-parse / disposal). Matches the pre-consolidation
-    /// <c>ClearRuntimeSessionState</c>: bulk-clears the reverse sub-window→container map and the
-    /// current-window override. The per-container caches keep their existing lifecycle (dropped via
+    /// <summary>Session reset (re-parse / disposal). Called from
+    /// <c>DomBridge.ClearRuntimeSessionState</c>: bulk-clears the reverse sub-window→container map and
+    /// the current-window override. The per-container caches keep their own lifecycle (dropped via
     /// <see cref="RemoveContainerCaches"/>).</summary>
     public void ResetSession()
     {

@@ -51,33 +51,15 @@ public partial class ParsedMarkupCanonicalTests
 
     /// <summary>
     /// Runs <paramref name="script"/> against <paramref name="pageHtml"/>, writes its value to <c>#out</c>
-    /// and returns the whole serialization. Reading the answer out of the serialized DOM keeps the test to
-    /// the engine's public surface, as the neighbouring page-script suites do.
+    /// and returns the whole serialization — which the doctype and frame-stamp assertions read outside
+    /// <c>#out</c>.
     /// </summary>
-    private static string RunForHtml(string pageHtml, string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            pageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-        return html!;
-    }
+    private static string RunForHtml(string pageHtml, string script) =>
+        PageProbe.Render([PageProbe.Probe(script)], pageHtml, PageUrl);
 
     /// <summary>As <see cref="RunForHtml"/>, returning only what the script wrote to <c>#out</c>.</summary>
-    private static string Run(string pageHtml, string script)
-    {
-        var html = RunForHtml(pageHtml, script);
-
-        const string open = "<div id=\"out\">";
-        var start = html.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string pageHtml, string script) =>
+        PageProbe.OutOf(RunForHtml(pageHtml, script));
 
     /// <summary>
     /// Loads a <c>data:</c> frame holding <paramref name="frameMarkup"/>, changes its <c>#x</c> so the live

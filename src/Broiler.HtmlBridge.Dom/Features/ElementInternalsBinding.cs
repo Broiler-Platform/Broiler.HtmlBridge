@@ -51,9 +51,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// installs is source this repository authored and ships, so it runs through
 /// <see cref="IJsSource.EvaluateHostScript"/> rather than either of the other two members — a page's
 /// Content-Security-Policy has no say over it. No engine type is named anywhere in this file: the
-/// script context <see cref="RegisterInterfaces"/> used to be handed is gone (the module always
-/// reached its realm through its host and never read it), and <c>DomBridge.TryReadFormDataEntries</c>
-/// now takes a realm and a handle.
+/// module reaches its realm through its host, and <c>DomBridge.TryReadFormDataEntries</c> takes a
+/// realm and a handle.
 /// </para>
 /// </remarks>
 internal sealed class ElementInternalsBinding(IElementInternalsHost host)
@@ -121,13 +120,8 @@ internal sealed class ElementInternalsBinding(IElementInternalsHost host)
     /// The identity a weak per-object registry keys on: the reference the handle carries.
     /// </summary>
     /// <remarks>
-    /// <b>This used to unwrap to the engine's own object, on the reasoning that a
-    /// <see cref="JsValue"/> is a struct and so cannot be a
-    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/> key.</b> The
-    /// struct is not the key; the reference it carries is, and
-    /// <see cref="JsValue.ObjectIdentity"/> is that reference. It is the same instance this table
-    /// was keyed on before, under the one provider that could reach it - so nothing about the
-    /// answers changes - and it is now an instance every provider supplies.
+    /// See <see cref="Runtime.JsObjectRegistry"/> for why the reference the handle carries, and
+    /// not the <see cref="JsValue"/> struct itself, is the weak-table key.
     /// </remarks>
     private static object IdentityOf(JsValue value) =>
         value.ObjectIdentity ?? throw new InvalidOperationException(

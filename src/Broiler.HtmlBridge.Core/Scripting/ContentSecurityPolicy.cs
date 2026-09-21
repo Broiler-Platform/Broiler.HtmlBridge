@@ -36,6 +36,30 @@ public sealed class ContentSecurityPolicy
     private readonly HashSet<string> _styleSrcAttrTokens = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The honored directives by the name a header spells them with, for <see cref="Parse"/> to look a
+    /// directive up in. Every entry is one of the sets above, not a copy of it, so a directive parsed
+    /// through this table is read back through its field; the fields are what the evaluation below
+    /// names, so which directive it means stays a compile-time fact there.
+    /// </summary>
+    private readonly Dictionary<string, HashSet<string>> _tokensByDirective;
+
+    /// <summary>A policy that allows everything, until <see cref="Parse"/> applies one.</summary>
+    public ContentSecurityPolicy()
+    {
+        // OrdinalIgnoreCase: a directive name is case-insensitive, as `script-src` vs `Script-Src`.
+        _tokensByDirective = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["default-src"] = _defaultSrcTokens,
+            ["script-src"] = _scriptSrcTokens,
+            ["script-src-elem"] = _scriptSrcElemTokens,
+            ["script-src-attr"] = _scriptSrcAttrTokens,
+            ["style-src"] = _styleSrcTokens,
+            ["style-src-elem"] = _styleSrcElemTokens,
+            ["style-src-attr"] = _styleSrcAttrTokens,
+        };
+    }
+
+    /// <summary>
     /// Whether <c>eval()</c> and similar dynamic code execution is allowed.
     /// Defaults to <c>true</c> when no applicable directive is present.
     /// </summary>
@@ -52,13 +76,8 @@ public sealed class ContentSecurityPolicy
     /// </summary>
     public void Parse(string policy)
     {
-        _defaultSrcTokens.Clear();
-        _scriptSrcTokens.Clear();
-        _scriptSrcElemTokens.Clear();
-        _scriptSrcAttrTokens.Clear();
-        _styleSrcTokens.Clear();
-        _styleSrcElemTokens.Clear();
-        _styleSrcAttrTokens.Clear();
+        foreach (var directiveTokens in _tokensByDirective.Values)
+            directiveTokens.Clear();
         AllowsEval = true;
         StrictDynamic = false;
 
@@ -72,25 +91,12 @@ public sealed class ContentSecurityPolicy
             if (tokens.Length == 0)
                 continue;
 
-            HashSet<string>? target = null;
-            if (string.Equals(tokens[0], "default-src", StringComparison.OrdinalIgnoreCase))
-                target = _defaultSrcTokens;
-            else if (string.Equals(tokens[0], "script-src", StringComparison.OrdinalIgnoreCase))
-                target = _scriptSrcTokens;
-            else if (string.Equals(tokens[0], "script-src-elem", StringComparison.OrdinalIgnoreCase))
-                target = _scriptSrcElemTokens;
-            else if (string.Equals(tokens[0], "script-src-attr", StringComparison.OrdinalIgnoreCase))
-                target = _scriptSrcAttrTokens;
-            else if (string.Equals(tokens[0], "style-src", StringComparison.OrdinalIgnoreCase))
-                target = _styleSrcTokens;
-            else if (string.Equals(tokens[0], "style-src-elem", StringComparison.OrdinalIgnoreCase))
-                target = _styleSrcElemTokens;
-            else if (string.Equals(tokens[0], "style-src-attr", StringComparison.OrdinalIgnoreCase))
-                target = _styleSrcAttrTokens;
-
-            if (target == null)
+            // A directive this policy does not honor is ignored.
+            if (!_tokensByDirective.TryGetValue(tokens[0], out var target))
                 continue;
 
+            // The last occurrence of a repeated directive wins, and a source-less one (`script-src;`)
+            // stays an empty set, which the fallback chain then reads as "not stated".
             target.Clear();
             for (var i = 1; i < tokens.Length; i++)
                 target.Add(tokens[i]);
@@ -238,25 +244,7 @@ public sealed class ContentSecurityPolicy
         if (resolved == null)
             return false;
 
-        foreach (var source in sources)
-        {
-            if (string.Equals(source, "*", StringComparison.Ordinal) &&
-                CspSourceMatching.MatchesWildcard(resolved, pageUrl))
-                return true;
-
-            if (string.Equals(source, "'self'", StringComparison.OrdinalIgnoreCase) &&
-                CspSourceMatching.IsSameOrigin(resolved, pageUrl))
-                return true;
-
-            if (CspSourceMatching.IsSchemeSource(source) &&
-                string.Equals(resolved.Scheme, source[..^1], StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            if (CspSourceMatching.MatchesAbsoluteSource(source, resolved))
-                return true;
-        }
-
-        return false;
+        return MatchesAnySource(sources, resolved, pageUrl);
     }
 
     /// <summary>
@@ -292,25 +280,7 @@ public sealed class ContentSecurityPolicy
         if (resolved == null)
             return false;
 
-        foreach (var source in sources)
-        {
-            if (string.Equals(source, "*", StringComparison.Ordinal) &&
-                CspSourceMatching.MatchesWildcard(resolved, pageUrl))
-                return true;
-
-            if (string.Equals(source, "'self'", StringComparison.OrdinalIgnoreCase) &&
-                CspSourceMatching.IsSameOrigin(resolved, pageUrl))
-                return true;
-
-            if (CspSourceMatching.IsSchemeSource(source) &&
-                string.Equals(resolved.Scheme, source[..^1], StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            if (CspSourceMatching.MatchesAbsoluteSource(source, resolved))
-                return true;
-        }
-
-        return false;
+        return MatchesAnySource(sources, resolved, pageUrl);
     }
 
     /// <summary>
@@ -321,7 +291,7 @@ public sealed class ContentSecurityPolicy
     public static ContentSecurityPolicy? FromHtml(string html)
     {
         // Discovery (where is the policy in the document) is CspMetaDiscovery's job; this method only
-        // composes it with parsing (what the policy allows). Phase 7 item 1.
+        // composes it with parsing (what the policy allows).
         var content = CspMetaDiscovery.FindPolicyContent(html);
         if (string.IsNullOrWhiteSpace(content))
             return null;
@@ -408,40 +378,24 @@ public sealed class ContentSecurityPolicy
     }
 
     private HashSet<string> GetEffectiveScriptElementSources()
-    {
-        if (_scriptSrcElemTokens.Count > 0)
-            return _scriptSrcElemTokens;
-        if (_scriptSrcTokens.Count > 0)
-            return _scriptSrcTokens;
-        return _defaultSrcTokens;
-    }
+        => EffectiveSources(_scriptSrcElemTokens, _scriptSrcTokens);
 
     private HashSet<string> GetEffectiveScriptAttributeSources()
-    {
-        if (_scriptSrcAttrTokens.Count > 0)
-            return _scriptSrcAttrTokens;
-        if (_scriptSrcTokens.Count > 0)
-            return _scriptSrcTokens;
-        return _defaultSrcTokens;
-    }
+        => EffectiveSources(_scriptSrcAttrTokens, _scriptSrcTokens);
 
     private HashSet<string> GetEffectiveStyleElementSources()
-    {
-        if (_styleSrcElemTokens.Count > 0)
-            return _styleSrcElemTokens;
-        if (_styleSrcTokens.Count > 0)
-            return _styleSrcTokens;
-        return _defaultSrcTokens;
-    }
+        => EffectiveSources(_styleSrcElemTokens, _styleSrcTokens);
 
     private HashSet<string> GetEffectiveStyleAttributeSources()
-    {
-        if (_styleSrcAttrTokens.Count > 0)
-            return _styleSrcAttrTokens;
-        if (_styleSrcTokens.Count > 0)
-            return _styleSrcTokens;
-        return _defaultSrcTokens;
-    }
+        => EffectiveSources(_styleSrcAttrTokens, _styleSrcTokens);
+
+    // The fallback chain every one of those four getters walks: the directive's own tokens, then the
+    // group directive it falls back to (script-src or style-src), then default-src. A directive that
+    // was never stated is an empty set rather than a missing one, which is why each step tests
+    // Count > 0. The set is handed back by reference, as Parse clears these in place and every caller
+    // only reads it.
+    private HashSet<string> EffectiveSources(HashSet<string> specific, HashSet<string> group)
+        => specific.Count > 0 ? specific : group.Count > 0 ? group : _defaultSrcTokens;
 
     private static bool IsNoneOnly(HashSet<string> sources)
         => sources.Count == 1 && sources.Contains("'none'");
@@ -454,6 +408,34 @@ public sealed class ContentSecurityPolicy
                 source.StartsWith("'sha256-", StringComparison.OrdinalIgnoreCase) ||
                 source.StartsWith("'sha384-", StringComparison.OrdinalIgnoreCase) ||
                 source.StartsWith("'sha512-", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    // Whether any source token in the set admits a fetched URL: the wildcard, 'self', a scheme source
+    // such as https:, or an absolute host source, tried in that order. The keyword sources that speak
+    // about inline content — 'unsafe-inline', nonces, hashes, 'strict-dynamic' — are not tested here,
+    // because a fetched URL is not inline content; each caller applies the ones that apply to it
+    // before asking. Shared by AllowsExternalScript and AllowsExternalStyle.
+    private static bool MatchesAnySource(HashSet<string> sources, Uri resolved, string? pageUrl)
+    {
+        foreach (var source in sources)
+        {
+            if (string.Equals(source, "*", StringComparison.Ordinal) &&
+                CspSourceMatching.MatchesWildcard(resolved, pageUrl))
+                return true;
+
+            if (string.Equals(source, "'self'", StringComparison.OrdinalIgnoreCase) &&
+                CspSourceMatching.IsSameOrigin(resolved, pageUrl))
+                return true;
+
+            if (CspSourceMatching.IsSchemeSource(source) &&
+                string.Equals(resolved.Scheme, source[..^1], StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (CspSourceMatching.MatchesAbsoluteSource(source, resolved))
                 return true;
         }
 

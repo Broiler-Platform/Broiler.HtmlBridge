@@ -9,8 +9,8 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> (Phase 3 ratchet, 2026-07-17) to keep it
-/// under the 750-line guard: scroll-container and fixed-position ancestor resolution, rendered-descendant
+/// Sibling partial peeled out of <c>LayoutMetrics.cs</c> to keep it
+/// under the 750-line guideline: scroll-container and fixed-position ancestor resolution, rendered-descendant
 /// enumeration, and the <c>scrollIntoView</c> physical-offset / scroll-coordinate / scroll-inset geometry
 /// conversions. Pure partial-class relocation — no signature, accessibility, or logic change.
 /// </summary>
@@ -68,15 +68,15 @@ public sealed partial class DomBridge
     {
         if (string.Equals(element.TagName, "slot", StringComparison.OrdinalIgnoreCase))
         {
-            var host = GetSlotHost(element);
-            if (host == null)
-                yield break;
-
-            foreach (var child in ChildElements(host))
-            {
-                if (!IsText(child) && SlotAcceptsNode(element, child))
-                    yield return child;
-            }
+            // What renders inside a slot is what the canonical assignment algorithm assigns to it
+            // (DOM §4.2.2.3): a slottable is assigned to the FIRST slot of the shadow tree that
+            // accepts it, never to every same-named slot — which is what testing the slot's own
+            // name against each of the host's children answered. `flatten: false` keeps this walk's
+            // semantics: flattening adds the fallback-content and nested-slot substitutions the
+            // render-bound tree does not model. The algorithm answers in nodes; only elements
+            // generate the boxes this walk measures, so text and comment slottables are filtered out.
+            foreach (var assigned in DomSlotting.GetAssignedNodes(element, flatten: false).OfType<DomElement>())
+                yield return assigned;
 
             yield break;
         }
@@ -155,7 +155,7 @@ public sealed partial class DomBridge
     private DomElement? GetOuterFrameElement(DomElement documentElement)
     {
         // A sub-document's documentElement (<html>) now hangs off its canonical DomDocument
-        // (the severed content document, P4.4b); recover the owning frame via the reverse map
+        // (the severed content document); recover the owning frame via the reverse map
         // (was ParentEl(ParentEl(<html>)) through the #subdoc-root element).
         return GetFrameForContentDocument(documentElement?.ParentNode);
     }
@@ -169,7 +169,7 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// RF-BRIDGE-1b: the scroll-aware offset of <paramref name="element"/> within
+    /// The scroll-aware offset of <paramref name="element"/> within
     /// <paramref name="ancestor"/> from the shared snapshot. The snapshot is a *natural*
     /// (unscrolled) layout, so the element-border-to-ancestor-padding delta it yields is
     /// the pre-scroll offset; the JS-set scroll offset of each intermediate scroll
@@ -184,7 +184,7 @@ public sealed partial class DomBridge
         offset = 0;
         if (!UseSharedLayoutGeometry)
             return false;
-        // (RF-BRIDGE-1b Track 3.2) The former cross-frame gate is gone: the shared
+        // The former cross-frame gate is gone: the shared
         // snapshot now composes each subframe's geometry into the main coordinate frame
         // (CssBox.LayoutNestedBrowsingContexts) *and* a position:fixed / root-anchored
         // abspos element inside a subframe resolves against the frame's own sub-viewport
@@ -193,7 +193,7 @@ public sealed partial class DomBridge
         // snapshot (e.g. a cross-origin or non-materialised frame), the
         // TryGetSharedLayoutGeometry lookups below return false and the caller still
         // falls back to the estimator's frame-aware walk.
-        // (RF-BRIDGE-1b Track 3.1) The former abspos-in-inline-CB bypass is gone: the
+        // The former abspos-in-inline-CB bypass is gone: the
         // layout engine now places an absolutely/fixed-positioned element whose
         // containing block is an inline box at its inset position, so its shared box is
         // correct and the estimator fallback is no longer needed here.
@@ -215,7 +215,7 @@ public sealed partial class DomBridge
             ? elementBox.BorderBox.Top - ancestorBox.PaddingBox.Top
             : elementBox.BorderBox.Left - ancestorBox.PaddingBox.Left) * inverseOffsetZoom;
 
-        // (RF-BRIDGE-1b Track 3.3) For a viewport-anchored target — one being scrolled
+        // For a viewport-anchored target — one being scrolled
         // into the *visual* viewport whose containing chain includes a position:fixed
         // ancestor F — only the scroll containers at or below F move the target: the
         // target rides F's own overflow scroll (and any scroller nested inside F), but
@@ -256,7 +256,7 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// RF-BRIDGE-1b Track 3.3: offset of a viewport-anchored (fixed-subtree) target
+    /// Offset of a viewport-anchored (fixed-subtree) target
     /// within <paramref name="ancestor"/> from the shared snapshot, subtracting only the
     /// scroll of containers at or below the target's nearest fixed ancestor
     /// (<see cref="TrySharedOffsetWithinAncestor"/> with <c>viewportAnchored</c>), else
@@ -269,7 +269,7 @@ public sealed partial class DomBridge
             : 0;
 
     /// <summary>
-    /// RF-BRIDGE-1b: offset of <paramref name="element"/> within
+    /// Offset of <paramref name="element"/> within
     /// <paramref name="ancestor"/> from the scroll-aware shared snapshot
     /// (<see cref="TrySharedOffsetWithinAncestor"/>). With the coarse estimators deleted, a
     /// shared-unavailable element (cross-origin / non-materialised frame) reports 0 — real

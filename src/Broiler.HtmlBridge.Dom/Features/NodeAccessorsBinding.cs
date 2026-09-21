@@ -4,12 +4,12 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// Phase 3 feature module for the DOM <c>Node</c> read accessors shared by every node wrapper —
+/// Feature module for the DOM <c>Node</c> read accessors shared by every node wrapper —
 /// <c>isConnected</c>, <c>childNodes</c>, <c>firstChild</c>/<c>lastChild</c>,
 /// <c>nextSibling</c>/<c>previousSibling</c>, <c>nodeType</c>/<c>nodeName</c>, <c>localName</c>/
 /// <c>prefix</c>/<c>namespaceURI</c>, <c>nodeValue</c> (get/set), the <c>textContent</c> setter,
-/// <c>publicId</c>/<c>systemId</c> (DocumentType), <c>ownerDocument</c> and <c>parentElement</c>. These
-/// were the bridge's <c>JsJsObjectsGet…032</c>..<c>058</c> callbacks; the JS-wrapper factory, the live
+/// <c>publicId</c>/<c>systemId</c> (DocumentType), <c>ownerDocument</c> and <c>parentElement</c>.
+/// The JS-wrapper factory, the live
 /// <c>childNodes</c> collection, the document node, the notifying character-data setter and the
 /// document-wrapper lookups reach the bridge through <see cref="INodeAccessorsHost"/>,
 /// while node-type tests, tree-order helpers, text reads and the owning-document derivation are the
@@ -30,10 +30,11 @@ internal static class NodeAccessorsBinding
     /// root is a document (DOM §4.2.2) — the canonical <see cref="DomNode.IsConnected"/>.
     /// </summary>
     /// <remarks>
-    /// <b>Any document, not the page's.</b> This compared the node's root with the page's own document,
-    /// so every node in a frame's document or in one <c>createHTMLDocument</c> built — that document's
-    /// <c>body</c> and <c>documentElement</c> included — answered <c>false</c>, and a framed script's
-    /// "am I in the page yet?" guard never opened. A shadow tree needs nothing extra: the bridge parents
+    /// <b>Any document, not the page's.</b> Comparing the node's root with the page's own document
+    /// would answer <c>false</c> for every node in a frame's document or in one
+    /// <c>createHTMLDocument</c> built — that document's <c>body</c> and <c>documentElement</c>
+    /// included — and a framed script's
+    /// "am I in the page yet?" guard would never open. A shadow tree needs nothing extra: the bridge parents
     /// its synthetic <c>#shadow-root</c> element into the host, so the plain root walk crosses every
     /// host on the way up, nested shadow trees included, and ends at the outermost host's root — which
     /// is the shadow-including root the Standard asks about.
@@ -42,15 +43,15 @@ internal static class NodeAccessorsBinding
         JsValue.Boolean(node.IsConnected);
 
     /// <summary>
-    /// <c>node.childNodes</c> — a <b>live</b> <c>NodeList</c> (DOM §4.4). It used to be a plain
-    /// array, which is a snapshot: <c>var kids = el.childNodes; el.appendChild(x); kids.length</c>
-    /// grew in a browser and did not here, silently answering a stale number rather than failing.
+    /// <c>node.childNodes</c> — a <b>live</b> <c>NodeList</c> (DOM §4.4). A plain array would be a
+    /// snapshot: <c>var kids = el.childNodes; el.appendChild(x); kids.length</c> grows in a browser,
+    /// and a snapshot would silently answer a stale number rather than fail.
     /// The list holds the walk rather than its result, so every read sees the tree as it is now.
     /// </summary>
     /// <remarks>
     /// Assembling that collection is <see cref="INodeAccessorsHost.ChildNodeList"/>'s: the bridge
     /// mints the <c>NodeList</c> through <c>DomCollectionBinding</c> in its realm, wrapping the
-    /// children on every read. (This said that was engine-typed, and a list would convert twice.)
+    /// children on every read.
     /// </remarks>
     public static JsValue GetChildNodes(INodeAccessorsHost host, DomNode node, in JsCall call) =>
         host.ChildNodeList(node);
@@ -197,7 +198,7 @@ internal static class NodeAccessorsBinding
         if (node is Broiler.Dom.DomDocument)
             return JsValue.Null;
 
-        // Phase 4 item 1 (P4.4c): the owning document is derived from the canonical tree (connected
+        // The owning document is derived from the canonical tree (connected
         // nodes) or the node's canonical OwnerDocument (detached), not a parallel OwnerDocRoot field.
         var owner = DomBridgeUtils.GetOwningDocument(node);
         // A sub-document maps to its JS document wrapper; the main document maps to the window

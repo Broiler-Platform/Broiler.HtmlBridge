@@ -4,7 +4,7 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The narrow surface the co-located sub-window feature (<see cref="SubWindowBinding"/>, P3.17) needs
+/// The narrow surface the co-located sub-window feature (<see cref="SubWindowBinding"/>) needs
 /// from the bridge: the realm, the top-level window object, the sub-document builder it wraps (mutual
 /// recursion), the browsing-context tree/link queries, sub-resource URL resolution, the scroll-geometry
 /// read/write helpers, computed-style construction, and the parent realm's globals. Implemented by
@@ -15,21 +15,14 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The contract names no engine type: a JS object is a <see cref="JsValue"/> and the scroll arguments
-/// arrive as the migrated call frame's own values. One member <em>name</em> still carries the
+/// arrive as the call frame's own values. One member <em>name</em> still carries the
 /// engine's word for a frame; see the remarks on it.
 /// </remarks>
-internal interface ISubWindowHost
+internal interface ISubWindowHost : IRealmHost, ISubDocumentFactoryHost
 {
-    /// <summary>The realm the sub-window and everything installed on it belongs to.</summary>
-    IJsRealm Realm { get; }
-
     /// <summary>The top-level window object (the sub-window's <c>top</c>, and its <c>parent</c> when
     /// the sub-document is not itself nested), or a non-object when the bridge has no window.</summary>
     JsValue MainWindow { get; }
-
-    /// <summary>The sub-document JS object for a container (built on demand). The sub-window's
-    /// <c>document</c> getter and <c>defaultView</c> wiring depend on it.</summary>
-    JsValue GetOrCreateSubDocument(DomElement container);
 
     /// <summary>The severed content document of a nested-browsing-context container, or <c>null</c>.</summary>
     DomDocument? GetContentDocument(DomElement container);

@@ -5,19 +5,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The document-level factories exposed on <c>document.implementation</c> —
 /// <c>createDocumentType</c>, <c>createDocument</c>, <c>createHTMLDocument</c> — co-located as an
-/// HtmlBridge feature module (Phase 3), completing the factory surface begun in
-/// <see cref="DocumentFactoryBinding"/> (P3.25). Each constructs a canonical DOM node/tree through the
+/// HtmlBridge feature module, completing the factory surface begun in
+/// <see cref="DocumentFactoryBinding"/>. Each constructs a canonical DOM node/tree through the
 /// <see cref="IDocumentLevelFactoryHost"/> funnels (a browsing-context <c>DomDocument</c> root for the
 /// two document factories) and returns its JS wrapper. Name validation is asked of the host (it raises
 /// the <c>DOMException</c> against the realm's own <c>DOMException</c> constructor) and the neutral
 /// tree helper <c>SetParent</c> is the bridge's <c>internal static</c> helper, called directly.
-/// Previously the bridge's <c>JsRegistrationCreateDocumentType057Core</c>..<c>CreateHTMLDocument059Core</c>
-/// in the shared JsFunctionCallbacks/Registration.cs grab-bag.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
-/// type — including the script context these three used to be handed purely to pass on to the
-/// validators.
+/// type.
 /// </remarks>
 internal static class DocumentLevelFactoryBinding
 {
@@ -25,8 +22,7 @@ internal static class DocumentLevelFactoryBinding
     {
         if (call.Length < 3)
         {
-            // A plain Error, not a TypeError: that is what the engine-typed `new JSException(message)`
-            // this replaces constructed, and WebIDL's arity check is the only thing this reports.
+            // A plain Error, not a TypeError: WebIDL's arity check is the only thing this reports.
             throw call.Realm.Error(
                 JsErrorKind.Error,
                 "Failed to execute 'createDocumentType' on 'DOMImplementation': 3 arguments required.");
@@ -57,7 +53,7 @@ internal static class DocumentLevelFactoryBinding
         if (!string.IsNullOrEmpty(qName))
             host.ValidateQualifiedName(qName, ns);
 
-        // A createDocument root is a canonical DomDocument (Phase 4 item 1 / P4.4a).
+        // A createDocument root is a canonical DomDocument.
         var docRoot = host.CreateBrowsingContextDocument();
 
         // Append the doctype if provided — a DocumentType is a legitimate canonical child of a
@@ -81,7 +77,7 @@ internal static class DocumentLevelFactoryBinding
     {
         var title = call.Length > 0 && !call[0].IsNullish ? call.Realm.ToJsString(call[0]) : null;
 
-        // A createHTMLDocument root is a canonical DomDocument (Phase 4 item 1 / P4.4a/P4.4c); doctype
+        // A createHTMLDocument root is a canonical DomDocument; doctype
         // + <html> are appended as canonical document children, so the owner derives from tree position.
         var docRoot = host.CreateBrowsingContextDocument();
         var doctype = host.CreateBridgeDocumentType("html", string.Empty, string.Empty);
@@ -91,22 +87,18 @@ internal static class DocumentLevelFactoryBinding
         var htmlEl = host.CreateBridgeElement("html");
         docRoot.AppendChild(htmlEl);
         var headEl = host.CreateBridgeElement("head");
-        DomBridgeUtils.SetParent(headEl, htmlEl);
         htmlEl.AppendChild(headEl);
 
         // Add a <title> element if a title argument is provided.
         if (title != null)
         {
             var titleEl = host.CreateBridgeElement("title");
-            DomBridgeUtils.SetParent(titleEl, headEl);
             headEl.AppendChild(titleEl);
             var titleText = host.CreateBridgeTextNode(title);
-            DomBridgeUtils.SetParent(titleText, titleEl);
             titleEl.AppendChild(titleText);
         }
 
         var bodyEl = host.CreateBridgeElement("body");
-        DomBridgeUtils.SetParent(bodyEl, htmlEl);
         htmlEl.AppendChild(bodyEl);
         return host.BuildDocument(docRoot);
     }

@@ -6,22 +6,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The <c>document</c> node-factory methods — <c>createElement</c>, <c>createTextNode</c>,
 /// <c>createDocumentFragment</c>, <c>createElementNS</c>, <c>createAttribute</c>,
 /// <c>createAttributeNS</c>, <c>importNode</c>, <c>adoptNode</c> — co-located as an HtmlBridge
-/// feature module (Phase 3). Each validates any name argument it takes, builds the canonical node or
+/// feature module. Each validates any name argument it takes, builds the canonical node or
 /// copies or moves the one it is given (all through the <see cref="IDocumentFactoryHost"/> contract),
-/// and returns its JS wrapper. (This named only the first six.) Previously the bridge's
-/// <c>JsRegistrationCreateElement014Core</c> etc. in the shared JsFunctionCallbacks/Registration.cs
-/// grab-bag. The document-level factories (<c>createDocument</c>, <c>createHTMLDocument</c>,
-/// <c>createDocumentType</c>) and <c>createEvent</c> are browsing-context / event-object concerns and
-/// are not part of this slice.
+/// and returns its JS wrapper. The document-level factories (<c>createDocument</c>,
+/// <c>createHTMLDocument</c>, <c>createDocumentType</c>) and <c>createEvent</c> are browsing-context /
+/// event-object concerns and are not part of this slice.
 /// </summary>
 /// <remarks>
 /// Everything here is JSEAL's: <c>DomBridge/Registration/Document.cs</c> mints all eight members
-/// through the realm, so the script context this module used to take alongside its host is gone with
-/// the frame. It was there for two things and both moved rather than disappeared — the name
-/// validations are on the host contract, and the DOM exceptions go through <c>JsCall.Realm</c>'s own
-/// <c>DomError</c>, which builds the same object against the same <c>DOMException</c> global. Every
-/// argument coercion is the realm's <c>ToJsString</c>, which is the observable ECMAScript
-/// <c>ToString</c> the engine's <c>ToString()</c> ran here before.
+/// through the realm. The name validations are on the host contract, and the DOM exceptions go
+/// through <c>JsCall.Realm</c>'s own <c>DomError</c>, which builds the object against the realm's
+/// <c>DOMException</c> global. Every argument coercion is the realm's <c>ToJsString</c>, the
+/// observable ECMAScript <c>ToString</c>.
 /// </remarks>
 internal static class DocumentFactoryBinding
 {

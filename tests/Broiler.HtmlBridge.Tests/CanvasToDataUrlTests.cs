@@ -33,23 +33,11 @@ public class CanvasToDataUrlTests
     private const string PageHtml =
         "<html><body><canvas id=\"c\" width=\"4\" height=\"4\"></canvas><div id=\"out\"></div></body></html>";
 
-    private static string Run(string body)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"var c = document.getElementById('c'); document.getElementById('out').textContent = String((function () {{ {body} }})());"],
+    private static string Run(string body) =>
+        PageProbe.OutOf(PageProbe.Render(
+            ["var c = document.getElementById('c'); " + PageProbe.Probe($"(function () {{ {body} }})()")],
             PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+            PageUrl));
 
     [Fact]
     public void EveryTypeIsTheEmptyDataUrlWithoutACodecCatalog() =>

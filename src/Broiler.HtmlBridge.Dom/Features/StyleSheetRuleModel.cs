@@ -11,11 +11,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why a declaration needs this at all.</b> A rule's <c>style</c> used to be a detached property map
-/// built from the rule's serialized block. Writes to it answered back through <c>rule.style</c> and
-/// <c>rule.cssText</c> and reached nothing else: the list the <c>getComputedStyle</c> engine and the
-/// renderer read still held the rule as parsed, so a page that restyled a component with
-/// <c>rule.style.display = 'none'</c> kept it showing.
+/// <b>Why a declaration needs this at all.</b> A detached property map built from the rule's
+/// serialized block would answer back through <c>rule.style</c> and
+/// <c>rule.cssText</c> and reach nothing else: the list the <c>getComputedStyle</c> engine and the
+/// renderer read would still hold the rule as parsed, so a page that restyled a component with
+/// <c>rule.style.display = 'none'</c> would keep it showing.
 /// </para>
 /// <para>
 /// <b>Why the rule is replaced, not changed.</b> Nothing in the consumed <c>Broiler.CSS</c> model can be

@@ -9,9 +9,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// event-dispatch algorithm.
 /// </summary>
 /// <remarks>
-/// The contract names no engine type. It used to say the two registration members it carried were why:
-/// a registration held its listener as an engine value, and those members were where the implementation
-/// made one. The record holds a <see cref="JsValue"/> now, so they are deleted and
+/// The contract names no engine type: a registration holds its listener as a <see cref="JsValue"/>,
+/// and there is no registration member here —
 /// <see cref="WindowEventTargetBinding"/> calls <see cref="EventListenerBinding"/> itself. The window
 /// listener lists live in <c>EventTargetRegistry</c>, and <c>DispatchWindowEvent</c> is implemented in
 /// <c>DomBridge/Lifecycle.cs</c>.

@@ -1,5 +1,3 @@
-using System.Text;
-
 using Broiler.CSS;
 using Broiler.CSS.Dom;
 using Broiler.Dom.Html;
@@ -55,11 +53,8 @@ public class StyleSheetImportConditionTests
     /// <summary>A second imported rule, for tests that import two sheets; nothing on the page matches it.</summary>
     private const string AlsoImported = "#also { color: rgb(0, 128, 0) }";
 
-    private static string DataUrl(string css) =>
-        "data:text/css;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(css));
-
-    private static readonly string ImportedUrl = DataUrl(Imported);
-    private static readonly string AlsoImportedUrl = DataUrl(AlsoImported);
+    private static readonly string ImportedUrl = CspFixture.DataUrl(Imported);
+    private static readonly string AlsoImportedUrl = CspFixture.DataUrl(AlsoImported);
 
     private static string Page(string css) =>
         $"<!DOCTYPE html><html><head><style id=\"s\">{css}</style></head>" +
@@ -69,15 +64,8 @@ public class StyleSheetImportConditionTests
     /// The projected text of <c>&lt;style id="s"&gt;</c> after a script-free run (one <c>1;</c>
     /// script, because <c>Execute</c> answers <see langword="null"/> for none).
     /// </summary>
-    private static string ProjectedStyle(string css, string pageUrl = PageUrl)
-    {
-        var html = new ScriptEngine().Execute(["1;"], Page(css), pageUrl);
-        Assert.NotNull(html);
-
-        var match = TextRegex.Match(html!, "<style[^>]*\\bid=\"s\"[^>]*>([\\s\\S]*?)</style>");
-        Assert.True(match.Success, $"no <style id=\"s\"> in the projection: {html}");
-        return match.Groups[1].Value;
-    }
+    private static string ProjectedStyle(string css, string pageUrl = PageUrl) =>
+        CspFixture.StyleText(CspFixture.RunProjection(Page(css), pageUrl));
 
     /// <summary>
     /// <paramref name="id"/>'s cascaded <c>color</c> when <paramref name="styleText"/> is the author
@@ -656,7 +644,7 @@ public class StyleSheetImportConditionTests
     public void CascadeLayerOrderGovernsImportedRules()
     {
         var blueRule = "#p { color: rgb(0, 0, 255) }";
-        var blueUrl = DataUrl(blueRule);
+        var blueUrl = CspFixture.DataUrl(blueRule);
 
         // When layer order is "@layer b, a;", layer a wins over layer b.
         var styleA = ProjectedStyle($"@layer b, a; @import url({ImportedUrl}) layer(a); @import url({blueUrl}) layer(b);");
@@ -674,7 +662,7 @@ public class StyleSheetImportConditionTests
     [Fact]
     public void UnlayeredRuleBeatsLayeredImportedRuleRegardlessOfSpecificity()
     {
-        var highSpecGreen = DataUrl("#p.special { color: rgb(0, 128, 0) }");
+        var highSpecGreen = CspFixture.DataUrl("#p.special { color: rgb(0, 128, 0) }");
         var lowSpecBlue = "p { color: rgb(0, 0, 255); }";
 
         var style = ProjectedStyle($"@import url({highSpecGreen}) layer(base); {lowSpecBlue}");
@@ -709,7 +697,7 @@ public class StyleSheetImportConditionTests
     [Fact]
     public void GetComputedStyleRespectsCascadeLayersInImports()
     {
-        var blueUrl = DataUrl("#p { color: rgb(0, 0, 255); }");
+        var blueUrl = CspFixture.DataUrl("#p { color: rgb(0, 0, 255); }");
         var html = @"<!DOCTYPE html><html><head>
         <style id=""s"">
           @layer a, b;

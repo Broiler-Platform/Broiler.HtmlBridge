@@ -16,15 +16,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The contract names no engine type: the two frame objects are <see cref="JsValue"/> handles, and
 /// <see cref="Realm"/> is what the module mints its accessors and methods through. The bridge members
 /// behind the two factories answer the handles the browsing-context caches hold, so neither side of
-/// this contract converts. (This said those members still handed back engine objects.)
+/// this contract converts.
 /// </remarks>
-internal interface IIframeElementHost
+internal interface IIframeElementHost : IRealmHost, ISubDocumentFactoryHost
 {
-    /// <summary>The realm the frame accessors are minted in.</summary>
-    IJsRealm Realm { get; }
-
     bool IsCurrentIframeCrossOrigin(DomElement element);
-    JsValue GetOrCreateSubDocument(DomElement element);
     JsValue GetOrCreateSubWindow(DomElement element);
     void InvalidateCachedSubDocument(DomElement element);
     void ClearOnloadFired(DomElement element);

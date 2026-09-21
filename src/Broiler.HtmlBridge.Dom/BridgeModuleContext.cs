@@ -16,13 +16,11 @@ namespace Broiler.HtmlBridge.Scripting;
 ///
 /// This is the engine-driven module path. It is used only when the underlying engine actually binds static
 /// imports (see <see cref="EngineModuleSupport"/>); otherwise a page's modules are left unrun. It is the sole
-/// module path — the string-rewriting linker fallback was retired once the engine (patches 0010/0011:
-/// top-level-await codegen + module-orchestration completion) was pinned and every surface took this path.
+/// module path.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>This type stays engine-typed, and the reason is no longer that a contract could not be
-/// designed.</b> The other bridge units name engine types to build values; this one <em>is</em> an
+/// <b>This type stays engine-typed.</b> The other bridge units name engine types to build values; this one <em>is</em> an
 /// engine type — the module graph's resolve/fetch hooks are <see langword="protected"/> overrides, so
 /// the coupling is the base class rather than a call. JSEAL still declares only <em>that</em> an
 /// engine binds modules (<c>JsCapabilities.Modules</c>, <c>DynamicImport</c>) and how host script,
@@ -51,10 +49,8 @@ namespace Broiler.HtmlBridge.Scripting;
 /// the thing it calls <c>RunScriptAsync</c> on — so the type cannot stop being a <c>JSModuleContext</c>
 /// until that file changes with it. Second, the implementation belongs in
 /// <c>Broiler.JSeal.BroilerJs</c>, and <c>JSModuleContext</c> lives in
-/// <c>Broiler.JavaScript.Modules</c>, which that project deliberately does not reference: its
-/// <c>engineProjectRefs</c> budget is 3 and <c>scripts/check-engine-neutrality.sh</c> enforces that
-/// number for a provider as well as for a binding. Adding the reference is a real budget increase and
-/// wants an argument in its own diff, not a side effect of a refactor.
+/// <c>Broiler.JavaScript.Modules</c>, which that project deliberately does not reference. Adding the
+/// reference wants an argument in its own diff, not a side effect of a refactor.
 /// </para>
 /// <para>
 /// Nothing needs to change for the rest of the migration to proceed around it: this derives from the
@@ -88,8 +84,7 @@ internal sealed class BridgeModuleContext : JSModuleContext
     /// is why this is a lookup rather than a rule: the extractor sets it to the page's URL for an
     /// inline root and to the root's own key for a <c>data:</c> or external one
     /// (<c>Core/Scripting/ScriptExtractionService.cs</c>, the <c>graphKey</c> switch and the line
-    /// after it). Only the first of those differs from the key, and it is the only one that was
-    /// wrong.
+    /// after it). Only the first of those differs from the key.
     /// </remarks>
     private static Dictionary<string, string>? RootUrls(
         IReadOnlyList<Broiler.HtmlBridge.Scripting.ModuleRoot>? roots)
@@ -138,23 +133,17 @@ internal sealed class BridgeModuleContext : JSModuleContext
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>THE BASE CLASS ASKED FOR THIS OVERRIDE AND SAID WHAT HAPPENS WITHOUT IT.</b> Its own
-    /// remarks read "Only the host knows what its keys are... A host with keys of another shape
-    /// overrides this", and, of the null it returns for a key it cannot express, "a module whose key
-    /// cannot be expressed as a URL reads <c>undefined</c> — which a script can detect — instead of a
-    /// plausible lie". This host has keys of another shape and did not override it, so the default
-    /// ran: an inline root's key is <c>inline:0</c>, <c>Uri.TryCreate("inline:0", Absolute, out _)</c>
-    /// is TRUE because <c>inline</c> parses as a scheme, and the default returned <c>inline:0</c>
-    /// verbatim. The null branch that would have made it detectable was never reached. Measured, on a
-    /// page at <c>https://example.test/dir/page.html</c>: <c>import.meta.url</c> was <c>inline:0</c>.
+    /// <b>The override is required, and its absence is silent.</b> The base class answers a key
+    /// verbatim whenever it parses as an absolute URI, and an inline root's key is <c>inline:0</c>,
+    /// which does parse — <c>inline</c> reads as a scheme — so the base's null branch, the one a
+    /// script could detect, is never reached and <c>import.meta.url</c> reads <c>inline:0</c>.
     /// </para>
     /// <para>
-    /// <b>Only the URL was wrong; resolution was always right.</b> The base a specifier resolves
+    /// <b>Only the URL depends on this; resolution does not.</b> The base a specifier resolves
     /// against arrives separately, as <c>RunScriptAsync</c>'s second argument, and for an inline root
-    /// that is the page's URL — so <c>import('./sibling.js')</c> from an inline module already
-    /// rejected with <c>module not found: https://example.test/dir/sibling.js</c>, resolved correctly.
-    /// The two facts had diverged, which is why nothing caught it: everything that USES the base
-    /// worked, and only the value a page can READ was false.
+    /// that is the page's URL — which is why a wrong <c>import.meta.url</c> leaves
+    /// <c>import('./sibling.js')</c> resolving correctly, and why nothing else catches a regression
+    /// here.
     /// </para>
     /// </remarks>
     protected override string GetModuleUrl(string moduleKey)

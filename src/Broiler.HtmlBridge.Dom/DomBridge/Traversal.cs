@@ -14,18 +14,15 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 public sealed partial class DomBridge
 {
-    // -------- TreeWalker, NodeIterator, Range builders (Phase 3: extracted) --------
+    // -------- TreeWalker, NodeIterator, Range builders (extracted) --------
     // The TreeWalker/NodeIterator/Range construction and every Range callback live in the co-located
     // Broiler.HtmlBridge.Dom.Features.TraversalBinding feature module, which is migrated to JSEAL.
     //
-    // The three engine-typed wrappers that used to stand here are gone: their last caller,
-    // DomBridge/Hosts.Documents.cs, now asks _traversal for a handle directly, so there was nothing
-    // left for them to convert for. Every builder call site — createRange/createTreeWalker/
-    // createNodeIterator on the main document and on a sub-document — goes to the module.
+    // Every builder call site — createRange/createTreeWalker/createNodeIterator on the main document
+    // and on a sub-document — goes to the module; DomBridge/Hosts.Documents.cs asks _traversal for a
+    // handle directly.
 
-    // Phase 4 items 4/5 (P4.10 follow-up): the bridge's FindCommonAncestor copy was deleted after its
-    // promotion to canonical Broiler.Dom.DomNode.CommonAncestorWith landed in the pinned submodule
-    // (patches/0002, applied by the maintainer). Call sites use a.CommonAncestorWith(b), which is
+    // Call sites use the canonical Broiler.Dom.DomNode.CommonAncestorWith(b), which is
     // null-tolerant and returns null for nodes in different trees — matching the deleted helper.
 
     /// <summary>
@@ -96,7 +93,7 @@ public sealed partial class DomBridge
 /// </summary>
 public sealed partial class DomBridge
 {
-    // Per-bridge selector matcher (Phase 2 item 4 de-globalization, 2026-07-17): the `:checked` state
+    // Per-bridge selector matcher: the `:checked` state
     // provider reads the per-bridge FormControl table, so the matcher (and MatchesSelector) is now an
     // instance owned by the bridge — was a process-static shared matcher over the static runtime table.
     // Initialized in the constructor (a field initializer cannot capture `this`).
@@ -123,19 +120,17 @@ public sealed partial class DomBridge
 }
 
 /// <summary>
-/// Sibling partial peeled out of <c>SubDocuments.cs</c> (Phase 3 ratchet, 2026-07-17) to keep it
-/// under the 750-line guard: the generic HTML-fragment DOM-mutation helpers that are not
-/// sub-document-specific. Covers per-node cache teardown (<see cref="RemoveElementsRecursive"/>),
-/// <c>normalize()</c> text coalescing, indexed child removal/insertion, and the
-/// <c>innerHTML</c> / <c>outerHTML</c> / <c>insertAdjacentHTML</c> / child-node argument fragment
-/// builders. Pure partial-class relocation — no signature, accessibility, or logic change.
+/// Sibling partial of <c>SubDocuments.cs</c>: the generic HTML-fragment DOM-mutation helpers that
+/// are not sub-document-specific. Covers per-node cache teardown
+/// (<see cref="RemoveElementsRecursive"/>), <c>normalize()</c> text coalescing, indexed child
+/// removal/insertion, and the <c>innerHTML</c> / <c>outerHTML</c> / <c>insertAdjacentHTML</c> /
+/// child-node argument fragment builders.
 /// </summary>
 public sealed partial class DomBridge
 {
-    // RF-BRIDGE-1c Phase F (F3c part 2d): unregister the whole node subtree from the bridge's
-    // per-node caches when a sub-document root is torn down (raw ChildNodes so canonical
-    // text/comment nodes are released too). The former AddElementsRecursive counterpart is gone —
-    // node membership is now read from the canonical tree, so there is nothing to register on build.
+    // Unregister the whole node subtree from the bridge's per-node caches when a sub-document root
+    // is torn down (raw ChildNodes so canonical text/comment nodes are released too). There is no
+    // register-on-build counterpart: node membership is read from the canonical tree.
     private void RemoveElementsRecursive(DomNode node)
     {
         _jsObjects.Remove(node);
@@ -149,27 +144,22 @@ public sealed partial class DomBridge
 
     private void NormalizeNode(DomElement node)
     {
-        // Phase 4 (item 5): delegate text-node coalescing to canonical DomNode.Normalize(). Its
-        // internal RemoveChild / Data-set operations publish canonical DomDocument.Mutated records,
-        // which now drive the bridge's MutationObserver / Range / NodeIterator (mutation-consolidation
-        // steps 1-2) — so normalize's removals adjust ranges/iterators and deliver observer records
-        // exactly as the former hand-rolled loop did. The one bridge-only side effect canonical has
-        // no equivalent for is the style-scope invalidation, applied once for the normalized subtree.
+        // Text-node coalescing is delegated to canonical DomNode.Normalize(). Its internal
+        // RemoveChild / Data-set operations publish canonical DomDocument.Mutated records, which drive
+        // the bridge's MutationObserver / Range / NodeIterator (mutation-consolidation steps 1-2), so
+        // normalize's removals adjust ranges/iterators and deliver observer records. The one
+        // bridge-only side effect canonical has no equivalent for is the style-scope invalidation,
+        // applied once for the normalized subtree.
         node.Normalize();
         InvalidateStyleScope(node);
     }
 
-    // Phase 4 items 4/5 (P4.9 follow-up): the bridge's NodesAreEqual / CanonicalAttributesAreEqual
-    // copies were deleted after their promotion to canonical Broiler.Dom.DomNode.IsEqualNode landed
-    // in the pinned submodule (patches/0001, applied by the maintainer). The isEqualNode binding now
-    // delegates to node.IsEqualNode(other); behaviour is pinned by IsEqualNodePromotionTests. The
-    // canonical algorithm drops the bridge copy's element-level BridgeText comparison, which was a
-    // no-op on the canonical tree (an element's NodeValue is null) — so it is behaviour-equivalent.
+    // The isEqualNode binding delegates to canonical Broiler.Dom.DomNode.IsEqualNode(other). That
+    // algorithm drops the bridge copy's element-level BridgeText comparison, which is a no-op on the
+    // canonical tree (an element's NodeValue is null) — so it is behaviour-equivalent. NOTE: this
+    // repo has no test pinning that equivalence.
 
-    // NormalizeInsertAdjacentPosition / GetInsertAdjacentTarget moved to the InsertAdjacentBinding feature
-    // module (Phase 3 P3.56) with their only consumers, the insertAdjacent* methods.
-
-    // Phase 4 item 1: parent widened DomElement -> DomNode so a canonical DomDocumentFragment can be
+    // The insertion parent is DomNode, not DomElement, so a canonical DomDocumentFragment can be
     // an insertion parent (fragment.appendChild/append/...). The style-scope invalidation is an
     // element-only concern, guarded accordingly; the onload firing below already guards on
     // `node is DomElement`. Behaviour for element parents is identical.
@@ -196,7 +186,7 @@ public sealed partial class DomBridge
             }
         }
 
-        // Phase 4 (mutation-primitive cleanup): a single canonical insert. The prior
+        // A single canonical insert. The prior
         // SetParent(node, parent) appended node at the end first, so the InsertChildAt below then
         // re-moved it to `index` — firing spurious canonical add-at-end + remove records that the
         // canonical NodeIterator/CSS mutation subscribers observe. The move-block above already
@@ -206,7 +196,7 @@ public sealed partial class DomBridge
         if (parent is DomElement parentElement)
             InvalidateStyleScope(parentElement);
 
-        // RF-BRIDGE-1c Phase F (F3c part 2b): only elements carry a TagName / fire onloads; a
+        // Only elements carry a TagName / fire onloads; a
         // canonical char-data node inserts with no sub-document side effects.
         if (node is DomElement insertedElement)
         {
@@ -281,7 +271,7 @@ public sealed partial class DomBridge
         if (!TryBuildInnerHtmlFragmentContainer(contextElement, html, out var fragmentContainer))
             return nodes;
 
-        // RF-BRIDGE-1c Phase F (F3c part 2d): move ALL children (raw ChildNodes) so text/comment
+        // Move ALL children (raw ChildNodes) so text/comment
         // nodes in the parsed fragment survive. The detached nodes returned still belong to the
         // parser's private document until the caller inserts them, which adopts them.
         foreach (var child in fragmentContainer.ChildNodes.ToArray())
@@ -303,7 +293,7 @@ public sealed partial class DomBridge
         // markup from before the assignment, so a page that built a template dynamically and then
         // stamped it got the OLD markup with nothing to indicate the write had gone elsewhere.
         // The parsing context stays the element — the fragment has no tag to parse `<td>` against.
-        DomNode target = IsTemplateElement(element) ? GetTemplateContent(element) : element;
+        DomNode target = element.TemplateContents ?? (DomNode)element;
 
         foreach (var child in target.ChildNodes.ToArray())
             RemoveElementsRecursive(child);
@@ -313,19 +303,13 @@ public sealed partial class DomBridge
         if (!string.IsNullOrEmpty(html) &&
             TryBuildInnerHtmlFragmentContainer(element, html, out var fragmentContainer))
         {
-            // RF-BRIDGE-1c Phase F (F3c part 2d): move ALL children so parsed text/comment survive.
+            // Move ALL children so parsed text/comment survive.
             foreach (var child in fragmentContainer.ChildNodes.ToArray())
             {
-                // Single canonical move: AppendChild removes the child from the parsed fragment and
-                // appends it to the target in one op. The prior SetParent(child, element) did the
-                // same move, leaving the following AppendChild a no-op — redundant, not wrong.
+                // One canonical move: AppendChild removes the child from the parsed fragment and
+                // appends it to the target in a single operation.
                 target.AppendChild(child);
             }
-
-            // A template written into may itself contain templates, and those are the parser's to
-            // divert exactly as the document's were.
-            if (!ReferenceEquals(target, element))
-                DivertTemplateContents(target);
         }
 
         ResetComputedStyleEngines();
@@ -347,8 +331,6 @@ public sealed partial class DomBridge
         {
             foreach (var child in fragmentContainer.ChildNodes.ToArray())
                 shadowRoot.AppendChild(child);
-
-            DivertTemplateContents(shadowRoot);
         }
 
         ResetComputedStyleEngines();
@@ -491,9 +473,7 @@ public sealed partial class DomBridge
     /// <remarks>
     /// Nothing here converts: the page's document is the bridge's document root and a minted
     /// document's wrapper is the registry's entry, both handles already held, so
-    /// <c>evt.oldDocument === frameDoc</c> is the question it always was. (This used to say the wrapper
-    /// caches were engine-typed and each answer crossed through a cast; the registry had not been
-    /// engine-typed for some time, and the root is not now.) The <c>null</c> for the page's own
+    /// <c>evt.oldDocument === frameDoc</c> is preserved. The <c>null</c> for the page's own
     /// document before one is registered is kept deliberately: the root holds
     /// <see cref="JsValue.Missing"/> then, and this member answers a document or <c>null</c>, which is
     /// what a page can read.

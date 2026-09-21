@@ -47,8 +47,7 @@ internal static class StorageQuotaBinding
     {
         var quota = realm.NewObject();
 
-        realm.DefineValue(quota, "queryUsageAndQuota",
-            realm.NewMethod("queryUsageAndQuota", QueryUsageAndQuota, 2));
+        realm.DefineMethod(quota, "queryUsageAndQuota", 2, QueryUsageAndQuota);
 
         return quota;
     }

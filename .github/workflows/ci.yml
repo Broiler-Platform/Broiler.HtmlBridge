@@ -65,8 +65,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         configuration: [Release]
         include:
-          # Link Scripting.Vm and Jseal.Vm into the tests and define BROILER_VM_JS,
-          # so this leg exercises the VM profile's additional cases.
+          # Link Scripting.Vm and the Broiler.JSeal.Vm package into the tests and define
+          # BROILER_VM_JS, so this leg exercises the VM profile's additional cases.
           - os: ubuntu-latest
             configuration: Release-VM
 

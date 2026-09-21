@@ -6,11 +6,11 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// The single authority for JavaScript wrapper identity (HtmlBridge complexity-reduction roadmap
-/// Phase 2, P2.2). A DOM node must map to exactly one <see cref="JsValue"/> wrapper for the life
+/// The single authority for JavaScript wrapper identity. A DOM node must map to exactly one
+/// <see cref="JsValue"/> wrapper for the life
 /// of a document so that script identity holds (<c>node === node</c>, listeners registered on a
 /// wrapper are found again, <c>Map</c>/<c>Set</c> keys are stable). This registry owns the two
-/// maps that used to be scattered bridge fields — the per-node wrapper cache and the
+/// maps — the per-node wrapper cache and the
 /// sub-document-root document wrapper cache — behind one narrow surface.
 /// </summary>
 /// <remarks>
@@ -18,26 +18,14 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// Wrappers are keyed by reference identity (a DOM node's identity is its object identity), never
 /// by value, so a node whose contents change keeps its wrapper. Instance-scoped to the owning
 /// bridge/document; <see cref="Clear"/> runs on re-parse and disposal. Not thread-safe — wrapper
-/// creation happens on the document thread (Phase 2's P2.4 defines that threading model).
+/// creation happens on the document thread.
 /// </para>
 /// <para>
-/// <b>It moved in one commit, because it could not move in any other number.</b> Every one of its
-/// members had a caller outside its own group holding the engine's object mid-call, so re-typing the
-/// surface and re-typing the callers are the same change: <c>ApplyInterfacePrototype</c> and
-/// <c>ElementContentBinding.InstallTextContent</c> each took the engine's object and each had one or
-/// two call sites, and the interface members that reach a node from their receiver had a handle
-/// already and were unwrapping it to ask. That is why this was the last table to cross rather than
-/// the first, and why the step is one commit rather than a file-by-file migration - the opposite of
-/// what the incremental seam is for, and correct here for that reason.
-/// </para>
-/// <para>
-/// <b>The <c>ConditionalWeakTable</c> keys on <see cref="JsValue.ObjectIdentity"/>, and a paragraph
-/// once stood here saying it could not.</b> It said "a weak table needs a <em>reference</em> key and
-/// a <c>JsValue</c> is a struct, so this table stays keyed on the engine object however far the rest
-/// of the bridge moves", and called that the clearest single measure of what the handle design costs.
-/// The struct was never the key: the reference a handle carries is, and a provider is already
-/// required to make it canonical per guest object because handle equality is defined by it. The
-/// weakness is unchanged - the identity lives exactly as long as the guest object does.
+/// <b>The <c>ConditionalWeakTable</c> keys on <see cref="JsValue.ObjectIdentity"/>, not on the
+/// <c>JsValue</c> itself.</b> A weak table needs a <em>reference</em> key and a <c>JsValue</c> is a
+/// struct; the reference a handle carries is the key, and a provider is already required to make it
+/// canonical per guest object because handle equality is defined by it. The identity lives exactly as
+/// long as the guest object does, so the weakness is what it looks like.
 /// </para>
 /// </remarks>
 internal sealed class JsObjectRegistry
@@ -52,24 +40,23 @@ internal sealed class JsObjectRegistry
     /// A member that lives on an interface prototype has no node captured in a closure — it finds one
     /// from its receiver, on every call (see <c>DomBridge/NodeInterfaces.cs</c>; the
     /// <c>Element</c>, <c>HTMLElement</c> and <c>EventTarget</c> prototype members resolve theirs the
-    /// same way). The scan <see cref="TryGetNode"/> used to do was fine for the handful of call sites
-    /// that had it, and is not fine per DOM operation: it is linear in the wrappers the document has
-    /// minted, so a prototype method would have cost more the larger the page.
+    /// same way). A scan for the wrapper would be linear in the wrappers the document has minted, so
+    /// a prototype method would cost more the larger the page; this map is what makes it constant.
     /// </para>
     /// <para>
     /// <b>Weakly keyed, and outliving <see cref="Remove"/> deliberately.</b> A wrapper the page still
     /// holds must keep naming its node after the node leaves the tree, because in a browser a removed
     /// node goes on working — <c>var gone = host.firstChild; host.innerHTML = '…'; gone.tagName</c>
     /// still answers. This map is what an inherited member reads, so dropping the entry with the
-    /// forward one turned every such member into an illegal invocation while the members the wrapper
-    /// still owned kept working. The weak key is what keeps that from being a leak: the node is held
+    /// forward one would turn every such member into an illegal invocation while the members the
+    /// wrapper still owns went on working. The weak key is what keeps that from being a leak: the node is held
     /// only for as long as script can still reach it through the wrapper, where the forward map holds
     /// both outright and is the one <see cref="Remove"/> releases.
     /// </para>
     /// </remarks>
     private readonly ConditionalWeakTable<object, DomNode> _wrapperNodes = new();
-    // Phase 4 item 1 (P4.4a): keyed by DomNode so a canonical DomDocument browsing-context root maps
-    // to its document wrapper, alongside the legacy #subdoc-root element roots.
+    // Keyed by DomNode so a canonical DomDocument browsing-context root maps to its document
+    // wrapper, alongside the legacy #subdoc-root element roots.
     private readonly Dictionary<DomNode, JsValue> _documentWrappers = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>Gets the wrapper already registered for <paramref name="node"/>, if any.</summary>

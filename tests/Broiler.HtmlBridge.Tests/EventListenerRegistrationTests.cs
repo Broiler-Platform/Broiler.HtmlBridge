@@ -36,29 +36,7 @@ public partial class EventListenerRegistrationTests
         "<div id=\"out\"></div>" +
         "</body></html>";
 
-    /// <summary>
-    /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
-    /// <c>#out</c>. Reading the result out of the serialized DOM keeps the test to the engine's public
-    /// surface — the binding under test is internal, and reaching for it directly would pin its shape
-    /// rather than its behaviour.
-    /// </summary>
-    private static string Run(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string script) => PageProbe.RunAgainst(PageHtml, PageUrl, script);
 
     [Fact]
     public void TheCaptureFlagIsHalfOfARegistrationsKeyInBothDirections()
@@ -376,7 +354,7 @@ public partial class EventListenerRegistrationTests
     }
 
     [Fact(Skip = "Inline on* handlers fire after every addEventListener listener whenever they were " +
-                 "registered: src/Broiler.HtmlBridge.Dom/Features/EventDispatchBinding.cs:149-180 runs the " +
+                 "registered: src/Broiler.HtmlBridge.Dom/Features/EventDispatchBinding.cs runs the " +
                  "listener list first and the inline handler afterwards, where HTML §8.1.7.1 registers a " +
                  "content attribute's listener when the attribute is set — at parse time.")]
     public void AnInlineHandlerRunsBeforeAListenerAddedAfterIt()

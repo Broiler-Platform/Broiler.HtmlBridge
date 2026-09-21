@@ -14,14 +14,14 @@ namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// Extracts the contents of <c>&lt;script&gt;</c> tags from HTML using the shared
-/// <c>Broiler.Dom.Html</c> tokenizer (Phase 7 item 2).  Inline scripts and <c>data:</c> URI scripts are
+/// <c>Broiler.Dom.Html</c> tokenizer.  Inline scripts and <c>data:</c> URI scripts are
 /// returned; external <c>src</c> references (http/https/file) are skipped by <see cref="Extract"/> but
 /// resolved and fetched by <see cref="ExtractAll"/>.
 /// </summary>
 /// <remarks>
 /// Discovery is parser-backed: the tokenizer treats <c>&lt;script&gt;</c> as a raw-text element, so a
 /// <c>&lt;script&gt;</c> literal inside a comment or another element's text is not discovered, a
-/// <c>&gt;</c> inside a quoted attribute no longer truncates the start tag, and attribute flags are read
+/// <c>&gt;</c> inside a quoted attribute does not truncate the start tag, and attribute flags are read
 /// from the parsed (lower-cased) attribute map rather than a per-tag regex. Script body text is taken
 /// verbatim (raw text is never entity-decoded), so authorised inline/data-URI program text is unchanged.
 /// </remarks>
@@ -58,9 +58,9 @@ public static partial class ScriptExtractionService
     /// <summary>
     /// Whether this <c>&lt;script&gt;</c> is executed at all. A type that is neither a JavaScript
     /// MIME essence nor <c>module</c> marks a data block — JSON-LD, framework state, speculation
-    /// rules, an import map, a client-side template — which a browser never executes. Extraction
-    /// used to look only for <c>type="module"</c>, so every one of those was collected and handed
-    /// to the engine, where it failed to compile.
+    /// rules, an import map, a client-side template — which a browser never executes. Looking only
+    /// for <c>type="module"</c> instead would collect every one of those and hand it to the engine,
+    /// where it fails to compile.
     /// </summary>
     private static bool IsExecutable(IReadOnlyDictionary<string, string> attrs) =>
         ScriptMimeType.IsExecutable(GetType(attrs));
@@ -70,11 +70,12 @@ public static partial class ScriptExtractionService
         attrs.TryGetValue("src", out var src) && !string.IsNullOrEmpty(src) ? src : null;
 
     /// <summary>
-    /// Resolves an authorised module's program text (Phase 7 item 6), by the same rules a classic script
-    /// uses: an inline body must pass the CSP inline check; a <c>data:</c>/external source must pass the CSP
-    /// external check, then is decoded / fetched. Returns <c>null</c> when blocked, empty, or unresolvable.
+    /// Resolves an authorised script's program text by the one set of rules classic scripts and
+    /// modules share: an inline body must pass the CSP inline check; a <c>data:</c>/external source must
+    /// pass the CSP external check, then is decoded / fetched. Returns <c>null</c> when blocked, empty,
+    /// or unresolvable.
     /// </summary>
-    private static string? ResolveModuleSource(
+    private static string? ResolveScriptSource(
         ScriptSourceKind kind, string? url, string rawContent, string? nonce, ContentSecurityPolicySet csp, string? pageUrl,
         SubResourcePrefetcher? prefetcher = null)
     {
@@ -101,7 +102,12 @@ public static partial class ScriptExtractionService
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// The authorised classic scripts in <paramref name="html"/> as program text, in document order:
+    /// inline bodies and <c>data:</c> URI sources admitted by the policy the markup itself declares.
+    /// Module scripts and external <c>src</c> references are skipped — <see cref="ExtractAll"/> is the
+    /// entry point that resolves those, separates the defer/async buckets and takes a delivered policy.
+    /// </summary>
     public static IReadOnlyList<string> Extract(string html)
     {
         var scripts = new List<string>();
@@ -148,7 +154,11 @@ public static partial class ScriptExtractionService
         return scripts;
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Walks every <c>&lt;script&gt;</c> in the document in document order and returns the classic
+    /// execution buckets (regular, deferred, async), the per-script descriptors, the module map and
+    /// the authorised top-level module roots.
+    /// </summary>
     /// <param name="html">The document's markup.</param>
     /// <param name="pageUrl">The document's URL, which relative sources resolve against.</param>
     /// <param name="deliveredPolicy">
@@ -178,9 +188,9 @@ public static partial class ScriptExtractionService
         var moduleEntryKeys = new HashSet<string>(StringComparer.Ordinal);
         var csp = new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(html));
 
-        // Prefetch pass (roadmap item #2): every external script this document will fetch is
-        // requested now, concurrently and bounded per host. The walk below is untouched — it still
-        // resolves each script in document order, it just no longer starts each round trip itself.
+        // Prefetch pass: every external script this document will fetch is requested now,
+        // concurrently and bounded per host. The walk below resolves each script in document order
+        // and does not start each round trip itself.
         var prefetcher = CreateScriptPrefetcher(html, pageUrl, csp);
 
         var documentOrder = 0;
@@ -204,8 +214,8 @@ public static partial class ScriptExtractionService
                 : ScriptSourceKind.External;
             var url = kind == ScriptSourceKind.Inline ? null : src;
 
-            // Phase 7 item 6: record every recognised module in the module map so it is not silently
-            // dropped, and collect the authorised top-level modules as roots of the import graph. Inline
+            // Record every recognised module in the module map so it is not silently dropped, and
+            // collect the authorised top-level modules as roots of the import graph. Inline
             // bodies plus data:/external sources are resolved through the same authorised decode/fetch path
             // as classic scripts; the graph loader (below) then resolves+fetches their transitive imports,
             // dedups, orders dependency-first, and links import/export. The classic buckets/descriptors
@@ -218,7 +228,7 @@ public static partial class ScriptExtractionService
                 // per-occurrence key, so they never dedup; a repeated src module is recorded once.
                 if (kind == ScriptSourceKind.Inline || !moduleMap.TryGet(moduleKey, out _))
                 {
-                    var moduleSource = ResolveModuleSource(kind, url, tag.RawContent, nonce, csp, pageUrl, prefetcher);
+                    var moduleSource = ResolveScriptSource(kind, url, tag.RawContent, nonce, csp, pageUrl, prefetcher);
                     moduleMap.Add(new ModuleMapEntry(documentOrder, kind, moduleKey, url, moduleSource, IsExecutable: moduleSource != null));
 
                     if (moduleSource != null)
@@ -239,35 +249,10 @@ public static partial class ScriptExtractionService
             }
 
             // Resolve the program text for the classic execution buckets. Module scripts are recorded in
-            // the descriptor list but omitted from execution here (item 6 wires them into the event loop).
-            string? scriptContent = null;
-            if (!isModule)
-            {
-                if (kind == ScriptSourceKind.DataUri)
-                {
-                    if (csp.AllowsExternalScript(url!, pageUrl, nonce))
-                    {
-                        var decoded = DecodeDataUri(url!);
-                        if (!string.IsNullOrEmpty(decoded))
-                            scriptContent = decoded;
-                    }
-                }
-                else if (kind == ScriptSourceKind.External)
-                {
-                    if (csp.AllowsExternalScript(url!, pageUrl, nonce))
-                    {
-                        var fetched = FetchExternalScript(url!, pageUrl, prefetcher);
-                        if (!string.IsNullOrEmpty(fetched))
-                            scriptContent = fetched;
-                    }
-                }
-                else
-                {
-                    var content = tag.RawContent.Trim();
-                    if (!string.IsNullOrEmpty(content) && csp.AllowsInlineScript(nonce, content))
-                        scriptContent = content;
-                }
-            }
+            // the descriptor list but omitted from execution here; the module roots carry them instead.
+            string? scriptContent = isModule
+                ? null
+                : ResolveScriptSource(kind, url, tag.RawContent, nonce, csp, pageUrl, prefetcher);
 
             descriptors.Add(new ScriptDescriptor(
                 DocumentOrder: documentOrder++,
@@ -289,10 +274,9 @@ public static partial class ScriptExtractionService
                 scripts.Add(scriptContent);
         }
 
-        // Phase 7 item 6 / tail: the authorised top-level module roots are the sole module-execution input.
-        // A consumer drives the JS engine's own module machinery (BridgeModuleContext) to run each root; the
-        // engine resolves+fetches its transitive imports itself (CSP-gated). The string-rewriting
-        // EsModuleLinker fallback was retired once every surface took the engine path.
+        // The authorised top-level module roots are the sole module-execution input. A consumer drives
+        // the JS engine's own module machinery (BridgeModuleContext) to run each root; the engine
+        // resolves+fetches its transitive imports itself (CSP-gated).
         return new ScriptExtractionResult(scripts, deferredScripts, asyncScripts, descriptors, moduleMap, moduleRoots);
     }
 
@@ -347,7 +331,7 @@ public static partial class ScriptExtractionService
     /// The same fetch, but consuming <paramref name="prefetcher"/> when one is supplied. The URL
     /// resolution, the ordering, and the value the caller gets back are unchanged — the only
     /// difference is that the request may already have been in flight since the document was
-    /// scanned. Multithreading roadmap item #2.
+    /// scanned.
     /// </summary>
     internal static string? FetchExternalScript(string scriptUrl, string? pageUrl, SubResourcePrefetcher? prefetcher)
     {
@@ -412,7 +396,7 @@ public static partial class ScriptExtractionService
 
     /// <summary>
     /// Issues concurrent requests for every external script the document will fetch, before the
-    /// document-order walk that consumes them one at a time. Multithreading roadmap item #2.
+    /// document-order walk that consumes them one at a time.
     /// </summary>
     /// <remarks>
     /// <para>

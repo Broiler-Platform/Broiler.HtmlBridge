@@ -98,12 +98,10 @@ internal sealed partial class SubDocumentBinding
             // document's first child.
             if (parsed.DocumentType is { } doctype)
             {
-                DomBridgeUtils.SetParent(doctype, docRoot);
                 docRoot.AppendChild(doctype);
             }
 
             // The parsed <html> element itself becomes docRoot's document element, not its children.
-            DomBridgeUtils.SetParent(parsedRoot, docRoot);
             docRoot.AppendChild(parsedRoot);
         }
         else
@@ -116,7 +114,6 @@ internal sealed partial class SubDocumentBinding
                 {
                     foreach (var child in parsedBody.ChildNodes.ToArray())
                     {
-                        DomBridgeUtils.SetParent(child, bodyEl);
                         bodyEl.AppendChild(child);
                     }
                 }
@@ -136,7 +133,7 @@ internal sealed partial class SubDocumentBinding
         foreach (var child in DomBridgeUtils.ChildElements(docRoot).ToList())
         {
             // Wrapper identity, not node identity: two handles compare equal when they carry the same
-            // underlying object, which is the same reference test this used to perform directly.
+            // underlying object.
             if (_host.TryGetNodeWrapper(child, out var cached) && cached == childObj)
             {
                 var idx = DomBridgeUtils.ChildIndexOf(docRoot, child);
@@ -160,13 +157,12 @@ internal sealed partial class SubDocumentBinding
         if (!call[0].IsObject)
             return call[0];
         var childObj = call[0];
-        // Phase 4 item 1: match any DomNode so a canonical DomDocumentType / DomDocumentFragment can be
-        // appended to a sub-document root (was `is DomElement`, which skipped them).
+        // Match any DomNode, not just DomElement, so a canonical DomDocumentType /
+        // DomDocumentFragment can be appended to a sub-document root.
         if (_host.FindNode(childObj) is { } child)
         {
             if (DomBridgeUtils.ParentEl(child) != null)
                 child.Remove();
-            DomBridgeUtils.SetParent(child, docRoot);
             docRoot.AppendChild(child);
             return childObj;
         }
@@ -174,25 +170,27 @@ internal sealed partial class SubDocumentBinding
         return childObj;
     }
 
-    private JsValue Append(DomNode docRoot, in JsCall call)
+    /// <summary>
+    /// <c>append</c>/<c>prepend</c> on a sub-document: the same insertion, differing only in where the
+    /// run starts — at the end of the child list when <paramref name="atEnd"/>, otherwise at 0.
+    /// </summary>
+    /// <remarks>
+    /// The start index is read <em>after</em> the argument list is built, not before: coercing an
+    /// object argument runs its own <c>toString</c>, which can be page script that mutates this
+    /// sub-document, so the count taken earlier would be stale.
+    /// </remarks>
+    private JsValue InsertAll(DomNode docRoot, bool atEnd, in JsCall call)
     {
         if (call.Length == 0)
             return JsValue.Undefined;
         var nodes = _host.BuildChildNodeArgumentNodes(call.Arguments);
-        var insertIndex = docRoot.ChildNodes.Count;
+        var insertIndex = atEnd ? docRoot.ChildNodes.Count : 0;
         foreach (var node in nodes)
             _host.InsertNodeAt(docRoot, node, insertIndex++);
         return JsValue.Undefined;
     }
 
-    private JsValue Prepend(DomNode docRoot, in JsCall call)
-    {
-        if (call.Length == 0)
-            return JsValue.Undefined;
-        var nodes = _host.BuildChildNodeArgumentNodes(call.Arguments);
-        var insertIndex = 0;
-        foreach (var node in nodes)
-            _host.InsertNodeAt(docRoot, node, insertIndex++);
-        return JsValue.Undefined;
-    }
+    private JsValue Append(DomNode docRoot, in JsCall call) => InsertAll(docRoot, atEnd: true, in call);
+
+    private JsValue Prepend(DomNode docRoot, in JsCall call) => InsertAll(docRoot, atEnd: false, in call);
 }

@@ -5,7 +5,7 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// SVG DOM element interfaces, co-located as an HtmlBridge feature module (Phase 3): the
+/// SVG DOM element interfaces, co-located as an HtmlBridge feature module: the
 /// <c>SVGAnimatedLength</c> stubs for the dimensional presentation attributes
 /// (<c>width</c>/<c>height</c>/<c>x</c>/<c>y</c>/<c>cx</c>/<c>cy</c>/<c>r</c>/<c>rx</c>/<c>ry</c>), the
 /// <c>SVGSVGElement.viewBox</c> <c>SVGAnimatedRect</c>, the <c>SVGTextContentElement</c> text-metric
@@ -15,21 +15,17 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// animation-element no-ops (<c>beginElement</c>/<c>endElement</c>/<c>getStartTime</c>).
 /// <para>
 /// Every accessor here is an attribute/font-size estimation stub — none reads layout geometry — so the
-/// module is a pure <c>internal static</c> class with <b>no host contract</b> (like <c>ClassListBinding</c>
-/// P3.6 and <c>WebStorageBinding</c> P3.48). It reads content attributes through the bridge's neutral
-/// <c>internal static</c> <c>TryGetAttribute</c> helper and text through the canonical
-/// <see cref="DomNode.TextContent"/>. Was the
-/// bridge's <c>JsElementInterfacesCallback086Core</c>/<c>GetViewBox087Core</c>/
-/// <c>GetNumberOfChars088Core</c>..<c>GetRotationOfChar093Core</c>/<c>SetCurrentTime095Core</c> (and the
-/// private <c>CreateSvgLengthValue</c> helper, moved here since it had no other consumer).
+/// module is a pure <c>internal static</c> class with <b>no host contract</b> (like
+/// <c>ClassListBinding</c> and <c>WebStorageBinding</c>). It reads content attributes through the
+/// bridge's neutral <c>internal static</c> <c>TryGetAttribute</c> helper and text through the
+/// canonical <see cref="DomNode.TextContent"/>.
 /// </para>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type:
 /// objects, accessors and methods come from the realm, which is handed in when the interfaces are
 /// installed and arrives on the call frame for every accessor and method body afterwards. The three
-/// SMIL no-ops used to be built by the bridge's <c>UndefinedFunction</c>/<c>ZeroFunction</c> factories,
-/// which minted a plain <em>constructable</em> engine function; see the remarks on
-/// <see cref="InstallSmilNoOps"/> for why they are asked of the realm as constructors here.
+/// SMIL no-ops are asked of the realm as <em>constructors</em> rather than methods; see the remarks
+/// on <see cref="InstallSmilNoOps"/> for why.
 /// </para>
 /// </summary>
 internal static class SvgElementBinding
@@ -44,7 +40,7 @@ internal static class SvgElementBinding
     /// <param name="tag">The element's lower-cased tag name, which selects the interfaces.</param>
     public static void Install(IJsRealm realm, JsValue obj, DomElement element, string tag)
     {
-        // -- Phase 6: SVG DOM interfaces --
+        // -- SVG DOM interfaces --
 
         // SVG element properties — provide SVGAnimatedLength stubs for dimensional attributes
         if (!(element.NamespaceUri == "http://www.w3.org/2000/svg" ||
@@ -76,28 +72,23 @@ internal static class SvgElementBinding
         if (tag == "text" || tag == "svg:text" || tag == "tspan" || tag == "svg:tspan" ||
             tag == "textpath" || tag == "svg:textpath")
         {
-            realm.DefineValue(obj, "getNumberOfChars",
-                realm.NewMethod("getNumberOfChars", (in _) => GetNumberOfChars(element), 0));
+            realm.DefineMethod(obj, "getNumberOfChars", 0, (in _) => GetNumberOfChars(element));
 
             // getComputedTextLength() — returns estimated total advance width
-            realm.DefineValue(obj, "getComputedTextLength",
-                realm.NewMethod("getComputedTextLength", (in _) => GetComputedTextLength(element), 0));
+            realm.DefineMethod(obj, "getComputedTextLength", 0, (in _) => GetComputedTextLength(element));
 
             // getSubStringLength(charnum, nchars) — returns advance width of substring
-            realm.DefineValue(obj, "getSubStringLength",
-                realm.NewMethod("getSubStringLength", (in call) => GetSubStringLength(element, in call), 2));
+            realm.DefineMethod(obj, "getSubStringLength", 2, (in call) => GetSubStringLength(element, in call));
 
             // getStartPositionOfChar(charnum) — returns SVGPoint {x, y}
-            realm.DefineValue(obj, "getStartPositionOfChar",
-                realm.NewMethod("getStartPositionOfChar", (in call) => GetStartPositionOfChar(element, in call), 1));
+            realm.DefineMethod(obj, "getStartPositionOfChar", 1,
+                (in call) => GetStartPositionOfChar(element, in call));
 
             // getEndPositionOfChar(charnum) — returns SVGPoint {x, y}
-            realm.DefineValue(obj, "getEndPositionOfChar",
-                realm.NewMethod("getEndPositionOfChar", (in call) => GetEndPositionOfChar(element, in call), 1));
+            realm.DefineMethod(obj, "getEndPositionOfChar", 1, (in call) => GetEndPositionOfChar(element, in call));
 
             // getRotationOfChar(charnum) — returns rotation angle in degrees
-            realm.DefineValue(obj, "getRotationOfChar",
-                realm.NewMethod("getRotationOfChar", (in call) => GetRotationOfChar(element, in call), 1));
+            realm.DefineMethod(obj, "getRotationOfChar", 1, (in call) => GetRotationOfChar(element, in call));
         }
 
         // SVGSVGElement methods (getCurrentTime, setCurrentTime)
@@ -107,11 +98,9 @@ internal static class SvgElementBinding
             // both methods capture the same local, so what setCurrentTime wrote getCurrentTime reads.
             double currentTime = 0;
 
-            realm.DefineValue(obj, "getCurrentTime",
-                realm.NewMethod("getCurrentTime", (in _) => JsValue.Number(currentTime), 0));
+            realm.DefineMethod(obj, "getCurrentTime", 0, (in _) => JsValue.Number(currentTime));
 
-            realm.DefineValue(obj, "setCurrentTime",
-                realm.NewMethod("setCurrentTime", (in call) => SetCurrentTime(ref currentTime, in call), 1));
+            realm.DefineMethod(obj, "setCurrentTime", 1, (in call) => SetCurrentTime(ref currentTime, in call));
         }
 
         // SMIL animation element methods (beginElement, endElement, getStartTime)
@@ -129,34 +118,53 @@ internal static class SvgElementBinding
     /// <c>getStartTime</c>, which report nothing because Broiler runs no SMIL timeline.
     /// </summary>
     /// <remarks>
-    /// All three are <em>constructable</em>, and only because they always have been: they were built by
-    /// the bridge's <c>UndefinedFunction</c>/<c>ZeroFunction</c> helpers, since removed, which minted a
-    /// plain engine function — one that carries a <c>prototype</c> object and so passes the engine's
-    /// constructor test — rather than the non-constructable shape WebIDL gives an operation. Under JSEAL
-    /// that distinction is which factory is called, so preserving the behaviour means asking for a
-    /// constructor here. A browser answers <c>undefined</c> for <c>el.beginElement.prototype</c> and
-    /// throws on <c>new el.beginElement()</c>; correcting that is a behaviour change that belongs in its
-    /// own commit alongside the other members those helpers used to build, as
-    /// <see cref="ScreenOrientationBinding"/> records for <c>screen.orientation.unlock</c>.
+    /// All three are <em>constructable</em>, deliberately and only for compatibility with the shape
+    /// the bridge published for a long time: a plain function — one that carries a <c>prototype</c>
+    /// object and so passes the engine's constructor test — rather than the non-constructable shape
+    /// WebIDL gives an operation. Under JSEAL that distinction is which factory is called, and this
+    /// now calls the method factory: <c>el.beginElement.prototype</c> is <c>undefined</c> and
+    /// <c>new el.beginElement()</c> throws, as a browser answers.
     /// </remarks>
     private static void InstallSmilNoOps(IJsRealm realm, JsValue obj)
     {
-        realm.DefineValue(obj, "beginElement",
-            realm.NewConstructor("beginElement", static (in _) => JsValue.Undefined, 0));
+        realm.DefineMethod(obj, "beginElement", 0, static (in _) => JsValue.Undefined);
 
-        realm.DefineValue(obj, "endElement",
-            realm.NewConstructor("endElement", static (in _) => JsValue.Undefined, 0));
+        realm.DefineMethod(obj, "endElement", 0, static (in _) => JsValue.Undefined);
 
-        realm.DefineValue(obj, "getStartTime",
-            realm.NewConstructor("getStartTime", static (in _) => JsValue.Number(0), 0));
+        realm.DefineMethod(obj, "getStartTime", 0, static (in _) => JsValue.Number(0));
     }
+
+    /// <summary>
+    /// The one place this module turns an attribute into a number, so a value it cannot represent
+    /// is refused once rather than in each of the six reads below.
+    /// </summary>
+    /// <remarks>
+    /// <c>NumberStyles.Any</c> accepts .NET's symbolic <c>NaN</c> and <c>Infinity</c>, and it
+    /// overflows a double on an exponent — or on a long enough run of digits — with no symbol in
+    /// the attribute at all, so <c>&lt;rect width="1e400"&gt;</c> answered
+    /// <c>rect.width.baseVal.value === Infinity</c> to a page. The geometry side of the same
+    /// attribute refuses that (<c>ResolveSvgLength</c> reads it through
+    /// <c>DomBridgeUtils.TryParseFiniteScalar</c>), and this IDL stub is the other reader; the two
+    /// disagreeing is what made it a route rather than a duplicate.
+    /// <para>
+    /// Zero is not a substitution invented here: it is what every one of these reads already
+    /// answers for an attribute it cannot parse — an absent one, <c>"junk"</c>, a percentage —
+    /// because a failed <see cref="double.TryParse(string, NumberStyles, IFormatProvider, out double)"/>
+    /// leaves its result at zero. An unrepresentable value now takes that same path.
+    /// </para>
+    /// </remarks>
+    private static double ParseFiniteAttributeNumber(string? text) =>
+        double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var value) &&
+        double.IsFinite(value)
+            ? value
+            : 0;
 
     // SVGAnimatedLength stub for a dimensional presentation attribute — baseVal/animVal each an SVGLength.
     private static JsValue BuildAnimatedLength(IJsRealm realm, string attrName, DomElement element)
     {
         var animLength = realm.NewObject();
         var valueStr = DomBridgeUtils.TryGetAttribute(element, attrName, out var v) ? v : "0";
-        double.TryParse(valueStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var numVal);
+        var numVal = ParseFiniteAttributeNumber(valueStr);
         var baseVal = CreateSvgLengthValue(realm, numVal);
         var animVal = CreateSvgLengthValue(realm, numVal);
         realm.DefineValue(animLength, "baseVal", baseVal);
@@ -175,10 +183,10 @@ internal static class SvgElementBinding
             var parts = vb.Split([' ', ','], StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length >= 4)
             {
-                double.TryParse(parts[0], NumberStyles.Any, CultureInfo.InvariantCulture, out vbX);
-                double.TryParse(parts[1], NumberStyles.Any, CultureInfo.InvariantCulture, out vbY);
-                double.TryParse(parts[2], NumberStyles.Any, CultureInfo.InvariantCulture, out vbW);
-                double.TryParse(parts[3], NumberStyles.Any, CultureInfo.InvariantCulture, out vbH);
+                vbX = ParseFiniteAttributeNumber(parts[0]);
+                vbY = ParseFiniteAttributeNumber(parts[1]);
+                vbW = ParseFiniteAttributeNumber(parts[2]);
+                vbH = ParseFiniteAttributeNumber(parts[3]);
             }
         }
 
@@ -266,13 +274,17 @@ internal static class SvgElementBinding
     }
 
     // Reads the element's font-size presentation attribute (px/pt suffix tolerated), defaulting to 16.
+    // A font size this module cannot represent takes the same path as one it cannot read, which is
+    // what keeps every metric below a real number: the text-length and character-position stubs
+    // multiply this by a character count, so `font-size="1e400"` answered
+    // `getComputedTextLength() === Infinity` and a character position of `{x: NaN, y: Infinity}`.
     private static double ReadFontSize(DomElement element)
     {
         double fontSize = 16;
         if (DomBridgeUtils.TryGetAttribute(element, "font-size", out var fs))
         {
             var fsClean = fs.Replace("px", "").Replace("pt", "").Trim();
-            double.TryParse(fsClean, NumberStyles.Any, CultureInfo.InvariantCulture, out fontSize);
+            fontSize = ParseFiniteAttributeNumber(fsClean);
         }
 
         return fontSize;

@@ -15,14 +15,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// The contract names no engine type: the event is a <see cref="JsValue"/> the module builds through
-/// <see cref="Realm"/>, and the dispatch result is dropped — it always was, because a <c>hashchange</c>
-/// is not cancelable and there is nothing for the binding to decide from it.
+/// <see cref="Realm"/>, and the dispatch result is dropped: a <c>hashchange</c> is not cancelable and
+/// there is nothing for the binding to decide from it.
 /// </remarks>
-internal interface ILocationHost
+internal interface ILocationHost : IRealmHost
 {
-    /// <summary>The realm the <c>hashchange</c> event object is minted in.</summary>
-    IJsRealm Realm { get; }
-
     void DispatchWindowEvent(JsValue evt);
 
     void RequestNavigation(NavigationRequest request);

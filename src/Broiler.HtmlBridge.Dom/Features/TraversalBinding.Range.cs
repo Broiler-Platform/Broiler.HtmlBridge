@@ -11,13 +11,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>These raise the exceptions DOM §4.5 names.</b> They used to be uniformly lenient: an
-/// out-of-range offset was clamped into the node instead of raising <c>IndexSizeError</c>, a
-/// non-<c>Node</c> or missing argument returned <c>undefined</c> instead of raising
-/// <c>TypeError</c>, <c>selectNode</c> on a parentless node was a silent no-op, an invalid
-/// <c>compareBoundaryPoints</c> comparison method and a source range in another tree both answered
-/// <c>0</c>, and <c>insertNode</c> happily put a doctype inside a paragraph. Leniency of that shape
-/// does not make a page work — it makes the range quietly point somewhere else and the wrongness
+/// <b>These raise the exceptions DOM §4.5 names.</b> Being lenient instead — clamping an
+/// out-of-range offset into the node rather than raising <c>IndexSizeError</c>, returning
+/// <c>undefined</c> for a non-<c>Node</c> or missing argument rather than raising
+/// <c>TypeError</c>, making <c>selectNode</c> on a parentless node a silent no-op, answering
+/// <c>0</c> for an invalid <c>compareBoundaryPoints</c> comparison method or a source range in
+/// another tree, letting <c>insertNode</c> put a doctype inside a paragraph — does not make a page
+/// work. It makes the range quietly point somewhere else and the wrongness
 /// surface later, in the content operation, as a wrong extraction rather than a caught error.
 /// </para>
 /// <para>
@@ -31,11 +31,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>HierarchyRequestError</c> for a text node.
 /// </para>
 /// <para>
-/// Each of those is raised as <c>throw realm.DomError(name, message)</c> / <c>realm.Error(kind, …)</c>
-/// rather than through a bridge helper that built the <c>DOMException</c> by hand. The object a page
-/// catches is the same one — the provider constructs it against the realm's own <c>DOMException</c>
-/// global and falls back identically when there is none — and the <see langword="throw"/> is now
-/// visible at the call site, so the dead <c>return</c> that used to follow each one is gone.
+/// Each of those is raised as <c>throw realm.DomError(name, message)</c> / <c>realm.Error(kind, …)</c>:
+/// the provider constructs the exception against the realm's own <c>DOMException</c> global and
+/// falls back identically when there is none, and the <see langword="throw"/> is visible at the call
+/// site, so no dead <c>return</c> follows one.
 /// </para>
 /// </remarks>
 internal sealed partial class TraversalBinding
@@ -71,13 +70,13 @@ internal sealed partial class TraversalBinding
     /// <summary>
     /// The node behind argument <paramref name="index"/>, or a <c>TypeError</c>. A missing argument
     /// and one that is not a <c>Node</c> are the same failure to a browser — "parameter 1 is not of
-    /// type 'Node'" — and both used to return <c>undefined</c> here, leaving the range untouched and
+    /// type 'Node'" — so answering <c>undefined</c> for either would leave the range untouched and
     /// the caller none the wiser.
     /// </summary>
     private DomNode NodeArgument(in JsCall call, int index, string member, string interfaceName = "Range")
     {
         // An index past the end is Missing, which is not an object, so the arity failure and the
-        // wrong-type failure fall into the same arm exactly as they did before.
+        // wrong-type failure fall into the same arm.
         if (call[index].IsObject && _host.FindNode(call[index]) is { } node)
             return node;
 
@@ -180,9 +179,9 @@ internal sealed partial class TraversalBinding
     private JsValue RangeSetBoundaryToSibling(BridgeDomRange state, in JsCall call, string member, bool start, bool after)
     {
         var node = NodeArgument(in call, 0, member);
-        // Phase 4 item 1 (P4.4a): a boundary node's parent may be a canonical DomDocument (a regime-B
-        // createDocument root) — a valid boundary container that is not a DomElement, so use the raw
-        // ParentNode (ParentEl nulled out a non-element parent and wrongly threw here).
+        // A boundary node's parent may be a canonical DomDocument (a createDocument root) — a valid
+        // boundary container that is not a DomElement — so use the raw ParentNode; ParentEl nulls
+        // out a non-element parent and would wrongly throw here.
         if (node.ParentNode is not { } parent)
             throw call.Realm.DomError(
                 "InvalidNodeTypeError",
@@ -271,10 +270,9 @@ internal sealed partial class TraversalBinding
     {
         var newParent = NodeArgument(in call, 0, "surroundContents");
 
-        // The document root is now a canonical DomDocument (P4.6) and sub-document roots are severed
-        // canonical DomDocuments (P4.4b) — neither is a DomElement — so a non-element new parent is
-        // rejected here by node kind rather than by the former #document / #subdoc-root sentinel
-        // guard. A browser splits the rejection two ways, which is what these two arms are.
+        // The document root is a canonical DomDocument and sub-document roots are severed canonical
+        // DomDocuments — neither is a DomElement — so a non-element new parent is rejected here by
+        // node kind. A browser splits the rejection two ways, which is what these two arms are.
         if (newParent is DomDocumentType or DomDocument or DomDocumentFragment)
             throw call.Realm.DomError(
                 "InvalidNodeTypeError",

@@ -27,12 +27,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// the bridge answers the same way whichever document asks, so they delegate straight through.
 /// </para>
 /// <para>
-/// <b>This class used to be the group's one engine-typed file, and it is now the plainest.</b>
-/// <see cref="IDocumentCollectionHost"/> handed JS objects around as engine values, so the two
-/// delegating members had to unwrap what <see cref="ISubDocumentHost"/> already answered in JSEAL —
-/// two <c>JsInterop</c> casts whose only job was to lose type information across a contract boundary
-/// and have it re-found on the other side. Both contracts are JSEAL now, so the members are the
-/// forwards they always meant to be, and the file names no engine type.
+/// Both <see cref="IDocumentCollectionHost"/> and <see cref="ISubDocumentHost"/> are spelled in
+/// JSEAL, so the delegating members are plain forwards and this file names no engine type.
 /// </para>
 /// </remarks>
 internal sealed class SubDocumentCollectionHost(ISubDocumentHost host, DomNode docRoot)

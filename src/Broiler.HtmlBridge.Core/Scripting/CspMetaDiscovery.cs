@@ -8,14 +8,13 @@ namespace Broiler.HtmlBridge.Internal.Scripting;
 /// declared via a <c>&lt;meta http-equiv="Content-Security-Policy" content="…"&gt;</c> tag. This is
 /// deliberately separate from <see cref="Broiler.HtmlBridge.Scripting.ContentSecurityPolicy"/>,
 /// which <b>parses and evaluates</b> the directive string — discovery answers "where is the policy in
-/// this document", the policy answers
-/// "what does it allow" (Phase 7 item 1: split parse / discovery / policy).
+/// this document", the policy answers "what does it allow".
 /// </summary>
 /// <remarks>
-/// Discovery is <c>Broiler.Dom.Html</c> parser output (Phase 7 item 2): the shared
-/// <see cref="HtmlTokenizer"/> enumerates start tags, so — unlike the former regex scan — a
+/// Discovery is <c>Broiler.Dom.Html</c> parser output: the shared
+/// <see cref="HtmlTokenizer"/> enumerates start tags, so a
 /// <c>&lt;meta&gt;</c> inside a comment or a <c>&lt;script&gt;</c>/<c>&lt;style&gt;</c> raw-text body is
-/// correctly ignored, and a <c>&gt;</c> inside a quoted attribute value no longer truncates the tag.
+/// correctly ignored, and a <c>&gt;</c> inside a quoted attribute value does not truncate the tag.
 /// </remarks>
 internal static class CspMetaDiscovery
 {

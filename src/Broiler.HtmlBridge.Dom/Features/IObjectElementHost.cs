@@ -15,12 +15,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <remarks>
 /// The contract names no engine type — the sub-document is a <see cref="JsValue"/> handle. The bridge
 /// member behind the factory answers the handle the browsing-context cache holds, so neither side of
-/// this contract converts. (This said that member still handed back an engine object.)
+/// this contract converts.
 /// </remarks>
-internal interface IObjectElementHost
+internal interface IObjectElementHost : IPageUrlHost, ISubDocumentFactoryHost
 {
-    string PageUrl { get; }
     void InvalidateCachedSubDocument(DomElement containerElement);
     bool IsObjectLoadFailed(DomElement objectElement);
-    JsValue GetOrCreateSubDocument(DomElement containerElement);
 }

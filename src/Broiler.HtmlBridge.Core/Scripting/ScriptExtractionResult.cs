@@ -16,11 +16,11 @@ public enum ScriptSourceKind
 }
 
 /// <summary>
-/// Metadata-rich descriptor of one discovered <c>&lt;script&gt;</c> element (Phase 7 item 3): its
+/// Metadata-rich descriptor of one discovered <c>&lt;script&gt;</c> element: its
 /// document order, source kind, source URL (for external/data-URI), nonce, and the
 /// <c>async</c>/<c>defer</c>/<c>type=module</c> flags — plus the resolved program text when the script
-/// was authorised and its body was available. This is the neutral, host-agnostic shape the loader
-/// (item 4) and the event loop (item 6) consume; it does not itself perform I/O or CSP decisions.
+/// was authorised and its body was available. This is the neutral, host-agnostic shape the loader and
+/// the event loop consume; it does not itself perform I/O or CSP decisions.
 /// </summary>
 public sealed record ScriptDescriptor(
     int DocumentOrder,
@@ -33,7 +33,7 @@ public sealed record ScriptDescriptor(
     string Content);
 
 /// <summary>
-/// One entry in a document's <see cref="ModuleMap"/> (Phase 7 item 6): a recognised
+/// One entry in a document's <see cref="ModuleMap"/>: a recognised
 /// <c>&lt;script type="module"&gt;</c> root keyed for the browser module system. Inline modules are keyed by
 /// a synthetic <c>inline:{order}</c> id; module scripts with a <c>src</c> are keyed by URL. An authorised
 /// module carries its resolved body in <see cref="Source"/> with <see cref="IsExecutable"/> <c>true</c>; a
@@ -50,7 +50,7 @@ public sealed record ModuleMapEntry(
     bool IsExecutable);
 
 /// <summary>
-/// The document's module map (Phase 7 item 6): the registry of recognised
+/// The document's module map: the registry of recognised
 /// <c>&lt;script type="module"&gt;</c> roots in document order, so a module is never silently dropped.
 /// Inline, <c>data:</c> and external module roots are all resolved and, when authorised, linked into the
 /// executable graph. Keyed by <see cref="ModuleMapEntry.Key"/> (an inline module's synthetic id or a module
@@ -81,8 +81,7 @@ public sealed class ModuleMap
 /// An authorised top-level ES-module root (a <c>&lt;script type="module"&gt;</c> whose source passed CSP):
 /// its resolved module key, its already-decoded/fetched source, and the base URL its relative imports
 /// resolve against. A consumer drives the JS engine's own module machinery to run each root (which pulls in
-/// its transitive imports itself); this is the sole module-execution input since the string-rewriting
-/// <c>EsModuleLinker</c> fallback was retired (Phase 7 tail).
+/// its transitive imports itself); this is the sole module-execution input.
 /// </summary>
 public sealed record ModuleRoot(string Key, string Source, string? BaseUrl);
 
@@ -90,7 +89,7 @@ public sealed record ModuleRoot(string Key, string Source, string? BaseUrl);
 /// Holds the result of extracting all scripts from an HTML page, separated into regular
 /// (inline / data-URI / external), deferred, and async scripts so the engine can execute them in the
 /// correct order — plus the metadata descriptors, the module map, the linked module graph and the
-/// authorised module roots (Phase 7 items 3 and 6).
+/// authorised module roots.
 /// </summary>
 public sealed class ScriptExtractionResult(
     IReadOnlyList<string> scripts,
@@ -110,22 +109,20 @@ public sealed class ScriptExtractionResult(
     public IReadOnlyList<string> AsyncScripts { get; } = asyncScripts;
 
     /// <summary>
-    /// Every discovered <c>&lt;script&gt;</c> in document order with its metadata (Phase 7 item 3),
+    /// Every discovered <c>&lt;script&gt;</c> in document order with its metadata,
     /// including <c>type=module</c> scripts that the classic <see cref="Scripts"/>/<see cref="DeferredScripts"/>/
-    /// <see cref="AsyncScripts"/> lists omit. The classic lists remain the authoritative execution buckets;
-    /// this exposes the metadata that used to be computed and discarded.
+    /// <see cref="AsyncScripts"/> lists omit. The classic lists remain the authoritative execution buckets.
     /// </summary>
     public IReadOnlyList<ScriptDescriptor> Descriptors { get; } = descriptors ?? [];
 
-    /// <summary>The document's module map (Phase 7 item 6): every recognised module in document order.</summary>
+    /// <summary>The document's module map: every recognised module in document order.</summary>
     public ModuleMap ModuleMap { get; } = moduleMap ?? new ModuleMap();
 
     /// <summary>
-    /// The authorised top-level module roots in document order (Phase 7 item 6). A consumer drives the JS
+    /// The authorised top-level module roots in document order. A consumer drives the JS
     /// engine's own module machinery (see <c>BridgeModuleContext</c>) to run these — each root loads its own
     /// transitive imports — when the engine binds imports (<c>EngineModuleSupport.Available</c>). This is the
-    /// sole module-execution input since the string-rewriting <c>EsModuleLinker</c> fallback was retired
-    /// (Phase 7 tail).
+    /// sole module-execution input.
     /// </summary>
     public IReadOnlyList<ModuleRoot> ModuleRoots { get; } = moduleRoots ?? [];
 }

@@ -14,22 +14,16 @@ namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// <see cref="DomBridge"/>'s implementation of <see cref="IFormHost"/>, the narrow contract the
-/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.FormBinding"/> feature module consumes
-/// (HtmlBridge complexity-reduction roadmap Phase 3, P3.9). Explicit interface member, so it does not
+/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.FormBinding"/> feature module consumes.
+/// Explicit interface member, so it does not
 /// widen the public <c>DomBridge</c> surface.
 /// </summary>
 /// <remarks>
-/// The form slice is not a seam any more: the module speaks JSEAL, <c>WrapNode</c> is forwarded as it
-/// stands and no member converts, so wrapper identity (<c>form.q === form.elements.q</c>) is the same
-/// question it was before. (This said the rest of the bridge still held engine objects and
-/// <c>JsInterop</c> cast between them.)
+/// The module speaks JSEAL, <c>WrapNode</c> is forwarded as it stands and no member converts, so
+/// wrapper identity (<c>form.q === form.elements.q</c>) is preserved.
 /// </remarks>
 public sealed partial class DomBridge : IFormHost
 {
-    IJsRealm IFormHost.Realm => Realm;
-
-    JsValue IFormHost.WrapNode(DomNode node) => WrapNode(node);
-
     void IFormHost.ResetForm(DomElement form) => ResetFormControls(form);
 
     IReadOnlyList<DomElement> IFormHost.CollectFormControls(DomElement form) =>
@@ -40,23 +34,16 @@ public sealed partial class DomBridge : IFormHost
 }
 
 // Explicit IFormAssociationHost implementation for the FormAssociationBinding feature module: the
-// realm, the wrapper factory, the document-order element list, the by-id lookup and the live NodeList
-// a control's `labels` is. Explicit interface members, so these seams do not widen the public
-// DomBridge surface.
+// by-id lookup and the live NodeList a control's `labels` is, with the realm, the wrapper factory
+// and the document-order element list inherited from the shared primitives. Explicit interface
+// members, so these seams do not widen the public DomBridge surface.
 //
 // The whole seam is spelled in JSEAL now. The collection was minted through DomCollectionBinding's
 // engine-typed entry point and unwrapped back across JsInterop while that module was unmigrated; it
 // has a realm-shaped NodeList of its own, so the list is built and handed on without either
-// conversion. Realm must be an explicit implementation — DomBridge.Realm is internal, so an implicit
-// one does not compile (CS0737).
+// conversion.
 public sealed partial class DomBridge : Dom.Features.IFormAssociationHost
 {
-    IJsRealm Dom.Features.IFormAssociationHost.Realm => Realm;
-
-    JsValue Dom.Features.IFormAssociationHost.WrapNode(DomNode node) => WrapNode(node);
-
-    IReadOnlyList<DomElement> Dom.Features.IFormAssociationHost.Elements => Elements;
-
     DomElement? Dom.Features.IFormAssociationHost.GetElementById(string id) =>
         FindInSubTree(DocumentElement, element => element.Id == id);
 
@@ -72,16 +59,15 @@ public sealed partial class DomBridge : Dom.Features.IFormAssociationHost
         CustomElements.IsFormAssociated(element);
 }
 
-// Explicit IFormControlHost implementation for the FormControlBinding feature module (Phase 3): the
+// Explicit IFormControlHost implementation for the FormControlBinding feature module: the
 // input's dirty IDL value/checked state stays on the per-element FormControl runtime slot and is exposed
 // here as named primitives; the <select> value resolution delegates to the SelectBinding the bridge
 // owns, and the radio-sibling walk / style-scope invalidation forward to the existing bridge helpers.
 // Explicit interface members, so these seams do not widen the public DomBridge surface.
 //
-// Neither half of this seam is engine-typed any more: the module speaks JSEAL, and the one member
-// that produces a JavaScript object — the FileList — is minted by DomCollectionBinding.FileList in
-// the bridge's realm and cached as the JsValue it answers, with no JsInterop cast. (This said the
-// builder was unmigrated and that the engine object crossed through a JsInterop cast.)
+// Neither half of this seam is engine-typed: the module speaks JSEAL, and the one member that
+// produces a JavaScript object — the FileList — is minted by DomCollectionBinding.FileList in the
+// bridge's realm and cached as the JsValue it answers.
 public sealed partial class DomBridge : Dom.Features.IFormControlHost
 {
     /// <summary>One <c>FileList</c> per file input, cached so <c>input.files === input.files</c>. The
@@ -89,19 +75,14 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
     /// selection would need no second shape.</summary>
     private readonly Dictionary<DomElement, JsValue> _fileLists = [];
 
-    IJsRealm Dom.Features.IFormControlHost.Realm => Realm;
-
     JsValue Dom.Features.IFormControlHost.GetFileList(DomElement element)
     {
         if (_fileLists.TryGetValue(element, out var existing))
             return existing;
 
         // DomCollectionBinding.FileList's only overload, which takes the realm and answers a JsValue.
-        // (This said "the realm overload", as if an engine-object one still stood beside it.)
-        // DomCollectionBinding's header named this call as the one keeping FileList(JSContext, ...)
-        // alive; it is migrated, so a file input no longer asks the bridge for a script context and
-        // no longer throws "asked for before the bridge was attached" when there is a realm but no
-        // context to hand it.
+        // A file input never asks the bridge for a script context, so it cannot throw "asked for
+        // before the bridge was attached" when there is a realm but no context to hand it.
         var files = Dom.Features.DomCollectionBinding.FileList(Realm, static () => []);
         _fileLists[element] = files;
         return files;
@@ -132,11 +113,9 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
 
     void Dom.Features.IFormControlHost.SetFormControlChecked(DomElement element, bool value) =>
         _formState.SetDirtyChecked(element, value);
-
-    void Dom.Features.IFormControlHost.InvalidateStyleScope(DomElement anchor) => InvalidateStyleScope(anchor);
 }
 
-// Explicit IFormSubmitHost implementation for the FormSubmitBinding feature module (Phase 3): the bridge
+// Explicit IFormSubmitHost implementation for the FormSubmitBinding feature module: the bridge
 // exposes read access to the live per-node listener store via an explicit interface member, so the
 // submit action never reaches an arbitrary bridge private field and the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
@@ -205,8 +184,8 @@ public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
 
 /// <summary>
 /// <see cref="DomBridge"/>'s implementation of <see cref="ISelectHost"/>, the narrow contract the
-/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.SelectBinding"/> feature module consumes
-/// (HtmlBridge complexity-reduction roadmap Phase 3, P3.8). Explicit interface members, so these
+/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.SelectBinding"/> feature module consumes.
+/// Explicit interface members, so these
 /// seams do not widen the public <c>DomBridge</c> surface. The select/option form-control state
 /// lives in the bridge's per-element <see cref="FormControlRuntimeState"/> table, reached through
 /// <see cref="FormControlStateFor"/>; these named accessors are the only way the module touches it.
@@ -220,7 +199,7 @@ public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
 /// </remarks>
 public sealed partial class DomBridge : ISelectHost
 {
-    // Phase 2 item 4 (de-globalization, 2026-07-17): the per-element form-control runtime state
+    // The per-element form-control runtime state
     // (checkbox/radio checkedness, option value/defaultSelected, select selectedIndex, dialog
     // returnValue) was the FormControl slot of the process-static ElementRuntimeState table; it is now
     // a per-bridge instance table, owned by the session's bridge. Still element-keyed, so it GCs with
@@ -233,12 +212,7 @@ public sealed partial class DomBridge : ISelectHost
         OnStateChanged = BridgeRuntimeStateEpoch.Bump
     };
 
-    IJsRealm ISelectHost.Realm => Realm;
-
-    JsValue ISelectHost.WrapNode(DomNode node) => WrapNode(node);
-
-    DomElement? ISelectHost.FindElement(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
+    DomElement? ISelectHost.FindElement(JsValue wrapper) => FindDomElementByJSObject(wrapper);
 
     bool ISelectHost.TryGetSelectedIndex(DomElement select, out int index) =>
         _formState.TryGetDirtySelectedIndex(select, out index);
@@ -277,26 +251,17 @@ public sealed partial class DomBridge : ISelectHost
 
 /// <summary>
 /// <see cref="DomBridge"/>'s implementation of <see cref="ITableHost"/>, the narrow contract the
-/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.TableBinding"/> feature module consumes
-/// (HtmlBridge complexity-reduction roadmap Phase 3, P3.5). Explicit interface members, so these
+/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.TableBinding"/> feature module consumes.
+/// Explicit interface members, so these
 /// seams do not widen the public <c>DomBridge</c> surface.
 /// </summary>
 /// <remarks>
 /// The table slice is spelled in JSEAL end to end: every member of this contract is realm- or
-/// handle-typed, and the module's last engine-typed member went with the installer overload whose
-/// caller had stopped needing it. What stood here called this "the half-migrated seam for the table
-/// slice" and named <see cref="Dom.Runtime.JsInterop"/> as "the cast between them": this file has
-/// never performed that cast, and since the installer's deletion nothing in the slice does. The
-/// property the remark was defending holds and still matters -- a JSEAL object handle carries the
-/// engine's own object, so wrapper identity (<c>row === row</c>, and the weak tables keyed on it) is
-/// the same question it was before.
+/// handle-typed. A JSEAL object handle carries the engine's own object, so wrapper identity
+/// (<c>row === row</c>, and the weak tables keyed on it) is preserved.
 /// </remarks>
 public sealed partial class DomBridge : ITableHost
 {
-    IJsRealm ITableHost.Realm => Realm;
-
-    JsValue ITableHost.WrapNode(DomNode node) => WrapNode(node);
-
     DomElement ITableHost.CreateElement(string tag)
     {
         var element = CreateBridgeElement(tag);
@@ -306,8 +271,8 @@ public sealed partial class DomBridge : ITableHost
 
 /// <summary>
 /// <see cref="DomBridge"/>'s implementation of <see cref="IDialogHost"/>, the narrow contract the
-/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.DialogBinding"/> feature module consumes
-/// (HtmlBridge complexity-reduction roadmap Phase 3, P3.7). Each member is an explicit interface
+/// extracted <see cref="Broiler.HtmlBridge.Dom.Features.DialogBinding"/> feature module consumes.
+/// Each member is an explicit interface
 /// implementation, so these seams do not widen the public <c>DomBridge</c> surface. The dialog/
 /// popover state lives in the per-element <see cref="DialogRuntimeState"/> table (a dialog's
 /// <c>returnValue</c> in <see cref="FormControlRuntimeState"/>) and <c>_topLayerCounter</c>. The
@@ -316,14 +281,10 @@ public sealed partial class DomBridge : ITableHost
 /// <remarks>
 /// Nothing in this file is engine-typed. The module speaks JSEAL, and the one member that hands an
 /// object to the rest of the bridge, <see cref="IDialogHost.DispatchFullscreenChange"/>, builds its
-/// event through the realm and gives that handle to the element dispatcher as it is. (This called
-/// the file the half-migrated seam, said that dispatcher still took an engine object, and had the
-/// event cross to it through a <c>JsInterop</c> cast.)
+/// event through the realm and gives that handle to the element dispatcher as it is.
 /// </remarks>
 public sealed partial class DomBridge : IDialogHost
 {
-    IJsRealm IDialogHost.Realm => Realm;
-
     void IDialogHost.SetOpenAttribute(DomElement element, bool open)
     {
         if (open)
@@ -333,8 +294,6 @@ public sealed partial class DomBridge : IDialogHost
     }
 
     bool IDialogHost.HasOpenAttribute(DomElement element) => HasAttr(element, "open");
-
-    void IDialogHost.InvalidateStyleScope(DomElement element) => InvalidateStyleScope(element);
 
     void IDialogHost.AssignNextTopLayerOrder(DomElement element) =>
         DialogStateFor(element).TopLayerOrder.Set(++_topLayerCounter);
@@ -377,8 +336,7 @@ public sealed partial class DomBridge : IDialogHost
         try
         {
             // The event is built through the realm and the dispatcher takes the handle as it is, so
-            // the object the listener sees is the one this built. (This said the event was unwrapped
-            // for a dispatcher that still took an engine object.)
+            // the object the listener sees is the one this built.
             var evt = Realm.NewObject();
             Realm.DefineValue(evt, "type", JsValue.String("fullscreenchange"));
             Realm.DefineValue(evt, "bubbles", JsValue.True);
@@ -424,7 +382,7 @@ public sealed partial class DomBridge : Dom.Features.ICanvasHost
         WindowHandle.IsMissing ? JsValue.Undefined : WindowHandle;
 }
 
-// Explicit IComputedStyleHost implementation for the ComputedStyleBinding feature module (Phase 3):
+// Explicit IComputedStyleHost implementation for the ComputedStyleBinding feature module:
 // the bridge exposes its realm, the JS-wrapper reverse lookup and the computed-style object builder via
 // explicit interface members, so the module never reaches an arbitrary bridge private field and the
 // public surface is unchanged.
@@ -435,17 +393,14 @@ public sealed partial class DomBridge : Dom.Features.ICanvasHost
 // name; that is a rename waiting to happen, not a seam.
 public sealed partial class DomBridge : Dom.Features.IComputedStyleHost
 {
-    IJsRealm Dom.Features.IComputedStyleHost.Realm => Realm;
-
-    DomElement? Dom.Features.IComputedStyleHost.FindElement(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
+    DomElement? Dom.Features.IComputedStyleHost.FindElement(JsValue wrapper) => FindDomElementByJSObject(wrapper);
 
     JsValue Dom.Features.IComputedStyleHost.BuildComputedStyle(DomElement? element, string? pseudoElement)
         => BuildComputedStyleObject(element, pseudoElement);
 }
 
 // Explicit IInlineStyleHost implementation for StyleDeclarationBinding's inline (element.style)
-// declaration callbacks (Phase 2 item 4 de-globalization, 2026-07-17): the per-element inline-style
+// declaration callbacks: the per-element inline-style
 // dictionary and "set via JS" bookkeeping moved off the process-static ElementRuntimeState table onto
 // the bridge instance, so the module reaches them through this narrow contract (each member forwards to
 // the corresponding bridge-instance helper) rather than a static DomBridge call.
@@ -467,19 +422,15 @@ public sealed partial class DomBridge : Dom.Features.IInlineStyleHost
         => InlineStylePropsSetByJs(element);
 }
 
-// Explicit IElementGeometryHost implementation for the ElementGeometryBinding feature module (Phase 3):
-// the box-model metrics and scrolling operations are the one Phase 3 family that genuinely reads the live
+// Explicit IElementGeometryHost implementation for the ElementGeometryBinding feature module:
+// the box-model metrics and scrolling operations are the one family that genuinely reads the live
 // layout, so the contract is wide by design. Each member forwards to the existing private LayoutMetrics.*
 // method — the module now names the exact geometry surface it depends on instead of reaching into the
 // bridge directly.
 //
-// This file names no engine type, and the two option-reading members below are why it used to. Each
-// unwrapped the JSEAL handle the page had passed into the engine's own object and handed it to an
-// adapter in LayoutMetrics.Scrolling.cs, whose entire body wrapped it back into a handle to do the
-// read. The comment that stood here justified the detour by saying those readers "read an engine call
-// frame and are shared word for word with the window and sub-window scroll hosts": they read a JSEAL
-// handle, and they were shared with nothing -- these two members were their only callers in the tree.
-// The window and sub-window hosts have their own copy, in DomBridge/Hosts.Documents.cs.
+// This file names no engine type: the two option-reading members below read a JSEAL handle directly.
+// The window and sub-window hosts keep their own copy of that reading, in
+// DomBridge/Hosts.Documents.cs.
 public sealed partial class DomBridge : Dom.Features.IElementGeometryHost
 {
     bool Dom.Features.IElementGeometryHost.IsViewportElementForMetrics(DomElement element) => IsViewportElementForMetrics(element);
@@ -571,25 +522,14 @@ public sealed partial class DomBridge : Dom.Features.IElementGeometryHost
         var second = call[1];
         return (call.Realm.ToNumber(first), second.IsMissing ? null : call.Realm.ToNumber(second), null);
     }
-
-    JsValue Dom.Features.IElementGeometryHost.WrapNode(DomNode node) => WrapNode(node);
 }
 
-// Explicit IHitTestHost implementation for the HitTestBinding feature module (Phase 3): the bridge
-// exposes the realm, the document root, the JS-wrapper factory and the point hit-test via explicit
-// interface members, so the module never reaches an arbitrary bridge private field and the public surface
-// is unchanged.
-//
-// Realm is implemented explicitly because DomBridge.Realm is internal: an implicit implementation of a
-// public interface member cannot be satisfied by a non-public property (CS0737).
+// Explicit IHitTestHost implementation for the HitTestBinding feature module: the bridge
+// exposes the point hit-test via an explicit interface member, and inherits the realm, the document
+// root and the JS-wrapper factory from the shared primitives, so the module never reaches an arbitrary
+// bridge private field and the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IHitTestHost
 {
-    IJsRealm Dom.Features.IHitTestHost.Realm => Realm;
-
-    DomElement Dom.Features.IHitTestHost.DocumentElement => DocumentElement;
-
-    JsValue Dom.Features.IHitTestHost.WrapNode(DomNode node) => WrapNode(node);
-
     IReadOnlyList<DomElement> Dom.Features.IHitTestHost.HitTestDocumentPoint(DomNode docRoot, double x, double y)
         => HitTestDocumentPoint(docRoot, x, y);
 }

@@ -47,29 +47,7 @@ public class FrameStructureTests
         "<div id=\"out\"></div>" +
         "</body></html>";
 
-    /// <summary>
-    /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
-    /// <c>#out</c>. Reading the result out of the serialized DOM keeps the test to the engine's public
-    /// surface — the binding under test is internal, and reaching for it directly would pin its shape
-    /// rather than its behaviour.
-    /// </summary>
-    private static string Run(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string script) => PageProbe.RunAgainst(PageHtml, PageUrl, script);
 
     [Fact]
     public void OneWindowPerFrameHoweverThePageAsksForIt()
@@ -196,7 +174,7 @@ public class FrameStructureTests
 
     [Fact(Skip = "window.frames is a fresh array built on every read (BuildWindowFramesArray, " +
                  "src/Broiler.HtmlBridge.Dom/DomBridge/Lifecycle.cs, installed as the accessor at " +
-                 "src/Broiler.HtmlBridge.Dom/DomBridge/Registration/Window.cs:479), where HTML's Window " +
+                 "src/Broiler.HtmlBridge.Dom/DomBridge/Registration/Window.cs), where HTML's Window " +
                  "interface has window, self and frames all answer with the Window itself — so " +
                  "`window.frames === window` is false and two reads hand back two objects, which is " +
                  "what a page caching `var f = frames` and comparing it against `window` asks.")]

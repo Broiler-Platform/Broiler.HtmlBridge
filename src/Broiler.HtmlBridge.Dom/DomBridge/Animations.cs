@@ -119,9 +119,8 @@ public sealed partial class DomBridge
     // -----------------------------------------------------------------
 
     /// <summary>
-    /// Collects animation-related properties from <c>&lt;style&gt;</c> elements
-    /// whose selectors match the given element.  This is a simplified matcher
-    /// that handles tag selectors (e.g. <c>body</c>, <c>html</c>).
+    /// Collects animation-related properties from <c>&lt;style&gt;</c> elements whose selectors
+    /// match the given element, through the canonical selector matcher's strict answer.
     /// </summary>
     // Instance (not static) so it can read <style> source through the canonical
     // GetStyleElementSourceText accessor — see CollectAnimPropsFromStyleElements.
@@ -151,7 +150,16 @@ public sealed partial class DomBridge
             {
                 foreach (var selector in styleRule.Selectors.Selectors)
                 {
-                    if (!SimpleMatchesElement(selector.Text, target))
+                    // A strict answer or none at all. `Matches` is deliberately lenient — a
+                    // pseudo-class the specs define but the matcher does not model, and any
+                    // vendor-prefixed one, matches every element so the cascade over-applies a rule
+                    // rather than dropping it. That trade does not survive the journey here: this
+                    // caller bakes `animation` declarations into elements, so `:read-only`
+                    // over-applied is one keyframe animation playing on the whole document.
+                    // `TryMatch` reports whether the answer is one the matcher can stand behind, and
+                    // a guess is read as no match — the safer error for this use, and the one the
+                    // stub this replaces made by understanding almost nothing.
+                    if (!_selectorMatcher.TryMatch(target, selector.Text, out var matches) || !matches)
                         continue;
 
                     var declarations = ParseDeclarations(
@@ -444,17 +452,12 @@ public sealed partial class DomBridge
 /// </summary>
 /// <remarks>
 /// <b>This file speaks JSEAL end to end.</b> <c>Animatable.animate()</c> is installed by
-/// <c>DomBridge/ElementInterface.cs</c> with its realm-minting <c>AddInterfaceMethod</c>, so
+/// <c>DomBridge/ElementInterface.cs</c> through the realm-minting <c>DefineMethod</c>, so
 /// <see cref="ElementAnimate"/> receives a <see cref="JsCall"/>, and
 /// <see cref="ParseAnimationKeyframes"/>, <see cref="DomBridgeUtils.ParseAnimationTiming"/> and
 /// <see cref="DomBridgeUtils.ParseAnimationPseudoElement"/> read the keyframes and the options object through the
 /// realm. The Animation it hands back is built through the realm by <c>BuildAnimation</c>
-/// (<c>DomBridge/Registration/Window.cs</c>) and returned as built. This remark said the file was
-/// engine-typed end to end: that the installer used the engine's own <c>AddPrototypeMethod</c> and
-/// handed <see cref="ElementAnimate"/> an engine argument frame no <c>JsCall</c> could be made from,
-/// so the parsing had to move with the installation, and that the result was unwrapped at the
-/// return. Both moved, and the unwrap went with the callback's engine return type, as the comment at
-/// the end of <see cref="ElementAnimate"/> records.
+/// (<c>DomBridge/Registration/Window.cs</c>) and returned as built.
 /// </remarks>
 public sealed partial class DomBridge
 {
@@ -494,9 +497,8 @@ public sealed partial class DomBridge
             // Web Animations must not break the page: a bad animate() call is inert.
         }
 
-        // Realm-built and returned as built. This used to unwrap, because the callback's return
-        // type was the engine's; the Animation a page gets from animate() and the one it finds in
-        // getAnimations() were always the same object either way.
+        // Realm-built and returned as built: the Animation a page gets from animate() and the one it
+        // finds in getAnimations() are the same object.
         return BuildAnimation(element);
     }
 

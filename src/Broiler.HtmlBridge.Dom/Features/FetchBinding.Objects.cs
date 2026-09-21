@@ -59,28 +59,28 @@ internal sealed partial class FetchBinding
             return values.TryGetValue(name, out var currentValue) ? JsValue.String(currentValue) : JsValue.Null;
         }
 
-        realm.DefineValue(headersObject, "get", realm.NewConstructor("get", JsRegistrationGet078, 1));
+        realm.DefineMethod(headersObject, "get", 1, JsRegistrationGet078);
         JsValue JsRegistrationHas079(in JsCall call)
         {
             if (call.Length == 0)
                 return JsValue.False;
             return JsValue.Boolean(values.ContainsKey(call.Realm.ToJsString(call[0])));
         }
-        realm.DefineValue(headersObject, "has", realm.NewConstructor("has", JsRegistrationHas079, 1));
+        realm.DefineMethod(headersObject, "has", 1, JsRegistrationHas079);
         JsValue JsRegistrationSet080(in JsCall call)
         {
             if (call.Length >= 2)
                 SetHeader(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
             return JsValue.Undefined;
         }
-        realm.DefineValue(headersObject, "set", realm.NewConstructor("set", JsRegistrationSet080, 2));
+        realm.DefineMethod(headersObject, "set", 2, JsRegistrationSet080);
         JsValue JsRegistrationAppend081(in JsCall call)
         {
             if (call.Length >= 2)
                 AppendHeader(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
             return JsValue.Undefined;
         }
-        realm.DefineValue(headersObject, "append", realm.NewConstructor("append", JsRegistrationAppend081, 2));
+        realm.DefineMethod(headersObject, "append", 2, JsRegistrationAppend081);
         JsValue JsRegistrationDelete082(in JsCall call)
         {
             if (call.Length > 0)
@@ -94,7 +94,7 @@ internal sealed partial class FetchBinding
 
             return JsValue.Undefined;
         }
-        realm.DefineValue(headersObject, "delete", realm.NewConstructor("delete", JsRegistrationDelete082, 1));
+        realm.DefineMethod(headersObject, "delete", 1, JsRegistrationDelete082);
         JsValue JsRegistrationForEach083(in JsCall call)
         {
             if (call.Length > 0 && call[0].IsFunction)
@@ -104,9 +104,9 @@ internal sealed partial class FetchBinding
                 {
                     var name = originalNames.TryGetValue(header.Key, out var originalName) ? originalName : header.Key;
 
-                    // The receiver stays the callback itself, as it was: the frame this used to be
-                    // built with passed the function as `this`, which is not what the
-                    // specification says and is not this migration's to change.
+                    // The receiver is the callback itself. That is not what the specification says,
+                    // but it is what this surface has always done, so correcting it is a behaviour
+                    // change rather than a tidy-up.
                     realm.Invoke(callback, callback,
                         [JsValue.String(header.Value), JsValue.String(name), headersObject]);
                 }
@@ -114,7 +114,7 @@ internal sealed partial class FetchBinding
 
             return JsValue.Undefined;
         }
-        realm.DefineValue(headersObject, "forEach", realm.NewConstructor("forEach", JsRegistrationForEach083, 1));
+        realm.DefineMethod(headersObject, "forEach", 1, JsRegistrationForEach083);
 
         return headersObject;
     }
@@ -225,7 +225,7 @@ internal sealed partial class FetchBinding
             return JsValue.Undefined;
         }
 
-        realm.DefineValue(formDataObject, "append", realm.NewConstructor("append", JsRegistrationAppend084, 2));
+        realm.DefineMethod(formDataObject, "append", 2, JsRegistrationAppend084);
         JsValue JsRegistrationDelete085(in JsCall call)
         {
             if (call.Length > 0)
@@ -236,7 +236,7 @@ internal sealed partial class FetchBinding
 
             return JsValue.Undefined;
         }
-        realm.DefineValue(formDataObject, "delete", realm.NewConstructor("delete", JsRegistrationDelete085, 1));
+        realm.DefineMethod(formDataObject, "delete", 1, JsRegistrationDelete085);
         JsValue JsRegistrationForEach086(in JsCall call)
         {
             if (call.Length > 0 && call[0].IsFunction)
@@ -251,7 +251,7 @@ internal sealed partial class FetchBinding
 
             return JsValue.Undefined;
         }
-        realm.DefineValue(formDataObject, "forEach", realm.NewConstructor("forEach", JsRegistrationForEach086, 1));
+        realm.DefineMethod(formDataObject, "forEach", 1, JsRegistrationForEach086);
         JsValue JsRegistrationGet087(in JsCall call)
         {
             if (call.Length == 0)
@@ -265,7 +265,7 @@ internal sealed partial class FetchBinding
 
             return JsValue.Null;
         }
-        realm.DefineValue(formDataObject, "get", realm.NewConstructor("get", JsRegistrationGet087, 1));
+        realm.DefineMethod(formDataObject, "get", 1, JsRegistrationGet087);
         JsValue JsRegistrationGetAll088(in JsCall call)
         {
             if (call.Length == 0)
@@ -280,7 +280,7 @@ internal sealed partial class FetchBinding
 
             return call.Realm.NewArray([.. result]);
         }
-        realm.DefineValue(formDataObject, "getAll", realm.NewConstructor("getAll", JsRegistrationGetAll088, 1));
+        realm.DefineMethod(formDataObject, "getAll", 1, JsRegistrationGetAll088);
         JsValue JsRegistrationHas089(in JsCall call)
         {
             if (call.Length == 0)
@@ -288,21 +288,19 @@ internal sealed partial class FetchBinding
             var name = call.Realm.ToJsString(call[0]);
             return JsValue.Boolean(entries.Any(entry => string.Equals(entry.Key, name, StringComparison.Ordinal)));
         }
-        realm.DefineValue(formDataObject, "has", realm.NewConstructor("has", JsRegistrationHas089, 1));
+        realm.DefineMethod(formDataObject, "has", 1, JsRegistrationHas089);
         JsValue JsRegistrationSet090(in JsCall call)
         {
             if (call.Length >= 2)
                 SetEntry(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
             return JsValue.Undefined;
         }
-        realm.DefineValue(formDataObject, "set", realm.NewConstructor("set", JsRegistrationSet090, 2));
-        realm.DefineValue(
+        realm.DefineMethod(formDataObject, "set", 2, JsRegistrationSet090);
+        realm.DefineMethod(
             formDataObject,
             "toString",
-            realm.NewConstructor(
-                "toString",
-                (in _) => JsValue.String(string.Join("&", entries.Select(static entry => $"{EncodeFormComponent(entry.Key)}={EncodeFormComponent(entry.Value)}"))),
-                0));
+            0,
+            (in _) => JsValue.String(string.Join("&", entries.Select(static entry => $"{EncodeFormComponent(entry.Key)}={EncodeFormComponent(entry.Value)}"))));
 
         return formDataObject;
     }
@@ -323,6 +321,25 @@ internal sealed partial class FetchBinding
     private bool IsBodyUnavailable(IJsRealm realm, JsValue owner)
         => realm.GetProperty(owner, "bodyUsed").AsBoolean
            || _host.IsStreamLocked(realm.GetProperty(owner, "body"));
+
+    // Every reader the Body mixin gives Request and Response is the same three steps: refuse a body
+    // that is already disturbed or locked, mark it disturbed, then hand back a thenable over the
+    // decode. text/json/arrayBuffer/blob/formData differ in nothing but `read` — how the bytes
+    // become a value — and the interface name the refusal quotes. The guard asks the realm the
+    // object lives in, while the error is minted in the calling realm, because that is the realm
+    // about to catch it.
+    private void DefineBodyReader(IJsRealm realm, JsValue owner, string ownerName, string member, Func<JsValue> read)
+    {
+        JsValue JsRegistrationBodyReader(in JsCall call)
+        {
+            if (IsBodyUnavailable(realm, owner))
+                throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute body reader on '{ownerName}': body is already used.");
+            realm.SetProperty(owner, "bodyUsed", JsValue.True);
+            return CreateThenable(realm, read);
+        }
+
+        realm.DefineMethod(owner, member, 0, JsRegistrationBodyReader);
+    }
 
     // A real ReadableStream over the body's bytes, the same interface a page's own
     // `new ReadableStream` and `blob.stream()` produce. What stood here before was a shape-only
@@ -416,47 +433,13 @@ internal sealed partial class FetchBinding
                 throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'clone' on 'Request': body is already used.");
             return CreateRequestObject(realm, requestObject);
         }
-        realm.DefineValue(requestObject, "clone", realm.NewConstructor("clone", JsRegistrationClone098, 0));
-        JsValue JsRegistrationText099(in JsCall call)
-        {
-            if (IsBodyUnavailable(realm, requestObject))
-                throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
-            realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
-            return CreateThenable(realm, () => body == null ? JsValue.String(string.Empty) : JsValue.String(body));
-        }
-        realm.DefineValue(requestObject, "text", realm.NewConstructor("text", JsRegistrationText099, 0));
-        JsValue JsRegistrationJson100(in JsCall call)
-        {
-            if (IsBodyUnavailable(realm, requestObject))
-                throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
-            realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
-            return CreateThenable(realm, () => ParseJsonText(realm, body ?? string.Empty));
-        }
-        realm.DefineValue(requestObject, "json", realm.NewConstructor("json", JsRegistrationJson100, 0));
-        JsValue JsRegistrationArrayBuffer101(in JsCall call)
-        {
-            if (IsBodyUnavailable(realm, requestObject))
-                throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
-            realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
-            return CreateThenable(realm, () => realm.NewArrayBuffer(Encoding.UTF8.GetBytes(body ?? string.Empty)));
-        }
-        realm.DefineValue(requestObject, "arrayBuffer", realm.NewConstructor("arrayBuffer", JsRegistrationArrayBuffer101, 0));
-        JsValue JsRegistrationBlob102(in JsCall call)
-        {
-            if (IsBodyUnavailable(realm, requestObject))
-                throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
-            realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
-            return CreateThenable(realm, () => CreateBlobBody(realm, body ?? string.Empty, headersObject));
-        }
-        realm.DefineValue(requestObject, "blob", realm.NewConstructor("blob", JsRegistrationBlob102, 0));
-        JsValue JsRegistrationFormData103(in JsCall call)
-        {
-            if (IsBodyUnavailable(realm, requestObject))
-                throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Request': body is already used.");
-            realm.SetProperty(requestObject, "bodyUsed", JsValue.True);
-            return CreateThenable(realm, () => CreateFormDataObject(realm, JsValue.String(body ?? string.Empty)));
-        }
-        realm.DefineValue(requestObject, "formData", realm.NewConstructor("formData", JsRegistrationFormData103, 0));
+        realm.DefineMethod(requestObject, "clone", 0, JsRegistrationClone098);
+        // A Request's body is optional, so every reader here reads the absent one as the empty body.
+        DefineBodyReader(realm, requestObject, "Request", "text", () => body == null ? JsValue.String(string.Empty) : JsValue.String(body));
+        DefineBodyReader(realm, requestObject, "Request", "json", () => ParseJsonText(realm, body ?? string.Empty));
+        DefineBodyReader(realm, requestObject, "Request", "arrayBuffer", () => realm.NewArrayBuffer(Encoding.UTF8.GetBytes(body ?? string.Empty)));
+        DefineBodyReader(realm, requestObject, "Request", "blob", () => CreateBlobBody(realm, body ?? string.Empty, headersObject));
+        DefineBodyReader(realm, requestObject, "Request", "formData", () => CreateFormDataObject(realm, JsValue.String(body ?? string.Empty)));
 
         return requestObject;
     }
@@ -479,53 +462,20 @@ internal sealed partial class FetchBinding
         realm.SetProperty(responseObject, "headers", headersObject);
         realm.SetProperty(responseObject, "_bodyText", JsValue.String(body));
         realm.SetProperty(responseObject, "body", CreateReadableStreamBody(realm, responseObject, body));
-        JsValue JsRegistrationText104(in JsCall call)
-        {
-            if (IsBodyUnavailable(realm, responseObject))
-                throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
-            realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
-            return CreateThenable(realm, () => JsValue.String(body));
-        }
-        realm.DefineValue(responseObject, "text", realm.NewConstructor("text", JsRegistrationText104, 0));
-        JsValue JsRegistrationJson105(in JsCall call)
-        {
-            if (IsBodyUnavailable(realm, responseObject))
-                throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
-            realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
-            return CreateThenable(realm, () => ParseResponseJsonText(realm, body));
-        }
-        realm.DefineValue(responseObject, "json", realm.NewConstructor("json", JsRegistrationJson105, 0));
-        JsValue JsRegistrationArrayBuffer106(in JsCall call)
-        {
-            if (IsBodyUnavailable(realm, responseObject))
-                throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
-            realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
-            return CreateThenable(realm, () => realm.NewArrayBuffer(Encoding.UTF8.GetBytes(body)));
-        }
-        realm.DefineValue(responseObject, "arrayBuffer", realm.NewConstructor("arrayBuffer", JsRegistrationArrayBuffer106, 0));
-        JsValue JsRegistrationBlob107(in JsCall call)
-        {
-            if (IsBodyUnavailable(realm, responseObject))
-                throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
-            realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
-            return CreateThenable(realm, () => CreateBlobBody(realm, body, headersObject));
-        }
-        realm.DefineValue(responseObject, "blob", realm.NewConstructor("blob", JsRegistrationBlob107, 0));
-        JsValue JsRegistrationFormData108(in JsCall call)
-        {
-            if (IsBodyUnavailable(realm, responseObject))
-                throw call.Realm.Error(JsErrorKind.Error, "Failed to execute body reader on 'Response': body is already used.");
-            realm.SetProperty(responseObject, "bodyUsed", JsValue.True);
-            return CreateThenable(realm, () => CreateFormDataObject(realm, JsValue.String(body)));
-        }
-        realm.DefineValue(responseObject, "formData", realm.NewConstructor("formData", JsRegistrationFormData108, 0));
+        // A Response always has a body text, even when it is empty, and json() reports a parse
+        // failure as its own message — hence ParseResponseJsonText rather than Request's ParseJsonText.
+        DefineBodyReader(realm, responseObject, "Response", "text", () => JsValue.String(body));
+        DefineBodyReader(realm, responseObject, "Response", "json", () => ParseResponseJsonText(realm, body));
+        DefineBodyReader(realm, responseObject, "Response", "arrayBuffer", () => realm.NewArrayBuffer(Encoding.UTF8.GetBytes(body)));
+        DefineBodyReader(realm, responseObject, "Response", "blob", () => CreateBlobBody(realm, body, headersObject));
+        DefineBodyReader(realm, responseObject, "Response", "formData", () => CreateFormDataObject(realm, JsValue.String(body)));
         JsValue JsRegistrationClone109(in JsCall call)
         {
             if (IsBodyUnavailable(realm, responseObject))
                 throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'clone' on 'Response': body is already used.");
             return CreateResponse(realm, body, statusCode, statusText, responseUrl, type, redirected, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase));
         }
-        realm.DefineValue(responseObject, "clone", realm.NewConstructor("clone", JsRegistrationClone109, 0));
+        realm.DefineMethod(responseObject, "clone", 0, JsRegistrationClone109);
 
         return responseObject;
     }

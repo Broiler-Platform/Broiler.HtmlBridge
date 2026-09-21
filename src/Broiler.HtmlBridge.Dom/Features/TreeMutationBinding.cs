@@ -6,24 +6,21 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The DOM <c>Node</c> child-mutation methods — <c>insertBefore</c>, <c>appendChild</c>, <c>append</c>,
 /// <c>prepend</c>, <c>removeChild</c> and <c>replaceChild</c> — registered on every element wrapper,
-/// co-located as an HtmlBridge feature module (Phase 3). Pure canonical tree mutation: it resolves the
+/// co-located as an HtmlBridge feature module. Pure canonical tree mutation: it resolves the
 /// child wrapper(s), enforces the <c>HierarchyRequestError</c> circular-reference guard, and positions
 /// or detaches nodes through the bridge's neutral static tree helpers (<c>ParentEl</c>, <c>ChildAt</c>,
 /// <c>ChildIndexOf</c>, <c>RemoveNthChild</c>, <c>RemoveChildFrom</c>, <c>SetParent</c>) while driving the
 /// side-effecting insertion plus the style-scope invalidation through the <see cref="ITreeMutationHost"/>
-/// contract. Was the bridge's <c>JsJsObjectsInsertBefore080Core</c>, <c>AppendChild088Core</c>,
-/// <c>Append089Core</c>, <c>Prepend090Core</c>, <c>RemoveChild091Core</c> and
-/// <c>ReplaceChild092Core</c> callbacks.
+/// contract.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The module's two halves rejoined when its second installer moved.</b> The three
+/// <b>The module is installed from two places.</b> The three
 /// <c>ParentNode</c> members are on <c>Element.prototype</c>, installed by
 /// <c>DomBridge/ElementInterface.cs</c>; the five <c>Node</c> members stay each wrapper's own property
-/// and are installed by <c>DomBridge/JsObjects.cs</c>. Both mint through the realm now, so every body
-/// here reads a <see cref="JsCall"/> and the module names no engine type. The script context the
-/// contract used to carry went with them: a call frame brings its own realm, and
-/// <see cref="IJsCalls.DomError"/> mints the <c>DOMException</c> from that. (The three variadic
+/// and are installed by <c>DomBridge/JsObjects.cs</c>. Both mint through the realm, so every body
+/// here reads a <see cref="JsCall"/> and the module names no engine type: a call frame brings its own
+/// realm, and <see cref="IJsCalls.DomError"/> mints the <c>DOMException</c> from that. (The three variadic
 /// members below forward <see cref="JsCall"/>'s own span of handles, which is a JSEAL member and not
 /// the engine's argument frame, however alike the two read.)
 /// </para>
@@ -198,10 +195,10 @@ internal static class TreeMutationBinding
         if (idx < 0)
         {
             // DOM §4.2.3 pre-remove: "If child's parent is not parent, then throw a NotFoundError
-            // DOMException." This used to return the node unchanged, which is the worst shape a
-            // failure can take: `removeChild` returns the removed node on success, so returning it
-            // here told the caller the removal had happened. Code that removes a node and then
-            // re-parents the returned value silently operated on a node still attached to its
+            // DOMException." Returning the node unchanged would be the worst shape a failure can
+            // take: `removeChild` returns the removed node on success, so returning it here would
+            // tell the caller the removal had happened, and code that removes a node and then
+            // re-parents the returned value would silently operate on a node still attached to its
             // original parent.
             throw NotFoundError(call.Realm, "removeChild",
                 "The node to be removed is not a child of this node.");

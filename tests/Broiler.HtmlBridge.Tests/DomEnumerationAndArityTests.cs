@@ -36,28 +36,7 @@ public class DomEnumerationAndArityTests
         "</div><img id=\"img\" width=\"120\" height=\"60\">" +
         "<div id=\"out\"></div></body></html>";
 
-    /// <summary>
-    /// Runs <paramref name="script"/> against the fixture document and returns what it wrote to
-    /// <c>#out</c>. Reading the result out of the serialized DOM keeps the test to the engine's public
-    /// surface — the binding under test is internal, and reaching for it directly would pin its shape.
-    /// </summary>
-    private static string Run(string script)
-    {
-        var html = new ScriptEngine().Execute(
-            [$"document.getElementById('out').textContent = String({script});"],
-            PageHtml,
-            PageUrl);
-
-        Assert.NotNull(html);
-
-        const string open = "<div id=\"out\">";
-        var start = html!.IndexOf(open, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"no #out div in serialized output: {html}");
-        start += open.Length;
-        var end = html.IndexOf("</div>", start, StringComparison.Ordinal);
-        Assert.True(end >= 0, $"unterminated #out div in serialized output: {html}");
-        return html[start..end];
-    }
+    private static string Run(string script) => PageProbe.RunAgainst(PageHtml, PageUrl, script);
 
     [Fact]
     public void ACollectionsKeysAreItsIndicesInNumericOrderAndNothingItsNamedGetterAnswers()
@@ -150,9 +129,9 @@ public class DomEnumerationAndArityTests
     }
 
     [Fact(Skip =
-        "DomBridge/Registration/Window.cs:468-470 installs the window's own copies of the three " +
+        "DomBridge/Registration/Window.cs installs the window's own copies of the three " +
         "EventTarget methods unguarded, declaring 3, 3 and 1 arguments — where the document's " +
-        "(Registration/Document.cs:234) and every element's (JsObjects.cs:236) are guarded by " +
+        "(Registration/Document.cs) and every element's (JsObjects.cs) are guarded by " +
         "_eventTargetRoutingReady and so come from the routed EventTarget.prototype methods, minted " +
         "with Web IDL's 2, 2, 1 at DomBridge/Events.cs. So " +
         "window.addEventListener.length is 3 where a browser says 2, and it is a different function " +
@@ -172,8 +151,8 @@ public class DomEnumerationAndArityTests
     }
 
     [Fact(Skip =
-        "getRootNode is minted with a declared length of 1 at DomBridge/JsObjects.cs:408, " +
-        "DomBridge/JsObjects.NonElementNodes.cs:213, :329 and :572, and on the character-data " +
+        "getRootNode is minted with a declared length of 1 in DomBridge/JsObjects.cs and " +
+        "DomBridge/JsObjects.NonElementNodes.cs, and on the character-data " +
         "prototype at DomBridge/NodeInterfaces.cs. DOM §4.4 declares " +
         "`Node getRootNode(optional GetRootNodeOptions options = {})`, so its only argument is " +
         "optional and a browser reports 0 — a page feature-detecting composed-tree support by " +

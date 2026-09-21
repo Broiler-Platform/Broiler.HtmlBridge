@@ -62,8 +62,7 @@ internal static class MediaCapabilityBinding
         if (tag is not ("video" or "audio"))
             return;
 
-        realm.DefineValue(obj, "canPlayType",
-            realm.NewMethod("canPlayType", static (in _) => JsValue.String(NotSupportedType), 1));
+        realm.DefineMethod(obj, "canPlayType", 1, static (in _) => JsValue.String(NotSupportedType));
     }
 
     /// <summary>
@@ -78,8 +77,7 @@ internal static class MediaCapabilityBinding
     {
         var constructor = realm.NewConstructor("MediaSource", (in _) => NewMediaSource(realm), 0);
 
-        realm.DefineValue(constructor, "isTypeSupported",
-            realm.NewMethod("isTypeSupported", static (in _) => JsValue.False, 1));
+        realm.DefineMethod(constructor, "isTypeSupported", 1, static (in _) => JsValue.False);
 
         return constructor;
     }
@@ -97,8 +95,7 @@ internal static class MediaCapabilityBinding
         realm.DefineValue(source, "sourceBuffers", realm.NewArray());
         realm.DefineValue(source, "activeSourceBuffers", realm.NewArray());
 
-        realm.DefineValue(source, "addSourceBuffer",
-            realm.NewMethod("addSourceBuffer", (in call) => AddSourceBuffer(in call), 1));
+        realm.DefineMethod(source, "addSourceBuffer", 1, (in call) => AddSourceBuffer(in call));
 
         return source;
     }

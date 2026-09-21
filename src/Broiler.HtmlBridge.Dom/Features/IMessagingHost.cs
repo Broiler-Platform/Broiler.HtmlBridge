@@ -5,33 +5,28 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The narrow bridge services the <see cref="MessagingBinding"/> feature module needs (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.10). Web messaging (<c>window.postMessage</c>,
+/// The narrow bridge services the <see cref="MessagingBinding"/> feature module needs. Web messaging
+/// (<c>window.postMessage</c>,
 /// <c>MessageChannel</c>/<c>MessagePort</c>) and the generic <c>EventTarget</c> dispatch it shares
 /// with sub-windows are deeply entangled with the document's browsing-context state — the active
-/// window override, the sub-window/sub-document caches and the window-context switch — which the
-/// Phase 2 work deliberately left in the bridge, and P3.16 and P3.18 have since moved into
+/// window override, the sub-window/sub-document caches and the window-context switch — which lives in
 /// <c>BrowsingContextManager</c> and <c>WindowContextManager</c>. Rather than
 /// drag that state into the module, the module reaches the few browsing-context operations it needs
 /// through these named seams, exposed as explicit interface members on <see cref="DomBridge"/> so the
 /// public surface is unchanged.
 /// </summary>
 /// <remarks>
-/// The vocabulary is JSEAL's: a window, a port and an event are <see cref="JsValue"/> handles, and
-/// the realm replaces the former <c>JsContext</c> seam. That seam existed for exactly two purposes —
-/// raising a <c>DataCloneError</c>, which <see cref="IJsCalls.DomError"/> now owns, and structured-
-/// cloning a message payload, which <see cref="IJsClone.Clone"/> now owns. (This said JSEAL covered no
-/// clone, and that cloning was the one thing the module still did in the engine's own vocabulary.)
+/// The vocabulary is JSEAL's: a window, a port and an event are <see cref="JsValue"/> handles, and the
+/// realm is the only engine seam. A <c>DataCloneError</c> is raised through
+/// <see cref="IJsCalls.DomError"/>, and a message payload is structured-cloned through
+/// <see cref="IJsClone.Clone"/>.
+/// <para>
+/// The realm is never null while a document is attached, and the messaging APIs are only reachable
+/// from one — so this contract takes the property rather than a nullable realm of its own.
+/// </para>
 /// </remarks>
-internal interface IMessagingHost
+internal interface IMessagingHost : IRealmHost
 {
-    /// <summary>
-    /// The realm the messaging objects are built in, and through which this module raises a
-    /// <c>DOMException</c>. Never null while a document is attached; the messaging APIs are only
-    /// reachable from an attached document.
-    /// </summary>
-    IJsRealm Realm { get; }
-
     /// <summary>The top-level window wrapper (<see cref="JsValue.Null"/> before attach).</summary>
     JsValue WindowObject { get; }
 

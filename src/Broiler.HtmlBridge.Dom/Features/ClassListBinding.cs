@@ -4,19 +4,24 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The <c>Element.classList</c> / <c>DOMTokenList</c> feature binding (HtmlBridge
-/// complexity-reduction roadmap Phase 3, P3.6). It is pure logic over the element's <c>class</c>
-/// attribute via the canonical <see cref="DomTokenList"/>, so it needs no host contract at all: the
-/// only bridge coupling is the <c>onClassChanged</c> callback handed to <see cref="Build"/>, which
-/// the mutating operations invoke so the bridge can invalidate the element's style scope. This
-/// replaces the bridge's <c>BuildClassListObject</c> plus its five scattered
-/// <c>JsUtilities…025…Core</c> callbacks.
+/// The <c>Element.classList</c> / <c>DOMTokenList</c> feature binding. It is pure logic over the
+/// element's <c>class</c> attribute via the canonical <see cref="DomTokenList"/>, so it needs no host
+/// contract at all: the only bridge coupling is the <c>onClassChanged</c> callback handed to
+/// <see cref="Build"/>, which the mutating operations invoke so the bridge can invalidate the
+/// element's style scope.
 /// </summary>
 /// <remarks>
+/// <para>
+/// The ordered-set algorithm — parse/serialize on ASCII whitespace, unique-ordered,
+/// attribute-synchronized — belongs to <see cref="DomTokenList"/>. This module keeps only the
+/// JavaScript argument marshaling, the lenient empty-token skip these methods apply, and the
+/// style-scope invalidation callback.
+/// </para>
+/// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine
 /// type; the realm arrives on the call frame for each operation and as a parameter when the list is
-/// built. The <see cref="DomElement"/> and the callback are still captured by the operation closures
-/// exactly as before — the token-list logic never was engine-coupled.
+/// built. The <see cref="DomElement"/> and the callback are captured by the operation closures.
+/// </para>
 /// </remarks>
 internal static class ClassListBinding
 {
@@ -28,20 +33,15 @@ internal static class ClassListBinding
     {
         var classList = realm.NewObject();
 
-        realm.DefineValue(classList, "contains",
-            realm.NewMethod("contains", (in call) => Contains(element, in call), 1));
+        realm.DefineMethod(classList, "contains", 1, (in call) => Contains(element, in call));
 
-        realm.DefineValue(classList, "add",
-            realm.NewMethod("add", (in call) => Add(element, onClassChanged, in call)));
+        realm.DefineMethod(classList, "add", (in call) => Add(element, onClassChanged, in call));
 
-        realm.DefineValue(classList, "remove",
-            realm.NewMethod("remove", (in call) => Remove(element, onClassChanged, in call)));
+        realm.DefineMethod(classList, "remove", (in call) => Remove(element, onClassChanged, in call));
 
-        realm.DefineValue(classList, "toggle",
-            realm.NewMethod("toggle", (in call) => Toggle(element, onClassChanged, in call), 1));
+        realm.DefineMethod(classList, "toggle", 1, (in call) => Toggle(element, onClassChanged, in call));
 
-        realm.DefineValue(classList, "replace",
-            realm.NewMethod("replace", (in call) => Replace(element, onClassChanged, in call), 2));
+        realm.DefineMethod(classList, "replace", 2, (in call) => Replace(element, onClassChanged, in call));
 
         return classList;
     }

@@ -16,36 +16,20 @@ namespace Broiler.HtmlBridge;
 /// <b>One wrapper factory, and it answers a handle.</b>
 /// <see cref="WrapNode"/> is the JSEAL-vocabulary entry point and the implementation: the object
 /// is minted by <see cref="IJsValues.NewObject"/> — or by <see cref="IJsValues.NewExotic"/> for a
-/// <c>&lt;form&gt;</c> — and all of its members are installed through the realm. This paragraph named
-/// an engine-typed sibling, <c>ToJSObject</c>, as one cast over it; that member was retired in bcce315.
+/// <c>&lt;form&gt;</c> — and all of its members are installed through the realm.
 /// Wrapper identity lives in <c>Runtime/JsObjectRegistry.cs</c>, whose wrapper-to-node table keys on
 /// <see cref="JsValue.ObjectIdentity"/>.
 /// </para>
 /// <para>
-/// <b>Every install site here has migrated, and this paragraph said two had not.</b> A wrapper's
-/// members are installed by a dozen modules, and a member cannot be minted by the realm while the body
-/// it would call reads the engine's argument frame: there is no adapter between the two call frames,
-/// only between the two object types, so each install site migrated when its callee did. The paragraph
-/// named <c>EventTargetBinding</c> as the callee that had not; its three members are realm-minted over
-/// a <see cref="JsCall"/> at their site below. It named <c>ElementContentBinding.InstallTextContent</c>
-/// as still handed the engine object; it is handed the handle. <c>FormControlBinding</c>,
-/// <c>IframeElementBinding</c>, the element and HTMLElement interface installers and the per-tag member
-/// pass had already moved from an engine object to the handle.
-/// </para>
-/// <para>
-/// <b>There is no engine-typed wrapper factory left.</b> This paragraph kept <c>ToJSObject</c> for the
-/// files said to ask for a node's wrapper as the engine's object; bcce315 retired it. Four host
-/// contracts name the same operation <c>ToJsObject</c> (<c>IDocumentLevelFactoryHost</c>,
+/// Four host contracts name this operation <c>ToJsObject</c> (<c>IDocumentLevelFactoryHost</c>,
 /// <c>IDocumentQueryHost</c>, <c>IDocumentStructureHost</c>, <c>ISubDocumentHost</c>); each forwards here.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
 {
-    // RF-BRIDGE-1c Phase F (F3b): the JS-object registry is keyed by canonical DomNode, so the
-    // DomText/DomComment nodes construction creates (which get JS wrappers) round-trip. (This said
-    // they would once construction flipped, and called the widen safe for facade nodes.)
-    // P2.2: wrapper identity now lives in JsObjectRegistry, the single authority (was the scattered
-    // _jsObjectCache and per-document-root wrapper fields).
+    // The JS-object registry is keyed by canonical DomNode, so the DomText/DomComment nodes
+    // construction creates (which get JS wrappers) round-trip. Wrapper identity lives in
+    // JsObjectRegistry, the single authority.
     private readonly Dom.Runtime.JsObjectRegistry _jsObjects = new();
     /// <summary>Counter for tracking top-layer insertion order via showModal().</summary>
     private int _topLayerCounter;
@@ -59,16 +43,7 @@ public sealed partial class DomBridge
     /// <b>The same object, whichever name reaches it.</b> A wrapper reached through here and one
     /// reached through a host contract's <c>ToJsObject</c> are the same handle over the same object, so
     /// <c>el === el</c> holds, and <c>JsObjectRegistry</c>'s reverse table, which keys on
-    /// <see cref="JsValue.ObjectIdentity"/>, sees one object. (This named the retired <c>ToJSObject</c>
-    /// as the second route.)
-    /// </para>
-    /// <para>
-    /// <b>This is the implementation, and it used to be the other way round.</b> Building a wrapper
-    /// is not one file's work: the members go on it from a dozen modules, and while the ones that had
-    /// not migrated still installed engine functions there was nothing to be gained by minting the
-    /// object through the realm — the realm would have named it and the engine would still have
-    /// furnished it. Every one of those modules reads a <see cref="JsCall"/> now (the class remarks name
-    /// the last, <c>EventTargetBinding</c>), so the object is the realm's and nothing here casts it back.
+    /// <see cref="JsValue.ObjectIdentity"/>, sees one object.
     /// </para>
     /// </remarks>
     internal JsValue WrapNode(DomNode node)
@@ -76,10 +51,10 @@ public sealed partial class DomBridge
         if (_jsObjects.TryGet(node, out var cached))
             return cached;
 
-        // Phase 4 item 1: a canonical DomDocument is the document root. The main document is in the
-        // node-wrapper map above; a sub-document root's wrapper lives in the document-wrapper map
-        // (P2.2/P4.4a). Resolve it here so e.g. documentElement.parentNode returns the document
-        // object, not a fallthrough character-data wrapper.
+        // A canonical DomDocument is the document root. The main document is in the node-wrapper map
+        // above; a sub-document root's wrapper lives in the document-wrapper map. Resolve it here so
+        // e.g. documentElement.parentNode returns the document object, not a fallthrough
+        // character-data wrapper.
         if (node is DomDocument documentNode && _jsObjects.TryGetDocument(documentNode, out var documentWrapper))
             return documentWrapper;
 
@@ -88,7 +63,7 @@ public sealed partial class DomBridge
         // because a wrapper's type is fixed when it is created, and every member installed below goes
         // on this same object. The lookup itself is FormNamedControls, an IJsExotic the realm consults
         // after ordinary properties — the same handler form.elements uses, so the two cannot answer a
-        // name differently — where it used to be an engine subclass restating that order by hand.
+        // name differently.
         var handle = node is DomElement formElement &&
                      string.Equals(formElement.TagName, "form", StringComparison.OrdinalIgnoreCase)
             ? Realm.NewExotic(new Dom.Features.FormNamedControls(formElement, this, missingIsNull: false))
@@ -102,24 +77,23 @@ public sealed partial class DomBridge
         // an element's interface is chosen from its tag.
         ApplyInterfacePrototype(handle, node);
 
-        // RF-BRIDGE-1c Phase F (F3c): canonical character-data nodes (DomText/DomComment) are not
-        // Broiler.Dom.DomElement, so they receive a minimal Node/CharacterData wrapper instead of the full
-        // element surface below — the `node is not DomElement` arm after the doctype and fragment arms. It
-        // is live: construction has flipped, so every text and comment node takes it, and the only other
-        // kind that reaches it is a DomDocument with no wrapper in either registry map above.
-        // (This said the branch was dead on the homogeneous facade tree until that flip.)
+        // Canonical character-data nodes (DomText/DomComment) are not Broiler.Dom.DomElement, so they
+        // receive a minimal Node/CharacterData wrapper instead of the full element surface below — the
+        // `node is not DomElement` arm after the doctype and fragment arms. Every text and comment node
+        // takes it, and the only other kind that reaches it is a DomDocument with no wrapper in either
+        // registry map above.
         if (node is DomDocumentType docType)
         {
-            // Phase 4 item 1: the doctype is a canonical DomDocumentType (was a #doctype sentinel
-            // element). It gets the minimal DocumentType surface, not the full element wrapper.
+            // The doctype is a canonical DomDocumentType. It gets the minimal DocumentType surface,
+            // not the full element wrapper.
             PopulateDocumentTypeWrapper(handle, docType);
             return handle;
         }
 
         if (node is DomDocumentFragment fragment)
         {
-            // Phase 4 item 1: the fragment is a canonical DomDocumentFragment (was a
-            // #document-fragment sentinel element). It gets the DocumentFragment container surface
+            // The fragment is a canonical DomDocumentFragment (was a #document-fragment sentinel
+            // element). It gets the DocumentFragment container surface
             // (Node base + ParentNode mixin + child manipulation), not the full element wrapper.
             PopulateDocumentFragmentWrapper(handle, fragment);
             return handle;
@@ -149,22 +123,20 @@ public sealed partial class DomBridge
         if (!_htmlElementInterfacePrototypeReady || !IsHtmlNamespace(element))
             PopulateHtmlElementInterfaceOnInstance(handle, element);
 
-        // textContent (read/write) — Node's member, and the element's own: it was installed because the
-        // element operation differed from the character-data one on Node.prototype, and both are the
-        // canonical DomNode.TextContent now (Phase 3 P3.57: ElementContentBinding).
+        // textContent (read/write) — Node's member, and the element's own: both are the canonical
+        // DomNode.TextContent (ElementContentBinding).
         Dom.Features.ElementContentBinding.InstallTextContent(this, handle, element);
 
         // -- DOM tree navigation --
 
         // The Node members are on Node.prototype and this wrapper inherits them
-        // (DomBridge/NodeInterfaces.cs). Each was a byte-identical copy of what lives
-        // there, so nothing about them changes; only their location does. A wrapper minted before
-        // the realm carried the interfaces inherits nothing and still installs its own.
+        // (DomBridge/NodeInterfaces.cs). A wrapper minted before the realm carried the interfaces
+        // inherits nothing and still installs its own.
         if (!_nodeInterfacePrototypesReady)
             PopulateElementNodeMembersOnInstance(handle, element);
 
-        // The CharacterData accessors below are minted by the realm: its module is migrated, so each body
-        // has a JsCall frame of its own to read its data argument from.
+        // The CharacterData accessors below are minted by the realm, so each body has a JsCall frame
+        // of its own to read its data argument from.
 
         // data (read/write) — on every element, where it reads undefined and ignores a write
         Realm.DefineAccessor(handle, "data",
@@ -180,72 +152,64 @@ public sealed partial class DomBridge
         // §4.9 pairs setAttributeNode with setAttributeNodeNS but gives removeAttributeNode no
         // namespace-qualified sibling (an Attr already knows its namespace), so no browser has one and
         // putting it on Element.prototype would give that prototype a member a browser's has not got.
-        Realm.DefineValue(handle, "removeAttributeNodeNS",
-            Realm.NewMethod("removeAttributeNodeNS",
-                (in call) => _attributes.RemoveAttributeNodeNS(element, handle, in call), 1));
+        Realm.DefineMethod(handle, "removeAttributeNodeNS", 1,
+            (in call) => _attributes.RemoveAttributeNodeNS(element, handle, in call));
 
-        // The five Node child-mutation members below are minted by the realm: TreeMutationBinding is
-        // migrated, so each body has a JsCall frame of its own to read its child and reference
-        // arguments from, and the DOMException a failed step must throw comes from that frame's realm.
+        // The five Node child-mutation members below are minted by the realm, so each body has a
+        // JsCall frame of its own to read its child and reference arguments from, and the DOMException
+        // a failed step must throw comes from that frame's realm.
 
         // insertBefore(newChild, refChild)
-        Realm.DefineValue(handle, "insertBefore",
-            Realm.NewMethod("insertBefore",
-                (in call) => Dom.Features.TreeMutationBinding.InsertBefore(this, element, in call), 2));
+        Realm.DefineMethod(handle, "insertBefore", 2,
+            (in call) => Dom.Features.TreeMutationBinding.InsertBefore(this, element, in call));
 
         // moveBefore(node, refChild) — the atomic, state-preserving sibling of insertBefore.
-        Realm.DefineValue(handle, "moveBefore",
-            Realm.NewMethod("moveBefore",
-                (in call) => Dom.Features.TreeMutationBinding.MoveBefore(this, element, in call), 2));
+        Realm.DefineMethod(handle, "moveBefore", 2,
+            (in call) => Dom.Features.TreeMutationBinding.MoveBefore(this, element, in call));
 
         // -- DOM manipulation methods --
 
         // HTMLTemplateElement.content — the template contents fragment. Every component idiom goes
         // through it (`importNode(t.content, true)`, `t.content.cloneNode(true)`,
         // `t.content.querySelector(...)`), and without it `t.content` was undefined and the whole
-        // component script threw. See GetTemplateContent for what this fragment is and is not.
-        if (string.Equals(element.TagName, "template", StringComparison.OrdinalIgnoreCase))
+        // component script threw. The fragment is the canonical element's own, created with it and
+        // stable for its lifetime, so `t.content === t.content`; a non-null TemplateContents is what
+        // makes an element an HTML <template> rather than a tag-name test.
+        if (element.TemplateContents is { } templateContents)
         {
             // Nothing but a tree read and a wrapper, so the realm mints the accessor: it names it
             // "get content" and a null setter is how the read-only IDL attribute is spelled.
-            Realm.DefineAccessor(handle, "content", (in _) => WrapNode(GetTemplateContent(element)), null);
+            Realm.DefineAccessor(handle, "content", (in _) => WrapNode(templateContents), null);
         }
 
         // appendChild(child)
-        Realm.DefineValue(handle, "appendChild",
-            Realm.NewMethod("appendChild",
-                (in call) => Dom.Features.TreeMutationBinding.AppendChild(this, element, in call), 1));
+        Realm.DefineMethod(handle, "appendChild", 1,
+            (in call) => Dom.Features.TreeMutationBinding.AppendChild(this, element, in call));
 
         // removeChild(child)
-        Realm.DefineValue(handle, "removeChild",
-            Realm.NewMethod("removeChild",
-                (in call) => Dom.Features.TreeMutationBinding.RemoveChild(this, element, in call), 1));
+        Realm.DefineMethod(handle, "removeChild", 1,
+            (in call) => Dom.Features.TreeMutationBinding.RemoveChild(this, element, in call));
 
         // replaceChild(newChild, oldChild)
-        Realm.DefineValue(handle, "replaceChild",
-            Realm.NewMethod("replaceChild",
-                (in call) => Dom.Features.TreeMutationBinding.ReplaceChild(this, element, in call), 2));
+        Realm.DefineMethod(handle, "replaceChild", 2,
+            (in call) => Dom.Features.TreeMutationBinding.ReplaceChild(this, element, in call));
 
         // -- DOM events --
 
         // addEventListener / removeEventListener / dispatchEvent are on EventTarget.prototype,
         // routed by receiver (DomBridge/Events.cs) — one function for every target, as
         // in a browser. A wrapper minted before the realm carried it installs its own, through the
-        // realm and with a JSEAL frame, exactly as the routed path does. (This said the three were the
-        // engine's and read the engine's argument frame; neither was so.)
+        // realm and with a JSEAL frame, exactly as the routed path does.
         if (!_eventTargetRoutingReady)
         {
-            Realm.DefineValue(handle, "addEventListener",
-                Realm.NewMethod("addEventListener",
-                    (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, element, in call), 3));
+            Realm.DefineMethod(handle, "addEventListener", 3,
+                (in call) => Dom.Features.EventTargetBinding.AddEventListener(this, element, in call));
 
-            Realm.DefineValue(handle, "removeEventListener",
-                Realm.NewMethod("removeEventListener",
-                    (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, element, in call), 3));
+            Realm.DefineMethod(handle, "removeEventListener", 3,
+                (in call) => Dom.Features.EventTargetBinding.RemoveEventListener(this, element, in call));
 
-            Realm.DefineValue(handle, "dispatchEvent",
-                Realm.NewMethod("dispatchEvent",
-                    (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, element, in call), 1));
+            Realm.DefineMethod(handle, "dispatchEvent", 1,
+                (in call) => Dom.Features.EventTargetBinding.DispatchEvent(this, element, in call));
         }
 
         // click/focus/blur and the on* handlers are HTMLElement's and are on its prototype
@@ -255,41 +219,35 @@ public sealed partial class DomBridge
 
         // -- Form element support --
 
-        // Form-control IDL reflectors (value/checked/type/name/disabled/required/files) — Phase 3
-        // P3.60: extracted into the co-located FormControlBinding feature module, reached through the
+        // Form-control IDL reflectors (value/checked/type/name/disabled/required/files) — the
+        // co-located FormControlBinding feature module, reached through the
         // IFormControlHost contract (DomBridge/Hosts.Elements.cs). Installed on every element, where
         // a browser gives them only to the interfaces that declare them; the two that are genuinely
         // HTMLElement's, hidden and tabIndex, are on its prototype.
         _formControl.Install(handle, element);
 
-        // checkValidity() — form validation (Phase 3 P3.9: FormBinding owns the validity check). The
-        // body answers a CLR bool and reads no argument, so nothing about it needed an engine frame.
-        Realm.DefineValue(handle, "checkValidity",
-            Realm.NewMethod("checkValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element))));
+        // checkValidity() — form validation; FormBinding owns the validity check.
+        Realm.DefineMethod(handle, "checkValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element)));
 
         // reportValidity() — form validation
-        Realm.DefineValue(handle, "reportValidity",
-            Realm.NewMethod("reportValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element))));
+        Realm.DefineMethod(handle, "reportValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element)));
 
-        // submit() — for form elements (Phase 3 P3.61: co-located FormSubmitBinding feature module,
-        // reached through IFormSubmitHost; DomBridge/Hosts.Elements.cs).
-        // FormSubmitBinding is migrated: the method is minted by the realm — which is what gives its
-        // body a call frame to build the synthetic event in — and it is handed this wrapper's handle,
-        // which becomes the event's target. (This said a seam unwrapped it for an engine-typed wrapper.)
-        Realm.DefineValue(handle, "submit",
-            Realm.NewMethod("submit",
-                (in call) => Dom.Features.FormSubmitBinding.Submit(this, element, handle, in call)));
+        // submit() — for form elements (the co-located FormSubmitBinding feature module, reached
+        // through IFormSubmitHost; DomBridge/Hosts.Elements.cs). The method is minted by the realm —
+        // which is what gives its body a call frame to build the synthetic event in — and it is handed
+        // this wrapper's handle, which becomes the event's target.
+        Realm.DefineMethod(handle, "submit",
+            (in call) => Dom.Features.FormSubmitBinding.Submit(this, element, handle, in call));
 
-        // getContext(contextType) — for <canvas> elements. Phase 3 P3.64: extracted into the co-located
-        // CanvasBinding feature module (unblocked once Phase 6/P8.9 dissolved Broiler.HtmlBridge.Rendering).
-        // CanvasBinding is migrated: the realm mints the canvas members and everything the 2D context
-        // builds, and the seam hands it this wrapper as a handle.
+        // getContext(contextType) — for <canvas> elements, in the co-located CanvasBinding feature
+        // module. The realm mints the canvas members and everything the 2D context builds, and the
+        // seam hands it this wrapper as a handle.
         Dom.Features.CanvasBinding.Install(Realm, this, handle, element);
 
         // <iframe> browsing-context accessors (contentDocument/contentWindow/getSVGDocument, src/srcdoc
-        // read/write, sandbox reflection) — Phase 3 P3.55: extracted into the co-located IframeElementBinding
-        // feature module, sibling of the P3.52 <object> ObjectElementBinding. Reaches the frames machinery
-        // through the IIframeElementHost contract (DomBridge/Hosts.Documents.cs).
+        // read/write, sandbox reflection) — the co-located IframeElementBinding feature module, sibling
+        // of the <object> ObjectElementBinding. Reaches the frames machinery through the
+        // IIframeElementHost contract (DomBridge/Hosts.Documents.cs).
         Dom.Features.IframeElementBinding.Install(this, handle, element);
 
         AddElementSpecificMembers(handle, element);
@@ -308,10 +266,9 @@ public sealed partial class DomBridge
     /// wrapper minted before the realm carried the interfaces, which inherits from nothing.
     /// </summary>
     /// <remarks>
-    /// Every member here is the realm's now: <c>NodeAccessorsBinding</c> and
-    /// <c>NodeRelationshipsBinding</c> are both migrated, so no body in this method needs an engine
-    /// argument frame and the wrapper is only ever named as a handle. The members and their order are
-    /// unchanged, which is what <c>Object.getOwnPropertyNames</c> can see.
+    /// Every member here is the realm's, and the wrapper is only ever named as a handle. The members
+    /// and their order are the ones this method installs, which is what
+    /// <c>Object.getOwnPropertyNames</c> can see.
     /// </remarks>
     private void PopulateElementNodeMembersOnInstance(JsValue handle, DomElement element)
     {
@@ -377,88 +334,35 @@ public sealed partial class DomBridge
             (in call) => Dom.Features.NodeAccessorsBinding.GetParentElement(this, element, in call), null);
 
         // hasChildNodes()
-        Realm.DefineValue(handle, "hasChildNodes",
-            Realm.NewMethod("hasChildNodes", (in _) => JsValue.Boolean(element.ChildNodes.Count > 0)));
+        Realm.DefineMethod(handle, "hasChildNodes", (in _) => JsValue.Boolean(element.ChildNodes.Count > 0));
 
         // contains(otherNode) — returns true if otherNode is a descendant
-        Realm.DefineValue(handle, "contains",
-            Realm.NewMethod("contains",
-                (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, element, in call), 1));
+        Realm.DefineMethod(handle, "contains", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Contains(this, element, in call));
 
         // compareDocumentPosition(otherNode)
-        Realm.DefineValue(handle, "compareDocumentPosition",
-            Realm.NewMethod("compareDocumentPosition",
-                (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, element, in call), 1));
+        Realm.DefineMethod(handle, "compareDocumentPosition", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CompareDocumentPosition(this, element, in call));
 
         // isSameNode(otherNode)
-        Realm.DefineValue(handle, "isSameNode",
-            Realm.NewMethod("isSameNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, element, in call), 1));
+        Realm.DefineMethod(handle, "isSameNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsSameNode(this, element, in call));
 
         // normalize()
-        Realm.DefineValue(handle, "normalize",
-            Realm.NewMethod("normalize",
-                (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, element, in call), 0));
+        Realm.DefineMethod(handle, "normalize", 0,
+            (in call) => Dom.Features.NodeRelationshipsBinding.Normalize(this, element, in call));
 
         // isEqualNode(otherNode)
-        Realm.DefineValue(handle, "isEqualNode",
-            Realm.NewMethod("isEqualNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, element, in call), 1));
+        Realm.DefineMethod(handle, "isEqualNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.IsEqualNode(this, element, in call));
 
-        Realm.DefineValue(handle, "getRootNode",
-            Realm.NewMethod("getRootNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, element, in call), 1));
+        Realm.DefineMethod(handle, "getRootNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.GetRootNode(this, element, in call));
 
         // cloneNode(deep)
-        Realm.DefineValue(handle, "cloneNode",
-            Realm.NewMethod("cloneNode",
-                (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, element, in call), 1));
+        Realm.DefineMethod(handle, "cloneNode", 1,
+            (in call) => Dom.Features.NodeRelationshipsBinding.CloneNode(this, element, in call));
     }
-}
-
-// The two constant-answer native function factories — UndefinedFunction and NullFunction — are gone
-// from here, and so are the TrueFunction and ZeroFunction that stood beside them.
-//
-// WHY THEY WERE HERE, AND WHY THEY ARE NOT. A DOM member that answers a constant and reads nothing
-// still needs a function object, and before the realm could mint one these four built it as the
-// engine's own. They were constructable engine functions rather than the bridge's non-constructable
-// DOM callable, which is
-// observable — navigator.plugins.item.prototype was an object and `new navigator.plugins.item()` did
-// not throw — and each module that migrated recorded at its own call site that it was deliberately
-// keeping or deliberately correcting that difference: see Features/NavigatorCapabilityBinding.cs,
-// Features/ScreenOrientationBinding.cs, Features/SubDocumentBinding.cs, Features/SvgElementBinding.cs
-// and Features/TableBinding.cs, each of which says which it chose and why.
-//
-// The last of those call sites went with the last of those modules, and the factories they left
-// uncalled were deleted: TrueFunction and ZeroFunction in b045101, UndefinedFunction and NullFunction
-// in 5282d02. No code names one, a page had no name to reach and Object.getOwnPropertyNames no member
-// to see, so removing them changed no observable behaviour. The file stays as this note:
-// DomBridge/Registration/Registration.cs and Features/IFormSubmitHost.cs cite it, and the five
-// above, EventTargetBinding.cs and FormSubmitBinding.cs name its factories, as do comments in
-// DomBridge/JsObjects.NonElementNodes.cs and BroilerJsRealm.Members.cs.
-// (This said dead private code was still left here, and that five modules pointed at it.)
-public sealed partial class DomBridge
-{
-}
-
-// The five propagation-control callbacks of the synthetic window event — stopPropagation,
-// stopImmediatePropagation, preventDefault and the legacy cancelBubble/returnValue setters — are gone
-// from here.
-//
-// WHY THEY WERE HERE, AND WHY THEY ARE NOT. They took an engine argument frame because their only
-// caller, DispatchWindowEvent in DomBridge/Lifecycle.cs, installed each of them as an engine function
-// over `ref` locals it owned: the installer minted an engine function because the body took the
-// engine frame, and the body took the engine frame because the installer minted an engine function.
-// That cycle only breaks when both change together, and both are in one file — so when DomBridge/Lifecycle.cs
-// migrated, the five became local functions closing on the same four locals the `ref` parameters used
-// to carry, in the shape Features/LegacyEventBinding.cs already had for the same five operations on a
-// createEvent object. See the remarks on DispatchWindowEvent for that reasoning in full.
-//
-// Nothing called these afterwards: they were five private methods with a single call site, and the
-// call site took its bodies with it. Removing dead private code changes no observable behaviour —
-// there is no name for a page to reach and no member for Object.getOwnPropertyNames to see.
-public sealed partial class DomBridge
-{
 }
 
 public sealed partial class DomBridge
@@ -469,9 +373,8 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// The text itself is the canonical <see cref="DomNode.TextContent"/>: a character-data node's own
-    /// data, and the descendant text of anything else — an element and a fragment alike. (The bridge's
-    /// own walk answered the empty string for every node that was neither character data nor an
-    /// element, so a fragment holding text read as blank.) Every getter that wants a JavaScript value
+    /// data, and the descendant text of anything else — an element and a fragment alike. Every getter
+    /// that wants a JavaScript value
     /// makes one from this; <see cref="JsValue.String(string?)"/> turns the <see langword="null"/> into
     /// JavaScript <c>null</c>, which is exactly the distinction the body is about.
     /// </remarks>
@@ -479,9 +382,9 @@ public sealed partial class DomBridge
         // DOM §4.4: `textContent` is *null* for a document and for a doctype — they are the two node
         // kinds the algorithm has no text for, rather than kinds whose text happens to be empty. The
         // canonical getter never answers null (a document's is its descendants' text, a doctype's the
-        // empty string), so this distinction is the binding's to keep. Both used to answer the empty
-        // string here, so `document.textContent` was `""` where Chromium says null, and a page
-        // distinguishing the two with `=== null` read the wrong branch.
+        // empty string), so this distinction is the binding's to keep. Answering the empty string for
+        // both would make `document.textContent` `""` where Chromium says null, and a page
+        // distinguishing the two with `=== null` would read the wrong branch.
         node is DomDocument or DomDocumentType ? null : node.TextContent;
 
     private bool IsCurrentIframeCrossOrigin(DomElement element)
@@ -492,69 +395,4 @@ public sealed partial class DomBridge
         var iframeSrcValue = TryGetAttribute(element, "src", out var srcVal) ? srcVal : string.Empty;
         return IsCrossOrigin(iframeSrcValue, _pageUrl);
     }
-
-    // MutationObserver option parsing and observe()/disconnect() registration moved to the Phase 3
-    // MutationObserverBinding feature module (Broiler.HtmlBridge.Dom.Features).
-}
-
-public sealed partial class DomBridge
-{
-
-    // HTMLElement global content-attribute reflectors (id, className, title, lang, accessKey, dir,
-    // draggable) moved to the GlobalAttributeBinding feature module (Phase 3 P3.54).
-
-    // innerHTML / outerHTML / textContent get+set moved to the ElementContentBinding feature module
-    // (Phase 3 P3.57).
-
-    // element.shadowRoot getter moved to the ShadowDomBinding feature module (Phase 3 P3.62).
-
-    // element.style = "..." cssText assignment setter moved to StyleDeclarationBinding (Phase 3 P3.63).
-
-    // insertBefore(newChild, refChild) moved to the TreeMutationBinding feature module (Phase 3 P3.58).
-
-    // attachShadow(init) moved to the ShadowDomBinding feature module (Phase 3 P3.62).
-
-    // appendChild / append / prepend / removeChild / replaceChild moved to the TreeMutationBinding
-    // feature module (Phase 3 P3.58).
-
-    // get/set on<event> inline event-handler reflectors moved to the EventHandlerReflectorBinding
-    // feature module (Phase 3 P3.59).
-
-    // Form-control IDL reflectors (value/checked/type/name/disabled/hidden/tabIndex/required) moved to
-    // the FormControlBinding feature module (Phase 3 P3.60).
-
-    // form.submit() moved to the FormSubmitBinding feature module (Phase 3 P3.61).
-
-    // insertAdjacentElement / insertAdjacentText / insertAdjacentHTML (and their
-    // NormalizeInsertAdjacentPosition / GetInsertAdjacentTarget helpers) moved to the
-    // InsertAdjacentBinding feature module (Phase 3 P3.56).
-
-    // canvas.getContext("2d") (and its BuildCanvas2DContext + JsUtilities…034…058Core drawing callbacks)
-    // moved to the CanvasBinding feature module (Phase 3 P3.64) — the last element-member callback in the
-    // mixed JsObjects.cs file, unblocked once Phase 6/P8.9 dissolved Broiler.HtmlBridge.Rendering into Dom.
-
-    // <iframe> browsing-context accessors (contentDocument/contentWindow/getSVGDocument, src/srcdoc
-    // setters) moved to the IframeElementBinding feature module (Phase 3 P3.55).
-
-}
-
-public sealed partial class DomBridge
-{
-
-    // form.elements.length moved to the Phase 3 FormBinding feature module
-    // (Broiler.HtmlBridge.Dom.Features).
-
-
-    // classList operations delegate to the canonical Broiler.Dom.DomTokenList
-    // ordered-set algorithm (parse/serialize on ASCII whitespace, unique-ordered,
-    // attribute-synchronized). The bridge keeps only the JavaScript argument
-    // marshaling, the lenient empty-token skip these methods have always applied,
-    // and the style-scope invalidation callback.
-    // classList / DOMTokenList callbacks (contains/add/remove/toggle/replace) moved to the Phase 3
-    // ClassListBinding feature module (Broiler.HtmlBridge.Dom.Features).
-
-    // Canvas 2D context callbacks (setFillStyle/…/measureText, formerly JsUtilities…034…058Core) moved to
-    // the Phase 3 (P3.64) CanvasBinding feature module (Broiler.HtmlBridge.Dom.Features), unblocked once
-    // Phase 6/P8.9 dissolved Broiler.HtmlBridge.Rendering into Dom.
-
 }

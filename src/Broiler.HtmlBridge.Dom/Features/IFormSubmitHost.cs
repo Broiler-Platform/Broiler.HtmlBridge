@@ -8,9 +8,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The narrow host surface <see cref="FormSubmitBinding"/> needs from the bridge for the
 /// <c>form.submit()</c> action: read access to the form's registered event listeners (to fire the
 /// synthetic <c>submit</c> event). The listener invoker (<c>InvokeEventListener</c>) and the render
-/// logger are the bridge's <c>internal static</c> helpers, called directly. The no-op function factory
-/// this summary also named, <c>UndefinedFunction</c>, no longer exists (<c>DomBridge/JsObjects.cs</c>
-/// records its removal); the binding mints its <c>stopPropagation</c> through the realm.
+/// logger are the bridge's <c>internal static</c> helpers, called directly; the binding mints its
+/// <c>stopPropagation</c> through the realm.
 /// </summary>
 internal interface IFormSubmitHost
 {

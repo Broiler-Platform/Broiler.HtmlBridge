@@ -6,8 +6,8 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// Sibling partial peeled out of <c>DomBridge.cs</c> (Phase 3 ratchet, 2026-07-17) to keep the
-/// facade under the 750-line guard: initial HTML/doctype ingestion and inline-style parsing.
+/// Sibling partial peeled out of <c>DomBridge.cs</c> to keep the
+/// facade under the 750-line guideline: initial HTML/doctype ingestion and inline-style parsing.
 /// <see cref="ParseHtml"/> rebuilds the canonical document from an HTML string (clearing prior
 /// runtime state, parsing the doctype, running the shared tree builder and reparenting into
 /// <c>DocumentElement</c>); <see cref="DomBridgeUtils.ParseStyle"/> / <see cref="DomBridgeUtils.IsAcceptableInlineValue"/> apply
@@ -29,7 +29,7 @@ public sealed partial class DomBridge
         // these are document-construction mutations, not script mutations, so suppress observer
         // delivery for them (matching the prior explicit channel, which parse never drove).
         using var mutationSuppression = SuppressMutationDelivery();
-        // P2.2: one call clears both wrapper maps. Re-parse now also releases stale sub-document
+        // One call clears both wrapper maps. Re-parse now also releases stale sub-document
         // wrappers (keyed by detached roots that no lookup can reach again) — observably
         // equivalent to before, but it stops them lingering until disposal.
         _jsObjects.Clear();
@@ -38,8 +38,7 @@ public sealed partial class DomBridge
         // DomDocument ordering (doctype must precede the document element).
         ClearChildren(_document);
         // A re-parse is a new document generation: drop the prior document's timers, listeners,
-        // observers and message ports so re-attaching leaves no state from the previous document
-        // (HtmlBridge complexity-reduction roadmap Phase 2, P2.1).
+        // observers and message ports so re-attaching leaves no state from the previous document.
         ClearRuntimeSessionState();
         // A re-parsed document is a new generation: release the prior document's headless
         // layout view (and its renderer container) so geometry is document-scoped.
@@ -58,19 +57,18 @@ public sealed partial class DomBridge
         // element stays behind: that element's children and attributes are carried into the persistent
         // DocumentElement below. The doctype goes first, before DocumentElement is appended, because a
         // canonical DomDocument requires doctype-before-element.
-        var parsed = HtmlDocumentParser.ParseDocument(html);
+        var parsed = HtmlDocumentParser.ParseDocument(html, document: null, NavigationParseOptions);
         var docElement = parsed.Document.DocumentElement ??
             throw new InvalidOperationException("The shared HTML parser did not produce a document element.");
         if (parsed.Document.DocumentType is { } doctype)
             _document.AppendChild(doctype);
         Title = parsed.Title;
         ClearChildren(DocumentElement);
-        // RF-BRIDGE-1c Phase F (F3c part 2d): reparent ALL children (raw ChildNodes) so any
+        // Reparent ALL children (raw ChildNodes) so any
         // text/comment nodes directly under the parsed <html> survive — no-op on the old
         // homogeneous tree where every child was an element.
         foreach (var child in docElement.ChildNodes.ToArray())
         {
-            SetParent(child, DocumentElement);
             DocumentElement.AppendChild(child);
         }
 
@@ -93,14 +91,12 @@ public sealed partial class DomBridge
         if (!_document.ChildNodes.Contains(DocumentElement))
             _document.AppendChild(DocumentElement);
 
-        AttachDeclarativeShadowRoots(DocumentElement);
-
-        // After the shadow-root pass has consumed the templates that declare one: every
-        // remaining <template>'s children move into its contents fragment, which is where
-        // HTML §4.12.3 has the parser put them. Order matters — a declarative shadow root's
-        // template is not inert and its children belong in the shadow tree, not in a fragment.
-        DivertTemplateContents(DocumentElement);
-
+        // The shadow roots the tree builder attached are real ones on real hosts, and the pass that
+        // confines a shadow tree's own style rules to that tree is skipped outright for a document
+        // that has never attached one — a flag only attachShadow() used to set, and which the
+        // post-parse pass this replaces set as it attached. Asking the finished tree once is
+        // strictly less work than that walk-plus-attach was.
+        _hasShadowRoots |= GetDescendantShadowRoots(DocumentElement).Any();
 
         // Stylesheet discovery is document-scoped and lazy through the shared
         // CssStyleEngine. A rebuilt document must not retain the prior engines.
@@ -108,96 +104,28 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// HTML §4.12.3: turns every <c>&lt;template shadowrootmode="open|closed"&gt;</c> into a real
-    /// shadow root on its parent — the declarative counterpart of <c>attachShadow()</c>. The template
-    /// contributes its children to the new root and is then dropped from the tree.
+    /// The switches the markup cannot answer for a <b>navigation</b>'s parse — the entry point
+    /// <see cref="ParseHtml"/> is, in the Standard's terms.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The spec does this inside the tree builder, as the template's end tag is seen. Doing it as a
-    /// pass over the finished tree is equivalent for a parsed document — nothing observes the
-    /// intermediate state, because script has not run yet — and keeps the shared
-    /// <c>HtmlDocumentParser</c> free of a bridge-only concept.
+    /// Declarative shadow roots are on, because HTML §13.2.6.4.4 gates
+    /// <c>&lt;template shadowrootmode&gt;</c> on the document's "allow declarative shadow roots" flag,
+    /// and navigation is one of the entry points that sets it. The flag is the caller's to supply —
+    /// the parser cannot see which entry point it is serving, and its conservative default is what
+    /// keeps markup of unknown provenance from silently growing shadow trees.
     /// </para>
     /// <para>
-    /// Only the shadow root is new here: everything downstream of it (styling the shadow tree,
-    /// flattening the <c>#shadow-root</c> wrapper for the renderer, capturing it in a view
-    /// transition) is the same machinery <c>attachShadow()</c> already drove, which is why
-    /// imperative shadow content rendered while declarative content did not.
+    /// <b>The fragment paths deliberately do not take these options.</b> <c>innerHTML</c> is the entry
+    /// point the Standard singles out as NOT setting the flag — that is what the "unsafe" in
+    /// <c>setHTMLUnsafe</c> is about — so <c>TryBuildInnerHtmlFragmentContainer</c> keeps the overload
+    /// without them. Nor do the two sub-document parses (a frame's resource, and <c>document.write</c>
+    /// into one): the pass this replaces never reached those either, and turning the flag on there
+    /// would be a behaviour change no finding asked for.
     /// </para>
     /// </remarks>
-    private void AttachDeclarativeShadowRoots(DomElement root)
-    {
-        // Depth-first with an explicit stack: a shadow tree may itself contain declarative shadow
-        // roots, and those templates only become reachable once their content has been moved.
-        var pending = new Stack<DomNode>();
-        pending.Push(root);
-
-        while (pending.Count > 0)
-        {
-            var current = pending.Pop();
-
-            for (var index = current.ChildNodes.Count - 1; index >= 0; index--)
-            {
-                if (current.ChildNodes[index] is not DomElement child)
-                    continue;
-
-                if (current is DomElement element &&
-                    TryTakeDeclarativeShadowRoot(element, child, index, out var shadowRoot))
-                {
-                    pending.Push(shadowRoot);
-                    continue;
-                }
-
-                pending.Push(child);
-            }
-        }
-    }
-
-    /// <summary>
-    /// When <paramref name="child"/> is a declarative shadow-root template of <paramref name="host"/>,
-    /// moves its children into a freshly attached shadow root, removes the template, and returns the
-    /// root. Returns <see langword="false"/> for anything else, leaving the tree untouched.
-    /// </summary>
-    private bool TryTakeDeclarativeShadowRoot(
-        DomElement host, DomElement child, int childIndex, out DomShadowRoot shadowRoot)
-    {
-        shadowRoot = null!;
-
-        if (!string.Equals(child.TagName, "template", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var mode = child.GetAttribute("shadowrootmode")?.Trim();
-        if (!string.Equals(mode, "open", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(mode, "closed", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        // "Only the first declarative shadow root wins": a second template on the same host is an
-        // ordinary inert <template>, per the spec's already-has-a-shadow-root check.
-        if (host.InternalShadowRoot is not null)
-            return false;
-
-        var shadowMode = string.Equals(mode, "closed", StringComparison.OrdinalIgnoreCase)
-            ? DomShadowRootMode.Closed
-            : DomShadowRootMode.Open;
-        _hasShadowRoots = true;
-        try
-        {
-            shadowRoot = host.AttachShadow(shadowMode);
-        }
-        catch (DomException)
-        {
-            return false;
-        }
-
-        foreach (var content in child.ChildNodes.ToArray())
-        {
-            shadowRoot.AppendChild(content);
-        }
-
-        RemoveNthChild(host, childIndex);
-        return true;
-    }
+    private static readonly HtmlParseOptions NavigationParseOptions =
+        new(AllowDeclarativeShadowRoots: true);
 }
 
 /// <summary>
@@ -210,9 +138,9 @@ public sealed partial class DomBridge
 /// <b>What it changes, and what it deliberately does not.</b> Item #2 already split every
 /// sub-resource call site into prefetch and consume, so nothing here changes which request is made,
 /// which key it is stored under, or what the consuming site does with the bytes. It changes only
-/// <em>when the request starts</em>: the stylesheet set used to be handed over once the whole
-/// document had been parsed and its <c>&lt;style&gt;</c>/<c>&lt;link&gt;</c> elements collected, and
-/// is now handed over from the source text before the parse begins.
+/// <em>when the request starts</em>: the stylesheet set is handed over from the source text before
+/// the parse begins, rather than after the document has been parsed and its
+/// <c>&lt;style&gt;</c>/<c>&lt;link&gt;</c> elements collected.
 /// </para>
 /// <para>
 /// <b>Only stylesheets are wired to a sink, and the other three families are not an oversight.</b>
@@ -290,86 +218,27 @@ public sealed partial class DomBridge
 }
 
 /// <summary>
-/// <c>HTMLTemplateElement</c>'s contents fragment: who owns a template's children, when they move
-/// there, and the two places that have to follow them (HTML §4.12.3).
+/// The one place left that has to follow a <c>&lt;template&gt;</c>'s children into
+/// <see cref="DomElement.TemplateContents"/> (HTML §4.12.3): the serialization walk.
 /// </summary>
 /// <remarks>
-/// Split out of <c>Utilities.cs</c> and <c>DomBridge/Serialization.cs</c> rather than left in them.
-/// The pieces are one concern — the fragment, the parse-time divert that fills it, and the
-/// serialization walk that reaches through to it — and the two files they came from are both over
-/// the architecture guard's line limit, which asks for a feature partial rather than a fatter god
-/// object.
+/// <para>
+/// The fragment itself is the canonical element's, created with it by <c>Broiler.Dom</c> and filled
+/// by the shared parser as the tree is built. What stood here before was a
+/// <c>Dictionary&lt;DomElement, DomDocumentFragment&gt;</c> beside the tree plus a pass that moved
+/// every parsed template's children into it afterwards — a workaround for a parser that did not
+/// produce the contents, and the thing <c>Broiler.DOM</c> #22 was filed to retire.
+/// </para>
+/// <para>
+/// A template built by script rather than parsed keeps its children on the <em>element</em>:
+/// <c>t.appendChild(x)</c> appends to the element as it does in a browser, and only
+/// <c>t.innerHTML</c> and <c>t.content</c> reach the fragment. Serialization reads the fragment
+/// either way, which is why such a template serializes as empty — the answer the dependency's own
+/// serializer gives.
+/// </para>
 /// </remarks>
 public sealed partial class DomBridge
 {
-    /// <summary>Per-template contents fragment, minted on first access and kept stable
-    /// afterwards, so <c>t.content === t.content</c> and a mutation through it survives.</summary>
-    private readonly Dictionary<DomElement, DomDocumentFragment> _templateContents = new();
-
-    /// <summary>
-    /// The fragment behind <c>HTMLTemplateElement.content</c> — the template's <b>own</b> children,
-    /// held in the fragment the specification puts them in rather than copied out of the tree.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// HTML §4.12.3 has the parser put a template's children straight into this fragment, leaving
-    /// the element itself childless, and that is now what happens: <see cref="DivertTemplateContents"/>
-    /// moves them at the end of the parse. The element is the owner of the fragment, not a second
-    /// copy of it.
-    /// </para>
-    /// <para>
-    /// It used to build the fragment from a deep <em>copy</em>, leaving the children in the tree,
-    /// and the deviations that followed were not confined to the two sides disagreeing. A template's
-    /// contents were reachable from the document — <c>t.querySelector('.row')</c> found them, where
-    /// a browser answers <c>null</c> because they are not in the tree at all — so a page walking
-    /// itself processed markup it was meant to stamp later. And writing <c>t.innerHTML</c> rewrote
-    /// the element's children while <c>content</c> kept the cached copy, so building a template
-    /// dynamically and then stamping it produced the <em>old</em> markup, silently.
-    /// </para>
-    /// <para>
-    /// A template created by <c>createElement</c> starts empty and stays that way: only the parser
-    /// diverts, so <c>t.appendChild(x)</c> appends to the element as it does in a browser, and only
-    /// <c>t.innerHTML</c> and <c>t.content</c> reach the fragment.
-    /// </para>
-    /// </remarks>
-    private DomDocumentFragment GetTemplateContent(DomElement template)
-    {
-        if (_templateContents.TryGetValue(template, out var existing))
-            return existing;
-
-        var fragment = CreateBridgeDocumentFragment();
-        _templateContents[template] = fragment;
-        return fragment;
-    }
-
-    /// <summary>
-    /// Moves every parsed <c>&lt;template&gt;</c>'s children into its contents fragment, so the
-    /// element is left childless as HTML §4.12.3 requires. Runs once, at the end of the parse.
-    /// </summary>
-    /// <remarks>
-    /// Depth-first over the whole tree including inside templates, because a template may contain
-    /// another: the inner one is diverted into the outer one's fragment first and must still be
-    /// diverted itself. Declarative shadow-root templates are already gone by this point — that pass
-    /// consumes them — so what is left here is the inert kind.
-    /// </remarks>
-    private void DivertTemplateContents(DomNode root)
-    {
-        foreach (var node in root.InclusiveDescendants().ToArray())
-        {
-            if (node is not DomElement element ||
-                !string.Equals(element.TagName, "template", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var fragment = GetTemplateContent(element);
-            foreach (var child in element.ChildNodes.ToArray())
-            {
-                element.RemoveChild(child);
-                fragment.AppendChild(child);
-                DivertTemplateContents(child);
-            }
-        }
-    }
-
     /// <summary>The node list serialization walks for <paramref name="node"/>: a template's contents
     /// fragment stands in for its (empty) own child list, and a textarea a script has written to
     /// stands in for its authored text.</summary>
@@ -389,8 +258,8 @@ public sealed partial class DomBridge
         if (node is not DomElement element)
             return node.ChildNodes;
 
-        if (IsTemplateElement(element))
-            return GetTemplateContent(element).ChildNodes;
+        if (element.TemplateContents is { } contents)
+            return contents.ChildNodes;
 
         if (element.TagName.Equals("textarea", StringComparison.OrdinalIgnoreCase) &&
             _formState.TryGetDirtyValue(element, out var dirty) && dirty is string raw)

@@ -9,7 +9,6 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>accessKey</c>, <c>draggable</c>) don't affect selectors and need no host call — they go through the
 /// bridge's neutral <c>internal static</c> <c>SetAttr</c>/<c>TryGetAttribute</c> helpers directly.
 /// </summary>
-internal interface IGlobalAttributeHost
+internal interface IGlobalAttributeHost : IStyleInvalidationHost
 {
-    void InvalidateStyleScope(DomElement element);
 }
