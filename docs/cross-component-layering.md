@@ -312,8 +312,9 @@ behind ~94 call sites. `CssValueParser.TryParseNumeric` requires a digit.
 >
 > **And that correction was too narrow in its turn.** Four audits since have found **sixteen** routes
 > by which a value this component cannot represent reached a page, in six subsystems that share no
-> code with the length evaluator or with each other, and six more turned up while the sixteen were
-> being closed. What a page actually read back, measured rather than reasoned about:
+> code with the length evaluator or with each other; six more turned up while the sixteen were being
+> closed, and five more again when those fixes were reviewed. What a page actually read back,
+> measured rather than reasoned about:
 >
 > | Where | What a page read |
 > | --- | --- |
@@ -323,6 +324,17 @@ behind ~94 call sites. `CssValueParser.TryParseNumeric` requires a digit.
 > | A frame's `width`/`height` content attribute (same file, and three more parses in `DomBridge/Css.cs` and `DomBridgeUtils/Css.cs`) | the sub-document answering `documentElement.clientWidth === Infinity`, and its media queries matching `(min-width: 2000000000px)` — because `(int)` of an infinity saturates rather than failing |
 > | Used zoom (`DomBridge/LayoutMetrics.Svg.cs`, and the two serialization walks) | `getBoundingClientRect()` answering `NaN`, `offsetWidth` answering `0`, and `style="width: Infinitypx"` baked into the document |
 > | `img.width` / `img.height` (`Dom/Features/ComputedStyleBinding.cs`) | `Infinity` from the CSS branch and from the content attribute alike, and `NaN` from `width="NaN"` |
+> | The SVG DOM's own readers of a geometry attribute (`Dom/Features/SvgElementBinding.cs`) — `SVGAnimatedLength`, `SVGAnimatedRect`, and the text metrics off a `font-size` attribute | `rect.width.baseVal.value === Infinity` and `svg.viewBox.baseVal.width === Infinity`; `getComputedTextLength()` answering `Infinity` and `getStartPositionOfChar(0)` answering `{x: NaN, y: Infinity}` |
+> | The lengths serialization *computes* (`DomBridge/Serialization.Rendering.cs`, `DomBridgeUtils/Serialization.cs`) — an SVG attribute rescaled by a used zoom, and a `<progress>` track placeholder | `width="Infinity"` and `d="M Infinity 10"` written into the serialized document at `zoom: 2` from a `1e308` a double holds; `<progress style="width: 1e400px">` serialized with `width: Infinitypx` |
+>
+> The last two rows are the review of the fixes above finding five more the audits had not named,
+> and they are worth their own sentence, because both say the same thing about *where* to look. The
+> SVG DOM rows are a **second reader of markup a fix had already closed**: `ResolveSvgLength` refuses
+> `<rect width="1e400">` so it has no client rect and takes no hit test, while the IDL stub beside it
+> answered `Infinity` to `width.baseVal.value` on the same page. Closing one reader of an attribute
+> is not closing the attribute. The serialization rows are the **arithmetic with no parse to guard**:
+> the zoom is finite because an earlier round refuses one that is not, the attribute is finite
+> because a page wrote `1e308`, and their product is not.
 >
 > **The rule that would have prevented all of them**, stated once:
 >
@@ -351,13 +363,14 @@ behind ~94 call sites. `CssValueParser.TryParseNumeric` requires a digit.
 > Each route has a test file that argues its own case and says which of its cases failed at HEAD:
 > `tests/NonFiniteLengthTests.cs`, `NonFiniteTransformTests.cs`,
 > `NonFiniteKeyframeInterpolationTests.cs`, `NonFiniteSvgGeometryTests.cs`,
-> `NonFiniteLineHeightTests.cs`, `NonFiniteFrameViewportTests.cs`, `NonFiniteUsedZoomTests.cs` and
-> `NonFiniteImageDimensionTests.cs`. Every one of them reads its route back the way a page does —
+> `NonFiniteLineHeightTests.cs`, `NonFiniteFrameViewportTests.cs`, `NonFiniteUsedZoomTests.cs`,
+> `NonFiniteImageDimensionTests.cs`, `NonFiniteSvgDomLengthTests.cs` and
+> `NonFiniteSerializedLengthTests.cs`. Every one of them reads its route back the way a page does —
 > `clientTop`, `getBoundingClientRect()`, `scrollHeight`, `clientWidth`, `img.width`,
-> `elementFromPoint`, the serialized document — and never through the helper that was changed.
-> `tests/NonFiniteValueSurfaceTests.cs` is the net over all of them: one class, one question per
-> route, and a roster whose count is asserted so that a seventeenth route has to be added to it
-> deliberately.
+> `rect.width.baseVal.value`, `elementFromPoint`, the serialized document — and never through the
+> helper that was changed. `tests/NonFiniteValueSurfaceTests.cs` is the net over all of them: one
+> class, one question per route, and a roster whose count is asserted so that the next route has to
+> be added to it deliberately — which is how the five above landed there rather than in a report.
 
 ### Reverted after review: the selector matcher (A7)
 
@@ -618,3 +631,19 @@ Not cross-component, but found while looking and worth keeping:
 - **`ParseKeyframeEntries` admits a non-finite `@keyframes` selector percentage** —
   `DomBridgeUtils/Animations.cs`. Recorded by the transform round, which could not reach the CSS
   animation bake from a page at all and so declined to change it without a test. Still open.
+- **`line-height` is resolved a *fourth* and *fifth* time, and neither is finiteness-guarded** —
+  `DomBridgeUtils.ResolveLineHeight` (`DomBridgeUtils/AnchorResolver.cs`) and the copy inside
+  `EstimateInlineContentHeight` (`Dom/DomBridge/AnchorResolver/InlineContainingBlocks.cs`) both take
+  a unitless multiplier with a bare `NumberStyles.Float` parse and return `fontSize * multiplier`.
+  Both feed the anchor walk that promotes an absolutely positioned child out of an inline containing
+  block and writes its offset into the child's baked `top`, so an infinity there would reach the
+  serialized document. Left alone: no page reached that promotion in the fixtures tried (an
+  `<span style="position: relative">` with an abspos child and a `<br>` before it was not promoted at
+  all), and the rule is not to push a change that cannot be read back the way a page reads it. Worth
+  a route of its own if the promotion can be reached — and worth noting that the "resolved three
+  times" item above undercounts.
+- **The SVG DOM IDL parses its attributes with `NumberStyles.Any`** —
+  `Dom/Features/SvgElementBinding.cs`. That admits `AllowThousands`, so `<rect width="1,5">` answers
+  `width.baseVal.value === 15` while the geometry side of the same attribute reads `1,5` as no length
+  at all. The same defect class as the `img.width` locale item above — a separate change with a
+  separate test, not folded into the finiteness one that shares the line.

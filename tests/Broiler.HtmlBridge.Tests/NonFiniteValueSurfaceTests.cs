@@ -12,9 +12,12 @@ namespace Broiler.HtmlBridge.Tests;
 /// <para>
 /// Four independent audits found sixteen of these, in six subsystems that share no code: the
 /// transform pipeline, SVG geometry attributes, the <c>line-height</c> multiplier, a frame's
-/// dimension attribute, used zoom, and the image dimension getters. Each was closed where the value
-/// came into existence, and each has a test file of its own that says what refusing means there and
-/// pins what the refusal must not disturb. Those files are the argument; this one is the net.
+/// dimension attribute, used zoom, and the image dimension getters. A fifth pass over those fixes
+/// found five more, in two subsystems the audits had not named: the SVG DOM's own readers of a
+/// geometry attribute, and the lengths serialization computes rather than reads back. Each was
+/// closed where the value came into existence, and each has a test file of its own that says what
+/// refusing means there and pins what the refusal must not disturb. Those files are the argument;
+/// this one is the net.
 /// </para>
 /// <para>
 /// It exists because the defect recurred four times, and every time for the same reason: a guard
@@ -162,6 +165,24 @@ public class NonFiniteValueSurfaceTests
             (Body("<img id=\"i\" style=\"width: 1e400px\">"), "document.getElementById('i').width"),
         ["img-used-dimension-content-attribute"] =
             (Body("<img id=\"i\" width=\"1e400\">"), "document.getElementById('i').width"),
+
+        // -- the SVG DOM's own readers of the same attributes, closed in
+        //    Features/SvgElementBinding.cs. The geometry side of these was closed a round
+        //    earlier; these are the IDL stubs, which is why one attribute answered 0,0,0,0 to
+        //    getBoundingClientRect() and Infinity to width.baseVal.value on the same page.
+        ["svg-dom-animated-length-idl"] =
+            (SvgPage("<rect id=\"r\" width=\"1e400\" height=\"10\"></rect>"),
+             "document.getElementById('r').width.baseVal.value"),
+        ["svg-dom-viewbox-rect-idl"] =
+            (SvgPage("<rect id=\"r\" width=\"10\" height=\"10\"></rect>", " viewBox=\"0 0 1e400 10\""),
+             "(function () { var b = document.getElementById('v').viewBox.baseVal;" +
+             " return [b.x, b.y, b.width, b.height].join(','); })()"),
+        ["svg-dom-text-metric-font-size"] =
+            (SvgPage("<text id=\"tx\" font-size=\"1e400\">hello</text>"),
+             "(function () { var t = document.getElementById('tx');" +
+             " var p = t.getStartPositionOfChar(0);" +
+             " return [t.getComputedTextLength(), p.x, p.y, t.getSubStringLength(0, 2)]" +
+             ".join(','); })()"),
     };
 
     /// <summary>
@@ -221,6 +242,28 @@ public class NonFiniteValueSurfaceTests
              ["1;"],
              "<div id=\"z\"",
              "<div id=\"z\">"),
+
+        // The same bake by the other arithmetic: here the zoom is representable and so is the
+        // attribute, and their product is not, so no guard at either parse could have caught it.
+        // An attribute that cannot be rescaled keeps the value the page wrote.
+        ["svg-attribute-zoom-scale-bake"] =
+            ("<!DOCTYPE html><html><head><style>#v { zoom: 2; }</style></head><body>" +
+             "<svg id=\"v\"><rect id=\"r\" x=\"0\" y=\"0\" width=\"1e308\" height=\"1\"></rect></svg>" +
+             "</body></html>",
+             ["1;"],
+             "<rect id=\"r\"",
+             "<rect id=\"r\" x=\"0\" y=\"0\" width=\"1e308\" height=\"2\">"),
+
+        // A <progress> is serialized with a track placeholder sized from its own width, and a
+        // width this component cannot represent wrote `width: Infinitypx` into that placeholder.
+        // The default track length is what an unreadable width has always given.
+        ["progress-track-placeholder-bake"] =
+            ("<!DOCTYPE html><html><head><title>t</title></head><body>" +
+             "<progress id=\"p\" value=\"0.5\" style=\"width: 1e400px\"></progress></body></html>",
+             ["1;"],
+             "<div style=\"position: absolute",
+             "<div style=\"position: absolute; background-color: #0a84ff; top: 0; bottom: 0;" +
+             " left: 0; width: 60px\">"),
     };
 
     public static TheoryData<string> NumericRoutes
@@ -315,14 +358,16 @@ public class NonFiniteValueSurfaceTests
     }
 
     /// <summary>
-    /// The roster is the point of the class, so it is asserted rather than left to drift. Sixteen
-    /// routes were assigned across four audits and six were found while fixing them; a
-    /// seventeenth belongs here, which is what this fails to say.
+    /// The roster is the point of the class, so it is asserted rather than left to drift. It
+    /// carried twenty-three routes — sixteen assigned across four audits and the rest found while
+    /// closing them — and the adversarial review of those fixes found five more, which is exactly
+    /// the recurrence this class was written to expect. A twenty-ninth belongs here, which is what
+    /// this fails to say.
     /// </summary>
     [Fact]
     public void TheRosterCoversEveryRouteThatWasFound() =>
         Assert.Equal(
-            "numeric=19 exact=2 markup=2 total=23",
+            "numeric=22 exact=2 markup=4 total=28",
             $"numeric={NumericProbes.Count}" +
             $" exact={ExactProbes.Count}" +
             $" markup={MarkupProbes.Count}" +
