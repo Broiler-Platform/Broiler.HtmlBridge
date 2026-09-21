@@ -134,12 +134,37 @@ internal static class SvgElementBinding
         realm.DefineMethod(obj, "getStartTime", 0, static (in _) => JsValue.Number(0));
     }
 
+    /// <summary>
+    /// The one place this module turns an attribute into a number, so a value it cannot represent
+    /// is refused once rather than in each of the six reads below.
+    /// </summary>
+    /// <remarks>
+    /// <c>NumberStyles.Any</c> accepts .NET's symbolic <c>NaN</c> and <c>Infinity</c>, and it
+    /// overflows a double on an exponent — or on a long enough run of digits — with no symbol in
+    /// the attribute at all, so <c>&lt;rect width="1e400"&gt;</c> answered
+    /// <c>rect.width.baseVal.value === Infinity</c> to a page. The geometry side of the same
+    /// attribute refuses that (<c>ResolveSvgLength</c> reads it through
+    /// <c>DomBridgeUtils.TryParseFiniteScalar</c>), and this IDL stub is the other reader; the two
+    /// disagreeing is what made it a route rather than a duplicate.
+    /// <para>
+    /// Zero is not a substitution invented here: it is what every one of these reads already
+    /// answers for an attribute it cannot parse — an absent one, <c>"junk"</c>, a percentage —
+    /// because a failed <see cref="double.TryParse(string, NumberStyles, IFormatProvider, out double)"/>
+    /// leaves its result at zero. An unrepresentable value now takes that same path.
+    /// </para>
+    /// </remarks>
+    private static double ParseFiniteAttributeNumber(string? text) =>
+        double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var value) &&
+        double.IsFinite(value)
+            ? value
+            : 0;
+
     // SVGAnimatedLength stub for a dimensional presentation attribute — baseVal/animVal each an SVGLength.
     private static JsValue BuildAnimatedLength(IJsRealm realm, string attrName, DomElement element)
     {
         var animLength = realm.NewObject();
         var valueStr = DomBridgeUtils.TryGetAttribute(element, attrName, out var v) ? v : "0";
-        double.TryParse(valueStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var numVal);
+        var numVal = ParseFiniteAttributeNumber(valueStr);
         var baseVal = CreateSvgLengthValue(realm, numVal);
         var animVal = CreateSvgLengthValue(realm, numVal);
         realm.DefineValue(animLength, "baseVal", baseVal);
@@ -158,10 +183,10 @@ internal static class SvgElementBinding
             var parts = vb.Split([' ', ','], StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length >= 4)
             {
-                double.TryParse(parts[0], NumberStyles.Any, CultureInfo.InvariantCulture, out vbX);
-                double.TryParse(parts[1], NumberStyles.Any, CultureInfo.InvariantCulture, out vbY);
-                double.TryParse(parts[2], NumberStyles.Any, CultureInfo.InvariantCulture, out vbW);
-                double.TryParse(parts[3], NumberStyles.Any, CultureInfo.InvariantCulture, out vbH);
+                vbX = ParseFiniteAttributeNumber(parts[0]);
+                vbY = ParseFiniteAttributeNumber(parts[1]);
+                vbW = ParseFiniteAttributeNumber(parts[2]);
+                vbH = ParseFiniteAttributeNumber(parts[3]);
             }
         }
 
@@ -249,13 +274,17 @@ internal static class SvgElementBinding
     }
 
     // Reads the element's font-size presentation attribute (px/pt suffix tolerated), defaulting to 16.
+    // A font size this module cannot represent takes the same path as one it cannot read, which is
+    // what keeps every metric below a real number: the text-length and character-position stubs
+    // multiply this by a character count, so `font-size="1e400"` answered
+    // `getComputedTextLength() === Infinity` and a character position of `{x: NaN, y: Infinity}`.
     private static double ReadFontSize(DomElement element)
     {
         double fontSize = 16;
         if (DomBridgeUtils.TryGetAttribute(element, "font-size", out var fs))
         {
             var fsClean = fs.Replace("px", "").Replace("pt", "").Trim();
-            double.TryParse(fsClean, NumberStyles.Any, CultureInfo.InvariantCulture, out fontSize);
+            fontSize = ParseFiniteAttributeNumber(fsClean);
         }
 
         return fontSize;
