@@ -337,8 +337,27 @@ public sealed partial class DomBridge
             origin.Top + map.OffsetY + ((user.Y + offsetY) * map.ScaleY),
             width,
             height);
+
+        // One test on the way out, on the resolved rect rather than on any one input. Every input
+        // above is finite by now, but the mapping between them is a multiplication: a viewBox
+        // establishes a scale, and a user-space extent a double holds perfectly well can leave the
+        // representable range once it is multiplied by one. Testing the rect covers that, and
+        // covers whatever a later mapping or a further ancestor kind contributes, without either
+        // knowing what the other is made of. A shape with no representable place has no rect —
+        // the same answer a refused extent gives, and the one a <path> has always given.
+        if (!IsFiniteRect(rect))
+        {
+            rect = (0, 0, 0, 0);
+            return false;
+        }
+
         return true;
     }
+
+    /// <summary>Whether every number in a client rect is one this component can hold.</summary>
+    private static bool IsFiniteRect((double Left, double Top, double Width, double Height) rect) =>
+        double.IsFinite(rect.Left) && double.IsFinite(rect.Top) &&
+        double.IsFinite(rect.Width) && double.IsFinite(rect.Height);
 
     /// <summary>The shape's bounds in the user space of its nearest viewport.</summary>
     private bool TryGetSvgUserSpaceBounds(DomElement element, DomElement viewport,

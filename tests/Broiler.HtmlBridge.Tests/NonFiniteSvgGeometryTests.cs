@@ -250,4 +250,29 @@ public class NonFiniteSvgGeometryTests
     public void AReadablePathStartStillPlacesTheText(string defs, string expected) =>
         Assert.Equal(expected, RectOf(
             $"{defs}<g id=\"g\"><text><textPath href=\"#p\">hi</textPath></text></g>", "g"));
+
+    /// <summary>
+    /// The arithmetic, not the spelling. A <c>viewBox</c> establishes a scale, and the resolved
+    /// rect is the user-space bounds multiplied by it — so an attribute a double holds perfectly
+    /// well can still leave the representable range on the way out. Here the viewport is ten times
+    /// its <c>viewBox</c>, and <c>1e308</c> × 10 is <c>+∞</c>. A rect that cannot be represented is
+    /// not a rect, so the shape reports the empty one, exactly as a refused extent does.
+    /// </summary>
+    [Theory]
+    [InlineData("<rect id=\"r\" x=\"0\" y=\"0\" width=\"1e308\" height=\"1\"></rect>")]
+    [InlineData("<rect id=\"r\" x=\"1e308\" y=\"0\" width=\"1\" height=\"1\"></rect>")]
+    public void AResolvedRectThatOverflowsIsNotARect(string svgChildren) =>
+        Assert.Equal("0,0,0,0", RectOf(svgChildren, "r", " viewBox=\"0 0 20 10\""));
+
+    /// <summary>
+    /// PRESERVED, and the reason the refusal above is on the resolved rect rather than on the
+    /// attribute: <c>1e308</c> is a number the page wrote and this component can hold, so with no
+    /// <c>viewBox</c> to magnify it, it comes back unchanged. Clamping the attribute would have
+    /// invented a number here; the mapping is what fails, and the mapping is what is refused.
+    /// </summary>
+    [Theory]
+    [InlineData("", "<rect id=\"r\" x=\"0\" y=\"0\" width=\"1e308\" height=\"1\"></rect>", "0,0,1e+308,1")]
+    [InlineData(" viewBox=\"0 0 20 10\"", "<rect id=\"r\" x=\"0\" y=\"0\" width=\"2\" height=\"1\"></rect>", "0,0,20,10")]
+    public void ARepresentableResolvedRectIsLeftAlone(string viewportAttributes, string svgChildren, string expected) =>
+        Assert.Equal(expected, RectOf(svgChildren, "r", viewportAttributes));
 }
