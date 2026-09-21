@@ -55,11 +55,10 @@ internal static class FormSubmitBinding
 
             realm.DefineMethod(submitEvt, "preventDefault", 0, PreventDefault);
 
-            // stopPropagation is minted as a *constructor* only because it always has been: a plain
-            // function carries a prototype object and so passes the engine's constructor test, rather
-            // than taking the non-constructable shape WebIDL gives an operation. Correcting that is a
-            // behaviour change, so it is kept and reported rather than fixed in passing.
-            realm.DefineConstructor(submitEvt, "stopPropagation", 0, static (in _) => JsValue.Undefined);
+            // stopPropagation takes the non-constructable shape WebIDL gives an operation, matching
+            // preventDefault above. It was minted as a constructor for a long time, which gave it a
+            // reachable prototype object and made `new evt.stopPropagation()` succeed.
+            realm.DefineMethod(submitEvt, "stopPropagation", 0, static (in _) => JsValue.Undefined);
 
             if (host.GetEventListeners(element).TryGetValue("submit", out var submitListeners))
             {

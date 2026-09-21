@@ -190,16 +190,12 @@ internal static class EventTargetBinding
     /// One of the three no-op propagation-control methods a synthetic event carries.
     /// </summary>
     /// <remarks>
-    /// <b><see cref="IJsValues.NewConstructor"/>, not <c>NewMethod</c>, and that is faithfulness
-    /// rather than intent.</b> These are minted as plain functions, so each carries a
-    /// <c>prototype</c> object and passes the engine's constructor test, which WebIDL says an
-    /// operation must not. <c>NewMethod</c> would be the right shape and a behaviour change
-    /// (<c>evt.stopPropagation.prototype</c> would become <c>undefined</c>), so the quirk is kept
-    /// and reported rather than fixed in passing. Note that the <c>submit</c> event's real
-    /// <c>preventDefault</c> above is non-constructable — the two are inconsistent.
+    /// <see cref="IJsValues.NewMethod"/>, so each carries no <c>prototype</c> and is not
+    /// constructable — the shape WebIDL gives an operation, and the same shape as the <c>submit</c>
+    /// event's real <c>preventDefault</c> above, which the two used to disagree about.
     /// </remarks>
     private static JsValue NoOperation(IJsRealm realm, string name) =>
-        realm.NewConstructor(name, static (in _) => JsValue.Undefined, 0);
+        realm.NewMethod(name, static (in _) => JsValue.Undefined, 0);
 
     /// <summary>
     /// Hands a synthetic event to the propagation engine, and discards the "not cancelled" answer —

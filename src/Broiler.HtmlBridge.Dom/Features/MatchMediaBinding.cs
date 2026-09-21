@@ -53,7 +53,7 @@ internal static class MatchMediaBinding
         // error. `dispatchEvent` reports false — nothing was dispatched — for the same reason.
         realm.DefineValue(result, "addEventListener", NoOp(realm, "addEventListener"));
         realm.DefineValue(result, "removeEventListener", NoOp(realm, "removeEventListener"));
-        realm.DefineConstructor(result, "dispatchEvent", 1, static (in _) => JsValue.False);
+        realm.DefineMethod(result, "dispatchEvent", 1, static (in _) => JsValue.False);
         realm.DefineValue(result, "onchange", JsValue.Null);
 
         return result;
@@ -68,9 +68,8 @@ internal static class MatchMediaBinding
     /// constructor rather than with the bridge's non-constructable helper, so each carries a
     /// <c>prototype</c> object and <c>new mql.addListener()</c> answers an object where a browser
     /// throws. <see cref="IJsValues.NewConstructor"/> is the mapping that preserves that exactly;
-    /// tightening the five to <see cref="IJsValues.NewMethod"/> is a real fix and belongs in its own
-    /// commit, not smuggled in under a vocabulary change.
+    /// the five now use <see cref="IJsValues.NewMethod"/>, so none is constructable.
     /// </remarks>
     private static JsValue NoOp(IJsRealm realm, string name) =>
-        realm.NewConstructor(name, static (in _) => JsValue.Undefined, 1);
+        realm.NewMethod(name, static (in _) => JsValue.Undefined, 1);
 }

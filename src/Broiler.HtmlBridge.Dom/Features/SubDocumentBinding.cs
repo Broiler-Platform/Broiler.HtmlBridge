@@ -151,7 +151,7 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         // document.close() — a no-op, and constructable: it is minted as a plain function object
         // rather than a bridge method, so `new document.close()` does not throw. A pre-existing
         // deviation from the interface, spelled faithfully.
-        realm.DefineConstructor(doc, "close", 0, (in _) => JsValue.Undefined);
+        realm.DefineMethod(doc, "close", 0, (in _) => JsValue.Undefined);
 
         // document.write(html)
         realm.DefineMethod(doc, "write", 1, (in call) => Write(docRoot, in call));
@@ -174,7 +174,7 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
         // document.implementation on sub-documents
         var subImpl = realm.NewObject();
-        realm.DefineConstructor(subImpl, "hasFeature", 2, (in _) => JsValue.True);
+        realm.DefineMethod(subImpl, "hasFeature", 2, (in _) => JsValue.True);
         realm.DefineMethod(subImpl, "createDocumentType", 3, (in call) => CreateDocumentType(in call));
         realm.DefineMethod(subImpl, "createDocument", 3, (in call) => CreateDocument(in call));
         realm.DefineMethod(subImpl, "createHTMLDocument", 1, (in call) => CreateHTMLDocument(in call));

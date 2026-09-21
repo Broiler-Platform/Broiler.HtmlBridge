@@ -167,13 +167,12 @@ internal static class NavigatorCapabilityBinding
     /// <remarks>
     /// <c>NewConstructor</c> rather than <c>NewMethod</c>: these members carry a <c>prototype</c>
     /// object and are therefore constructable, which is the shape the bridge has always published.
-    /// (WebIDL says an operation should not be constructable; that is
-    /// a pre-existing deviation, and correcting it belongs in its own change.)
+    /// These take the non-constructable shape WebIDL gives an operation.
     /// </remarks>
     private static JsValue NullMember(IJsRealm realm, string name, int length = 0) =>
-        realm.NewConstructor(name, static (in _) => JsValue.Null, length);
+        realm.NewMethod(name, static (in _) => JsValue.Null, length);
 
     /// <inheritdoc cref="NullMember"/>
     private static JsValue UndefinedMember(IJsRealm realm, string name, int length = 0) =>
-        realm.NewConstructor(name, static (in _) => JsValue.Undefined, length);
+        realm.NewMethod(name, static (in _) => JsValue.Undefined, length);
 }

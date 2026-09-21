@@ -97,7 +97,7 @@ internal static class NotificationBinding
             (in _) => onError,
             (in set) => onError = set.Length > 0 ? set[0] : JsValue.Null);
 
-        realm.DefineConstructor(notification, "close", 0, static (in _) => JsValue.Undefined);
+        realm.DefineMethod(notification, "close", 0, static (in _) => JsValue.Undefined);
 
         return notification;
     }

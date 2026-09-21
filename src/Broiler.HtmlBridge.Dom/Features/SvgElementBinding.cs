@@ -119,21 +119,19 @@ internal static class SvgElementBinding
     /// </summary>
     /// <remarks>
     /// All three are <em>constructable</em>, deliberately and only for compatibility with the shape
-    /// the bridge has always published: a plain function — one that carries a <c>prototype</c> object
-    /// and so passes the engine's constructor test — rather than the non-constructable shape WebIDL
-    /// gives an operation. Under JSEAL that distinction is which factory is called, so preserving the
-    /// behaviour means asking for a constructor here. A browser answers <c>undefined</c> for
-    /// <c>el.beginElement.prototype</c> and throws on <c>new el.beginElement()</c>; correcting that is
-    /// a behaviour change that belongs in its own commit, as
-    /// <see cref="ScreenOrientationBinding"/> records for <c>screen.orientation.unlock</c>.
+    /// the bridge published for a long time: a plain function — one that carries a <c>prototype</c>
+    /// object and so passes the engine's constructor test — rather than the non-constructable shape
+    /// WebIDL gives an operation. Under JSEAL that distinction is which factory is called, and this
+    /// now calls the method factory: <c>el.beginElement.prototype</c> is <c>undefined</c> and
+    /// <c>new el.beginElement()</c> throws, as a browser answers.
     /// </remarks>
     private static void InstallSmilNoOps(IJsRealm realm, JsValue obj)
     {
-        realm.DefineConstructor(obj, "beginElement", 0, static (in _) => JsValue.Undefined);
+        realm.DefineMethod(obj, "beginElement", 0, static (in _) => JsValue.Undefined);
 
-        realm.DefineConstructor(obj, "endElement", 0, static (in _) => JsValue.Undefined);
+        realm.DefineMethod(obj, "endElement", 0, static (in _) => JsValue.Undefined);
 
-        realm.DefineConstructor(obj, "getStartTime", 0, static (in _) => JsValue.Number(0));
+        realm.DefineMethod(obj, "getStartTime", 0, static (in _) => JsValue.Number(0));
     }
 
     // SVGAnimatedLength stub for a dimensional presentation attribute — baseVal/animVal each an SVGLength.

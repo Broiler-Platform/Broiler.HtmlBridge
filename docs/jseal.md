@@ -174,11 +174,12 @@ non-constructable, because `JSConstructorOperations.IsConstructor` tests
 `prototype != null || IsConstructable`. The same boolean is a load-bearing memory fix: an element
 wrapper's members were each minting an unreachable prototype object plus its `constructor`
 back-reference, and dropping them was the difference between a WPT test fitting the memory budget and
-being aborted. Only the interface objects a page may legitimately `new` should therefore use
-`NewConstructor`. That is not what the tree does today: `NewConstructor` appears at 104 sites over
-71 distinct names (measured 2026-09-20), including ordinary methods such as `appendChild`,
-`createElement` and `addEventListener`, against 352 `NewMethod` sites. The gap is worth auditing
-against the memory fix described above.
+being aborted. Only the interface objects a page may legitimately `new` therefore use
+`NewConstructor`, and as of 2026-09-21 that is what the tree does: ten sites, for `CSSStyleSheet`,
+`FormData`, `Headers`, `MediaSource`, `MessageChannel`, `Notification`, `PerformanceObserver`,
+`Request`, `Response` and `Worker`. It was 104 sites over 71 names until then, most of them ordinary
+operations — every member of the document, of a `Headers`/`FormData`/`Response` object, and a dozen
+stubs. `tests/OperationsAreNotConstructorsTests.cs` pins the distinction from the page's side.
 
 **Ordinary properties beat exotic handlers.** `IJsExotic` is consulted only when the object's own
 property storage found nothing. This is what WebIDL's named-property semantics require and what all

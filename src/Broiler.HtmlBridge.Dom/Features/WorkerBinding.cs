@@ -194,9 +194,9 @@ internal sealed class WorkerBinding : IDisposable
     /// </remarks>
     private void InstallWorkerHandle(IJsRealm realm, JsValue handle, JSWorker? worker)
     {
-        realm.DefineConstructor(handle, "postMessage", 1, (in call) => PostToWorker(worker, in call));
+        realm.DefineMethod(handle, "postMessage", 1, (in call) => PostToWorker(worker, in call));
 
-        realm.DefineConstructor(handle, "terminate", (in _) => { worker?.Terminate(); return JsValue.Undefined; });
+        realm.DefineMethod(handle, "terminate", (in _) => { worker?.Terminate(); return JsValue.Undefined; });
 
         realm.DefineValue(handle, "onmessage", JsValue.Null);
         realm.DefineValue(handle, "onerror", JsValue.Null);
@@ -204,7 +204,7 @@ internal sealed class WorkerBinding : IDisposable
         // addEventListener is accepted for the two event types this slice fires, so page code
         // written the idiomatic way works rather than silently registering nothing.
         var listeners = new List<(string Type, JsValue Fn)>();
-        realm.DefineConstructor(handle, "addEventListener", 2, (in call) =>
+        realm.DefineMethod(handle, "addEventListener", 2, (in call) =>
         {
             if (call.Length >= 2 && call[1].IsFunction)
                 listeners.Add((call.Realm.ToJsString(call[0]), call[1]));

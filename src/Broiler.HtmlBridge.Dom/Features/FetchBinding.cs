@@ -83,13 +83,13 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
             (in call) => CreateRequestObject(realm, call.Length > 0 ? call[0] : JsValue.Undefined, call[1]),
             2);
         var responseCtor = realm.NewConstructor("Response", (in call) => JsRegistrationResponse113Core(parseResponseInit, createResponse, in call), 2);
-        realm.DefineConstructor(responseCtor, "json", 2, (in call) => JsRegistrationJson114Core(parseResponseInit, createResponse, in call));
-        realm.DefineConstructor(
+        realm.DefineMethod(responseCtor, "json", 2, (in call) => JsRegistrationJson114Core(parseResponseInit, createResponse, in call));
+        realm.DefineMethod(
             responseCtor,
             "error",
             0,
             (in _) => CreateResponse(realm, string.Empty, 0, string.Empty, string.Empty, "error", false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)));
-        realm.DefineConstructor(responseCtor, "redirect", 2, (in call) => JsRegistrationRedirect116Core(url => ResolveResponseRedirectUrl(realm, url), createResponse, in call));
+        realm.DefineMethod(responseCtor, "redirect", 2, (in call) => JsRegistrationRedirect116Core(url => ResolveResponseRedirectUrl(realm, url), createResponse, in call));
         realm.DefineValue(window, "FormData", formDataCtor);
         realm.DefineValue(window, "Headers", headersCtor);
         realm.DefineValue(window, "Request", requestCtor);
@@ -99,7 +99,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         realm.SetProperty(realm.Global, "Request", requestCtor);
         realm.SetProperty(realm.Global, "Response", responseCtor);
         // fetch(url, options) — polyfill backed by the injected ResourceLoader
-        var fetchFn = realm.NewConstructor(
+        var fetchFn = realm.NewMethod(
             "fetch",
             (in call) => JsRegistrationFetch120Core(
                 (obj, names) => TryGetJsPropertyString(realm, obj, names),

@@ -195,7 +195,7 @@ public sealed partial class DomBridge
         // getComputedStyle (CSSOM), co-located in the ComputedStyleBinding feature module.
         // Keeps the name, arity and constructable shape it had; the module separates the element from
         // the pseudo-element string off the call's own frame.
-        realm.DefineConstructor(
+        realm.DefineMethod(
             window,
             "getComputedStyle",
             2,
@@ -317,17 +317,16 @@ public sealed partial class DomBridge
     /// answers <c>true</c>.
     /// </summary>
     /// <remarks>
-    /// <c>NewConstructor</c> rather than <c>NewMethod</c> because the member carries a prototype
-    /// object and is therefore constructable. (WebIDL says an operation should not be
-    /// constructable; that is a pre-existing deviation shared by every constructable-function
-    /// member of the registration hubs, and correcting it belongs in its own change.)
+    /// <c>NewMethod</c>, so the member carries no <c>prototype</c> and is not constructable, which
+    /// is the shape WebIDL gives an operation. These were minted the constructable way for a long
+    /// time; <c>OperationsAreNotConstructorsTests</c> pins the corrected shape.
     /// </remarks>
     private JsValue UndefinedMember(string name, int length = 0) =>
-        Realm.NewConstructor(name, static (in _) => JsValue.Undefined, length);
+        Realm.NewMethod(name, static (in _) => JsValue.Undefined, length);
 
     /// <inheritdoc cref="UndefinedMember"/>
     private JsValue TrueMember(string name, int length = 0) =>
-        Realm.NewConstructor(name, static (in _) => JsValue.True, length);
+        Realm.NewMethod(name, static (in _) => JsValue.True, length);
 
     // Every member the hubs install is minted by realm.NewMethod / realm.NewConstructor /
     // realm.DefineAccessor.

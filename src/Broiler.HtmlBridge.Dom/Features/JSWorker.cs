@@ -325,11 +325,9 @@ internal sealed class JSWorker
     /// <remarks>
     /// Every member is installed with a plain write, in the order it always was, because the order a
     /// worker script sees from <c>Object.getOwnPropertyNames(self)</c> is observable. Each function is
-    /// a <see cref="IJsValues.NewConstructor"/> rather than a <see cref="IJsValues.NewMethod"/> for
-    /// the same reason as elsewhere in this migration: they were built with the engine's constructable
-    /// function type, so each carries a <c>prototype</c>, and preserving that is what makes this a
-    /// refactor rather than a fix. (WebIDL says an operation should not be constructable. That is a
-    /// pre-existing deviation and correcting it belongs in its own change.)
+    /// a <see cref="IJsValues.NewMethod"/>, so none carries a <c>prototype</c> and none is
+    /// constructable, which is what WebIDL asks of an operation. They were built with the engine's
+    /// constructable function type for a long time, and that is now corrected.
     /// </remarks>
     private void InstallWorkerGlobals(IJsRealm realm)
     {
@@ -347,20 +345,20 @@ internal sealed class JSWorker
         realm.SetProperty(global, ListenersProperty, realm.NewArray());
 
         realm.SetProperty(global, "postMessage",
-            realm.NewConstructor("postMessage", PostMessageFromWorker, 1));
+            realm.NewMethod("postMessage", PostMessageFromWorker, 1));
 
         realm.SetProperty(global, "addEventListener",
-            realm.NewConstructor("addEventListener", AddWorkerEventListener, 2));
+            realm.NewMethod("addEventListener", AddWorkerEventListener, 2));
 
-        realm.SetProperty(global, "setTimeout", realm.NewConstructor("setTimeout",
+        realm.SetProperty(global, "setTimeout", realm.NewMethod("setTimeout",
             (in call) => JsValue.Number(_timers.Add(CallbackOf(in call), DelayOf(in call), repeating: false)), 2));
 
-        realm.SetProperty(global, "setInterval", realm.NewConstructor("setInterval",
+        realm.SetProperty(global, "setInterval", realm.NewMethod("setInterval",
             (in call) => JsValue.Number(_timers.Add(CallbackOf(in call), DelayOf(in call), repeating: true)), 2));
 
         // One id space, and clearTimeout/clearInterval interchangeable, per the HTML spec — the same
         // contract the page's loop keeps. One function object under two names, as it always was.
-        var clear = realm.NewConstructor("clearTimeout", (in call) =>
+        var clear = realm.NewMethod("clearTimeout", (in call) =>
         {
             if (call.Length > 0 && !call[0].IsNullish)
                 _timers.Clear((int)call.Realm.ToNumber(call[0]));
@@ -370,9 +368,9 @@ internal sealed class JSWorker
         realm.SetProperty(global, "clearTimeout", clear);
         realm.SetProperty(global, "clearInterval", clear);
 
-        realm.SetProperty(global, "importScripts", realm.NewConstructor("importScripts", ImportScripts, 1));
+        realm.SetProperty(global, "importScripts", realm.NewMethod("importScripts", ImportScripts, 1));
 
-        realm.SetProperty(global, "close", realm.NewConstructor("close", (in _) =>
+        realm.SetProperty(global, "close", realm.NewMethod("close", (in _) =>
         {
             _closed = true;
             // A closing worker stops its timers; leaving them would keep the pump awake past close().
@@ -387,7 +385,7 @@ internal sealed class JSWorker
         foreach (var level in new[] { "log", "info", "warn", "error", "debug" })
         {
             var captured = level;
-            realm.DefineValue(console, captured, realm.NewConstructor(captured, (in call) =>
+            realm.DefineValue(console, captured, realm.NewMethod(captured, (in call) =>
             {
                 var text = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
                 RenderLogger.LogDebug(LogCategory.JavaScript, $"worker:{_name}", $"[{captured}] {text}");

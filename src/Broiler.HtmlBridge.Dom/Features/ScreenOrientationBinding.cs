@@ -31,12 +31,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// <c>unlock</c> is <em>constructable</em>, deliberately and only for compatibility with the shape
 /// the bridge has always published: a plain function — one that carries a <c>prototype</c> object
-/// and so passes the engine's constructor test — rather
+/// and so passed the engine's constructor test — rather
 /// than the non-constructable shape WebIDL gives an operation. Under JSEAL that distinction is which
-/// factory is called, so preserving the behaviour means asking for a constructor here; a browser
-/// answers <c>undefined</c> for <c>screen.orientation.unlock.prototype</c> and throws on
-/// <c>new screen.orientation.unlock()</c>, and correcting that is a behaviour change that belongs in
-/// its own commit.
+/// factory is called, and this now calls the method factory: <c>screen.orientation.unlock.prototype</c>
+/// is <c>undefined</c> and <c>new screen.orientation.unlock()</c> throws, as a browser answers.
 /// </para>
 /// </remarks>
 internal static class ScreenOrientationBinding
@@ -75,7 +73,7 @@ internal static class ScreenOrientationBinding
         // makes doing nothing the specified behaviour rather than a stub. It is minted as a
         // constructor rather than a method to preserve the constructable shape the bridge has always
         // published here — see the last paragraph of the class remarks.
-        realm.DefineConstructor(orientation, "unlock", 0, static (in _) => JsValue.Undefined);
+        realm.DefineMethod(orientation, "unlock", 0, static (in _) => JsValue.Undefined);
 
         return orientation;
     }
