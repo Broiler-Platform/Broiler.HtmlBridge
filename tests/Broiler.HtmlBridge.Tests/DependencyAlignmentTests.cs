@@ -756,3 +756,165 @@ public class DependencyAlignmentCssNumericParseTests
         return tag[value..close];
     }
 }
+
+/// <summary>
+/// Answers that changed when the animation pass stopped matching selectors with a stub of its own
+/// and asked <c>Broiler.CSS.Dom.CssSelectorMatcher</c>.
+/// <para>
+/// CHANGED: <c>DomBridgeUtils.SimpleMatchesElement</c> understood a bare tag name, <c>#id</c>,
+/// <c>.class</c> and <c>:root</c> — and answered <see langword="false"/> for everything else, so an
+/// <c>animation</c> declared on a compound, a combinator, <c>*</c>, an attribute selector or a
+/// functional pseudo-class was silently dropped. The canonical matcher answers all of them.
+/// </para>
+/// <para>
+/// PRESERVED, and the reason the substitution was reverted once before: the canonical matcher's
+/// lenient <c>Matches</c> answers <see langword="true"/> for a pseudo-class the specs define but it
+/// does not model, and for any vendor-prefixed name. Over-applying a rule is the right trade for
+/// the cascade and the wrong one here, where the declaration being applied is an animation.
+/// <c>TryMatch</c> reports that the answer is a guess and the pass reads a guess as no match, so
+/// <c>:read-only</c> still attaches its animation to nothing.
+/// </para>
+/// <para>
+/// The bake is read out of the serialized page because that is where it lands: the resolved
+/// property goes into the element's baked inline style and reaches the renderer through the
+/// <c>style=</c> attribute. The interpolation is deliberately trivial — <c>linear</c> easing,
+/// half-way through a <c>0px → 100px</c> width — so a matched element is exactly the ones carrying
+/// <c>width: 50px</c>.
+/// </para>
+/// </summary>
+public class DependencyAlignmentAnimationSelectorTests
+{
+    private const string PageUrl = "https://example.test/pages/animation-selector.html";
+
+    /// <summary>The bake a matched element carries, at the halfway point of the fixture's animation.</summary>
+    private const string Baked = "width: 50px";
+
+    /// <summary>Every element of the fixture that has an <c>id</c>, in document order.</summary>
+    private static readonly string[] Ids = ["root", "page", "outer", "first", "second", "ro"];
+
+    [Fact]
+    public void ACombinatorSelectorNowCarriesItsAnimation() =>
+        Assert.Equal("first,second (2)", BakedBy("div > p"));
+
+    [Fact]
+    public void ACompoundClassSelectorNowCarriesItsAnimation() =>
+        Assert.Equal("first (1)", BakedBy(".a.b"));
+
+    [Fact]
+    public void AnAttributeSelectorNowCarriesItsAnimation() =>
+        Assert.Equal("first (1)", BakedBy("[data-x]"));
+
+    [Fact]
+    public void AFunctionalPseudoClassNowCarriesItsAnimation() =>
+        Assert.Equal("page,second,ro (4)", BakedBy(":nth-child(2)"));
+
+    [Fact]
+    public void TheUniversalSelectorNowCarriesItsAnimation() =>
+        Assert.Equal("root,page,outer,first,second,ro (9)", BakedBy("*"));
+
+    /// <summary>
+    /// The case that reverted this substitution the first time. <c>:read-only</c> is a pseudo-class
+    /// the matcher recognises and does not model, so its lenient answer is <see langword="true"/>
+    /// for every element in the document — which would play one keyframe animation on all of them.
+    /// </summary>
+    [Fact]
+    public void ARecognisedButUnmodelledPseudoClassCarriesItsAnimationNowhere() =>
+        Assert.Equal(" (0)", BakedBy(":read-only"));
+
+    /// <summary>The other lenient arm: any vendor-prefixed name matches everything.</summary>
+    [Fact]
+    public void AVendorPrefixedPseudoClassCarriesItsAnimationNowhere() =>
+        Assert.Equal(" (0)", BakedBy(":-webkit-any-link"));
+
+    /// <summary>
+    /// PRESERVED: the four shapes the stub did understand still select the same elements. A bare
+    /// tag name, an <c>#id</c>, a <c>.class</c> and <c>:root</c> are what the WPT fixtures this
+    /// pass was written for declare their animations on.
+    /// </summary>
+    [Theory]
+    [InlineData("p", "first,second (2)")]
+    [InlineData("#first", "first (1)")]
+    [InlineData(".a", "first (1)")]
+    [InlineData(":root", "root (1)")]
+    [InlineData("body", "page (1)")]
+    public void TheSelectorsTheStubUnderstoodSelectTheSameElements(string selector, string expected) =>
+        Assert.Equal(expected, BakedBy(selector));
+
+    /// <summary>
+    /// The elements <paramref name="selector"/> ends up animating: the ones whose serialized tag
+    /// carries the bake, and — in parentheses, so an animation applied document-wide is visible
+    /// even on the elements with no <c>id</c> to name — how many elements carry it in all.
+    /// </summary>
+    private static string BakedBy(string selector)
+    {
+        var html = SerializeAfterAnimationSnapshot(PageHtml(selector));
+        var matched = Ids.Where(id => TagOf(html, id).Contains(Baked, StringComparison.Ordinal));
+        return $"{string.Join(",", matched)} ({Occurrences(html, Baked)})";
+    }
+
+    /// <summary>
+    /// A document whose one style rule declares an animation on <paramref name="selector"/>, half
+    /// of whose ten seconds have already elapsed when the snapshot is taken (the negative delay).
+    /// </summary>
+    private static string PageHtml(string selector) =>
+        "<!DOCTYPE html><html id=\"root\"><head><title>t</title><style>" +
+        "@keyframes grow { from { width: 0px } to { width: 100px } } " +
+        selector + " { animation: grow 10s linear -5s }" +
+        "</style></head><body id=\"page\">" +
+        "<div id=\"outer\"><p id=\"first\" class=\"a b\" data-x=\"1\">one</p><p id=\"second\">two</p></div>" +
+        "<input id=\"ro\" readonly>" +
+        "</body></html>";
+
+    /// <summary>
+    /// The page as it serializes once the animation snapshot has been resolved. Nothing in this
+    /// repository calls <see cref="DomBridge.ResolveAnimationSnapshots"/> — the hosts that render a
+    /// page do — so the bridge is captured out of the factory the engine builds it with and the
+    /// pass is driven directly, between the page's scripts and the serialization.
+    /// </summary>
+    private static string SerializeAfterAnimationSnapshot(string pageHtml)
+    {
+        var factory = new CapturingBridgeFactory();
+
+        using var session = new ScriptEngine(factory).ExecuteInteractive(["void 0;"], [], pageHtml, PageUrl);
+
+        Assert.NotNull(session);
+        Assert.NotNull(factory.Bridge);
+
+        factory.Bridge!.ResolveAnimationSnapshots();
+
+        return session!.CurrentHtml();
+    }
+
+    /// <summary>The serialized open tag of the element with <paramref name="id"/>, or empty when it has none.</summary>
+    private static string TagOf(string html, string id)
+    {
+        var attribute = $"id=\"{id}\"";
+        var at = html.IndexOf(attribute, StringComparison.Ordinal);
+        if (at < 0)
+            return string.Empty;
+
+        var open = html.LastIndexOf('<', at);
+        var close = html.IndexOf('>', at);
+        return open < 0 || close < 0 ? string.Empty : html[open..close];
+    }
+
+    private static int Occurrences(string html, string value)
+    {
+        var count = 0;
+        for (var at = html.IndexOf(value, StringComparison.Ordinal); at >= 0;
+             at = html.IndexOf(value, at + value.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>Hands the engine an ordinary bridge and keeps hold of it.</summary>
+    private sealed class CapturingBridgeFactory : Dom.IDomBridgeRuntimeFactory
+    {
+        internal DomBridge? Bridge { get; private set; }
+
+        public Dom.IDomBridgeRuntime Create() => Bridge = new DomBridge();
+    }
+}

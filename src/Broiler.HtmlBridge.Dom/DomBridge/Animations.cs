@@ -119,9 +119,8 @@ public sealed partial class DomBridge
     // -----------------------------------------------------------------
 
     /// <summary>
-    /// Collects animation-related properties from <c>&lt;style&gt;</c> elements
-    /// whose selectors match the given element.  This is a simplified matcher
-    /// that handles tag selectors (e.g. <c>body</c>, <c>html</c>).
+    /// Collects animation-related properties from <c>&lt;style&gt;</c> elements whose selectors
+    /// match the given element, through the canonical selector matcher's strict answer.
     /// </summary>
     // Instance (not static) so it can read <style> source through the canonical
     // GetStyleElementSourceText accessor — see CollectAnimPropsFromStyleElements.
@@ -151,7 +150,16 @@ public sealed partial class DomBridge
             {
                 foreach (var selector in styleRule.Selectors.Selectors)
                 {
-                    if (!SimpleMatchesElement(selector.Text, target))
+                    // A strict answer or none at all. `Matches` is deliberately lenient — a
+                    // pseudo-class the specs define but the matcher does not model, and any
+                    // vendor-prefixed one, matches every element so the cascade over-applies a rule
+                    // rather than dropping it. That trade does not survive the journey here: this
+                    // caller bakes `animation` declarations into elements, so `:read-only`
+                    // over-applied is one keyframe animation playing on the whole document.
+                    // `TryMatch` reports whether the answer is one the matcher can stand behind, and
+                    // a guess is read as no match — the safer error for this use, and the one the
+                    // stub this replaces made by understanding almost nothing.
+                    if (!_selectorMatcher.TryMatch(target, selector.Text, out var matches) || !matches)
                         continue;
 
                     var declarations = ParseDeclarations(

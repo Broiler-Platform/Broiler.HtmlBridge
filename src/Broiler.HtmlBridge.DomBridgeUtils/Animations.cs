@@ -1,7 +1,6 @@
 ﻿using System.Globalization;
 using System.Text;
 using Broiler.CSS;
-using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge;
@@ -48,40 +47,6 @@ public static partial class DomBridgeUtils
             result[declaration.Name] = value;
         }
         return result;
-    }
-
-    /// <summary>
-    /// Very simple CSS selector matcher — handles tag names, classes, IDs,
-    /// and <c>:root</c> pseudo-class.  Sufficient for WPT body/html selectors.
-    /// </summary>
-    internal static bool SimpleMatchesElement(string selector, DomElement element)
-    {
-        var selTrimmed = selector.Trim().ToLowerInvariant();
-
-        // Tag name selector (e.g. "body", "html")
-        if (selTrimmed == element.TagName?.ToLowerInvariant())
-            return true;
-
-        // :root matches the html element
-        if (selTrimmed == ":root" &&
-            string.Equals(element.TagName, "html", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // ID selector (e.g. "#myid")
-        if (selTrimmed.StartsWith('#'))
-        {
-            var id = selTrimmed[1..];
-            return string.Equals(element.Id, id, StringComparison.OrdinalIgnoreCase);
-        }
-
-        // Class selector (e.g. ".myclass")
-        if (selTrimmed.StartsWith('.'))
-        {
-            var cls = selTrimmed[1..];
-            return element.ClassName?.Split(' ').Any(c => string.Equals(c, cls, StringComparison.OrdinalIgnoreCase)) == true;
-        }
-
-        return false;
     }
 
     internal static bool IsLengthInterpolableProperty(string prop) => prop switch
