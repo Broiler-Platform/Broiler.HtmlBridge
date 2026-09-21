@@ -37,6 +37,20 @@ internal static class ComputedStyleBinding
     /// The <c>&lt;img&gt;.width</c> / <c>&lt;img&gt;.height</c> IDL getter — the used (rendered)
     /// dimension read out of computed style, falling back to the raw content attribute, then <c>0</c>.
     /// </summary>
+    /// <remarks>
+    /// Both reads test <see cref="double.IsFinite(double)"/> rather than <c>!IsNaN</c>, which is
+    /// what "not a dimension" has to mean here. <c>NumberStyles.Float</c> accepts <c>Infinity</c>
+    /// and <c>NaN</c> by name and overflows a double on an exponent — or on a long enough run of
+    /// digits — with no symbol in the value at all, so <c>&lt;img style="width: 1e400px"&gt;</c> and
+    /// <c>&lt;img width="1e400"&gt;</c> both answered <c>img.width === Infinity</c>.
+    /// <para>
+    /// Refusing at each read rather than at one exit is what keeps the documented chain: a
+    /// computed value this getter cannot represent falls through to the content attribute exactly
+    /// as an unreadable one does, and an attribute it cannot represent falls through to <c>0</c>.
+    /// Those are not substitutions invented by the guard — they are the fallbacks the getter
+    /// already had, and the only ones it has.
+    /// </para>
+    /// </remarks>
     internal static JsValue GetUsedDimension(IComputedStyleHost host, string? dimName, DomElement element)
     {
         // First check computed style for this element.
@@ -50,14 +64,19 @@ internal static class ComputedStyleBinding
             if (!string.IsNullOrEmpty(cssStr))
             {
                 var px = DomBridgeUtils.ParseCssLengthToPixels(cssStr);
-                if (!double.IsNaN(px))
+                if (double.IsFinite(px))
                     return JsValue.Number(px);
             }
         }
 
         // Fallback: HTML attribute
-        if (DomBridgeUtils.TryGetAttribute(element, dimName, out var attrVal) && double.TryParse(attrVal, out var attrNum))
+        if (DomBridgeUtils.TryGetAttribute(element, dimName, out var attrVal) &&
+            double.TryParse(attrVal, out var attrNum) &&
+            double.IsFinite(attrNum))
+        {
             return JsValue.Number(attrNum);
+        }
+
         return JsValue.Number(0);
     }
 
