@@ -29,7 +29,7 @@ internal static class ComputedStyleBinding
     /// </summary>
     internal static JsValue GetComputedStyle(IComputedStyleHost host, JsValue target, string? pseudoElement)
     {
-        var el = target.IsObject ? host.FindElement(target) : null;
+        var el = host.FindElement(target);
         return host.BuildComputedStyle(el, pseudoElement);
     }
 

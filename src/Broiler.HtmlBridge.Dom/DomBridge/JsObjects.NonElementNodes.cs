@@ -402,7 +402,7 @@ public sealed partial class DomBridge
         {
             if (call.Length == 0 || !call[0].IsObject)
                 return JsValue.Undefined;
-            var childEl = NodeForWrapper(call[0]);
+            var childEl = FindDomNodeByJSObject(call[0]);
             if (childEl == null)
                 return call[0];
             if (ReferenceEquals(childEl, fragment) || fragment.IsDescendantOf(childEl))
@@ -414,7 +414,7 @@ public sealed partial class DomBridge
         {
             if (call.Length == 0 || !call[0].IsObject)
                 return JsValue.Undefined;
-            var newEl = NodeForWrapper(call[0]);
+            var newEl = FindDomNodeByJSObject(call[0]);
             if (newEl == null)
                 return call[0];
             if (ReferenceEquals(newEl, fragment) || fragment.IsDescendantOf(newEl))
@@ -426,7 +426,7 @@ public sealed partial class DomBridge
             }
             if (!call[1].IsObject)
                 return call[0];
-            var refEl = NodeForWrapper(call[1]);
+            var refEl = FindDomNodeByJSObject(call[1]);
             if (refEl == null || ReferenceEquals(newEl, refEl))
                 return call[0];
             var idx = ChildIndexOf(fragment, refEl);
@@ -439,7 +439,7 @@ public sealed partial class DomBridge
         {
             if (call.Length == 0 || !call[0].IsObject)
                 return JsValue.Undefined;
-            var childEl = NodeForWrapper(call[0]);
+            var childEl = FindDomNodeByJSObject(call[0]);
             if (childEl == null)
                 return call[0];
             var idx = ChildIndexOf(fragment, childEl);
@@ -453,8 +453,8 @@ public sealed partial class DomBridge
         {
             if (call.Length < 2 || !call[0].IsObject || !call[1].IsObject)
                 return JsValue.Undefined;
-            var newEl = NodeForWrapper(call[0]);
-            var oldEl = NodeForWrapper(call[1]);
+            var newEl = FindDomNodeByJSObject(call[0]);
+            var oldEl = FindDomNodeByJSObject(call[1]);
             if (newEl == null || oldEl == null)
                 return call[1];
             var idx = ChildIndexOf(fragment, oldEl);
@@ -545,18 +545,4 @@ public sealed partial class DomBridge
         // installs its own.
         InstallNodeConstantsIfNotInherited(handle);
     }
-
-    /// <summary>
-    /// The DOM node a wrapper handle stands for, or <see langword="null"/> when it stands for none.
-    /// </summary>
-    /// <remarks>
-    /// The reverse lookup itself is <c>DomBridge/Utilities.cs</c>'s and takes the handle straight, so
-    /// there is no cast left for this to gather from the six argument reads in the fragment's child
-    /// manipulation. What is left is the non-object answer, and that is the lookup's own answer too
-    /// now: a handle that is not an object is simply not in the wrapper map. The test below is
-    /// therefore redundant rather than load-bearing, and collapsing it would leave this member a bare
-    /// alias — a separate change from the re-typing.
-    /// </remarks>
-    private DomNode? NodeForWrapper(JsValue value) =>
-        value.IsObject ? FindDomNodeByJSObject(value) : null;
 }

@@ -32,11 +32,11 @@ public sealed partial class DomBridge
     /// </para>
     /// <para>
     /// <b>A handle that is not an object answers <see langword="null"/> rather than throwing.</b>
-    /// The registry treats a non-object wrapper as simply absent from the map, so the
-    /// <c>IsObject</c> test that ten of the call sites still put in front of these is now the same
-    /// question this asks and is redundant rather than load-bearing. Collapsing those is a separate
-    /// change; it would also turn <c>JsObjects.NonElementNodes.cs</c>'s <c>NodeForWrapper</c> into a
-    /// bare alias and pull its six call sites in with it.
+    /// <see cref="JsValue.ObjectIdentity"/> is null for every non-object kind, so the registry
+    /// reports such a handle absent and this answers <see langword="null"/> — which is exactly what
+    /// the <c>IsObject</c> test that used to sit in front of ten call sites answered. Those tests
+    /// were redundant rather than load-bearing and are gone; the cases in
+    /// <c>NonObjectWrapperLookupTests</c> pin the behaviour they used to describe.
     /// </para>
     /// </remarks>
     private DomElement? FindDomElementByJSObject(JsValue wrapper) =>

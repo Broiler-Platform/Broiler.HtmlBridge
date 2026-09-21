@@ -448,8 +448,7 @@ public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
 /// </remarks>
 public sealed partial class DomBridge : IMutationObserverHost
 {
-    DomNode? IMutationObserverHost.FindNode(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomNodeByJSObject(wrapper) : null;
+    DomNode? IMutationObserverHost.FindNode(JsValue wrapper) => FindDomNodeByJSObject(wrapper);
 
     // Mutation-observer delivery is driven off canonical DomDocument.Mutated (the observer binding
     // subscribes per observed document). The bridge suppresses delivery while it mutates the live

@@ -142,7 +142,7 @@ public sealed partial class DomBridge : Dom.Features.INodeMutationHost
 public sealed partial class DomBridge : Dom.Features.INodeRelationshipsHost
 {
     DomNode? Dom.Features.INodeRelationshipsHost.FindNode(JsValue wrapper)
-        => wrapper.IsObject ? FindDomNodeByJSObject(wrapper) : null;
+        => FindDomNodeByJSObject(wrapper);
 
     DomNode Dom.Features.INodeRelationshipsHost.GetTreeRoot(DomNode node) => GetTreeRoot(node);
 
@@ -169,7 +169,7 @@ public sealed partial class DomBridge : Dom.Features.INodeRelationshipsHost
 public sealed partial class DomBridge : Dom.Features.ITreeMutationHost
 {
     DomNode? Dom.Features.ITreeMutationHost.FindNode(JsValue wrapper)
-        => wrapper.IsObject ? FindDomNodeByJSObject(wrapper) : null;
+        => FindDomNodeByJSObject(wrapper);
 
     // One reading, not two: the argument list is read by the bridge's own ISubDocumentHost member,
     // which coerces each non-node argument with the realm's ToString. Forwarding is how the two
@@ -255,11 +255,9 @@ public sealed partial class DomBridge : Dom.Features.IGlobalAttributeHost
 /// </remarks>
 public sealed partial class DomBridge : ITraversalHost
 {
-    DomNode? ITraversalHost.FindNode(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomNodeByJSObject(wrapper) : null;
+    DomNode? ITraversalHost.FindNode(JsValue wrapper) => FindDomNodeByJSObject(wrapper);
 
-    DomElement? ITraversalHost.FindElement(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
+    DomElement? ITraversalHost.FindElement(JsValue wrapper) => FindDomElementByJSObject(wrapper);
 
     IReadOnlyList<(double Left, double Top, double Width, double Height)> ITraversalHost.GetClientRectsForRange(DomRange range) =>
         GetClientRectsForRange(range);

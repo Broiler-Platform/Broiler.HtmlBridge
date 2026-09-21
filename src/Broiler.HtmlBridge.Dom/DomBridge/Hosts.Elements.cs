@@ -212,8 +212,7 @@ public sealed partial class DomBridge : ISelectHost
         OnStateChanged = BridgeRuntimeStateEpoch.Bump
     };
 
-    DomElement? ISelectHost.FindElement(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
+    DomElement? ISelectHost.FindElement(JsValue wrapper) => FindDomElementByJSObject(wrapper);
 
     bool ISelectHost.TryGetSelectedIndex(DomElement select, out int index) =>
         _formState.TryGetDirtySelectedIndex(select, out index);
@@ -394,8 +393,7 @@ public sealed partial class DomBridge : Dom.Features.ICanvasHost
 // name; that is a rename waiting to happen, not a seam.
 public sealed partial class DomBridge : Dom.Features.IComputedStyleHost
 {
-    DomElement? Dom.Features.IComputedStyleHost.FindElement(JsValue wrapper) =>
-        wrapper.IsObject ? FindDomElementByJSObject(wrapper) : null;
+    DomElement? Dom.Features.IComputedStyleHost.FindElement(JsValue wrapper) => FindDomElementByJSObject(wrapper);
 
     JsValue Dom.Features.IComputedStyleHost.BuildComputedStyle(DomElement? element, string? pseudoElement)
         => BuildComputedStyleObject(element, pseudoElement);

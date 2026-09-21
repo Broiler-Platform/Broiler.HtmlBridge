@@ -322,7 +322,7 @@ internal sealed class SubWindowBinding(
     {
         if (call.Length == 0)
             return call.Realm.NewObject();
-        var el = call[0].IsObject ? _host.FindElement(call[0]) : null;
+        var el = _host.FindElement(call[0]);
         // The realm's ToString, not the handle's: a page passing an object as the pseudo-element runs
         // its own toString here, which is the coercion the engine performed.
         var pseudoElement = call.Length > 1 ? call.Realm.ToJsString(call[1]) : null;
