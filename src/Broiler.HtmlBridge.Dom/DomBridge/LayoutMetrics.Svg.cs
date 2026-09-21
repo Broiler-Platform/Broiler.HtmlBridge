@@ -160,14 +160,14 @@ public sealed partial class DomBridge
                 var scalar = rawValue?
                     .Split([' ', '\t', '\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries)
                     .FirstOrDefault();
-                if (double.TryParse(
-                    scalar,
-                    NumberStyles.Float,
-                    CultureInfo.InvariantCulture,
-                    out var numericValue))
-                {
+
+                // A coordinate this component cannot hold is not an answer, so the walk carries on
+                // exactly as it does for one it cannot read at all: to the ancestor that has one,
+                // then to the path start, then to the SVG default of 0. Returning a zero from here
+                // instead would pin the text at the origin and lose the coordinate its <text>
+                // ancestor does have.
+                if (TryParseFiniteScalar(scalar, out var numericValue))
                     return numericValue;
-                }
             }
 
             if (IsSvgTextPathElement(current) &&
@@ -206,12 +206,14 @@ public sealed partial class DomBridge
             return false;
         }
 
+        // The regex admits neither a symbol nor an exponent, so the only way a moveto leaves the
+        // representable range is a digit string longer than a double can hold — which is an
+        // ordinary-looking coordinate, and still not one. A start point that cannot be represented
+        // is no start point, the same answer a path with no moveto at all gives.
         var moveMatch = TryResolveSvgTextPathStartRegex().Match(pathData);
         if (!moveMatch.Success ||
-            !double.TryParse(moveMatch.Groups["x"].Value, NumberStyles.Float,
-                CultureInfo.InvariantCulture, out var x) ||
-            !double.TryParse(moveMatch.Groups["y"].Value, NumberStyles.Float,
-                CultureInfo.InvariantCulture, out var y))
+            !TryParseFiniteScalar(moveMatch.Groups["x"].Value, out var x) ||
+            !TryParseFiniteScalar(moveMatch.Groups["y"].Value, out var y))
         {
             return false;
         }
@@ -411,6 +413,15 @@ public sealed partial class DomBridge
     /// and a percentage resolves against the viewport — so both spellings a page may use resolve the
     /// same way, and a bare <c>"50"</c> does not fall through the CSS length parser as zero.
     /// </summary>
+    /// <remarks>
+    /// Both spellings refuse a value they cannot represent, and both answer the attribute's SVG
+    /// default of <c>0</c> when they do — the CSS one because
+    /// <c>ParseCssLengthToPixelsWithViewport</c> already refuses at its own single exit, and the
+    /// number one because <see cref="DomBridgeUtils.TryParseFiniteScalar"/> declines it and leaves
+    /// the CSS path to answer <c>0</c> for a token it cannot read as a length. Zero is not a
+    /// shrunken shape: <c>TryGetSvgUserSpaceBounds</c> produces no bounds for a zero extent, which
+    /// is SVG 1.1 §9.2 — an extent of zero disables rendering of the element.
+    /// </remarks>
     private double ResolveSvgLength(DomElement element, DomElement viewport, string attributeName, bool vertical)
     {
         if (!TryGetAttribute(element, attributeName, out var raw) || string.IsNullOrWhiteSpace(raw))
@@ -418,7 +429,7 @@ public sealed partial class DomBridge
 
         raw = raw.Trim();
 
-        if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var plain))
+        if (TryParseFiniteScalar(raw, out var plain))
             return plain;
 
         var basis = GetSvgViewportUserLength(viewport, vertical);
