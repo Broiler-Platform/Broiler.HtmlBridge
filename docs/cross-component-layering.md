@@ -60,6 +60,41 @@ that point and two of this document's own claims were corrected; both are record
 | [Broiler.HTML#228](https://github.com/Broiler-Platform/Broiler.HTML/issues/228) — `CorrectProgressBoxes` overwrites the cascaded box | C |
 | [Broiler.HTML#229](https://github.com/Broiler-Platform/Broiler.HTML/issues/229) — `<base href>` is ignored when resolving resources | C |
 
+### Where the work landed
+
+Thirteen of the fifteen are implemented, each on a branch in the component that owns it, with tests and
+green CI:
+
+| Pull request | Closes | Tests |
+| --- | --- | --- |
+| [Broiler.CSS#57](https://github.com/Broiler-Platform/Broiler.CSS/pull/57) | #53, #54, #55, #56 | 1,022 → 1,179 |
+| [Broiler.Layout#11](https://github.com/Broiler-Platform/Broiler.Layout/pull/11) | #6, #7, #9, #10 | 1,386 → 1,540 |
+| [Broiler.DOM#23](https://github.com/Broiler-Platform/Broiler.DOM/pull/23) | #21, #22 | 526 → 577 |
+| [Broiler.HTML#230](https://github.com/Broiler-Platform/Broiler.HTML/pull/230) | #228, #229 | 31 node + 2 suite cases |
+
+**Two are deliberately still open**, and the reason is the same one tier D records below.
+[Broiler.Layout#5](https://github.com/Broiler-Platform/Broiler.Layout/issues/5) and [#8](https://github.com/Broiler-Platform/Broiler.Layout/issues/8) both ask to
+enrich a read model that component cannot populate, so implementing them would have meant adding
+public members nothing fills. #8 is worse than it looks from here: CSS 2.1 §10.1 is *already*
+implemented in Layout, privately, with one call site — there is simply no public path from an element
+to a rectangle to hang it on. #5 has a second, independent blocker that the audit did not know about:
+`WritingMode` appears zero times in both `ComputedStyle.cs` and `Fragment.cs`, so Layout's public
+fragment model cannot express a reversed block axis at all, and computing the region over it would
+ship exactly the `vertical-rl` defect this component had already hit. Both wait on the open half of
+[#4](https://github.com/Broiler-Platform/Broiler.Layout/issues/4).
+
+One new issue came out of the work rather than the audit:
+[Broiler.HTML#231](https://github.com/Broiler-Platform/Broiler.HTML/issues/231) — an external sheet's `url()` resolves against the
+document base rather than the sheet's own URL, which CSS Values §4.2 requires. Both the old and the
+new answer are wrong, so it is not a regression, but a `<base>` makes them diverge where they used to
+coincide.
+
+Three defects were caught reviewing the implementations, none of them in the filed issues: a popover
+nested inside an open dialog was dropped entirely by the new hit test; foster parenting escaped a
+template, reintroducing the very leak the template-contents change exists to close; and the `<base>`
+fix recorded a document base for *every* document, so a parse-time copy of the embedder's own URL
+silently outranked the live, publicly settable `BaseUrl`.
+
 ### Dropped when re-verified against `main`
 
 - **`url()` rebasing on `@import` (Broiler.CSS).** The claim assumed this component runs its own
