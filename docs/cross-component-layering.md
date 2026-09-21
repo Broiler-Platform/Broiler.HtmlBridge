@@ -23,14 +23,17 @@ and several claims collapsed on exactly that. Availability was verified against 
 XML documentation, and in two cases against the assembly metadata directly — a name in a DLL's string
 heap proves nothing about whether the member is public.
 
-Pinned at the time of audit:
+Pinned at the time of audit, and now:
 
-| Package | Version |
-| --- | --- |
-| `Broiler.Dom.Html` | 0.1.0-preview.5 |
-| `Broiler.Dom` (transitive) | 0.1.0-preview.5 |
-| `Broiler.CSS.Dom` | 0.1.0-preview.5 |
-| `Broiler.Layout` | 0.1.0-preview.4 |
+| Package | At audit | Now |
+| --- | --- | --- |
+| `Broiler.Dom.Html` | 0.1.0-preview.5 | 0.1.0-preview.6 |
+| `Broiler.Dom` (transitive) | 0.1.0-preview.5 | 0.1.0-preview.6 |
+| `Broiler.CSS.Dom` | 0.1.0-preview.5 | 0.1.0-preview.6 |
+| `Broiler.Layout` | 0.1.0-preview.4 | 0.1.0-preview.5 |
+
+The right-hand column is the published form of the merged work below. What this component then did
+with it is [Adopted after the bump](#adopted-after-the-bump).
 
 `Broiler.HTML` is **not referenced by this component at all**. Anything the two share is parallel
 evolution between components that cannot see each other, which is why those findings are written as
@@ -94,6 +97,40 @@ nested inside an open dialog was dropped entirely by the new hit test; foster pa
 template, reintroducing the very leak the template-contents change exists to close; and the `<base>`
 fix recorded a document base for *every* document, so a parse-time copy of the embedder's own URL
 silently outranked the live, publicly settable `BaseUrl`.
+
+### Adopted after the bump
+
+Three of the merged changes landed here as calls, and the local re-implementations they replace are
+gone: net −158 lines in `src/`, +245 in `tests/`.
+
+| What went | Where it was | Now | Upstream |
+| --- | --- | --- | --- |
+| The `<template>` contents side table, the pass that filled it and its three call sites | `DomBridge/HtmlParsing.cs`, `DomBridge/Traversal.cs`, `DomBridge/JsObjects.cs` | `DomElement.TemplateContents` | [Broiler.DOM#22](https://github.com/Broiler-Platform/Broiler.DOM/issues/22) |
+| The post-parse declarative shadow-root pass | `DomBridge/HtmlParsing.cs` | `HtmlParseOptions.AllowDeclarativeShadowRoots` | [Broiler.DOM#21](https://github.com/Broiler-Platform/Broiler.DOM/issues/21) |
+| `DomBridgeUtils.TryParseExponentNumber` and its two fallback call sites | `DomBridgeUtils/AnchorResolver.cs` | `CssValueParser.TryParseNumeric` alone | [Broiler.CSS#53](https://github.com/Broiler-Platform/Broiler.CSS/issues/53) |
+
+**Two answers this component kept rather than took, and both are the same shape: a dependency is
+right for its own consumers and wrong for this one.**
+
+`TryParseNumeric` reading an exponent means a number can now overflow a double, so `1e400px` is a
+*successful* parse answering `(+∞, Px)`. Upstream is not wrong — `CssLengthParser` in the same
+package has always answered that way, and CSS Values 4 §11.1 clamps an out-of-range number rather
+than invalidating the declaration. But tier A removed infinities from this component's geometry for
+a reason: the ~94 call sites behind `TryParsePx`/`TryParsePercent` multiply what they are handed
+into a box with no clamp of their own, which is exactly what made `"Infinitypx"` a defect. The
+finiteness test therefore moved out of the deleted fallback and into the two helpers, where it
+covers every route rather than only the ones spelled with an `e`.
+
+The parser's declarative shadow roots are on for the **navigation** parse only. The Standard gates
+them on a flag the entry point sets, not the markup: `innerHTML` deliberately does not set it, which
+is the whole of the difference between it and `setHTMLUnsafe`. The two sub-document parses keep the
+default as well — the deleted pass never reached them, so switching them on would be a behaviour
+change no finding asked for.
+
+One thing had to move rather than go: `_hasShadowRoots`, the flag that lets a document with no
+shadow DOM skip the per-serialization descendant walk that confines each shadow tree's style rules
+to that tree. The deleted pass set it as it attached; the parser cannot, so the parse asks the
+finished tree once instead — strictly less work than the walk-plus-attach it replaces.
 
 ### Dropped when re-verified against `main`
 
@@ -190,6 +227,10 @@ css-syntax-3 §4.3.12, and accepted by `CssLengthParser` in the same package —
 [Broiler.CSS#53](https://github.com/Broiler-Platform/Broiler.CSS/issues/53), which also covers the opposite error found while writing
 it up: `1.px` parses *successfully* as `1px`.
 
+**Closed, and the fallback is gone** — `0.1.0-preview.6` reads exponents and rejects `1.px`. The
+finiteness test inside the fallback did not go with it; see [Adopted after the bump](#adopted-after-the-bump)
+for why an overflowing exponent is a length upstream and is not one here.
+
 `CssSyntax.FindMatching` answers `text.Length - 1` when nothing matches, not `-1`, so a caller must
 test the landing character rather than the sign. An unterminated `translateY(` otherwise takes the
 rest of the string as its argument. Filed as [Broiler.CSS#54](https://github.com/Broiler-Platform/Broiler.CSS/issues/54).
@@ -261,14 +302,15 @@ where it eventually lives; see the open items below.
 
 | What the bridge owns | Where | Lines | Filed |
 | --- | --- | --- | --- |
-| Declarative shadow roots: a post-parse pass finding `<template shadowrootmode>` and attaching | `DomBridge/HtmlParsing.cs:127` | ~70 | [Broiler.DOM#21](https://github.com/Broiler-Platform/Broiler.DOM/issues/21) |
-| The `<template>` contents model (HTML §4.12.3), held as a side table keyed on the element | `DomBridge/HtmlParsing.cs:305` | ~65 | [Broiler.DOM#22](https://github.com/Broiler-Platform/Broiler.DOM/issues/22) |
+| ~~Declarative shadow roots: a post-parse pass finding `<template shadowrootmode>` and attaching~~ | `DomBridge/HtmlParsing.cs` | ~70 | [Broiler.DOM#21](https://github.com/Broiler-Platform/Broiler.DOM/issues/21) — **adopted, deleted** |
+| ~~The `<template>` contents model (HTML §4.12.3), held as a side table keyed on the element~~ | `DomBridge/HtmlParsing.cs` | ~65 | [Broiler.DOM#22](https://github.com/Broiler-Platform/Broiler.DOM/issues/22) — **adopted, deleted** |
 | Parsing a `<meta http-equiv=refresh>` content value | `Core/Dom/MetaRefreshDiscovery.cs:59` | ~40 | dropped — see above |
 
-The first two are tree-construction output. Template contents is part of a node's data model, and the
-bridge keeping it in a `Dictionary<DomElement, DomDocumentFragment>` beside the tree is a workaround
-for the parser not producing it. `HtmlMetaScanner` already owns *finding* the meta-refresh element;
-reading its content value belongs next to it.
+The first two were tree-construction output, which is why they went upstream and then away from here
+— template contents is part of a node's data model, and keeping it in a
+`Dictionary<DomElement, DomDocumentFragment>` beside the tree was a workaround for the parser not
+producing it. `HtmlMetaScanner` already owns *finding* the meta-refresh element; reading its content
+value belongs next to it, and that one is still open.
 
 ### Broiler.HTML
 
