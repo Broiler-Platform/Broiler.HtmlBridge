@@ -18,8 +18,10 @@ namespace Broiler.HtmlBridge.Tests;
 /// <b>Late work is held and run by the test, after the call.</b> While the entry point runs, the calling
 /// thread's <c>SynchronizationContext</c> is one that only holds what is posted to it, so the context the
 /// entry point builds captures it: <c>setTimeout</c> and <c>setInterval</c> post their callbacks there,
-/// <c>Promise.allKeyed</c> posts its element settlements there, and so does a reaction scheduled while no
-/// script is executing. <c>setImmediate</c> posts to the synchronization context current on the thread when
+/// and so does a reaction scheduled while no script is executing. (<c>Promise.allKeyed</c> used to be a
+/// schedule here as well, because Broiler.JS 0.1.0-preview.1 posted its element settlements there; from
+/// preview.3 they are ordinary promise jobs the call drains before returning, so it schedules no late
+/// work.) <c>setImmediate</c> posts to the synchronization context current on the thread when
 /// it is called, which during the call is that same one. Nothing held runs until the test pumps it, after
 /// the entry point has returned, on the thread that made the call, on a pool thread, or on a thread that
 /// last ran a context under the opposite policy.
@@ -212,7 +214,6 @@ public class LateWorkEvaluationPolicyTests
         "setImmediate(CALLBACK);",
         "queueMicrotask(function () { Promise.resolve().then(CALLBACK); });",
         "queueMicrotask(function () { (async function () { await null; (CALLBACK)(); })(); });",
-        "Promise.allKeyed({ a: 1 }).then(CALLBACK);",
     };
 
     /// <summary>The compiling routes a late callback might attempt, and what each is refused with.</summary>
@@ -268,7 +269,6 @@ public class LateWorkEvaluationPolicyTests
             "setTimeout(CALLBACK, 0);",
             "setImmediate(CALLBACK);",
             "queueMicrotask(function () { Promise.resolve().then(CALLBACK); });",
-            "Promise.allKeyed({ a: 1 }).then(CALLBACK);",
         };
         var attempts = new[]
         {

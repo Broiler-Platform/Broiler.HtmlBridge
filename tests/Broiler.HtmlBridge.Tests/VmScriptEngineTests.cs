@@ -128,24 +128,23 @@ public partial class VmScriptEngineTests
     }
 
     /// <summary>
-    /// A DIRECT <c>eval</c> inside a function is refused, and the refusal comes from the profile
-    /// rather than from this engine's provider.
+    /// A DIRECT <c>eval</c> inside a function sees the calling frame's bindings.
     /// </summary>
     /// <remarks>
-    /// <b>This is the sharpest limit on what "eval works" means here, so it is pinned rather than
-    /// left to be discovered.</b> The profile resolves every name at lowering, so evaluated source
-    /// cannot see the calling frame's bindings, and it says so in the error it throws. An indirect
-    /// eval evaluates in global scope, where there is no calling frame to see, and is admitted —
-    /// see the test below. Registering the source provider does not change this and could not:
-    /// the refusal happens before anything is asked of the host.
+    /// Up to Broiler.VM 0.1.0-preview.3 the profile refused this outright, because it resolved every
+    /// name at lowering and evaluated source could not reach the caller's frame. From preview.4 the
+    /// artifact carries an eval scope map and the request carries what the calling site permits
+    /// (<c>SliceParseOptions.IsEval</c> / <c>EvalFlags</c>), which the source provider hands to the
+    /// compiler through <c>JsCompiler.TryReadProgramRequest</c>. Pinned so that a provider decoding
+    /// the payload as bare text again fails here rather than as a SyntaxError on some page.
     /// </remarks>
     [Fact]
-    public void ADirectEvalInsideAFunctionIsRefusedByTheProfile()
+    public void ADirectEvalInsideAFunctionSeesTheCallingFrame()
     {
-        var result = Engine().ExecuteDetailed(["function f() { return eval('1 + 1'); } f();"], null);
-
-        Assert.False(result.Success);
-        Assert.Contains("direct eval inside a function", Assert.Single(result.Errors).Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "direct=42",
+            Printed(engine => engine.ExecuteDetailed(
+                ["function f() { var x = 40; return eval('x + 2'); } print('direct=' + f());"], null)));
     }
 
     /// <summary>An indirect eval inside a function evaluates in global scope and is admitted.</summary>

@@ -285,6 +285,9 @@ internal sealed class VmCompilationCache
             Add(digest, unit.Text);
             Add(digest, unit.Referrer);
             Add(digest, unit.ForceStrict ? "strict" : "sloppy");
+            // No artifact byte depends on it, but every diagnostic a refusal carries does, and a
+            // cached refusal must not report another script's name.
+            Add(digest, unit.SourceName);
             AddOptions(digest, unit.Options);
         }
 
@@ -322,6 +325,10 @@ internal sealed class VmCompilationCache
         Add(digest, options.Goal.ToString());
         Add(digest, options.AllowTopLevelAwait ? "await" : "no-await");
         Add(digest, options.MaximumNestingDepth.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        // Direct eval code is the script grammar under a different lowering, and what its calling
+        // site permits changes what it compiles to.
+        Add(digest, options.IsEval ? "eval" : "program");
+        Add(digest, ((ulong)options.EvalFlags).ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     /// <summary>Appends one length-prefixed field to the digest.</summary>

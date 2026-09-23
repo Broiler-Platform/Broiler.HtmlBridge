@@ -14,7 +14,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -24,10 +23,6 @@ env:
   DOTNET_NOLOGO: 'true'
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
   PACKAGE_VERSION: ${{ inputs.package-version }}
-  # NuGet.config maps Broiler.* to GitHub Packages, which answers 401 to anonymous
-  # restores even for public packages. NuGet reads the credential for the source
-  # named `github` from this variable; every Broiler component does the same.
-  NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }};ValidAuthenticationTypes=Basic
 
 jobs:
   neutrality:
