@@ -519,11 +519,11 @@ public partial class VmScriptEngineTests
         /// </para>
         /// </remarks>
         [Theory]
-        [InlineData(typeof(JsScriptUnit), "Name,Options,Referrer,Text,ForceStrict")]
+        [InlineData(typeof(JsScriptUnit), "Name,Options,Referrer,Text,ForceStrict,SourceName")]
         [InlineData(typeof(JsModuleUnit), "Key,Options,Requests,Text")]
         [InlineData(typeof(JsResolvedRequest), "Key,Specifier")]
         [InlineData(typeof(JsCompileRequest), "Backend,Form,Manifest")]
-        [InlineData(typeof(SliceParseOptions), "AllowTopLevelAwait,Goal,GoalIsStrict,MaximumNestingDepth")]
+        [InlineData(typeof(SliceParseOptions), "AllowTopLevelAwait,EvalFlags,Goal,GoalIsStrict,IsEval,MaximumNestingDepth")]
         public void TheKeyMirrorsEveryFieldOfTheCompilerInputs(Type shape, string expected)
         {
             var actual = shape

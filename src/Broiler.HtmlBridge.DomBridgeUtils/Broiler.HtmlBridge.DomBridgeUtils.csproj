@@ -20,7 +20,7 @@
     No engine project either, which is what keeps this project at 0 in eng/jseal-budget.json.
   -->
   <ItemGroup>
-    <PackageReference Include="Broiler.JSeal" Version="0.1.0-preview.1" />
+    <PackageReference Include="Broiler.JSeal" Version="0.1.0-preview.2" />
   </ItemGroup>
 
   <ItemGroup>

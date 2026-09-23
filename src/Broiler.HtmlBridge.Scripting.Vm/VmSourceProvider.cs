@@ -66,22 +66,18 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
         if (JsFormat.TryReadModuleRequest(request.RequestPayload.Span, out var referrer, out var specifier))
             return Module(referrer, specifier);
 
-        string source;
-
-        try
-        {
-            source = System.Text.Encoding.UTF8.GetString(request.RequestPayload.Span);
-        }
-        catch (ArgumentException)
-        {
+        // An eval request is a structured payload (its source plus what the calling site permits),
+        // not bare UTF-8 text, so the front end's own dispatch reads it: the same one every provider
+        // of this format performs. A payload it will not read is a malformed encoding.
+        if (!JsCompiler.TryReadProgramRequest(request.RequestPayload.Span, out var unit))
             return VmArtifactProviderAnswer.Refused(VmReason.MalformedEncoding);
-        }
 
         // THROUGH THE CACHE, which for guest-supplied source is this ENGINE's and not the shared
         // one. A page that evaluates one body from a loop compiles it once; a page cannot evict
         // another page's compiled documents, and cannot time whether another page evaluated a
         // string. VmScriptEngine.GuestLoadCache says why that scope rather than the wider one.
-        // NO ForceStrict HERE, AND THAT IS DELIBERATE RATHER THAN AN OVERSIGHT. The engine passes
+        // NO ForceStrict ADDED HERE, AND THAT IS DELIBERATE RATHER THAN AN OVERSIGHT. The unit
+        // carries only what the request itself says. The engine passes
         // StrictModeEnabled to the compiler for the DOCUMENT's scripts, and not for this one — so a
         // strict-mode page gets strict scripts and a sloppy eval, which reads like an inconsistency
         // until you check the other engine. Broiler.JS does exactly the same: its PrepareSource
@@ -90,8 +86,7 @@ internal sealed class VmSourceProvider : IVmArtifactProvider
         // indirect eval evaluates a new script whose strictness comes from its own source. Forcing
         // it here would make one page behave two ways depending on which engine ran it.
         // StrictModeReachesDocumentScriptsAndNotEval pins both engines against each other.
-        return Compiled(_cache.GetOrCompile(
-            [new JsScriptUnit("main", source, SliceParseOptions.Script)], [], _request));
+        return Compiled(_cache.GetOrCompile([unit], [], _request));
     }
 
     /// <summary>Answers a request for the module one specifier names from one referrer.</summary>

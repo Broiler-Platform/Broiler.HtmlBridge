@@ -124,11 +124,6 @@ public sealed partial class DomBridge
         realm.SetProperty(realm.Global, name, value);
     }
 
-    /// <summary>The event interface objects the window republishes from the global, in the order
-    /// they are defined — define order fixes own-property enumeration order.</summary>
-    private static readonly string[] EventConstructorNames =
-        ["Event", "CustomEvent", "MouseEvent", "FocusEvent", "KeyboardEvent", "WheelEvent", "UIEvent", "InputEvent"];
-
     /// <summary>The timer functions exposed unqualified, mirroring their <c>window.*</c>
     /// counterparts, in the order they are set.</summary>
     private static readonly string[] TimerGlobalNames =
@@ -139,9 +134,11 @@ public sealed partial class DomBridge
         var realm = Realm;
         var global = realm.Global;
 
+        // The event interface objects (Event, CustomEvent, …) need no republishing: `window` IS the
+        // global here, and the engine already defines them on it as non-configurable. The loop that
+        // once redefined each as itself was always refused; JSeal 0.1.0-preview.2 reports a refused
+        // define instead of ignoring it.
         realm.SetProperty(global, "window", window);
-        foreach (var name in EventConstructorNames)
-            realm.DefineValue(window, name, realm.GetProperty(global, name));
 
         // window.parent — uses the realm's global scope so that parent.X()
         // resolves user-defined globals (e.g. parent.notify() from sub-documents).
@@ -342,7 +339,10 @@ public sealed partial class DomBridge
             return instance;
         }, 1);
 
-        realm.DefineValue(performanceObserver, "prototype", observerPrototype, JsPropertyFlags.NonEnumerable);
+        // A constructor's own `prototype` is writable but not configurable, so it is assigned rather
+        // than redefined: a define asking for configurable is refused, and JSeal 0.1.0-preview.2
+        // reports that refusal where preview.1 silently kept the engine's default prototype.
+        realm.SetProperty(performanceObserver, "prototype", observerPrototype);
 
         // Feature detection reads this before observing, and an observer that claims to support
         // nothing is the honest answer for a capture that reports no entries.
