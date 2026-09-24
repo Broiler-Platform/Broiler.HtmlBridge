@@ -27,6 +27,12 @@ internal interface IScriptInsertionHost : Features.IPageUrlHost
     ContentSecurityPolicy? Csp { get; }
 
     /// <summary>
+    /// The profile network and the watched document's request context an external script is fetched
+    /// with, or <see langword="null"/> when the bridge has no profile transport (the fallback client).
+    /// </summary>
+    ScriptFetchContext? ScriptFetch { get; }
+
+    /// <summary>
     /// True while the bridge is mutating the live tree itself (serialize/render bake, re-parse).
     /// Those insertions are an implementation detail and must not run script — the same guard
     /// <c>MutationObserver</c> delivery uses.

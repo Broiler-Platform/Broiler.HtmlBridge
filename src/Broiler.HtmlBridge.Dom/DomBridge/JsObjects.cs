@@ -387,12 +387,112 @@ public sealed partial class DomBridge
         // distinguishing the two with `=== null` would read the wrong branch.
         node is DomDocument or DomDocumentType ? null : node.TextContent;
 
+    /// <summary>
+    /// Whether the frame <paramref name="element"/> holds is cross-origin to the script asking, which
+    /// withholds its <c>contentDocument</c>, its <c>contentWindow</c> and its place in
+    /// <c>window.frames</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An <c>http(s)</c> <c>src</c> of another origin than the <em>asking</em> document's answers at
+    /// once, without loading anything. The asking document is the one whose script is running -- a
+    /// frame's, when a frame's own script reaches its child -- and never simply the top page: judged
+    /// against the page, a cross-origin frame's same-origin child was withheld from its own parent.
+    /// </para>
+    /// <para>
+    /// Anything else is not the answer by itself: the frame's document is where its response came
+    /// from, and a redirect can take it to another origin, whose <c>document.cookie</c> and whose
+    /// identity as a request client the page would otherwise be handed. So the frame is loaded --
+    /// through its window, which is how a frame's document is first built everywhere else, so that
+    /// what its scripts declare is published on that window -- and its document's own origin judged
+    /// (<see cref="IsFrameDocumentCrossOrigin"/>).
+    /// </para>
+    /// </remarks>
     private bool IsCurrentIframeCrossOrigin(DomElement element)
     {
-        if (HasAttr(element, "srcdoc"))
-            return false;
+        if (!HasAttr(element, "srcdoc") &&
+            TryGetAttribute(element, "src", out var src) &&
+            Internal.Scripting.UrlResolver.Resolve(src, GetInheritedSubDocumentBaseUrl(element)) is { } target &&
+            (target.Scheme == Uri.UriSchemeHttp || target.Scheme == Uri.UriSchemeHttps) &&
+            CurrentScriptDocumentContext().Origin is { IsOpaque: false } caller &&
+            !Broiler.Net.Sites.Origin.FromUrl(target).IsSameOrigin(caller))
+        {
+            return true;
+        }
 
-        var iframeSrcValue = TryGetAttribute(element, "src", out var srcVal) ? srcVal : string.Empty;
-        return IsCrossOrigin(iframeSrcValue, _pageUrl);
+        try
+        {
+            _subWindows.GetOrCreate(element);
+        }
+        catch (Exception ex)
+        {
+            RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.IsCurrentIframeCrossOrigin",
+                $"Frame failed to load: {ex.Message}", ex);
+            return true;
+        }
+
+        return IsFrameDocumentCrossOrigin(element);
+    }
+
+    /// <summary>
+    /// Whether the document loaded into the frame or object <paramref name="container"/> has a
+    /// different origin from the document whose script is running. The caller loads it first.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both origins come from the documents' request contexts, which the bridge derives from the URL
+    /// each response was actually served from, never from an attribute or from anything page script can
+    /// set.
+    /// </para>
+    /// <para>
+    /// <b>An opaque origin is same-origin with nothing but itself.</b> A frame sandboxed without
+    /// <c>allow-same-origin</c>, a <c>file:</c> frame, an error document: each has a fresh opaque
+    /// origin, and only a script running in that very document shares it. Treating an opaque side as
+    /// "not cross-origin" handed the embedder a sandboxed frame's document whatever it had loaded --
+    /// including a document a same-origin <c>src</c> had redirected to another site -- so adding
+    /// <c>sandbox</c> widened access instead of narrowing it. The one opaque document still judged by
+    /// its creator's origin is an unsandboxed <c>data:</c> one (<see cref="AccessOrigin"/>).
+    /// </para>
+    /// </remarks>
+    private bool IsFrameDocumentCrossOrigin(DomElement container) =>
+        AreCrossOriginForAccess(FrameDocumentContext(container), CurrentScriptDocumentContext());
+
+    /// <summary>
+    /// Whether script of the document <paramref name="second"/> is refused access to the document
+    /// <paramref name="first"/>: they are not one document and their access origins differ.
+    /// </summary>
+    internal bool AreCrossOriginForAccess(Broiler.Net.Http.DocumentRequestContext first, Broiler.Net.Http.DocumentRequestContext second) =>
+        !ReferenceEquals(first, second) && !AccessOrigin(first).IsSameOrigin(AccessOrigin(second));
+
+    /// <summary>
+    /// The origin a document is judged by when another document's script reaches into it: its own,
+    /// except that an unsandboxed <c>data:</c> document is judged by its creator's.
+    /// </summary>
+    /// <remarks>
+    /// A <c>data:</c> frame's origin is opaque, and HTML makes it cross-origin to the page that embeds
+    /// it. This bridge has always let a page read the <c>data:</c> frames it builds -- their markup is
+    /// the page's own, carried in the URL it wrote -- and much of its behaviour is exercised that way,
+    /// so that stays: the frame's cookies, its messages' origin and its requests keep the opaque
+    /// origin, only reading its DOM does not. A sandboxed <c>data:</c> frame gets no such allowance.
+    /// </remarks>
+    private Broiler.Net.Sites.Origin AccessOrigin(Broiler.Net.Http.DocumentRequestContext context) =>
+        context.Parent is { } creator &&
+        string.Equals(context.DocumentUrl.Scheme, "data", StringComparison.OrdinalIgnoreCase) &&
+        !_sandboxedDocumentContexts.Contains(context)
+            ? AccessOrigin(creator)
+            : context.Origin;
+
+    /// <summary>
+    /// Whether the document shown in <paramref name="window"/> -- the top window's or a frame's -- has a
+    /// different origin from the document whose script is running: what gates reading a window a
+    /// script was handed without asking a container for it (<c>MessageEvent.source</c>, a reference
+    /// kept from before its frame navigated).
+    /// </summary>
+    internal bool IsWindowCrossOriginToCurrentScript(JsValue window)
+    {
+        var shown = window.IsObject && _browsingContexts.TryGetSubWindowContainer(window, out var container)
+            ? FrameDocumentContext(container)
+            : TopDocumentContext;
+        return AreCrossOriginForAccess(shown, CurrentScriptDocumentContext());
     }
 }

@@ -24,6 +24,13 @@ internal interface ISubWindowHost : IRealmHost, ISubDocumentFactoryHost
     /// the sub-document is not itself nested), or a non-object when the bridge has no window.</summary>
     JsValue MainWindow { get; }
 
+    /// <summary>
+    /// Whether the document <paramref name="window"/> shows has a different origin from the document
+    /// whose script is running, judged from the documents' request contexts. The caller loads the
+    /// window's document first.
+    /// </summary>
+    bool IsWindowCrossOriginToCurrentScript(JsValue window);
+
     /// <summary>The severed content document of a nested-browsing-context container, or <c>null</c>.</summary>
     DomDocument? GetContentDocument(DomElement container);
 

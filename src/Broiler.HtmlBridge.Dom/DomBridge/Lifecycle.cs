@@ -610,8 +610,9 @@ public sealed partial class DomBridge
             var childTag = child.TagName?.ToLowerInvariant();
             if (childTag is "iframe" or "frame")
             {
-                var src = TryGetAttribute(child, "src", out var srcValue) ? srcValue : string.Empty;
-                if (!IsCrossOrigin(src, _pageUrl))
+                // Judged by the document the frame holds, not only by its src: a same-origin src that
+                // redirected elsewhere is a cross-origin frame (IsCurrentIframeCrossOrigin).
+                if (!IsCurrentIframeCrossOrigin(child))
                     frames.Add(_subWindows.GetOrCreate(child));
             }
         }

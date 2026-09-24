@@ -93,14 +93,24 @@ internal static class TimerBinding
     /// when <c>IsFunction</c> holds. Narrowing the value to a CLR <see langword="null"/> on the way
     /// through would leave the test at the other end unable to tell it from any other non-function.
     /// </para>
+    /// <para>
+    /// A frame's callback also belongs to the frame's document at the time it was registered: if the
+    /// frame has since navigated to another document, it does not run (see
+    /// <see cref="WindowContextManager.LivenessOf"/>). The window would otherwise resolve to the new
+    /// document, and the old document's timer would fire as the new one.
+    /// </para>
     /// </remarks>
     private static JsValue BindToRegisteringContext(IJsRealm realm, WindowContextManager windows, JsValue callback)
     {
         if (!callback.IsFunction || windows.ResolveCurrentSubWindow() is not { } frameWindow)
             return callback;
 
+        var isLive = windows.LivenessOf(frameWindow);
         return realm.NewMethod("callback", (in call) =>
         {
+            if (isLive is not null && !isLive())
+                return JsValue.Undefined;
+
             // A queued callback is invoked with at most one real argument — a rAF timestamp, an
             // IdleDeadline — and a call frame cannot be captured by the closure below, so the call is
             // read out into locals here. `This` is already `undefined` rather than absent when the

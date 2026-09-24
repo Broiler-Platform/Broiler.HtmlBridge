@@ -140,7 +140,13 @@ public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
         RenderLogger.LogDebug(LogCategory.JavaScript, FormSubmitLogContext,
             $"form.submit() requested for form {index} to {action}; the host builds the data set and decides whether to follow it");
 
-        RequestNavigation(new NavigationRequest(action, NavigationKind.FormSubmit) { FormIndex = index });
+        // The form's own document starts a form submission (HTML "submit": the form's node document
+        // is the source document), whoever called submit().
+        RequestNavigation(new NavigationRequest(action, NavigationKind.FormSubmit)
+        {
+            FormIndex = index,
+            Initiator = DocumentContextFor(form),
+        });
     }
 
     /// <summary>

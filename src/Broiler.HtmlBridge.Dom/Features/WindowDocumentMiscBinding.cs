@@ -9,20 +9,19 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// genuinely independent one-offs (each ≤10 lines) that do not individually warrant their own feature
 /// module, so they are collected here — <b>not</b> a god-object grab-bag: there is no shared mutable
 /// state, and the two that touch the bridge do so only through the narrow
-/// <see cref="IWindowDocumentMiscHost"/> contract; the rest are stateless (or take a by-ref store):
+/// <see cref="IWindowDocumentMiscHost"/> contract; the rest are stateless:
 /// <list type="bullet">
 ///   <item><c>window.alert</c> — logs to debug output (headless; no UI dialog).</item>
 ///   <item><c>performance.now</c> — milliseconds since the performance time origin.</item>
 ///   <item><c>document.domain</c> / <c>document.lastModified</c> / <c>document.hasFocus</c> getters.</item>
 ///   <item><c>window.visualViewport.scale</c> setter.</item>
 ///   <item><c>document.contentType</c> getter (XHTML vs HTML by page URL).</item>
-///   <item><c>document.cookie</c> setter (simplified append; the getter lives elsewhere).</item>
 /// </list>
 /// </summary>
 /// <remarks>
 /// Every one of these reads its arguments off a <see cref="JsCall"/>, and its installer in
-/// <c>DomBridge/Registration/</c> mints it through the realm. The three reads that coerce — the alert
-/// message, the assigned visual-viewport scale and the cookie assignment — go through the realm's
+/// <c>DomBridge/Registration/</c> mints it through the realm. The two reads that coerce — the alert
+/// message and the assigned visual-viewport scale — go through the realm's
 /// <c>ToJsString</c>/<c>ToNumber</c> rather than the handle's own rendering, because each is the
 /// observable ECMAScript coercion of a value the page supplied and may run its <c>toString</c> or
 /// <c>valueOf</c>. That is exactly what the engine's <c>ToString()</c>/<c>DoubleValue</c> they replace
@@ -115,20 +114,5 @@ internal static class WindowDocumentMiscBinding
             || url.Contains("application/xhtml+xml", StringComparison.OrdinalIgnoreCase))
             return JsValue.String("application/xhtml+xml");
         return JsValue.String("text/html");
-    }
-
-    public static JsValue SetCookie(ref string? cookieStore, in JsCall call)
-    {
-        if (call.Length > 0)
-        {
-            var val = call.Realm.ToJsString(call[0]);
-            // Simplified: just append the cookie value (real browsers parse/update).
-            if (!string.IsNullOrEmpty(cookieStore))
-                cookieStore += "; " + val;
-            else
-                cookieStore = val;
-        }
-
-        return JsValue.Undefined;
     }
 }

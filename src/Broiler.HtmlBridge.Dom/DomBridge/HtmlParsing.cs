@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Broiler.Dom;
 using Broiler.Dom.Html;
 using static Broiler.HtmlBridge.DomBridgeUtils;
+using Broiler.Net.Http;
 
 namespace Broiler.HtmlBridge;
 
@@ -187,9 +188,22 @@ public sealed partial class DomBridge
     /// A re-parse starts a second scan without waiting for the first. The two share one
     /// <c>ResourceLoader</c>, so the worst case is that the outgoing document's sheets are requested
     /// once more than they would otherwise have been; the prefetcher collapses duplicate URLs onto
-    /// one request, so in practice the second scan's sink finds the entries already there.
+    /// one request, so in practice the second scan's sink finds the entries already there. A re-attach
+    /// to a new document (<c>Attach</c>) is different: it cancels the previous document's requests and
+    /// starts a fresh prefetcher before this runs.
+    /// <para>
+    /// Each request is sent for this document, captured here before the worker starts, as the style
+    /// request the link itself makes: the mode and credentials its <c>crossorigin</c> attribute implies,
+    /// so the link's own load consumes it and a <c>crossorigin</c> link is never also fetched with
+    /// credentials it did not ask for.
+    /// </para>
     /// </remarks>
-    private void StartSpeculativePreloadScan(string html) =>
+    private void StartSpeculativePreloadScan(string html)
+    {
+        var document = TopDocumentContext;
+        // The mode the parse below gives the document, from the same markup: a prefetch is checked
+        // against it as the link's own load will be.
+        var quirksMode = Layout.DocumentModeContext.IsQuirksHtml(html);
         _preloadScan = SpeculativePreloadScan.Start(
             html,
             _pageUrl,
@@ -213,8 +227,30 @@ public sealed partial class DomBridge
                 // a resource the document never reaches already costs. A lock here would be
                 // synchronising the main thread's teardown against a speculation.
                 if (!_disposed)
-                    _resources.Prefetch(result.ResolvedUrls(PreloadKind.StyleSheet), minimumToOverlap: 1);
+                    _resources.Prefetch(
+                        [.. result.Candidates
+                            .Where(candidate => candidate.Kind == PreloadKind.StyleSheet && candidate.ResolvedUrl is not null)
+                            .Select(candidate => (candidate.ResolvedUrl!, SpeculativeStyleSheetRequest(document, candidate, quirksMode)))],
+                        minimumToOverlap: 1);
             });
+    }
+
+    /// <summary>
+    /// The request a speculatively found <c>&lt;link rel="stylesheet"&gt;</c> is prefetched with: what
+    /// <see cref="LinkStyleSheetRequest"/> builds for the link — the mode and credentials of its
+    /// <c>crossorigin</c> attribute, the same <c>style-src</c> check with the link's nonce for every
+    /// redirect, and the document's mode for the check on the response's type.
+    /// </summary>
+    private Dom.Runtime.StyleSheetRequest SpeculativeStyleSheetRequest(
+        DocumentRequestContext document, PreloadCandidate candidate, bool quirksMode)
+    {
+        var nonce = candidate.Nonce;
+        var context = RequestContext.Subresource(document, RequestDestination.Style, CorsSettings.Parse(candidate.CrossOrigin)) with
+        {
+            HopPolicy = (url, _) => IsStyleFetchAllowedByCsp(url.AbsoluteUri, nonce),
+        };
+        return new Dom.Runtime.StyleSheetRequest(context, quirksMode);
+    }
 }
 
 /// <summary>

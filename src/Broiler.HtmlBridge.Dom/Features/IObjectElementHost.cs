@@ -21,4 +21,11 @@ internal interface IObjectElementHost : IPageUrlHost, ISubDocumentFactoryHost
 {
     void InvalidateCachedSubDocument(DomElement containerElement);
     bool IsObjectLoadFailed(DomElement objectElement);
+
+    /// <summary>
+    /// Whether the document the object holds — loaded if it is not yet, after any redirect — is of
+    /// another origin than the document whose script asks. The <c>data</c> attribute alone cannot say:
+    /// a same-origin URL may redirect elsewhere.
+    /// </summary>
+    bool IsFrameDocumentCrossOrigin(DomElement objectElement);
 }

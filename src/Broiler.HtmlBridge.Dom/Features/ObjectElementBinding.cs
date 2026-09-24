@@ -62,7 +62,8 @@ internal static class ObjectElementBinding
         // Check if the resource actually loaded successfully
         if (host.IsObjectLoadFailed(element))
             return JsValue.Null;
-        return host.GetOrCreateSubDocument(element);
+        var document = host.GetOrCreateSubDocument(element);
+        return host.IsFrameDocumentCrossOrigin(element) ? JsValue.Null : document;
     }
 
     /// <summary><c>&lt;object&gt;.getSVGDocument()</c> — the same-origin sub-document, with no
@@ -72,6 +73,7 @@ internal static class ObjectElementBinding
         var dataUrl = DomBridgeUtils.TryGetAttribute(element, "data", out var d) ? d : string.Empty;
         if (DomBridgeUtils.IsCrossOrigin(dataUrl, host.PageUrl))
             return JsValue.Null;
-        return host.GetOrCreateSubDocument(element);
+        var document = host.GetOrCreateSubDocument(element);
+        return host.IsFrameDocumentCrossOrigin(element) ? JsValue.Null : document;
     }
 }

@@ -27,8 +27,9 @@ namespace Broiler.HtmlBridge;
 public sealed partial class DomBridge : IDomBridgeRuntime
 {
     // Sub-resource HTTP and the local base path live in ResourceLoader, the single host resource
-    // loader. Feature callbacks ask the loader instead of reaching a static HttpClient.
-    private readonly Dom.Runtime.ResourceLoader _resources = new();
+    // loader. Feature callbacks ask the loader instead of reaching a static HttpClient. Built in the
+    // constructor, from the session's profile transport.
+    private readonly Dom.Runtime.ResourceLoader _resources;
     private Dom.Features.WorkerBinding? _workers;
     // The whole MutationObserver feature — the observer registry (MutationObserverHub), the
     // observe()/disconnect() registration and childList/attribute/characterData record delivery —
@@ -271,6 +272,12 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     public DomBridge(DomBridgeSessionOptions? sessionOptions)
     {
         _layoutViewFactory = sessionOptions?.LayoutViewFactory;
+        // The profile's network services. The loader cancels what the document still has in flight
+        // when the bridge tears down; the transport and cookie access are the host's and outlive it.
+        _resources = new Dom.Runtime.ResourceLoader(sessionOptions?.Network);
+        _disposal.Add(_resources);
+        _documentContextFactory = sessionOptions?.DocumentContextFactory;
+        _injectedCookieAccess = sessionOptions?.Cookies;
         // Null until Attach adopts one, and null again after teardown — states in which no page
         // callback can be queued, because only script queues one and script needs that realm.
         _eventLoop = new Dom.Runtime.BrowserEventLoop(() => _realm);
@@ -451,6 +458,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     public void Attach(JSContext context, string html)
     {
         ThrowIfDisposed();
+        // No URL: the document is about:blank to the network — cookie-averse, with an opaque origin.
+        BeginDocumentContext(documentUrl: null, context as BridgeModuleContext);
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(
             Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.ParseHtml))
             ParseHtml(html);
@@ -485,6 +494,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         {
             _pageUrl = url;
         }
+        // Before the parse: the speculative preload scan it starts sends requests for this document.
+        BeginDocumentContext(uri, context as BridgeModuleContext);
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(
             Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.ParseHtml))
             ParseHtml(html);

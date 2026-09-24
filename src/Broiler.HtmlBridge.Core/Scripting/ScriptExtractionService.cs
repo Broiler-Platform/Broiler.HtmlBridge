@@ -3,6 +3,7 @@ using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Internal.Scripting;
+using Broiler.Net.Http;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -16,7 +17,7 @@ namespace Broiler.HtmlBridge;
 /// Extracts the contents of <c>&lt;script&gt;</c> tags from HTML using the shared
 /// <c>Broiler.Dom.Html</c> tokenizer.  Inline scripts and <c>data:</c> URI scripts are
 /// returned; external <c>src</c> references (http/https/file) are skipped by <see cref="Extract"/> but
-/// resolved and fetched by <see cref="ExtractAll"/>.
+/// resolved and fetched by <see cref="ExtractAll(string, string?, ContentSecurityPolicy?, ScriptFetchContext?)"/>.
 /// </summary>
 /// <remarks>
 /// Discovery is parser-backed: the tokenizer treats <c>&lt;script&gt;</c> as a raw-text element, so a
@@ -29,22 +30,34 @@ public static partial class ScriptExtractionService
 {
     private static readonly Regex WhitespacePattern = WhitespacePatternRegex();
 
+    /// <summary>The budget for one external script, through the transport or the fallback client.</summary>
+    private static readonly TimeSpan ScriptFetchTimeout = TimeSpan.FromSeconds(30);
+
     /// <summary>
-    /// Shared <see cref="HttpClient"/> for fetching external scripts.
+    /// The fallback <see cref="HttpClient"/> for external scripts fetched without a
+    /// <see cref="ScriptFetchContext"/> — a host with no profile network (tools, test runners).
     /// A static singleton is intentional — Microsoft recommends reusing
     /// <see cref="HttpClient"/> instances to benefit from connection pooling
     /// and avoid socket exhaustion.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// <b>No cookies.</b> A default handler keeps an automatic, process-wide cookie jar: every
+    /// <c>Set-Cookie</c> any page's script response carried was replayed to every later script request
+    /// from any document, a jar no profile owned and nothing could clear. Cookies belong to the profile
+    /// transport; without one there are none. Redirects are still followed automatically.
+    /// </para>
+    /// <para>
     /// Identified, like every other loader: <see cref="HttpClient"/> sends no <c>User-Agent</c> of its
     /// own, and a host whose policy rejects an unidentified request rejects the script rather than
     /// serving a plainer one. mediawiki.org's <c>load.php?modules=startup</c> — the bootstrap that
     /// loads every other module on the page — answered <c>403 Forbidden</c> for exactly that reason,
     /// after the document and its stylesheets had already been fixed.
-    /// See <see cref="Broiler.Layout.Net.BroilerUserAgent"/>.
+    /// See <see cref="BroilerUserAgent"/>.
+    /// </para>
     /// </remarks>
     private static readonly HttpClient SharedHttpClient =
-        Layout.Net.BroilerUserAgent.Apply(new HttpClient { Timeout = TimeSpan.FromSeconds(30) });
+        BroilerUserAgent.Apply(new HttpClient(new HttpClientHandler { UseCookies = false }) { Timeout = ScriptFetchTimeout });
 
     private static string? GetNonce(IReadOnlyDictionary<string, string> attrs) =>
         attrs.TryGetValue("nonce", out var nonce) ? nonce : null;
@@ -75,9 +88,13 @@ public static partial class ScriptExtractionService
     /// pass the CSP external check, then is decoded / fetched. Returns <c>null</c> when blocked, empty,
     /// or unresolvable.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="request"/> is how an external source is fetched: through the profile transport
+    /// for the document, or, when <see langword="null"/>, through the fallback client.
+    /// </remarks>
     private static string? ResolveScriptSource(
         ScriptSourceKind kind, string? url, string rawContent, string? nonce, ContentSecurityPolicySet csp, string? pageUrl,
-        SubResourcePrefetcher? prefetcher = null)
+        RequestPrefetcher<ScriptRequest?>? prefetcher = null, ScriptRequest? request = null)
     {
         switch (kind)
         {
@@ -94,7 +111,7 @@ public static partial class ScriptExtractionService
             case ScriptSourceKind.External:
                 if (!csp.AllowsExternalScript(url!, pageUrl, nonce))
                     return null;
-                var fetched = FetchExternalScript(url!, pageUrl, prefetcher);
+                var fetched = FetchExternalScript(url!, pageUrl, prefetcher, request);
                 return string.IsNullOrEmpty(fetched) ? null : fetched;
 
             default:
@@ -105,7 +122,7 @@ public static partial class ScriptExtractionService
     /// <summary>
     /// The authorised classic scripts in <paramref name="html"/> as program text, in document order:
     /// inline bodies and <c>data:</c> URI sources admitted by the policy the markup itself declares.
-    /// Module scripts and external <c>src</c> references are skipped — <see cref="ExtractAll"/> is the
+    /// Module scripts and external <c>src</c> references are skipped — <see cref="ExtractAll(string, string?, ContentSecurityPolicy?)"/> is the
     /// entry point that resolves those, separates the defer/async buckets and takes a delivered policy.
     /// </summary>
     public static IReadOnlyList<string> Extract(string html)
@@ -178,6 +195,32 @@ public static partial class ScriptExtractionService
         string html,
         string? pageUrl = null,
         ContentSecurityPolicy? deliveredPolicy = null)
+        => ExtractAll(html, pageUrl, deliveredPolicy, fetch: null);
+
+    /// <summary>
+    /// As <see cref="ExtractAll(string, string?, ContentSecurityPolicy?)"/>, fetching every external
+    /// classic script and module root through the profile network in <paramref name="fetch"/>.
+    /// </summary>
+    /// <param name="html">The document's markup.</param>
+    /// <param name="pageUrl">The document's URL, which relative sources resolve against.</param>
+    /// <param name="deliveredPolicy">
+    /// A policy this document is bound by that its own markup did not declare; see
+    /// <see cref="ExtractAll(string, string?, ContentSecurityPolicy?)"/>.
+    /// </param>
+    /// <param name="fetch">
+    /// The transport, the document the scripts belong to and its cancellation, or
+    /// <see langword="null"/> for the fallback client (no cookies). With a context, a classic script is
+    /// requested as HTML's <c>crossorigin</c> attribute says (no attribute: no-cors, credentials
+    /// included); a module root is a CORS request with <c>same-origin</c> credentials, or
+    /// <c>include</c> for <c>crossorigin="use-credentials"</c>. The Content-Security-Policy check a
+    /// script passed is repeated for every redirect of its request. Speculative prefetches capture the
+    /// request when they are queued.
+    /// </param>
+    public static ScriptExtractionResult ExtractAll(
+        string html,
+        string? pageUrl,
+        ContentSecurityPolicy? deliveredPolicy,
+        ScriptFetchContext? fetch)
     {
         var scripts = new List<string>();
         var deferredScripts = new List<string>();
@@ -191,7 +234,7 @@ public static partial class ScriptExtractionService
         // Prefetch pass: every external script this document will fetch is requested now,
         // concurrently and bounded per host. The walk below resolves each script in document order
         // and does not start each round trip itself.
-        var prefetcher = CreateScriptPrefetcher(html, pageUrl, csp);
+        var prefetcher = CreateScriptPrefetcher(html, pageUrl, csp, fetch);
 
         var documentOrder = 0;
         foreach (var tag in HtmlScriptScanner.EnumerateScripts(html))
@@ -207,12 +250,16 @@ public static partial class ScriptExtractionService
             var isModule = IsModule(tag.Attributes);
             var isDefer = tag.Attributes.ContainsKey("defer");
             var isAsync = tag.Attributes.ContainsKey("async");
+            var crossOrigin = GetCrossOrigin(tag.Attributes);
 
             var src = GetSrc(tag.Attributes);
             var kind = src == null ? ScriptSourceKind.Inline
                 : src.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ? ScriptSourceKind.DataUri
                 : ScriptSourceKind.External;
             var url = kind == ScriptSourceKind.Inline ? null : src;
+            var request = kind == ScriptSourceKind.External
+                ? ScriptRequestFor(fetch, isModule, crossOrigin, csp, pageUrl, nonce)
+                : null;
 
             // Record every recognised module in the module map so it is not silently dropped, and
             // collect the authorised top-level modules as roots of the import graph. Inline
@@ -228,7 +275,7 @@ public static partial class ScriptExtractionService
                 // per-occurrence key, so they never dedup; a repeated src module is recorded once.
                 if (kind == ScriptSourceKind.Inline || !moduleMap.TryGet(moduleKey, out _))
                 {
-                    var moduleSource = ResolveScriptSource(kind, url, tag.RawContent, nonce, csp, pageUrl, prefetcher);
+                    var moduleSource = ResolveScriptSource(kind, url, tag.RawContent, nonce, csp, pageUrl, prefetcher, request);
                     moduleMap.Add(new ModuleMapEntry(documentOrder, kind, moduleKey, url, moduleSource, IsExecutable: moduleSource != null));
 
                     if (moduleSource != null)
@@ -243,7 +290,7 @@ public static partial class ScriptExtractionService
                         };
                         var baseUrl = kind == ScriptSourceKind.Inline ? pageUrl : graphKey;
                         if (moduleEntryKeys.Add(graphKey))
-                            moduleRoots.Add(new ModuleRoot(graphKey, moduleSource, baseUrl));
+                            moduleRoots.Add(new ModuleRoot(graphKey, moduleSource, baseUrl) { CrossOrigin = crossOrigin });
                     }
                 }
             }
@@ -252,7 +299,7 @@ public static partial class ScriptExtractionService
             // the descriptor list but omitted from execution here; the module roots carry them instead.
             string? scriptContent = isModule
                 ? null
-                : ResolveScriptSource(kind, url, tag.RawContent, nonce, csp, pageUrl, prefetcher);
+                : ResolveScriptSource(kind, url, tag.RawContent, nonce, csp, pageUrl, prefetcher, request);
 
             descriptors.Add(new ScriptDescriptor(
                 DocumentOrder: documentOrder++,
@@ -324,16 +371,28 @@ public static partial class ScriptExtractionService
     /// Relative URLs are resolved against the page <paramref name="pageUrl"/>.
     /// Returns the script text content, or <c>null</c> on failure.
     /// </summary>
+    /// <remarks>
+    /// This overload has no document and no profile, so it fetches through the fallback client, which
+    /// sends and keeps no cookies.
+    /// </remarks>
     public static string? FetchExternalScript(string scriptUrl, string? pageUrl) =>
-        FetchExternalScript(scriptUrl, pageUrl, prefetcher: null);
+        FetchExternalScript(scriptUrl, pageUrl, prefetcher: null, request: null);
 
     /// <summary>
-    /// The same fetch, but consuming <paramref name="prefetcher"/> when one is supplied. The URL
-    /// resolution, the ordering, and the value the caller gets back are unchanged — the only
-    /// difference is that the request may already have been in flight since the document was
-    /// scanned.
+    /// The same fetch for a script of a known document: through the profile transport when
+    /// <paramref name="request"/> is set, otherwise through the fallback client.
     /// </summary>
-    internal static string? FetchExternalScript(string scriptUrl, string? pageUrl, SubResourcePrefetcher? prefetcher)
+    internal static string? FetchExternalScript(string scriptUrl, string? pageUrl, ScriptRequest? request) =>
+        FetchExternalScript(scriptUrl, pageUrl, prefetcher: null, request);
+
+    /// <summary>
+    /// The same fetch, but consuming <paramref name="prefetcher"/> when one is supplied and its request
+    /// for the URL was issued the way <paramref name="request"/> would be. The URL resolution, the
+    /// ordering, and the value the caller gets back are unchanged — the only difference is that the
+    /// request may already have been in flight since the document was scanned.
+    /// </summary>
+    internal static string? FetchExternalScript(
+        string scriptUrl, string? pageUrl, RequestPrefetcher<ScriptRequest?>? prefetcher, ScriptRequest? request)
     {
         try
         {
@@ -342,9 +401,9 @@ public static partial class ScriptExtractionService
                 return null;
 
             var resolvedUrl = resolvedUri.AbsoluteUri;
-            return prefetcher is not null
-                ? prefetcher.Consume(resolvedUrl)
-                : FetchResolvedScript(resolvedUrl);
+            return prefetcher is not null && prefetcher.TryConsume(resolvedUrl, request, out var prefetched)
+                ? prefetched
+                : FetchResolvedScript(resolvedUrl, request, pageUrl);
         }
         catch (Exception ex)
         {
@@ -358,7 +417,10 @@ public static partial class ScriptExtractionService
     /// Fetches an already-resolved absolute script URL. This is the blocking primitive: it runs
     /// inline at the call site when there is no prefetcher, and on a prefetch worker when there is.
     /// </summary>
-    private static string? FetchResolvedScript(string resolvedUrl)
+    /// <param name="resolvedUrl">The absolute script URL.</param>
+    /// <param name="request">The request as the requesting document makes it, or null for the fallback client.</param>
+    /// <param name="pageUrl">The requesting document's URL when there is no <paramref name="request"/>.</param>
+    private static string? FetchResolvedScript(string resolvedUrl, ScriptRequest? request, string? pageUrl)
     {
         if (!Uri.TryCreate(resolvedUrl, UriKind.Absolute, out var uri))
             return null;
@@ -369,21 +431,40 @@ public static partial class ScriptExtractionService
         var attempt = ResourceTrace.Begin(ResourceTraceKind.Script, resolvedUrl);
         try
         {
-            // Handle file:// URLs — read from local filesystem
+            // Handle file:// URLs — read from local filesystem, for a file: document only
+            // (LocalFileAccess): an http(s) page must not run a local script as its own, nor name a
+            // UNC path that Windows would open an SMB session to.
             if (uri.Scheme.Equals("file", StringComparison.OrdinalIgnoreCase))
             {
+                var allowed = request is { } fileRequest
+                    ? LocalFileAccess.AllowedFor(fileRequest.Fetch.Document.DocumentUrl)
+                    : LocalFileAccess.AllowedFor(pageUrl);
+                if (!allowed)
+                {
+                    RenderLogger.LogWarning(LogCategory.JavaScript, "ScriptExtractor.FetchExternalScript",
+                        $"Refused local script '{resolvedUrl}' for a document that is not a file: document.");
+                    attempt.Completed(null);
+                    return null;
+                }
+
                 var path = uri.LocalPath;
                 var fileContent = File.Exists(path) ? File.ReadAllText(path) : null;
                 attempt.Completed(fileContent);
                 return fileContent;
             }
 
-            // Synchronous HTTP fetch.  ConfigureAwait(false) prevents
-            // deadlocks when the caller is on a UI dispatcher.
-            var content = SharedHttpClient.GetStringAsync(resolvedUrl)
-                .ConfigureAwait(false)
-                .GetAwaiter()
-                .GetResult();
+            // Synchronous HTTP fetch: through the profile transport for the document when there is
+            // one, which sends and stores its cookies per hop, otherwise through the cookie-less
+            // fallback client. ConfigureAwait(false) prevents deadlocks when the caller is on a UI
+            // dispatcher; the transport's synchronous Send never captures a context either.
+            var content = request is { } scriptRequest
+                ? BridgeTransport.GetText(
+                    scriptRequest.Fetch.Transport, uri, scriptRequest.Context, ScriptFetchTimeout,
+                    scriptRequest.Fetch.CancellationToken)
+                : SharedHttpClient.GetStringAsync(resolvedUrl)
+                    .ConfigureAwait(false)
+                    .GetAwaiter()
+                    .GetResult();
             attempt.Completed(content);
             return content;
         }
@@ -409,13 +490,20 @@ public static partial class ScriptExtractionService
     /// A document with fewer than two external scripts gets no prefetcher: there is no round trip
     /// to overlap, and the sequential path is then bit-for-bit the code that ran before.
     /// </para>
+    /// <para>
+    /// Each prefetch carries the request its script will be fetched with, built here from the same
+    /// <paramref name="fetch"/> context, so the speculation sends the cookies and credentials mode the
+    /// document-order fetch would. A script whose consuming request differs from the one in flight
+    /// (the same URL as a classic script and as a module) is fetched again by its consumer.
+    /// </para>
     /// </remarks>
-    internal static SubResourcePrefetcher? CreateScriptPrefetcher(
+    internal static RequestPrefetcher<ScriptRequest?>? CreateScriptPrefetcher(
         string html,
         string? pageUrl,
-        ContentSecurityPolicySet csp)
+        ContentSecurityPolicySet csp,
+        ScriptFetchContext? fetch = null)
     {
-        var urls = new List<string>();
+        var requests = new List<(string Url, ScriptRequest? Request)>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var tag in HtmlScriptScanner.EnumerateScripts(html))
@@ -430,20 +518,36 @@ public static partial class ScriptExtractionService
             if (src is null || src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (!csp.AllowsExternalScript(src, pageUrl, GetNonce(tag.Attributes)))
+            var nonce = GetNonce(tag.Attributes);
+            if (!csp.AllowsExternalScript(src, pageUrl, nonce))
                 continue;
 
             if (UrlResolver.Resolve(src, pageUrl) is { } resolved && seen.Add(resolved.AbsoluteUri))
-                urls.Add(resolved.AbsoluteUri);
+                requests.Add((resolved.AbsoluteUri,
+                    ScriptRequestFor(fetch, IsModule(tag.Attributes), GetCrossOrigin(tag.Attributes), csp, pageUrl, nonce)));
         }
 
-        if (urls.Count < 2)
+        if (requests.Count < 2)
             return null;
 
-        var prefetcher = new SubResourcePrefetcher(FetchResolvedScript);
-        prefetcher.Prefetch(urls);
+        var prefetcher = new RequestPrefetcher<ScriptRequest?>(
+            (url, request) => FetchResolvedScript(url, request, pageUrl), ScriptRequest.Same);
+        prefetcher.Prefetch(requests);
         return prefetcher;
     }
+
+    /// <summary>
+    /// The request an external script of this document is fetched with, or <see langword="null"/>
+    /// without a fetch context. Its host policy is the Content-Security-Policy check the script's URL
+    /// passed before the fetch, applied again to every URL a redirect leads to.
+    /// </summary>
+    private static ScriptRequest? ScriptRequestFor(
+        ScriptFetchContext? fetch, bool isModule, string? crossOrigin, ContentSecurityPolicySet csp, string? pageUrl, string? nonce) =>
+        fetch?.ForScript(isModule, crossOrigin, (url, _) => csp.AllowsExternalScript(url.AbsoluteUri, pageUrl, nonce));
+
+    /// <summary>The <c>crossorigin</c> attribute's value, or <see langword="null"/> when absent.</summary>
+    private static string? GetCrossOrigin(IReadOnlyDictionary<string, string> attrs) =>
+        attrs.TryGetValue("crossorigin", out var value) ? value : null;
 
     [GeneratedRegex(@"\s+", RegexOptions.Compiled)]
     private static partial Regex WhitespacePatternRegex();

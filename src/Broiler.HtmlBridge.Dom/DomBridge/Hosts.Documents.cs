@@ -379,6 +379,8 @@ public sealed partial class DomBridge : ISubWindowHost
     // and never hands it to script, which is what the null check it replaces did.
     JsValue ISubWindowHost.MainWindow => WindowHandle;
 
+    bool ISubWindowHost.IsWindowCrossOriginToCurrentScript(JsValue window) => IsWindowCrossOriginToCurrentScript(window);
+
     DomDocument? ISubWindowHost.GetContentDocument(DomElement container) => GetContentDocument(container);
 
     DomElement? ISubWindowHost.GetFrameForContentDocument(DomNode? owningDocument) =>
@@ -504,4 +506,5 @@ public sealed partial class DomBridge : Dom.Features.IObjectElementHost
 {
     void Dom.Features.IObjectElementHost.InvalidateCachedSubDocument(DomElement containerElement) => InvalidateCachedSubDocument(containerElement);
     bool Dom.Features.IObjectElementHost.IsObjectLoadFailed(DomElement objectElement) => IsObjectLoadFailed(objectElement);
+    bool Dom.Features.IObjectElementHost.IsFrameDocumentCrossOrigin(DomElement objectElement) => IsFrameDocumentCrossOrigin(objectElement);
 }

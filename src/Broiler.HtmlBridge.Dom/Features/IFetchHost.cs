@@ -24,6 +24,32 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal interface IFetchHost : IPageUrlHost, IRealmHost
 {
     /// <summary>
+    /// The document a script's <c>fetch()</c>, <c>XMLHttpRequest</c> or <c>sendBeacon</c> is sent
+    /// for: the request's client, whose origin, site and cookies the transport uses. It is the frame
+    /// document whose script is running when the bridge can tell — a frame's scripts, timers and
+    /// message handlers run under that frame's window context — and the top document otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Read from trusted bridge state at the moment of the call, never from anything the page can
+    /// set: every document shares one realm, so the window-context switch is the only witness to
+    /// which document is asking. A promise reaction a frame queued runs outside that switch and is
+    /// attributed to the top document.
+    /// </remarks>
+    Broiler.Net.Http.DocumentRequestContext FetchClient { get; }
+
+    /// <summary>
+    /// The base URL a relative request URL resolves against, for the same document as
+    /// <see cref="FetchClient"/>: the frame's base URL for a frame's script, the page URL otherwise.
+    /// </summary>
+    string FetchBaseUrl { get; }
+
+    /// <summary>
+    /// The bytes and type of a <c>Blob</c>, or <see langword="null"/> when <paramref name="candidate"/>
+    /// is not one — what a <c>sendBeacon</c> body and its <c>Content-Type</c> are extracted from.
+    /// </summary>
+    (byte[] Bytes, string Type)? BlobContentOf(JsValue candidate);
+
+    /// <summary>
     /// A real <c>Blob</c> over <paramref name="bytes"/>, for <c>response.blob()</c>. The interface
     /// belongs to <c>BlobBinding</c>, not here — this seam exists so the fetch path hands back the
     /// same object a page's own <c>new Blob(...)</c> produces rather than a look-alike.

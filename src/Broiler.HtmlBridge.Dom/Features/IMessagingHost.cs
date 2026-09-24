@@ -66,4 +66,18 @@ internal interface IMessagingHost : IRealmHost
     /// <summary>Dispatches <paramref name="evt"/> at the top-level window (the fast path when a
     /// posted message targets the main window itself).</summary>
     void DispatchWindowEvent(JsValue evt);
+
+    /// <summary>
+    /// The origin of the document a frame's <paramref name="window"/> shows, serialized as
+    /// <c>MessageEvent.origin</c> is (<c>"null"</c> for an opaque one), taken from that document's
+    /// request context -- or <see langword="null"/> when <paramref name="window"/> is not a frame's
+    /// window. Never read from anything the frame's script can assign.
+    /// </summary>
+    string? FrameWindowOrigin(JsValue window);
+
+    /// <summary>
+    /// Whether the documents two windows show -- the top window's or frames' -- have different
+    /// origins, judged from their request contexts.
+    /// </summary>
+    bool AreWindowsCrossOrigin(JsValue first, JsValue second);
 }

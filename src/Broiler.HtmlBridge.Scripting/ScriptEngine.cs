@@ -157,12 +157,13 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
             // engine resumes continuations on the thread pool, concurrently with this thread.
             using var microTaskContext = MicroTaskSynchronizationContext.Install(MicroTasks);
             using JSContext context = moduleContext ?? new JSContext();
-            RegisterRuntimeExtensions(context);
+            RegisterRuntimeExtensions(context, forDocument: true);
             var bridge = _domBridgeFactory.Create();
             try
             {
                 bridge.Csp = Csp;
                 bridge.TaskCheckpointCallback = () => MicroTasks.Drain();
+                UseMicroTaskQueue(bridge);
 
                 if (!string.IsNullOrEmpty(url))
                     bridge.Attach(context, html, url);
@@ -354,10 +355,11 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         IDomBridgeRuntime? bridge = null;
         try
         {
-            RegisterRuntimeExtensions(context);
+            RegisterRuntimeExtensions(context, forDocument: true);
             bridge = _domBridgeFactory.Create();
             bridge.Csp = Csp;
             bridge.TaskCheckpointCallback = () => MicroTasks.Drain();
+            UseMicroTaskQueue(bridge);
 
             if (!string.IsNullOrEmpty(url))
                 bridge.Attach(context, html, url);
@@ -425,6 +427,21 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     }
 
     /// <summary>
+    /// Hands the bridge this engine's microtask queue — the one its checkpoints drain — and the engine's
+    /// side of its job queues (<see cref="EngineJobs"/>), so the jobs a frame's script queues run in the
+    /// frame's window context rather than in whichever context the engine happens to drain them in (see
+    /// <c>WindowJobPump</c>), and keep their place among the page's own.
+    /// </summary>
+    private void UseMicroTaskQueue(IDomBridgeRuntime bridge)
+    {
+        if (bridge is DomBridge domBridge)
+        {
+            domBridge.MicroTaskQueue = MicroTasks;
+            domBridge.EngineJobs = EngineJobs.Instance;
+        }
+    }
+
+    /// <summary>
     /// Drain queued microtasks and timer tasks until the bridge-backed execution
     /// environment settles, matching the checkpointing used by the WPT harness.
     /// </summary>
@@ -449,10 +466,18 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// <c>FinalizationRegistry</c> constructors, each installed only when the context does not
     /// already define it. Broiler.JS defines both natively, so on this engine the fallbacks stay out.
     /// </summary>
-    private void RegisterRuntimeExtensions(JSContext context)
+    /// <param name="context">The context the page's script runs on.</param>
+    /// <param name="forDocument">
+    /// Whether a document's bridge runs on <paramref name="context"/>. A document's <c>queueMicrotask</c>
+    /// keeps its place among the promise jobs its script has queued (see <see cref="EngineJobs"/>); the
+    /// document-free entry points keep queueing onto <see cref="MicroTasks"/>, which they drain after
+    /// each script.
+    /// </param>
+    private void RegisterRuntimeExtensions(JSContext context, bool forDocument = false)
     {
         // queueMicrotask(fn)
-        context["queueMicrotask"] = new JSFunction((in Arguments a) => JsScriptEngineQueueMicrotask001Core(in a), "queueMicrotask", 1);
+        var engineJobs = forDocument ? EngineJobs.Instance : null;
+        context["queueMicrotask"] = new JSFunction((in Arguments a) => JsScriptEngineQueueMicrotask001Core(in a, engineJobs), "queueMicrotask", 1);
 
         // CSP-GATED eval WRAPPER, AND IT IS NARROWER THAN IT LOOKS.
         //

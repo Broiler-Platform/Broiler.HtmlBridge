@@ -368,10 +368,12 @@ public sealed partial class DomBridge
         var navigatorObj = realm.NewObject();
         // The same string the network sees, rather than a second copy of it: a page that compares
         // what it was told with what its own fetches report is entitled to one answer.
-        realm.DefineValue(navigatorObj, "userAgent", JsValue.String(Layout.Net.BroilerUserAgent.Value));
+        realm.DefineValue(navigatorObj, "userAgent", JsValue.String(global::Broiler.Net.Http.BroilerUserAgent.Value));
         realm.DefineValue(navigatorObj, "language", JsValue.String("en-US"));
         realm.DefineValue(navigatorObj, "languages", realm.NewArray([JsValue.String("en-US"), JsValue.String("en")]));
-        realm.DefineValue(navigatorObj, "cookieEnabled", JsValue.True);
+        // The profile's global cookie setting, which is what the attribute reflects: false when the
+        // host's cookie access has cookies off, and document.cookie then reads and writes nothing.
+        realm.DefineValue(navigatorObj, "cookieEnabled", JsValue.Boolean(CookieAccess.CookiesEnabled));
         realm.DefineValue(navigatorObj, "onLine", JsValue.True);
         realm.DefineValue(navigatorObj, "platform", JsValue.String("Win32"));
         // Conforming and truthful: §8.9 allows exactly "", "Apple Computer, Inc." or "Google Inc.",
@@ -381,10 +383,11 @@ public sealed partial class DomBridge
         // Who the browser is and what the machine underneath it has — the legacy identity constants
         // §8.9 mandates for every user agent, `webdriver`, and the measured hardware members. Takes
         // the same user-agent string registered above so `appVersion` cannot drift from `userAgent`.
-        Dom.Features.NavigatorIdentityBinding.Install(realm, navigatorObj, Layout.Net.BroilerUserAgent.Value);
+        Dom.Features.NavigatorIdentityBinding.Install(realm, navigatorObj, global::Broiler.Net.Http.BroilerUserAgent.Value);
 
-        // sendBeacon(url, data) — queues a fire-and-forget POST via fetch semantics
-        realm.DefineMethod(navigatorObj, "sendBeacon", 2, (in a) => Dom.Features.BeaconBinding.Send(window, in a));
+        // sendBeacon(url, data) — a credentialed POST through the fetch binding's own core, never
+        // through the page-visible window.fetch a page can replace. See FetchBinding.Beacon.cs.
+        realm.DefineMethod(navigatorObj, "sendBeacon", 2, (in a) => _fetch.SendBeacon(in a));
 
         // What the host machine can do — javaEnabled, plugins/mimeTypes, getGamepads, getBattery,
         // requestMediaKeySystemAccess — and the legacy storage-quota pair, each answering "no" in
@@ -398,7 +401,7 @@ public sealed partial class DomBridge
         // not persisted), permissions (denied, for every capability this engine gates) and
         // userAgentData (derived from the same user-agent string above). connection, mediaDevices
         // and mediaCapabilities stay absent — see NavigatorSurfacesBinding for each decision.
-        Dom.Features.NavigatorSurfacesBinding.Install(realm, navigatorObj, Layout.Net.BroilerUserAgent.Value);
+        Dom.Features.NavigatorSurfacesBinding.Install(realm, navigatorObj, global::Broiler.Net.Http.BroilerUserAgent.Value);
 
         DefineWindowGlobal(window, "navigator", navigatorObj);
         realm.SetProperty(realm.Global, "postMessage", realm.GetProperty(window, "postMessage"));

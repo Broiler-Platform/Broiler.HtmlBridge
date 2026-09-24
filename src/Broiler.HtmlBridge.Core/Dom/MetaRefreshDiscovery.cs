@@ -46,6 +46,17 @@ public static class MetaRefreshDiscovery
     }
 
     /// <summary>
+    /// <see cref="Find(string, string)"/>, with the document that declares the refresh named as the
+    /// navigation's <see cref="NavigationRequest.Initiator"/>: the refresh is that document's own
+    /// navigation, and the host's request for it is initiated by it.
+    /// </summary>
+    /// <param name="html">The document's markup.</param>
+    /// <param name="documentUrl">The document's URL, which a relative target resolves against.</param>
+    /// <param name="initiator">The document's request context.</param>
+    public static NavigationRequest? Find(string html, string documentUrl, Broiler.Net.Http.DocumentRequestContext? initiator) =>
+        Find(html, documentUrl) is { } request ? request with { Initiator = initiator } : null;
+
+    /// <summary>
     /// Parses a refresh <c>content</c> value — <c>"5"</c>, <c>"0;url=/next"</c>,
     /// <c>"0, URL='next.html'"</c> — into the navigation it declares.
     /// </summary>

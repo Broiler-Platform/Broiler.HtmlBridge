@@ -167,8 +167,20 @@ internal sealed class SubWindowBinding(
         _messaging.InstallEventTargetApi(window, "DomBridge.subWindow.dispatchEvent");
         _messaging.RegisterWindowMessaging(window);
 
+        // The document is the frame's own to hand out: a script whose document is cross-origin to it
+        // gets a SecurityError, as reading `document` off a cross-origin WindowProxy does. The
+        // container's contentDocument and contentWindow already say no to such a script; this is the
+        // same answer for a window it came by another way -- a message's `source`, or a reference it
+        // kept from before the frame navigated. Loaded first, so what is judged is what it shows.
         realm.DefineAccessor(window, "document",
-            (in _) => _host.GetOrCreateSubDocument(containerElement), null);
+            (in call) =>
+            {
+                var document = _host.GetOrCreateSubDocument(containerElement);
+                if (_host.IsWindowCrossOriginToCurrentScript(window))
+                    throw call.Realm.DomError("SecurityError", "Blocked a frame from accessing a cross-origin frame.");
+                return document;
+            },
+            null);
 
         // The frame's Location is built the same way the top-level one is — components and the
         // navigation methods together, because a framed page calls location.replace() as readily

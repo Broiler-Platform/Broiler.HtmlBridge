@@ -67,6 +67,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         var json = realm.GetProperty(realm.Global, "JSON");
         _jsonParse = realm.GetProperty(json, "parse");
         _jsonStringify = realm.GetProperty(json, "stringify");
+        _typeError = realm.GetProperty(realm.Global, "TypeError");
 
         // The response factories the callback cores take as delegates, bound to this realm.
         ResponseFactory createResponse = (body, statusCode, statusText, responseUrl, type, redirected, headers) =>
@@ -109,8 +110,9 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
                 in call),
             1);
         realm.DefineValue(window, "fetch", fetchFn);
-        // XMLHttpRequest — basic polyfill backed by fetch/the ResourceLoader
-        RegisterXMLHttpRequest(realm);
+        // XMLHttpRequest — basic polyfill over this fetch function, captured here so a page that
+        // replaces window.fetch cannot see or redirect what XHR sends.
+        RegisterXMLHttpRequest(realm, window, fetchFn);
         return fetchFn;
     }
 

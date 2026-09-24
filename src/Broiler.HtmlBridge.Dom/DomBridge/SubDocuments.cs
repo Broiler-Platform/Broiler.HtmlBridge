@@ -4,6 +4,7 @@ using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.JavaScript.Modules;
+using Broiler.Net.Http;
 using Broiler.Dom;
 using Broiler.Dom.Html;
 using static Broiler.HtmlBridge.DomBridgeUtils;
@@ -43,6 +44,7 @@ public sealed partial class DomBridge
         {
             RemoveElementsRecursive(existingDocument);
             _browsingContexts.UnlinkContentDocument(containerElement);
+            RemoveFrameDocumentContext(existingDocument);
         }
 
         _browsingContexts.RemoveContainerCaches(containerElement);
@@ -126,7 +128,8 @@ public sealed partial class DomBridge
         if (string.IsNullOrWhiteSpace(resourceUrl))
             return false; // No data attribute → empty sub-document, not a failure
 
-        var (_, contentType, _) = TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(objectElement));
+        var (_, contentType, _, _) = TryFetchSubResource(
+            resourceUrl, GetInheritedSubDocumentBaseUrl(objectElement), objectElement);
         if (string.Equals(contentType, FetchFailedContentType, StringComparison.Ordinal))
         {
             _browsingContexts.MarkObjectLoadFailed(objectElement);
@@ -167,6 +170,11 @@ public sealed partial class DomBridge
         // it did -- never instead of one.
         ContentSecurityPolicy? deliveredPolicy = null;
 
+        // The frame document's request context (Network.cs): from the container document's, the URL
+        // the document actually came from, and the container's sandbox attribute. Recorded against the
+        // new document before its scripts run, so they, and the frames it embeds, are attributed to it.
+        DocumentRequestContext? frameContext = null;
+
         DomDocument? docRoot = GetContentDocument(containerElement);
         if (docRoot == null)
         {
@@ -177,6 +185,9 @@ public sealed partial class DomBridge
                 _browsingContexts.SetLocation(containerElement, "about:srcdoc");
                 _browsingContexts.SetBaseUrl(containerElement, GetInheritedSubDocumentBaseUrl(containerElement));
                 docRoot = BuildSubDocumentFromHtml(srcDoc, containerElement);
+                // A srcdoc document is its creator's: its cookie URL and origin are the container
+                // document's (an opaque origin when sandboxed).
+                frameContext = CreateFrameDocumentContext(containerElement, documentUrl: null);
                 htmlToExecute = srcDoc;
                 executeHtmlScripts = true;
             }
@@ -194,8 +205,24 @@ public sealed partial class DomBridge
                 var localScheme = IsLocalSchemeSubResource(resourceUrl);
                 deliveredPolicy = localScheme ? Csp : null;
 
-                var (fetchedContent, contentType, responsePolicy) =
-                    TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(containerElement));
+                var (fetchedContent, contentType, responsePolicy, documentUrl) =
+                    TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(containerElement), containerElement);
+
+                // The frame is where its response came from, not where its src pointed: after a
+                // redirect, location and the base its relative URLs resolve against are the final URL.
+                if (documentUrl is not null &&
+                    IsHttpUrl(documentUrl) &&
+                    !string.Equals(documentUrl, resolvedUrl, StringComparison.Ordinal))
+                {
+                    _browsingContexts.SetLocation(containerElement, documentUrl);
+                    _browsingContexts.SetBaseUrl(containerElement, documentUrl);
+                }
+
+                // An HTTP(S) frame that produced no response at all is an error document with an
+                // opaque origin; about:blank and anything unloadable inherit from the container.
+                frameContext = documentUrl is null && IsHttpUrl(resolvedUrl)
+                    ? CreateFrameDocumentContext(containerElement, resolvedUrl, opaque: true)
+                    : CreateFrameDocumentContext(containerElement, documentUrl);
 
                 // A network document does not inherit, and is bound by what its response delivered.
                 // A local-scheme one has no response, so a policy from one would be a contradiction.
@@ -232,7 +259,16 @@ public sealed partial class DomBridge
             }
         }
 
+        // A document that was already linked (created before its frame was first reached) keeps the
+        // context it was given then, or is its creator's initial about:blank document.
+        if (frameContext is not null || !_frameDocumentContexts.ContainsKey(docRoot))
+            SetFrameDocumentContext(docRoot, frameContext ?? CreateFrameDocumentContext(containerElement, documentUrl: null));
+
         var doc = _subDocuments.Build(docRoot);
+        // The frame document's own document.cookie, for its own context: a cross-site frame reads
+        // the cookies a third-party context may, and a sandboxed one gets a SecurityError. Looked up
+        // at each access, so a document the frame has since replaced is cookie-averse.
+        DefineDocumentCookie(doc, () => _frameDocumentContexts.TryGetValue(docRoot, out var context) ? context : null);
         _browsingContexts.SetSubDocument(containerElement, doc);
         if (executeHtmlScripts && !string.IsNullOrEmpty(htmlToExecute))
             ExecuteSubDocumentScripts(containerElement, htmlToExecute, deliveredPolicy);
@@ -294,8 +330,16 @@ public sealed partial class DomBridge
         // forbids evaluation must still run these -- which is what the classic member exists to
         // express. The MODULE ROOTS below stay on the context because they need a JSModuleContext the
         // source contract does not describe at all.
+        // The frame's scripts are fetched as the frame document's, through the profile transport when
+        // the bridge has one.
+        var frameContext = FrameDocumentContext(containerElement);
         var extraction = ScriptExtractionService.ExtractAll(
-            html, GetSubDocumentBaseUrl(containerElement), deliveredPolicy);
+            html, GetSubDocumentBaseUrl(containerElement), deliveredPolicy, ScriptFetchFor(frameContext));
+
+        // The same policy set ExtractAll checked the frame's scripts against, kept for the modules the
+        // frame asks for once they run: its module roots' imports and its classic scripts' import().
+        if (GetContentDocument(containerElement) is { } frameDocument)
+            SetFrameScriptPolicies(frameDocument, new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(html)));
         if (extraction.Scripts.Count == 0 &&
             extraction.AsyncScripts.Count == 0 &&
             extraction.DeferredScripts.Count == 0 &&
@@ -334,45 +378,78 @@ public sealed partial class DomBridge
                 && EngineModuleSupport.Available
                 && extraction.ModuleRoots.Count > 0)
             {
-                var subBaseUrl = GetSubDocumentBaseUrl(containerElement);
-                foreach (var root in extraction.ModuleRoots)
-                {
-                    try
-                    {
-                        // Started here, awaited only if it is already done. Unlike the main page's roots
-                        // (ScriptEngine.RunPageScripts, which runs between executions), this code is
-                        // reached *from inside* one: a frame's srcdoc is assigned by the parent's script,
-                        // so that script is still on the stack. The engine queues a module's
-                        // continuations to run when the outermost execution finishes, so blocking here
-                        // waits for work that cannot start until this call returns — the thread
-                        // deadlocks outright. An iframe module with a static `data:` import is enough to
-                        // do it, and it is a *hang*, not a failure: the whole process stops there.
-                        //
-                        // Not awaiting is also what a module means. Modules are deferred, so the frame's
-                        // DOM effects are due when the engine drains at the end of the outer execution —
-                        // before anything the page does next can observe them — rather than at the
-                        // assignment that queued them.
-                        var run = subModuleContext.RunScriptAsync(
-                            root.Source,
-                            root.BaseUrl ?? subBaseUrl ?? string.Empty,
-                            uniqueModuleID: root.Key);
-
-                        if (run.IsCompleted)
-                            run.GetAwaiter().GetResult();
-                        else
-                            LogSubDocumentModuleFailure(run, root.Key);
-                    }
-                    catch (Exception ex)
-                    {
-                        RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.ExecuteSubDocumentScripts",
-                            $"Sub-document module root {root.Key} error: {ex.Message}", ex);
-                    }
-                }
+                QueueSubDocumentModuleRoots(containerElement, subWindow, subModuleContext, extraction.ModuleRoots);
             }
 
             // Recorded, not published: the window these scripts ran against is a re-entrant
             // throwaway that the outer GetOrCreate replaces. See DomBridge/SubDocuments.Loading.cs.
             RecordSubDocumentGlobals(containerElement, globalsBefore);
+        });
+    }
+
+    /// <summary>
+    /// Queues a frame's module roots to start, in document order, as a job of the frame's current
+    /// document: after the script that loaded the frame has finished (modules are deferred), inside the
+    /// frame's window context, and not at all if the frame has navigated away by then.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every part of a frame's module runs as a job of the frame's window.</b> The roots run on the
+    /// top document's module context, and are started from the job
+    /// (<see cref="BridgeModuleContext.StartDocumentRoot"/>) rather than evaluated on the engine's worker
+    /// (<c>RunScriptAsync</c>): the load, the evaluation and every continuation after it are posted to
+    /// the frame's job queue, which runs each in the frame's window context. Nothing waits for them, so
+    /// a module whose top-level <c>await</c> waits for a timer or an event holds up no drain -- not the
+    /// load, and not a host that steps the page from its UI thread -- and no part of it can outlast a
+    /// wait and resume as the embedding page. Its static imports are read synchronously, as the frame's
+    /// classic scripts are, each within the scripts' fetch budget.
+    /// </para>
+    /// <para>
+    /// That needs the host's microtask queue and the engine's job seam
+    /// (<see cref="MicroTaskQueue"/>, <see cref="EngineJobs"/>, both set by <c>ScriptEngine</c>) and
+    /// the bridge's own module context. Without them there is nothing that would run the frame's module
+    /// as the frame, so it is not run, and that is logged.
+    /// </para>
+    /// </remarks>
+    private void QueueSubDocumentModuleRoots(
+        DomElement containerElement,
+        JsValue subWindow,
+        JSModuleContext moduleContext,
+        IReadOnlyList<Broiler.HtmlBridge.Scripting.ModuleRoot> roots)
+    {
+        if (moduleContext is not BridgeModuleContext bridgeModules ||
+            MicroTaskQueue is null ||
+            EngineJobs is null)
+        {
+            RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.ExecuteSubDocumentScripts",
+                $"Sub-document module roots not run: {roots.Count} root(s) need the bridge's module context and a host job queue to run as their frame.");
+            return;
+        }
+
+        // Recorded as the frame document's before anything is requested -- under keys and a base of
+        // this document's own, which the page's roots cannot share, and under the frame's own policies
+        // rather than the page's.
+        var registered = bridgeModules.RegisterDocumentRoots(
+            roots, FrameModuleClient(containerElement), GetSubDocumentBaseUrl(containerElement));
+
+        _windowContext.TryEnqueueJob(subWindow, () =>
+        {
+            foreach (var root in registered)
+            {
+                try
+                {
+                    var run = bridgeModules.StartDocumentRoot(root);
+                    if (run.IsCompleted)
+                        run.GetAwaiter().GetResult();
+                    else
+                        LogSubDocumentModuleFailure(run, root.Key);
+                }
+                catch (Exception ex)
+                {
+                    RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.ExecuteSubDocumentScripts",
+                        $"Sub-document module root {root.Key} error: {ex.Message}", ex);
+                }
+            }
         });
     }
 
@@ -474,17 +551,31 @@ public sealed partial class DomBridge
     /// deliver one: a file, a data URI and a local WPT mapping have no response to carry a header,
     /// and answer <see langword="null"/> because that is true of them and not because it was not
     /// looked for.
+    /// <para>
+    /// <b>The fourth element is the URL the document came from</b>: the final URL of an HTTP
+    /// response (after redirects, whatever its status), the <c>data:</c> or <c>file:</c> URL read
+    /// locally, or <see langword="null"/> when nothing was loaded (about:blank, a failed request, a
+    /// local-base-path file with no URL of its own). The frame's location and request context are
+    /// built from it.
+    /// </para>
+    /// <para>
+    /// An HTTP(S) frame is requested as a nested navigation of <paramref name="container"/>'s
+    /// document, initiated by that document, through the profile transport when the bridge has one:
+    /// the transport sends and stores the profile's cookies for each redirect hop, with the frame's
+    /// same-site status taken from its container's ancestry.
+    /// </para>
     /// </remarks>
-    private (string? content, string contentType, ContentSecurityPolicy? policy) TryFetchSubResource(
+    private (string? content, string contentType, ContentSecurityPolicy? policy, string? documentUrl) TryFetchSubResource(
         string resourceUrl,
-        string? baseUrl = null)
+        string? baseUrl,
+        DomElement container)
     {
         if (string.IsNullOrWhiteSpace(resourceUrl))
-            return (null, string.Empty, null);
+            return (null, string.Empty, null, null);
 
         // about:blank gets an empty document (default behavior)
         if (string.Equals(resourceUrl, "about:blank", StringComparison.OrdinalIgnoreCase))
-            return (null, "text/html", null);
+            return (null, "text/html", null, null);
 
         // Handle data: URIs — decode and return content directly
         if (resourceUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
@@ -493,9 +584,9 @@ public sealed partial class DomBridge
             if (string.Equals(mimeType, "text/html", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(mimeType, "application/xhtml+xml", StringComparison.OrdinalIgnoreCase) ||
                 string.IsNullOrEmpty(mimeType))
-                return (!string.IsNullOrEmpty(body) ? body : null, mimeType, null);
+                return (!string.IsNullOrEmpty(body) ? body : null, mimeType, null, resourceUrl);
             // Non-HTML data URIs: return body with detected MIME type
-            return (!string.IsNullOrEmpty(body) ? body : null, mimeType, null);
+            return (!string.IsNullOrEmpty(body) ? body : null, mimeType, null, resourceUrl);
         }
 
         // Detect content type from extension for non-HTML resources
@@ -506,14 +597,15 @@ public sealed partial class DomBridge
         {
             var localResult = TryReadLocalResource(resourceUrl, extensionMime);
             if (localResult.content != null || localResult.contentType != string.Empty)
-                return (localResult.content, localResult.contentType, null);
+                return (localResult.content, localResult.contentType, null, null);
         }
 
         // Resolve relative URL against page URL. An absolute URL keeps its raw string so the scheme
         // checks below (file:// / http(s)) see the exact original prefix; only the relative case goes
-        // through the shared resolver.
+        // through the shared resolver. A root-relative src ("/frame.html") is relative even where
+        // Uri.TryCreate calls it an absolute file path (Unix): see UrlResolver.IsPathAbsoluteReference.
         string resolvedUrl;
-        if (Uri.TryCreate(resourceUrl, UriKind.Absolute, out _))
+        if (!UrlResolver.IsPathAbsoluteReference(resourceUrl) && Uri.TryCreate(resourceUrl, UriKind.Absolute, out _))
         {
             resolvedUrl = resourceUrl;
         }
@@ -523,20 +615,28 @@ public sealed partial class DomBridge
         }
         else
         {
-            return (null, extensionMime, null);
+            return (null, extensionMime, null, null);
         }
 
-        // Handle file:// URLs — read directly from local filesystem
+        // Handle file:// URLs — read directly from local filesystem, for a file: document only
+        // (LocalFileAccess). An http(s) page's frame of a local file is a network error: its document
+        // is empty and, being a file: URL's, opaque.
         if (resolvedUrl.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
         {
+            if (!LocalFileAccess.AllowedFor(DocumentContextFor(container).DocumentUrl))
+            {
+                RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.TryFetchSubResource",
+                    $"Refused local document '{resolvedUrl}' for a document that is not a file: document.");
+                return (null, FetchFailedContentType, null, resolvedUrl);
+            }
+
             var fileResult = TryReadFileResource(resolvedUrl, extensionMime);
-            return (fileResult.content, fileResult.contentType, null);
+            return (fileResult.content, fileResult.contentType, null, resolvedUrl);
         }
 
         // Only fetch HTTP/HTTPS URLs
-        if (!resolvedUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-            !resolvedUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            return (null, extensionMime, null);
+        if (!IsHttpUrl(resolvedUrl))
+            return (null, extensionMime, null, null);
 
         // Off by default; see ResourceTrace. Traced at this level because the sub-document's decoded
         // text and its resolved content type are both known here, and a non-success status is a
@@ -544,24 +644,34 @@ public sealed partial class DomBridge
         var attempt = ResourceTrace.Begin(ResourceTraceKind.SubDocument, resolvedUrl);
         try
         {
-            using var response = _resources.GetAsync(resolvedUrl).GetAwaiter().GetResult();
+            using var transportResponse = _resources
+                .GetAsync(resolvedUrl, FrameNavigationRequest(container))
+                .GetAwaiter()
+                .GetResult();
+            var response = transportResponse.Message;
+            var finalUrl = transportResponse.FinalUrl.AbsoluteUri;
             if (!response.IsSuccessStatusCode)
             {
                 attempt.Completed(null, (int)response.StatusCode);
-                return (null, FetchFailedContentType, null);
+                return (null, FetchFailedContentType, null, finalUrl);
             }
 
             var contentType = response.Content.Headers.ContentType?.MediaType ?? extensionMime;
             var content = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
             attempt.Completed(content, (int)response.StatusCode, contentType);
-            return (content, contentType, PolicyFromResponse(response));
+            return (content, contentType, PolicyFromResponse(response), finalUrl);
         }
         catch (Exception ex)
         {
             attempt.Failed(ex);
-            return (null, FetchFailedContentType, null);
+            return (null, FetchFailedContentType, null, null);
         }
     }
+
+    private static bool IsHttpUrl(string? url) =>
+        url is not null &&
+        (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+         url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Reads a file:// URL from the local filesystem and returns its content with detected MIME type.

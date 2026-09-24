@@ -73,7 +73,7 @@ public sealed partial class DomBridge
             // source (see SerializeInlineStyleForEngine), so the engine reads JS-set inline from the
             // map, not the style attribute it is synced to (anchor bakes stay in the baked overlay).
             engine.SetInlineStyleSource(SerializeInlineStyleForEngine);
-            return new ComputedStyleEngineScope(new CssStyleScopeBuilder(engine, StyleSheetLoader), engine);
+            return new ComputedStyleEngineScope(new CssStyleScopeBuilder(engine, new BridgeStyleSheetLoader(this, docRoot)), engine);
         });
 
         var styleElements = GetScopedStyleElements(docRoot, scope);

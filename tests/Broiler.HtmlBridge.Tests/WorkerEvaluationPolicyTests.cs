@@ -35,7 +35,10 @@ public class WorkerEvaluationPolicyTests
 {
     private const string Forbidding = "script-src 'self'";
     private const string Permitting = "script-src 'self' 'unsafe-eval'";
-    private const string PageUrl = "https://example.test/worker-policy";
+    // A page on the file system: only a file: document has local files read for it, and a worker
+    // script is always one (the host resolves file-shaped specifiers only).
+    private static string PageUrlIn(DirectoryInfo directory) =>
+        new Uri(Path.Combine(directory.FullName, "page.html")).AbsoluteUri;
     private const string Waiting = "waiting";
 
     private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(30);
@@ -127,7 +130,7 @@ public class WorkerEvaluationPolicyTests
                 ],
                 [],
                 pageHtml,
-                PageUrl);
+                PageUrlIn(directory));
 
             Assert.NotNull(session);
 

@@ -17,9 +17,9 @@ about *being a browser*. The browser is now one embedder among the possible ones
 
 ## Status
 
-**Preview.** The bridge is real and heavily exercised — 1290 passing tests and 22 skipped at
-`Release`, and 1345 passing with 22 skipped at `Release-VM`, which runs that suite plus the cases
-that only compile under it (both measured on 2026-09-23) — but the *named control surface* described in
+**Preview.** The bridge is real and heavily exercised — 1390 passing tests and 22 skipped at
+`Release`, and 1445 passing with 22 skipped at `Release-VM`, which runs that suite plus the cases
+that only compile under it (both measured on 2026-09-24) — but the *named control surface* described in
 [docs/html-control.md](https://github.com/Broiler-Platform/Broiler.HtmlBridge/blob/main/docs/html-control.md) is not written yet. Today a host composes
 `DomBridge`, `ScriptEngine` and a layout view itself, which is what
 `Broiler.Browser.Core` does. That document is the plan for closing the gap, feature by
@@ -36,6 +36,30 @@ feature, against what WebView2 and MSHTML actually offer.
 | `Broiler.HtmlBridge.Scripting.Vm` | An `IScriptEngine` on the same profile, selected by the `Debug-VM` / `Release-VM` configurations. References `Broiler.JSeal.Vm`. |
 
 External engine abstraction contracts and reference providers arrive via the [Broiler.JSeal](https://github.com/Broiler-Platform/Broiler.JSeal) NuGet packages (`Broiler.JSeal`, `Broiler.JSeal.BroilerJs`, `Broiler.JSeal.Vm`).
+
+The network arrives the same way: `Broiler.HtmlBridge.Core` references `Broiler.Net`, whose
+profile-owned `IBrowserRequestTransport` every bridge loader sends through when the host
+supplies one (`DomBridgeSessionOptions.Network`, and `ScriptFetchContext` for
+`ScriptExtractionService.ExtractAll`). The transport owns cookies, redirects and CORS; the
+bridge supplies each request's document context. Page script reaches the same transport only
+through gates: `fetch()`, `XMLHttpRequest` and `sendBeacon` carry their credentials and CORS modes,
+script cannot set `Cookie` or other forbidden headers, never reads `Set-Cookie`, and
+`document.cookie` is the profile's non-HTTP cookie API (`DomBridgeSessionOptions.Cookies`, or a
+store private to the bridge). Without a transport, the loaders fall back to process-wide clients
+that send and keep no cookies.
+
+Every document shares one realm, so which document a script speaks for travels with it: a frame's
+microtasks, promise reactions, `await`s, timers and module scripts run as the frame, and are dropped
+once the frame has navigated to another document. Origins are judged from the documents' request
+contexts, never from anything page script can assign: a frame of another origin (an opaque one — a
+sandboxed or `file:` frame — is same-origin with nothing but itself) is withheld from
+`contentDocument`, `contentWindow` and `window.frames`. One exception is kept from earlier releases:
+an unsandboxed `data:` frame's DOM is judged by its creator's origin (HTML makes it cross-origin),
+while its cookies, requests and messages keep its opaque origin. A message's `source` from a
+cross-origin frame can only be
+posted to, and its messages carry its real `origin`; a cross-origin linked sheet's `cssRules` throw
+`SecurityError`; `document.cookie` answers only a script of its document's origin; and a web
+document never has the bridge read a `file:` URL (scripts, modules, stylesheets, frames, workers).
 
 The dependency rule that shapes all of it: **a binding never names an engine.** It names
 JSEAL, and a *provider* names the engine. `eng/jseal-budget.json` records how much

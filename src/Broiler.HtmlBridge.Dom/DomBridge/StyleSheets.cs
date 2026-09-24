@@ -10,6 +10,7 @@ using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using static Broiler.HtmlBridge.DomBridgeUtils;
+using Broiler.Net.Http;
 
 namespace Broiler.HtmlBridge;
 
@@ -169,19 +170,42 @@ public sealed partial class DomBridge
             lastSyncedRuleCount = rules.Count;
         }
 
+        // A sheet another origin served without CORS is not origin-clean (CSSOM): its rules apply, but
+        // reading or editing them throws. Checked after the rules are current, which is what fetches a
+        // linked sheet and records where its response came from.
+        void ThrowUnlessOriginClean(IJsRealm callRealm)
+        {
+            CurrentRules();
+            if (StyleSheetStateFor(styleElement).FetchedCssIsCrossOrigin)
+                throw callRealm.DomError("SecurityError", "Cannot access rules of a cross-origin stylesheet.");
+        }
+
         // cssRules — returns the live collection, syncing indices on access
         realm.DefineAccessor(sheet, "cssRules",
-            (in _) => Dom.Features.StyleSheetBinding.JsStyleSheetsGetCssRules004Core(SyncLiveCssRulesIndices, liveCssRules), null);
+            (in call) =>
+            {
+                ThrowUnlessOriginClean(call.Realm);
+                return Dom.Features.StyleSheetBinding.JsStyleSheetsGetCssRules004Core(SyncLiveCssRulesIndices, liveCssRules);
+            },
+            null);
 
         // insertRule(rule, index) — mutates the shared model (marking it mutated so
         // the renderer/engine serialize from it and computed style is re-resolved) and
         // resyncs the live collection
         realm.DefineMethod(sheet, "insertRule", 2,
-            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call));
+            (in call) =>
+            {
+                ThrowUnlessOriginClean(call.Realm);
+                return Dom.Features.StyleSheetBinding.JsStyleSheetsInsertRule005Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call);
+            });
 
         // deleteRule(index) — removes a rule from the shared model
         realm.DefineMethod(sheet, "deleteRule", 1,
-            (in call) => Dom.Features.StyleSheetBinding.JsStyleSheetsDeleteRule006Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call));
+            (in call) =>
+            {
+                ThrowUnlessOriginClean(call.Realm);
+                return Dom.Features.StyleSheetBinding.JsStyleSheetsDeleteRule006Core(CurrentRules, MarkRulesMutated, SyncLiveCssRulesIndices, in call);
+            });
 
         _styleSheetCache[styleElement] = sheet;
         return sheet;
@@ -433,7 +457,7 @@ public sealed partial class DomBridge
         // sheet in it, so it is read through the same seam the cascade uses rather than rebased and
         // handed to the loader, which knows no data: scheme and reported the sheet as failed.
         var loaded = IsExternalStyleAllowedByCsp(element, href) &&
-                     !string.IsNullOrEmpty(FetchStyleSheetText(ResolveStyleSheetLinkUrl(href)));
+                     !string.IsNullOrEmpty(FetchStyleSheetText(ResolveStyleSheetLinkUrl(href), LinkStyleSheetRequest(element)));
 
         try
         {
@@ -487,7 +511,7 @@ public sealed partial class DomBridge
     /// </remarks>
     private void PrefetchExternalStylesheets(List<DomElement> styleElements)
     {
-        List<string>? urls = null;
+        List<(string Url, StyleSheetRequest Request)>? requests = null;
 
         foreach (var styleEl in styleElements)
         {
@@ -510,23 +534,49 @@ public sealed partial class DomBridge
             if (!IsExternalStyleAllowedByCsp(styleEl, href))
                 continue;
 
-            (urls ??= []).Add(ResolveStyleSheetLinkUrl(href));
+            // The request is the one the consuming path will make for this link, captured now.
+            (requests ??= []).Add((ResolveStyleSheetLinkUrl(href), LinkStyleSheetRequest(styleEl)));
         }
 
-        if (urls is not null)
-            _resources.Prefetch(urls);
+        if (requests is not null)
+            _resources.Prefetch(requests);
     }
 
     /// <summary>
-    /// Fetches an external CSS stylesheet from an HTTP/HTTPS URL.
-    /// Returns the CSS text content, or <c>null</c> on failure.
+    /// Whether the linked sheet <paramref name="link"/> loaded from <paramref name="url"/> is
+    /// origin-clean (CSSOM): its response was same-origin with the link's document or CORS-approved.
     /// </summary>
-    private string? FetchExternalStylesheet(string url)
+    /// <remarks>
+    /// Through the transport the answer is the response's own tainting, which a no-cors request that
+    /// was redirected to another origin loses even if it ends back on the document's. A <c>data:</c>
+    /// sheet is its document's own, and a <c>file:</c> one is read only for a <c>file:</c> document.
+    /// Without a transport the fallback client does no CORS, so only a same-origin URL is clean.
+    /// </remarks>
+    private bool IsLinkedStyleSheetOriginClean(DomElement link, string url)
+    {
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+            url.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (_resources.IsStyleSheetOriginClean(url) is { } clean)
+            return clean;
+
+        return Uri.TryCreate(url, UriKind.Absolute, out var sheetUrl) &&
+               Broiler.Net.Sites.Origin.FromUrl(sheetUrl).IsSameOrigin(DocumentContextFor(link).Origin);
+    }
+
+    /// <summary>
+    /// Fetches an external CSS stylesheet from an HTTP/HTTPS URL, as <paramref name="request"/> says
+    /// the requesting document makes the request.
+    /// Returns the CSS text content, or <c>null</c> on failure — which includes a response the
+    /// loader refused to apply as a stylesheet (not <c>text/css</c>, outside the quirks-mode exception).
+    /// </summary>
+    private string? FetchExternalStylesheet(string url, StyleSheetRequest request)
     {
         try
         {
-            // The file/http dispatch policy lives in the loader, not here.
-            return _resources.LoadText(url);
+            // The file/http dispatch policy, and the response type check, live in the loader, not here.
+            return _resources.LoadText(url, request);
         }
         catch (Exception ex)
         {

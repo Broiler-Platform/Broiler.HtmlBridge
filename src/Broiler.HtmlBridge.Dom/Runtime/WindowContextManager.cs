@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
@@ -149,6 +150,60 @@ internal sealed class WindowContextManager(
         }
     }
 
+    /// <summary>
+    /// A test of whether <paramref name="window"/> still shows the document it shows now, or
+    /// <see langword="null"/> for a window that is not a frame's (the main window's document lives as
+    /// long as the session does).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A frame's window is found by its container, and the container outlives its documents: setting
+    /// <c>src</c> or <c>srcdoc</c> drops the container's document and window
+    /// (<see cref="BrowsingContextManager.RemoveContainerCaches"/>) and builds a new pair, while the old
+    /// window keeps its reverse link to the container. Work the old document queued — a promise
+    /// reaction, an <c>await</c>, a timer — would otherwise resolve that window to the new document and
+    /// run as it: with its <c>document</c>, its cookies and its fetch client. HTML runs no such work;
+    /// its document is no longer fully active.
+    /// </para>
+    /// <para>
+    /// So the test is identity, captured now: the same container, still holding the same document
+    /// object. Every window a frame's script runs under is minted after its document is recorded
+    /// (<c>SubWindowBinding.Build</c> builds the document first), including the re-entrant one the
+    /// frame's own scripts run under before the outer build publishes its successor, and both belong
+    /// to the same document. A session reset clears the reverse links, so nothing queued before it runs
+    /// after it.
+    /// </para>
+    /// </remarks>
+    public Func<bool>? LivenessOf(JsValue window)
+    {
+        if (!window.IsObject || !_browsingContexts.TryGetSubWindowContainer(window, out var container))
+            return null;
+
+        if (!_browsingContexts.TryGetSubDocument(container, out var document))
+            return static () => false;
+
+        var browsingContexts = _browsingContexts;
+        return () =>
+            browsingContexts.TryGetSubWindowContainer(window, out var current) &&
+            ReferenceEquals(current, container) &&
+            browsingContexts.TryGetSubDocument(container, out var shown) &&
+            shown == document;
+    }
+
+    /// <summary>
+    /// Queues <paramref name="job"/> onto the host's microtask queue as a job of
+    /// <paramref name="window"/>'s current document, to run in its window context — or runs nothing
+    /// and answers <see langword="false"/> when the host drives no queue.
+    /// </summary>
+    public bool TryEnqueueJob(JsValue window, Action job)
+    {
+        if (_host.MicroTasks is not { } queue)
+            return false;
+
+        new WindowJobPump(queue, this, window, LivenessOf(window), _host.EngineJobs).Enqueue(job);
+        return true;
+    }
+
     public void RunWithWindowContext(JsValue targetWindow, Action callback)
     {
         if (_host.Realm is not { } realm)
@@ -168,6 +223,22 @@ internal sealed class WindowContextManager(
         var previousTop = JsValue.Undefined;
         var previousCurrentWindow = _browsingContexts.CurrentWindowOverride;
 
+        // The jobs the callback queues belong to this window: installed for the length of the switch,
+        // so a promise or an await created inside captures it, and restored with the globals. A frame
+        // always gets one. The main window needs one only inside a frame's switch, where the frame's
+        // pump would otherwise take its jobs; anywhere else its jobs stay on the engine's own queue,
+        // where they have always run, in the main window's context. The engine sees the pump only
+        // through the wrapper its host supplies (IEngineJobs.AsJobQueue); queueMicrotask reads it
+        // directly.
+        var previousPump = WindowJobPump.Active;
+        var previousJobContext = SynchronizationContext.Current;
+        var pump = _host.MicroTasks is { } queue &&
+                   targetWindow.IsObject &&
+                   (_browsingContexts.IsSubWindow(targetWindow) || previousPump is not null)
+            ? new WindowJobPump(queue, this, targetWindow, LivenessOf(targetWindow), _host.EngineJobs)
+            : null;
+        var engineJobs = pump is not null && _host.EngineJobs is { } engine ? engine.AsJobQueue(pump) : null;
+
         try
         {
             previousWindow = Snapshot(realm, "window");
@@ -186,11 +257,20 @@ internal sealed class WindowContextManager(
             SetGlobal(realm, "self", targetWindow);
             SetGlobal(realm, "top", _host.WindowObject.IsObject ? _host.WindowObject : targetWindow);
             _browsingContexts.CurrentWindowOverride = targetWindow;
+            if (pump is not null)
+                WindowJobPump.Active = pump;
+            if (engineJobs is not null)
+                SynchronizationContext.SetSynchronizationContext(engineJobs);
 
             callback();
         }
         finally
         {
+            if (engineJobs is not null)
+                SynchronizationContext.SetSynchronizationContext(previousJobContext);
+            if (pump is not null)
+                WindowJobPump.Active = previousPump;
+
             SetGlobal(realm, "window", previousWindow);
             SetGlobal(realm, "document", previousDocument);
             SetGlobal(realm, "location", previousLocation);

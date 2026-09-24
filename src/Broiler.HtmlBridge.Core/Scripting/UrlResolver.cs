@@ -42,6 +42,6 @@ internal static class UrlResolver
     /// <c>file:///app.js</c>, and the CSP source matcher compared that against the policy. The
     /// check is cheap and the two forms are the whole of what the platform gets wrong here.
     /// </remarks>
-    private static bool IsPathAbsoluteReference(string? url) =>
+    internal static bool IsPathAbsoluteReference(string? url) =>
         url is { Length: > 0 } && (url[0] == '/' || url[0] == '\\');
 }
