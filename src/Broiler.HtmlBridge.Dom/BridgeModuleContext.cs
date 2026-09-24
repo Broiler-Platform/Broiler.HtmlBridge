@@ -369,7 +369,10 @@ internal sealed class BridgeModuleContext : JSModuleContext
         if (relativePath.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
             return relativePath;
 
-        if (Uri.TryCreate(relativePath, UriKind.Absolute, out var abs))
+        // "/lib.js" resolves against the importer even where Uri.TryCreate calls it an absolute file
+        // path (Unix): see UrlResolver.IsPathAbsoluteReference.
+        if (!Internal.Scripting.UrlResolver.IsPathAbsoluteReference(relativePath) &&
+            Uri.TryCreate(relativePath, UriKind.Absolute, out var abs))
             return abs.AbsoluteUri;
 
         if (!string.IsNullOrEmpty(dirPath) && Uri.TryCreate(dirPath, UriKind.Absolute, out var baseUri)

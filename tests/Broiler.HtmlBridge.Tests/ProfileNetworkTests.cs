@@ -87,14 +87,17 @@ public class ProfileNetworkTests
     /// A module root and its static import. The root is fetched by the extractor, the import by the
     /// engine's module loader on the bridge's module context — which gets the profile network from the
     /// bridge when the bridge attaches to it. Both are same-origin CORS requests with
-    /// <c>same-origin</c> credentials, so both carry the cookie.
+    /// <c>same-origin</c> credentials, so both carry the cookie. The root-relative specifier is the
+    /// case a Unix host once resolved to <c>file:///dep.js</c>.
     /// </summary>
-    [Fact]
-    public void AModuleAndItsStaticImportCarryTheProfileCookieAndStoreTheirSetCookie()
+    [Theory]
+    [InlineData("./dep.js")]
+    [InlineData("/dep.js")]
+    public void AModuleAndItsStaticImportCarryTheProfileCookieAndStoreTheirSetCookie(string specifier)
     {
         using var server = NewServer()
             .Map("/mod.js", new Reply(ContentType: Script,
-                Body: "import { v } from './dep.js'; document.getElementById('out').textContent = v;",
+                Body: $"import {{ v }} from '{specifier}'; document.getElementById('out').textContent = v;",
                 SetCookies: ["fromModule=1; Path=/"]))
             .Map("/dep.js", new Reply(ContentType: Script, Body: "export const v = 'dep-ran';",
                 SetCookies: ["fromImport=1; Path=/"]));

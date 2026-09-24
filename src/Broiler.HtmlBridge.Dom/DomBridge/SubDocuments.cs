@@ -602,9 +602,10 @@ public sealed partial class DomBridge
 
         // Resolve relative URL against page URL. An absolute URL keeps its raw string so the scheme
         // checks below (file:// / http(s)) see the exact original prefix; only the relative case goes
-        // through the shared resolver.
+        // through the shared resolver. A root-relative src ("/frame.html") is relative even where
+        // Uri.TryCreate calls it an absolute file path (Unix): see UrlResolver.IsPathAbsoluteReference.
         string resolvedUrl;
-        if (Uri.TryCreate(resourceUrl, UriKind.Absolute, out _))
+        if (!UrlResolver.IsPathAbsoluteReference(resourceUrl) && Uri.TryCreate(resourceUrl, UriKind.Absolute, out _))
         {
             resolvedUrl = resourceUrl;
         }
