@@ -14,8 +14,17 @@ There is no `HtmlControl` type. A host composes the pieces itself, which is what
 `Broiler.Browser.Core` does:
 
 ```csharp
-var engine  = new ScriptEngine();                       // Broiler.HtmlBridge.Scripting
-var content = ScriptExtractionService.ExtractAll(html, url); // Broiler.HtmlBridge.Core
+// The profile's network (Broiler.Net): one per profile, shared by navigation and every loader.
+var network = new BrowserNetworkSession(new() { Cookies = profileCookies });
+var page    = DocumentRequestContext.CreateTopLevel(finalUrl);
+
+var engine  = new ScriptEngine(new DomBridgeFactory(new DomBridgeSessionOptions
+{
+    Network = network,                                  // scripts, imports, sheets, frames, fetch()
+    Cookies = network,                                  // document.cookie
+}));
+var content = ScriptExtractionService.ExtractAll(       // Broiler.HtmlBridge.Core
+    html, url, deliveredPolicy, new ScriptFetchContext(network, page, cancellation));
 
 using var session = engine.ExecuteInteractive(
     content.Scripts, content.DeferredScripts, html, url, content.ModuleRoots);
@@ -27,8 +36,10 @@ if (session.TakePendingNavigation() is { } request)     // the page wants to lea
     /* the host's loader decides */;
 ```
 
-Everything in that snippet works and is tested. What is missing is that the host also has
-to own the HTTP client, the session history, the paint loop, the input routing and the
+Everything in that snippet works and is tested. The network is optional: without
+`Network` and a `ScriptFetchContext` the loaders use process-wide fallback clients that
+send and keep no cookies. What is missing is that the host also has to own the
+navigation request, the session history, the paint loop, the input routing and the
 lifetime — and every embedder re-answers those the same way.
 
 ## The surface, feature by feature
@@ -46,6 +57,7 @@ where it offers something WebView2 dropped and a control of this shape should ke
 | `GoBack` / `GoForward` / history | ✔ | ✖ No session history anywhere in this component. |
 | `NavigationStarting` / `NavigationCompleted` | events | **Polled, not evented.** `TakePendingNavigation()` returns a `NavigationRequest` — and the *taking* semantics are deliberate, see `IDomBridgeRuntime`. A control turns it into an event with a cancellable argument. |
 | Navigation kinds distinguished | partly | ✔ **Better than WebView2 here.** `NavigationKind` separates `Assign` / `Replace` / `Reload` / `MetaRefresh` / `FormSubmit`, which is what a host needs to keep history right. |
+| Who started a navigation | ✖ | ✔ `NavigationRequest.Initiator` is the requesting document's `DocumentRequestContext` (a frame's, when a frame's script navigated the top window; the form's document for `form.submit()`), which the host passes to `RequestContext.TopLevelNavigation` so SameSite is decided from the real initiator. `MetaRefreshDiscovery.Find(html, url, initiator)` does the same for a refresh. |
 | Same-document fragment navigation | ✔ | ✔ Performed outright by `LocationBinding`; the host never sees it. Correct. |
 
 ### Script
@@ -91,7 +103,9 @@ is the thing WebView2 gave up and the thing this component already has.
 | CSP enforcement | ✔ | ✔ `ContentSecurityPolicy`, including per-sub-document policies. |
 | Eval / `Function` refusal honoured everywhere | ✔ | ✔ Including `ShadowRealm`, zero-arg `Function`, document-free engines, and work that outlives the call. |
 | `User-Agent` control | ✔ | Partial — one constant, `BroilerUserAgent.Value`. |
-| Permissions, cookies, storage partitioning | ✔ | Partial — web storage is bound; there is no partitioned profile concept. |
+| Permissions, cookies, storage partitioning | ✔ | Partial — every sub-resource loader sends and stores the profile's cookies through the host's `IBrowserRequestTransport` (per-hop, SameSite and CHIPS by Broiler.Net), with a request context per document and frame; `document.cookie` (the top document and every frame document) is the profile's `IDocumentCookieAccess`, so HttpOnly cookies stay out of reach, an opaque-origin document throws `SecurityError` and a non-HTTP(S) document reads and writes nothing; web storage is bound but not partitioned. |
+| What page script can send and read | ✔ | ✔ `fetch()`, `XMLHttpRequest` and `navigator.sendBeacon` honour their credentials, mode and redirect modes through the transport (CORS, preflight, tainting); script-set forbidden headers (`Cookie`, `Host`, `Origin`, `Sec-*`, …) never reach the wire; responses expose only Fetch's filtered headers — never `Set-Cookie` — with opaque responses empty. XHR and beacons use the native fetch core, so replacing `window.fetch` cannot intercept them. A linked or `@import`ed stylesheet reaches `getComputedStyle`, `cssRules` and the render projection only as `text/css` (a quirks-mode document may also apply a same-origin or CORS response of another type, unless it is `nosniff`), so a no-cors sheet request cannot read another site's credentialed HTML or JSON. A frame's classic-script `import()` is the frame's request, resolved against the frame's URL and checked against the frame's policy. Without a transport, the cookie-less fallback client applies the same header gates but no CORS or redirect modes. |
+| Documents of other origins | ✔ | ✔ Judged from the documents' request contexts, never from `location` or an attribute: a cross-origin frame — any frame with an opaque origin (sandboxed, `file:`) included — is withheld from `contentDocument`, `contentWindow` and `window.frames` (an unsandboxed `data:` frame's DOM is still judged by its creator's origin, kept from earlier releases; HTML makes it cross-origin), and a cross-origin window reached another way throws `SecurityError` on `document`; `MessageEvent.source` from one is a stand-in that can only be posted to, and `MessageEvent.origin` is the sender's real origin; a linked sheet another origin served without CORS applies, but its `cssRules`, `insertRule` and `deleteRule` throw `SecurityError`; `document.cookie` throws `SecurityError` for a script of another origin. A frame's jobs (microtasks, reactions, `await`s, timers, module scripts) run as the frame and are dropped once it has navigated away. A web document never has a local file read for it — scripts, modules, stylesheets, frames and workers alike. |
 | Download interception, new-window policy | ✔ | ✖ |
 
 ## What "finished" would mean

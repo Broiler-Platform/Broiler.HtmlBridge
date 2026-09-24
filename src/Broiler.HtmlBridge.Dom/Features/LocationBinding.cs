@@ -132,7 +132,10 @@ internal static class LocationBinding
             Add(realm, location, "port", uri.IsDefaultPort ? string.Empty : uri.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Add(realm, location, "pathname", uri.AbsolutePath);
             Add(realm, location, "search", uri.Query);
-            Add(realm, location, "origin", Scripting.Origin.Of(uri));
+            // `origin` is a getter with no setter, and not configurable: HTML's Location has no way to
+            // change it, and messaging and the frame's own code must not see a value its script chose.
+            var origin = JsValue.String(Scripting.Origin.Of(uri));
+            realm.DefineAccessor(location, "origin", (in _) => origin, null, JsPropertyFlags.Enumerable);
         }
         else
         {

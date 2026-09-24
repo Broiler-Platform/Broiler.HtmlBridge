@@ -14,19 +14,39 @@ namespace Broiler.HtmlBridge.Scripting;
 public sealed class MicroTaskQueue
 {
     private readonly Queue<Action> _queue = new();
+    private readonly object _gate = new();
     private bool _draining;
 
     /// <summary>Number of tasks currently queued (excludes tasks already being drained).</summary>
-    public int Count => _queue.Count;
+    public int Count
+    {
+        get
+        {
+            lock (_gate)
+                return _queue.Count;
+        }
+    }
 
     /// <summary>
     /// Enqueue a micro-task. If the queue is currently draining, the task
     /// will execute before the current drain cycle completes.
     /// </summary>
+    /// <remarks>
+    /// Safe from any thread: a <see cref="System.Threading.SynchronizationContext"/> that posts here
+    /// is handed continuations by whichever thread completes the work they wait for. The tasks still
+    /// run only on the thread that drains.
+    /// </remarks>
     public void Enqueue(Action task)
     {
         ArgumentNullException.ThrowIfNull(task);
-        _queue.Enqueue(task);
+        lock (_gate)
+            _queue.Enqueue(task);
+    }
+
+    private bool TryDequeue(out Action task)
+    {
+        lock (_gate)
+            return _queue.TryDequeue(out task!);
     }
 
     /// <summary>
@@ -46,9 +66,8 @@ public sealed class MicroTaskQueue
 
         try
         {
-            while (_queue.Count > 0)
+            while (TryDequeue(out var task))
             {
-                var task = _queue.Dequeue();
                 try
                 {
                     task();

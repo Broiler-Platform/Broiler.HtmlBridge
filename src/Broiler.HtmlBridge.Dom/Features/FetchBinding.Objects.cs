@@ -355,21 +355,20 @@ internal sealed partial class FetchBinding
     private JsValue CreateRequestObject(IJsRealm realm, JsValue inputValue, JsValue initValue = default)
     {
         string url;
-        string method;
         string? body;
         JsValue headersObject;
         var signalValue = JsValue.Undefined;
-        string mode = "cors";
-        string credentials = "same-origin";
+        string? inputMode = null, inputCredentials = null, inputRedirect = null;
+        string? initMode = null, initCredentials = null, initRedirect = null;
+        string? methodName = null;
         string cache = "default";
-        string redirect = "follow";
         string referrer = "about:client";
         string integrity = string.Empty;
 
         if (inputValue.IsObject && !string.IsNullOrEmpty(TryGetJsPropertyString(realm, inputValue, "url", "href")))
         {
             url = TryGetJsPropertyString(realm, inputValue, "url", "href") ?? string.Empty;
-            method = (TryGetJsPropertyString(realm, inputValue, "method") ?? "GET").ToUpperInvariant();
+            methodName = TryGetJsPropertyString(realm, inputValue, "method");
             body = TryGetJsPropertyString(realm, inputValue, "_bodyInit", "body");
             var inputHeaders = realm.GetProperty(inputValue, "headers");
             headersObject = inputHeaders.IsObject
@@ -379,24 +378,23 @@ internal sealed partial class FetchBinding
             // The engine's indexer answered a CLR null for an absent property, which the old
             // `?? JSUndefined.Value` turned into undefined; Missing is that same absence.
             signalValue = inputSignal.IsMissing ? JsValue.Undefined : inputSignal;
-            mode = TryGetJsPropertyString(realm, inputValue, "mode") ?? mode;
-            credentials = TryGetJsPropertyString(realm, inputValue, "credentials") ?? credentials;
+            inputMode = TryGetJsPropertyString(realm, inputValue, "mode");
+            inputCredentials = TryGetJsPropertyString(realm, inputValue, "credentials");
             cache = TryGetJsPropertyString(realm, inputValue, "cache") ?? cache;
-            redirect = TryGetJsPropertyString(realm, inputValue, "redirect") ?? redirect;
+            inputRedirect = TryGetJsPropertyString(realm, inputValue, "redirect");
             referrer = TryGetJsPropertyString(realm, inputValue, "referrer") ?? referrer;
             integrity = TryGetJsPropertyString(realm, inputValue, "integrity") ?? integrity;
         }
         else
         {
             url = realm.ToJsString(inputValue);
-            method = "GET";
             body = null;
             headersObject = CreateHeadersObject(realm);
         }
 
         if (initValue.IsObject)
         {
-            method = (TryGetJsPropertyString(realm, initValue, "method") ?? method).ToUpperInvariant();
+            methodName = TryGetJsPropertyString(realm, initValue, "method") ?? methodName;
             if (TryGetJsPropertyString(realm, initValue, "body") is string initBody)
                 body = initBody;
             var initHeaders = realm.GetProperty(initValue, "headers");
@@ -405,12 +403,33 @@ internal sealed partial class FetchBinding
             var initSignal = realm.GetProperty(initValue, "signal");
             if (!initSignal.IsNullish)
                 signalValue = initSignal;
-            mode = TryGetJsPropertyString(realm, initValue, "mode") ?? mode;
-            credentials = TryGetJsPropertyString(realm, initValue, "credentials") ?? credentials;
+            initMode = TryGetJsPropertyString(realm, initValue, "mode");
+            initCredentials = TryGetJsPropertyString(realm, initValue, "credentials");
             cache = TryGetJsPropertyString(realm, initValue, "cache") ?? cache;
-            redirect = TryGetJsPropertyString(realm, initValue, "redirect") ?? redirect;
+            initRedirect = TryGetJsPropertyString(realm, initValue, "redirect");
             referrer = TryGetJsPropertyString(realm, initValue, "referrer") ?? referrer;
             integrity = TryGetJsPropertyString(realm, initValue, "integrity") ?? integrity;
+        }
+
+        // The same rules fetch() applies (FetchBinding.Requests.cs), so what the getters report is what
+        // a fetch of this Request will use: the enums validated and defaulted — a navigate-mode input
+        // becomes same-origin, a navigate init is a TypeError — and the method normalized.
+        string method, mode, credentials, redirect;
+        try
+        {
+            method = MethodOf(methodName);
+            var requestMode = ModeOf(inputMode, initMode);
+            if (requestMode == Broiler.Net.Http.RequestMode.NoCors && !Broiler.Net.Http.FetchHeaders.IsCorsSafelistedMethod(method))
+                throw new AuthorRequestError($"'{method}' is unsupported in no-cors mode.");
+            if (body != null && method is "GET" or "HEAD")
+                throw new AuthorRequestError("Request with GET/HEAD method cannot have body.");
+            mode = NameOf(requestMode);
+            credentials = NameOf(CredentialsOf(inputCredentials, initCredentials));
+            redirect = NameOf(RedirectOf(inputRedirect, initRedirect));
+        }
+        catch (AuthorRequestError error)
+        {
+            throw realm.Error(JsErrorKind.TypeError, $"Failed to construct 'Request': {error.Message}");
         }
 
         var requestObject = realm.NewObject();

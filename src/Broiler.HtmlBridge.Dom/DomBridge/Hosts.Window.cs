@@ -43,9 +43,16 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
     /// <see cref="NavigationRequest"/> for why the decision belongs to the host.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Last request wins. A browser starts navigating on the first assignment and supersedes it on
     /// the second, landing on the last one the script asked for before it stopped running; keeping
     /// the first instead would follow a target the page had already changed its mind about.
+    /// </para>
+    /// <para>
+    /// A request that names no initiator is stamped with the document whose script is running — a
+    /// frame's, when a frame's script navigates the top window — so the host can decide SameSite for
+    /// the navigation from the document that actually started it.
+    /// </para>
     /// </remarks>
     private void RequestNavigation(NavigationRequest request)
     {
@@ -55,7 +62,9 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
                 $"{superseded.Url} superseded by {request.Url} before the document settled; the later request is the one that stands");
         }
 
-        _pendingNavigation = request;
+        _pendingNavigation = request.Initiator is null
+            ? request with { Initiator = CurrentScriptDocumentContext() }
+            : request;
     }
 }
 
@@ -167,6 +176,44 @@ public sealed partial class DomBridge : IWindowContextHost
     // WindowContextManager.GetWindowDocument, answers undefined on its other branch too.
     JsValue IWindowContextHost.MainDocumentOrUndefined =>
         DocumentHandle.IsMissing ? JsValue.Undefined : DocumentHandle;
+
+    Broiler.HtmlBridge.Scripting.MicroTaskQueue? IWindowContextHost.MicroTasks => MicroTaskQueue;
+
+    Dom.Runtime.IEngineJobs? IWindowContextHost.EngineJobs => EngineJobs;
+
+    /// <summary>
+    /// Set by the script engine that drives this bridge: how its engine takes a window's job pump as
+    /// its job queue, and how a job joins the engine's own queue behind the running script's
+    /// (<see cref="Dom.Runtime.IEngineJobs"/>). The bridge names no engine, so without it a frame's
+    /// promise jobs run wherever the engine runs them; <c>queueMicrotask</c> is attributed either way.
+    /// </summary>
+    internal Dom.Runtime.IEngineJobs? EngineJobs { get; set; }
+
+    /// <summary>
+    /// The host's microtask queue — the one its <see cref="TaskCheckpointCallback"/> drains — set by
+    /// the script engine that drives this bridge. With it, the jobs a frame's script queues run in the
+    /// frame's window context (see <see cref="Dom.Runtime.WindowJobPump"/>); without it they run
+    /// wherever the engine drains them, which is the top document's context.
+    /// </summary>
+    internal Broiler.HtmlBridge.Scripting.MicroTaskQueue? MicroTaskQueue { get; set; }
+
+    /// <summary>
+    /// Queues <paramref name="job"/> for the browsing context whose script is running: through that
+    /// window's job pump when a window context switch is in progress, as the page's otherwise. What
+    /// <c>queueMicrotask</c> queues through, so its callback runs as the document that queued it, and
+    /// in its place among the promise jobs already queued: behind them on the engine's own queue while
+    /// script is running (<paramref name="engine"/>), on <paramref name="queue"/> when none is.
+    /// </summary>
+    internal static void QueueMicrotask(
+        Broiler.HtmlBridge.Scripting.MicroTaskQueue queue,
+        Dom.Runtime.IEngineJobs? engine,
+        Action job)
+    {
+        if (Dom.Runtime.WindowJobPump.Active is { } pump)
+            pump.Queue(job);
+        else
+            Dom.Runtime.OnceJob.Queue(queue, engine, job);
+    }
 }
 
 /// <summary>
@@ -232,6 +279,20 @@ public sealed partial class DomBridge : IMessagingHost
     void IMessagingHost.QueueFrameAction(Action callback) => QueueFrameAction(callback);
 
     void IMessagingHost.DispatchWindowEvent(JsValue evt) => DispatchWindowEvent(evt);
+
+    string? IMessagingHost.FrameWindowOrigin(JsValue window) =>
+        window.IsObject && _browsingContexts.TryGetSubWindowContainer(window, out var container)
+            ? FrameDocumentContext(container).Origin.ToString()
+            : null;
+
+    bool IMessagingHost.AreWindowsCrossOrigin(JsValue first, JsValue second) =>
+        AreCrossOriginForAccess(DocumentContextOfWindow(first), DocumentContextOfWindow(second));
+
+    /// <summary>The request context of the document <paramref name="window"/> shows: a frame's, or the top document's.</summary>
+    private Broiler.Net.Http.DocumentRequestContext DocumentContextOfWindow(JsValue window) =>
+        window.IsObject && _browsingContexts.TryGetSubWindowContainer(window, out var container)
+            ? FrameDocumentContext(container)
+            : TopDocumentContext;
 }
 
 /// <summary>
@@ -291,6 +352,12 @@ public sealed partial class DomBridge : IWorkerHost
     /// </remarks>
     WorkerScript? IWorkerHost.ResolveWorkerScript(string specifier, string? baseDirectory)
     {
+        // Every worker script is read from disk, so only a document that may read local files gets
+        // one (LocalFileAccess): an http(s) page naming file:, UNC or process-relative paths gets the
+        // error a script it could not fetch gives.
+        if (!LocalFileAccess.AllowedFor(CurrentScriptDocumentContext().DocumentUrl))
+            return null;
+
         try
         {
             if (Uri.TryCreate(specifier, UriKind.Absolute, out var absolute))
@@ -368,6 +435,12 @@ public sealed partial class DomBridge : IFetchHost
 
     JsValue IFetchHost.CreateBlob(byte[] bytes, string contentType) =>
         _blobs.CreateBlobFromBytes(Realm, bytes, contentType);
+
+    Broiler.Net.Http.DocumentRequestContext IFetchHost.FetchClient => CurrentScriptDocumentContext();
+
+    string IFetchHost.FetchBaseUrl => CurrentScriptBaseUrl();
+
+    (byte[] Bytes, string Type)? IFetchHost.BlobContentOf(JsValue candidate) => _blobs.ContentOf(candidate);
 }
 
 // Explicit IScriptInsertionHost implementation for the ScriptInsertionRunner (the runtime owner of
@@ -397,6 +470,10 @@ public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
     bool Dom.Runtime.IScriptInsertionHost.HasRealm => _realm is not null;
 
     ContentSecurityPolicy? Dom.Runtime.IScriptInsertionHost.Csp => Csp;
+
+    // Inserted scripts run only when connected to the watched (top) document, so they are fetched
+    // as that document's.
+    ScriptFetchContext? Dom.Runtime.IScriptInsertionHost.ScriptFetch => ScriptFetchFor(TopDocumentContext);
 
     bool Dom.Runtime.IScriptInsertionHost.MutationDeliverySuppressed => _mutationDeliverySuppressionDepth > 0;
 

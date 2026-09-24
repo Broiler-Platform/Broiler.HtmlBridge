@@ -71,9 +71,9 @@ public sealed partial class DomBridge
             // Execute scripts in XHTML documents with correct namespace
             if (isXhtml && hasCorrectXhtmlNs)
             {
-                ExecuteSubDocumentScripts(
-                    rootEl,
-                    new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(xmlContent)));
+                var policies = new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(xmlContent));
+                SetFrameScriptPolicies(document, policies);
+                ExecuteSubDocumentScripts(rootEl, policies);
             }
         }
         catch (System.Xml.XmlException)

@@ -50,7 +50,18 @@ public readonly record struct PreloadCandidate(
     PreloadKind Kind,
     string RawUrl,
     string? ResolvedUrl,
-    string? Nonce = null);
+    string? Nonce = null)
+{
+    /// <summary>
+    /// The element's <c>crossorigin</c> attribute as written (the empty string when present without a
+    /// value), or <see langword="null"/> when it has none. A prefetch has to be the request the consume
+    /// site makes: the attribute decides the request's mode and credentials, so a
+    /// <c>crossorigin="anonymous"</c> stylesheet prefetched as the no-cors request of a link without
+    /// it would carry the third party's cookies, and store its <c>Set-Cookie</c>, where the page asked
+    /// for neither.
+    /// </summary>
+    public string? CrossOrigin { get; init; }
+}
 
 /// <summary>
 /// What one scan of a document found: its base URL and the sub-resources it names, in document
@@ -229,7 +240,7 @@ public static class PreloadScanner
                 continue;
 
             if (seen.Add((candidate.Kind, candidate.RawUrl)))
-                raw.Add(candidate with { Nonce = Attribute(token, "nonce") });
+                raw.Add(candidate with { Nonce = Attribute(token, "nonce"), CrossOrigin = Attribute(token, "crossorigin") });
         }
 
         var documentBase = ResolveDocumentBase(HtmlDocumentQueries.GetEffectiveBaseHref(html), pageUrl);

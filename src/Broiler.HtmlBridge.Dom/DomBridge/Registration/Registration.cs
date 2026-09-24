@@ -247,6 +247,8 @@ public sealed partial class DomBridge
         // lands on a fully-built window, and before the global mirror below so it is reachable
         // unqualified the way page scripts spell it.
         _workers?.Register(realm, window);
+        // A classic script's import() speaks for the document whose script calls it (DomBridge/Network.cs).
+        InstallClassicScriptImportAttribution(realm, context as Scripting.BridgeModuleContext);
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowMirror))
             MirrorWindowMembersOntoGlobal(realm, window);
     }
@@ -504,18 +506,12 @@ public sealed partial class DomBridge
         // reason a realm built without GuestEval still runs it.
         Realm.EvaluateHostScript(PolyfillAssets.ContentRendering, "polyfill:content-rendering");
 
-        // document.cookie — get/set stub (in-memory, non-persistent). Host-driven (not pure JS), so it stays
-        // here rather than in the JS asset. Order-independent of the pure-JS polyfills above.
-        //
-        // The store is a local the pair closes over — SetCookie takes it by reference — and the
-        // assignment coerces through the realm, because `document.cookie = obj` is entitled to run
-        // that object's toString exactly as the engine's own ToString() did here.
-        var cookieStore = "";
-        Realm.DefineAccessor(
-            document,
-            "cookie",
-            (in _) => JsValue.String(cookieStore),
-            (in c) => Dom.Features.WindowDocumentMiscBinding.SetCookie(ref cookieStore, in c));
+        // document.cookie — the top document's view of the profile's cookies (or of this bridge's
+        // private store without a profile), as the non-HTTP API: see DefineDocumentCookie. Host-driven
+        // (not pure JS), so it stays here rather than in the JS asset. Order-independent of the
+        // pure-JS polyfills above. The context is read at each access, so it is always the document
+        // this bridge is attached to.
+        DefineDocumentCookie(document, () => TopDocumentContext);
     }
 
     private void RegisterSecurityAndConstructorPolyfills(JsValue window)

@@ -90,7 +90,7 @@ internal static class NavigationTimingBinding
     /// <c>about:</c> document, and on HTML the bridge was handed directly as a string.
     /// </summary>
     private static string NextHopProtocol(string pageProtocol) =>
-        pageProtocol is "http:" or "https:" ? Layout.Net.BroilerHttpProtocol.NextHopProtocol : string.Empty;
+        pageProtocol is "http:" or "https:" ? global::Broiler.Net.Http.BroilerHttpProtocol.NextHopProtocol : string.Empty;
 
     private static JsValue BuildNavigationEntry(
         IJsRealm realm,

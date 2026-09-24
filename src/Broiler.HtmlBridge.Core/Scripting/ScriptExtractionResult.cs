@@ -83,7 +83,16 @@ public sealed class ModuleMap
 /// resolve against. A consumer drives the JS engine's own module machinery to run each root (which pulls in
 /// its transitive imports itself); this is the sole module-execution input.
 /// </summary>
-public sealed record ModuleRoot(string Key, string Source, string? BaseUrl);
+public sealed record ModuleRoot(string Key, string Source, string? BaseUrl)
+{
+    /// <summary>
+    /// The root <c>&lt;script type="module"&gt;</c>'s <c>crossorigin</c> attribute, or
+    /// <see langword="null"/> when it has none. Every module the root imports is fetched with the
+    /// credentials mode this implies (HTML: descendants inherit the root's fetch options):
+    /// <c>same-origin</c>, or <c>include</c> for <c>use-credentials</c>.
+    /// </summary>
+    public string? CrossOrigin { get; init; }
+}
 
 /// <summary>
 /// Holds the result of extracting all scripts from an HTML page, separated into regular

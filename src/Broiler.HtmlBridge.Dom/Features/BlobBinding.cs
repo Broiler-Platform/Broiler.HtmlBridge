@@ -297,6 +297,14 @@ internal sealed class BlobBinding
     internal byte[]? BytesOf(JsValue candidate) =>
         TryDataFor(candidate, out var data) ? data.Bytes : null;
 
+    /// <summary>
+    /// The bytes and the normalized type behind a blob object, or <see langword="null"/> for
+    /// anything that is not one: the body and <c>Content-Type</c> Fetch's "extract a body" takes
+    /// from a <c>Blob</c> (<c>navigator.sendBeacon</c>).
+    /// </summary>
+    internal (byte[] Bytes, string Type)? ContentOf(JsValue candidate) =>
+        TryDataFor(candidate, out var data) ? (data.Bytes, data.Type) : null;
+
     private static double ReadLastModified(IJsRealm realm, JsValue options)
     {
         var value = options.IsObject ? realm.GetProperty(options, "lastModified") : JsValue.Missing;

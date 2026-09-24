@@ -6,6 +6,7 @@ using Broiler.Dom;
 using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.HtmlBridge.Scripting;
 using static Broiler.HtmlBridge.DomBridgeUtils;
+using Broiler.Net.Http;
 
 namespace Broiler.HtmlBridge;
 
@@ -75,10 +76,12 @@ public sealed partial class DomBridge
                 _pageUrl,
                 TryFindDocumentBaseHref(root, out var baseHref) ? baseHref : null);
 
-        InlineStyleSheetImports(root, ResolveBaseOnce);
+        // The imports are the requests of the document the projection shows: the live document the
+        // projected root stands for, a frame's included.
+        InlineStyleSheetImports(root, ResolveBaseOnce, ResolveRenderSource(root));
     }
 
-    private void InlineStyleSheetImports(DomElement element, Func<string> documentBaseUrl)
+    private void InlineStyleSheetImports(DomElement element, Func<string> documentBaseUrl, DomNode importer)
     {
         if (!IsText(element) &&
             element.TagName.Equals("style", StringComparison.OrdinalIgnoreCase))
@@ -89,14 +92,14 @@ public sealed partial class DomBridge
                 // The record is keyed by the live element; this one is its copy in the projection.
                 var exempt = _importsBeforePolicyMeta?.GetValueOrDefault(ResolveRenderSource(element));
                 var expanded = ExpandCssImports(
-                    original, documentBaseUrl(), new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0, exempt);
+                    original, documentBaseUrl(), new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0, exempt, importer);
                 if (!string.Equals(expanded, original, StringComparison.Ordinal))
                     element.TextContent = expanded;
             }
         }
 
         foreach (var child in ChildElements(element))
-            InlineStyleSheetImports(child, documentBaseUrl);
+            InlineStyleSheetImports(child, documentBaseUrl, importer);
     }
 
     /// <summary>
@@ -167,8 +170,9 @@ public sealed partial class DomBridge
     /// after the parser has passed the meta, and checking them is the answer that fails closed.
     /// </para>
     /// </remarks>
+    /// <param name="importer">A live node of the importing document, whose requests the imports are.</param>
     private string ExpandCssImports(
-        string css, string baseUrl, HashSet<string> chain, int depth, HashSet<string>? exemptUrls)
+        string css, string baseUrl, HashSet<string> chain, int depth, HashSet<string>? exemptUrls, DomNode importer)
     {
         var (endOffset, layerStatements, imports) = ScanLeadingImports(css);
         if (imports.Count == 0 || depth >= MaxImportDepth)
@@ -225,11 +229,12 @@ public sealed partial class DomBridge
 
             try
             {
-                var imported = FetchStyleSheetText(absolute);
+                var imported = FetchStyleSheetText(
+                    absolute, ImportStyleSheetRequest(importer, exemptFromCsp: exemptUrls?.Contains(absolute) == true));
                 if (!string.IsNullOrEmpty(imported))
                 {
                     var rebased = RebaseRelativeUrls(imported, absolute);
-                    var nested = ExpandCssImports(rebased, absolute, chain, depth + 1, exemptUrls: null);
+                    var nested = ExpandCssImports(rebased, absolute, chain, depth + 1, exemptUrls: null, importer);
 
                     var content = nested;
                     if (import.Layer == CssImportLayer.Named && import.LayerName is not null)
@@ -285,15 +290,22 @@ public sealed partial class DomBridge
     /// <see cref="IsStyleFetchAllowedByCsp"/> in <see cref="ExpandCssImports"/>), so a new caller has
     /// to check first — a <c>data:</c> URI is a request the policy governs too.
     /// </para>
+    /// <para>
+    /// <paramref name="request"/> is how the requesting document sends the request — a link's
+    /// (<see cref="LinkStyleSheetRequest"/>) or an import's (<see cref="ImportStyleSheetRequest"/>) —
+    /// and carries the same policy check as its host policy, so a redirect to a URL the policy
+    /// forbids is refused before that URL is fetched, and the document's mode, which decides whether
+    /// a response that is not <c>text/css</c> may still apply.
+    /// </para>
     /// </summary>
-    private string? FetchStyleSheetText(string url)
+    private string? FetchStyleSheetText(string url, Dom.Runtime.StyleSheetRequest request)
     {
         if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
         {
             var (_, body) = DecodeDataUriParts(url);
             return body;
         }
-        return FetchExternalStylesheet(url);
+        return FetchExternalStylesheet(url, request);
     }
 
     /// <summary>
@@ -314,15 +326,19 @@ public sealed partial class DomBridge
         return false;
     }
 
-    private BridgeStyleSheetLoader? _styleSheetLoader;
-    private BridgeStyleSheetLoader StyleSheetLoader => _styleSheetLoader ??= new(this);
-
     /// <summary>
     /// Implements <see cref="ICssStyleSheetLoader"/> for computed-style engine scope assembly.
     /// Resolves <c>@import</c> URLs against referrer/document base URL, verifies CSP, fetches
     /// stylesheet text, and rebases relative URLs.
     /// </summary>
-    private sealed class BridgeStyleSheetLoader(DomBridge bridge) : ICssStyleSheetLoader
+    /// <remarks>
+    /// One per computed-style scope, because the imports are the requests of the scope's document:
+    /// a frame's, for a frame's scope. A loader shared by every scope sent a cross-site frame's
+    /// imports as the top document's, with its <c>SameSite</c> cookies.
+    /// </remarks>
+    /// <param name="bridge">The bridge the scope belongs to.</param>
+    /// <param name="scopeRoot">The root of the scope's document, asked for its request context and mode at each load.</param>
+    private sealed class BridgeStyleSheetLoader(DomBridge bridge, DomNode scopeRoot) : ICssStyleSheetLoader
     {
         public string? LoadStyleSheet(string href, string? referrerUrl = null)
         {
@@ -334,10 +350,11 @@ public sealed partial class DomBridge
             if (absolute is null)
                 return null;
 
-            if (!bridge.IsImportExemptFromCsp(absolute) && !bridge.IsStyleFetchAllowedByCsp(absolute, nonce: null))
+            var exempt = bridge.IsImportExemptFromCsp(absolute);
+            if (!exempt && !bridge.IsStyleFetchAllowedByCsp(absolute, nonce: null))
                 return null;
 
-            var text = bridge.FetchStyleSheetText(absolute);
+            var text = bridge.FetchStyleSheetText(absolute, bridge.ImportStyleSheetRequest(scopeRoot, exempt));
             if (string.IsNullOrEmpty(text))
                 return text;
 

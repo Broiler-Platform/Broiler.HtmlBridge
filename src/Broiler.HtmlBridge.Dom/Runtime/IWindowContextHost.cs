@@ -34,4 +34,17 @@ internal interface IWindowContextHost : Features.ISubDocumentFactoryHost
 
     /// <summary>The top-level document object, or <c>undefined</c> when absent.</summary>
     JsValue MainDocumentOrUndefined { get; }
+
+    /// <summary>
+    /// The host's microtask queue, which the jobs a window context queues are posted to (see
+    /// <see cref="WindowJobPump"/>), or <see langword="null"/> when the host drives no queue and jobs
+    /// stay where the engine puts them.
+    /// </summary>
+    Broiler.HtmlBridge.Scripting.MicroTaskQueue? MicroTasks { get; }
+
+    /// <summary>
+    /// What the engine that runs the page offers the window job pumps, or <see langword="null"/> when it
+    /// offers nothing -- in which case its promise jobs are not attributed to a frame.
+    /// </summary>
+    IEngineJobs? EngineJobs { get; }
 }

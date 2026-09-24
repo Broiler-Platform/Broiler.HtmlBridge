@@ -78,9 +78,11 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
         _host.Realm.DefineMethod(window, "postMessage", 2, (in call) => WindowPostMessage(window, in call));
     }
 
-    private JsValue WindowPostMessage(JsValue window, in JsCall call)
+    private JsValue WindowPostMessage(JsValue window, in JsCall call) =>
+        PostMessageTo(call.This.IsObject ? call.This : window, in call);
+
+    private JsValue PostMessageTo(JsValue targetWindow, in JsCall call)
     {
-        var targetWindow = call.This.IsObject ? call.This : window;
         var sourceWindow = _host.ResolveCurrentWindow();
         var (targetOrigin, ports, transfer, transferredPorts) = GetPostMessageDispatchOptions(in call);
         if (!ShouldDeliverWindowMessage(targetWindow, sourceWindow, targetOrigin))
@@ -88,9 +90,10 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
         var payload = CloneForMessaging(call.Length > 0 ? call[0] : JsValue.Undefined, transfer);
         CommitTransferredPorts(transferredPorts, targetWindow);
         var origin = GetWindowOrigin(sourceWindow);
+        var source = SourceAsSeenBy(sourceWindow, targetWindow);
         _host.QueueFrameAction(() =>
         {
-            var evt = CreateMessageEvent(payload, sourceWindow, origin, ports);
+            var evt = CreateMessageEvent(payload, source, origin, ports);
 
             // Handle equality is reference equality for an object, which is the question
             // ReferenceEquals was asking of the two window objects.
@@ -241,69 +244,84 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
 
         if (targetOrigin == "/")
             targetOrigin = GetWindowOrigin(sourceWindow);
+        else if (Uri.TryCreate(targetOrigin, UriKind.Absolute, out var targetUrl) &&
+                 (targetUrl.Scheme == Uri.UriSchemeHttp || targetUrl.Scheme == Uri.UriSchemeHttps))
+            targetOrigin = Scripting.Origin.Of(targetUrl);
 
-        return string.Equals(targetOrigin, GetWindowOrigin(targetWindow), StringComparison.Ordinal);
+        // An opaque origin serializes as "null", which no targetOrigin names: only "*" reaches it.
+        var target = GetWindowOrigin(targetWindow);
+        return target != "null" && string.Equals(targetOrigin, target, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// What a message's receiver is handed as its <c>source</c>: the sending window itself when the
+    /// receiver's document may read it, and otherwise a stand-in that can only be posted to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// In a browser <c>MessageEvent.source</c> is a WindowProxy, and a cross-origin one answers only
+    /// the cross-origin properties -- <c>postMessage</c>, <c>window</c>, <c>self</c>, <c>closed</c> and
+    /// a few more -- while reading its <c>document</c> throws. Handing out the frame's own window object
+    /// gave a page that merely received a message from a cross-origin frame that frame's document, and
+    /// everything its script had published on its window, past the gate on <c>contentWindow</c> and
+    /// <c>contentDocument</c>.
+    /// </para>
+    /// <para>
+    /// Only a frame's window is stood in for. The top window is the realm's global object, which every
+    /// document here shares already; a frame checking <c>e.source === parent</c> keeps working.
+    /// </para>
+    /// </remarks>
+    private JsValue SourceAsSeenBy(JsValue sourceWindow, JsValue receiver)
+    {
+        if (!sourceWindow.IsObject ||
+            sourceWindow == _host.WindowObject ||
+            _host.FrameWindowOrigin(sourceWindow) is null ||
+            !_host.AreWindowsCrossOrigin(sourceWindow, receiver))
+            return sourceWindow;
+
+        if (_crossOriginSources.TryGetValue(sourceWindow, out var standIn))
+            return standIn;
+
+        var realm = _host.Realm;
+        standIn = realm.NewObject();
+        var sending = sourceWindow;
+        realm.DefineMethod(standIn, "postMessage", 2, (in reply) => PostMessageTo(sending, in reply));
+        realm.DefineValue(standIn, "window", standIn, JsPropertyFlags.Enumerable);
+        realm.DefineValue(standIn, "self", standIn, JsPropertyFlags.Enumerable);
+        realm.DefineValue(standIn, "closed", JsValue.False, JsPropertyFlags.Enumerable);
+        realm.DefineAccessor(standIn, "document",
+            (in call) => throw call.Realm.DomError("SecurityError", "Blocked a frame from accessing a cross-origin frame."),
+            null,
+            JsPropertyFlags.Enumerable);
+        _crossOriginSources[sourceWindow] = standIn;
+        return standIn;
+    }
+
+    // One stand-in per cross-origin window, so `e.source === e.source` holds across messages.
+    private readonly Dictionary<JsValue, JsValue> _crossOriginSources = [];
 
     private string GetWindowOrigin(JsValue window)
     {
         if (!window.IsObject)
             return string.Empty;
 
-        var realm = _host.Realm;
-
         // The top window's origin is the document's, taken from the host rather than read back out
         // of `location`. The window IS the global object, and RunWithWindowContext swaps `location`
         // (and `document`/`self`/`parent`) to a frame's for the duration of that frame's scripts —
         // which is precisely when a frame calls parent.postMessage. Reading the property there would
-        // see the frame's own about:srcdoc and report the parent as having no origin. Taking the
-        // fact instead of the mutable view is also what terminates the walk below: a top-level
-        // window is its own `parent`, so an about:blank page has no further parent to inherit from.
+        // see the frame's own about:srcdoc and report the parent as having no origin.
         if (window == _host.WindowObject)
             return _host.PageOrigin;
 
-        var location = realm.GetProperty(window, "location");
-        if (location.IsObject)
-        {
-            var href = OwnText(realm, location, "href");
-            if (string.Equals(href, "about:srcdoc", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(href, "about:blank", StringComparison.OrdinalIgnoreCase))
-            {
-                // An about:blank / about:srcdoc document has no origin of its own and inherits its
-                // parent's. A window that parents itself is the top of the tree and has nothing left
-                // to inherit from, so it ends the walk rather than recurring forever.
-                var parent = realm.GetProperty(window, "parent");
-                return !parent.IsObject || parent == window
-                    ? string.Empty
-                    : GetWindowOrigin(parent);
-            }
+        // A frame's origin is its document's request context's, which the bridge derived from where
+        // the document came from. Its `location` is the frame script's to overwrite -- `location.origin
+        // = '...'` or a defineProperty -- and a message's origin read from there was whatever the
+        // sender chose, so an embedder's `if (e.origin !== TRUSTED) return;` let any frame through.
+        if (_host.FrameWindowOrigin(window) is { } frameOrigin)
+            return frameOrigin;
 
-            var origin = OwnText(realm, location, "origin");
-            if (!string.IsNullOrWhiteSpace(origin))
-                return origin;
-
-            if (Uri.TryCreate(href, UriKind.Absolute, out var hrefUri))
-                return Scripting.Origin.Of(hrefUri);
-        }
-
+        // A window the bridge did not mint has no document it can vouch for.
         return string.Empty;
-    }
-
-    /// <summary>
-    /// A <c>location</c> member as text, where an absent property reads as the empty string.
-    /// </summary>
-    /// <remarks>
-    /// <c>ToJsString</c> rather than the handle's own rendering: these two reads were
-    /// <c>location.href.ToString()</c>, which on this engine is the observable ECMAScript coercion
-    /// and runs whatever <c>toString</c> a script assigned to a frame's <c>location</c>. Only a
-    /// <em>missing</em> property short-circuits to the empty string, which is what the former
-    /// <c>?.ToString() ?? string.Empty</c> did — a property that is present and <c>null</c> still
-    /// coerces, to "null".
-    /// </remarks>
-    private static string OwnText(IJsRealm realm, JsValue target, string name)
-    {
-        var value = realm.GetProperty(target, name);
-        return value.IsMissing ? string.Empty : realm.ToJsString(value);
     }
 
     /// <summary>

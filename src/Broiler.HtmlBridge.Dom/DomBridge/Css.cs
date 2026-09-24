@@ -378,10 +378,13 @@ public sealed partial class DomBridge
                     // The loader only dispatches file/http(s), so a data: href fetched as an
                     // ordinary URL came back empty and the sheet — the whole sheet, for a link a
                     // script builds at run time — silently did not apply.
-                    var fetchedCss = FetchStyleSheetText(ResolveStyleSheetLinkUrl(href));
+                    var sheetUrl = ResolveStyleSheetLinkUrl(href);
+                    var fetchedCss = FetchStyleSheetText(sheetUrl, LinkStyleSheetRequest(styleEl));
                     if (!string.IsNullOrEmpty(fetchedCss))
                     {
-                        StyleSheetStateFor(styleEl).FetchedCss.Set(fetchedCss);
+                        var state = StyleSheetStateFor(styleEl);
+                        state.FetchedCssIsCrossOrigin = !IsLinkedStyleSheetOriginClean(styleEl, sheetUrl);
+                        state.FetchedCss.Set(fetchedCss);
                         cssText.Append(fetchedCss);
                     }
                 }

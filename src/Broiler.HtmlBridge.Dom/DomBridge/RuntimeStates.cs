@@ -141,6 +141,14 @@ internal sealed class StyleSheetRuntimeState
     public RuntimeValue<string> FetchedCss { get; } = new();
 
     /// <summary>
+    /// Whether <see cref="FetchedCss"/> is not origin-clean (CSSOM): a linked sheet whose response was
+    /// neither same-origin nor CORS-approved. Its rules apply, and <c>getComputedStyle</c> sees their
+    /// effect, but <c>cssRules</c>, <c>insertRule</c> and <c>deleteRule</c> throw
+    /// <c>SecurityError</c>, so the page cannot read another origin's sheet text.
+    /// </summary>
+    public bool FetchedCssIsCrossOrigin { get; set; }
+
+    /// <summary>
     /// The live, mutable CSSOM rule list backing this style element's stylesheet —
     /// the single source of truth shared by the CSSOM (<c>cssRules</c>/<c>insertRule</c>/
     /// <c>deleteRule</c> and rule <c>style</c> writes), the renderer/legacy-cascade text, and the
@@ -216,6 +224,7 @@ internal sealed class StyleSheetRuntimeState
     public void CopyTo(StyleSheetRuntimeState target)
     {
         FetchedCss.CopyTo(target.FetchedCss);
+        target.FetchedCssIsCrossOrigin = FetchedCssIsCrossOrigin;
         target.Rules = Rules is null ? null : [.. Rules];
         target.RulesSourceText = RulesSourceText;
         target.RulesMutated = RulesMutated;

@@ -224,6 +224,18 @@ internal sealed class ScriptInsertionRunner
         var isDataUri = src.StartsWith("data:", StringComparison.OrdinalIgnoreCase);
         var label = isDataUri ? $"inserted-data-{_executedCount++}" : src;
 
+        // The request is decided now, at insertion, not when the task runs: the element's
+        // crossorigin attribute, the document and the page URL are the ones the script was inserted
+        // under. The script-src check above is repeated for every redirect of the fetch.
+        var pageUrl = _host.PageUrl;
+        var policy = _host.Csp;
+        var request = isDataUri
+            ? null
+            : _host.ScriptFetch?.ForScript(
+                isModule: false,
+                DomBridgeUtils.GetAttr(script, "crossorigin"),
+                policy is null ? null : (url, _) => policy.AllowsExternalScript(url.AbsoluteUri, pageUrl, nonce));
+
         _host.QueueTask(() =>
         {
             string? source;
@@ -231,7 +243,7 @@ internal sealed class ScriptInsertionRunner
             {
                 source = isDataUri
                     ? ScriptExtractionService.DecodeDataUri(src)
-                    : ScriptExtractionService.FetchExternalScript(src, _host.PageUrl);
+                    : ScriptExtractionService.FetchExternalScript(src, pageUrl, request);
             }
             catch (Exception ex)
             {

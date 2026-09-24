@@ -80,4 +80,26 @@ public sealed record NavigationRequest(string Url, NavigationKind Kind, TimeSpan
     /// </para>
     /// </remarks>
     public int FormIndex { get; init; } = -1;
+
+    /// <summary>
+    /// The document that started the navigation, as its request context, or <see langword="null"/>
+    /// when no document is known.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It is the initiator a host passes to <see cref="Broiler.Net.Http.RequestContext.TopLevelNavigation"/>,
+    /// which is what the transport decides <c>SameSite</c> from: a navigation a cross-site document
+    /// started does not carry the target's <c>Strict</c> cookies, nor its <c>Lax</c> ones when it is a
+    /// <c>POST</c>. Leaving it out makes the navigation look like the user's own, from the address bar,
+    /// which is same-site by definition.
+    /// </para>
+    /// <para>
+    /// The bridge fills it in from its own state, never from the page: the document whose script
+    /// called <c>location</c> — a frame's document when the frame's script navigates the top window —
+    /// and, for <c>form.submit()</c>, the form's document. A meta refresh found by
+    /// <see cref="MetaRefreshDiscovery"/> is its own document's, which the host names through the
+    /// overload that takes one.
+    /// </para>
+    /// </remarks>
+    public Broiler.Net.Http.DocumentRequestContext? Initiator { get; init; }
 }

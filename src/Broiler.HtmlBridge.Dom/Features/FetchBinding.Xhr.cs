@@ -1,23 +1,75 @@
 ﻿using Broiler.JSeal;
+using Broiler.Net.Http;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
 internal sealed partial class FetchBinding
 {
     /// <summary>
-    /// Registers a basic <c>XMLHttpRequest</c> constructor on the realm's global.
-    /// Supports <c>open</c>, <c>send</c>, <c>setRequestHeader</c>,
+    /// Registers a basic <c>XMLHttpRequest</c> constructor on <paramref name="window"/> and the
+    /// realm's global. Supports <c>open</c>, <c>send</c>, <c>setRequestHeader</c>,
     /// <c>onreadystatechange</c>, <c>readyState</c>, <c>status</c>, and <c>responseText</c>.
     /// </summary>
+    /// <param name="realm">The realm the constructor is installed into.</param>
+    /// <param name="window">The window it is published on.</param>
+    /// <param name="nativeFetch">This binding's own <c>fetch</c> function, which every send goes through.</param>
     /// <remarks>
+    /// <para>
     /// The source is this repository's own, not the page's, so it goes through
     /// <see cref="IJsSource.EvaluateHostScript"/> — the one member of the source contract exempt
     /// from the page's content policy — and the label is what a stack frame raised inside the
-    /// polyfill reports as its location. The declarations are top-level on purpose: <c>window</c>
-    /// <em>is</em> the global here, so <c>function XMLHttpRequest</c> is what publishes the
-    /// constructor, exactly as it did through the context's own <c>Eval</c>.
+    /// polyfill reports as its location.
+    /// </para>
+    /// <para>
+    /// <b>The polyfill is a closure over the native fetch, not a reader of the global.</b> It used to
+    /// call whatever <c>fetch</c> named when a request was sent, so a page that assigned
+    /// <c>window.fetch</c> saw — and could answer — every XMLHttpRequest a library made. The script
+    /// is a factory now: it takes the fetch function captured here, at install time, and the native
+    /// header check, and returns the constructor this method publishes.
+    /// </para>
+    /// <para>
+    /// What XHR adds to fetch's own gates: <c>withCredentials</c> is the credentials mode
+    /// (<c>include</c>, otherwise <c>same-origin</c>) of a <c>cors</c> request, and
+    /// <c>setRequestHeader</c> throws <c>SyntaxError</c> for a name or value HTTP cannot carry and
+    /// ignores a forbidden request-header, as XHR specifies. The response headers it exposes are the
+    /// fetch response's, which are already Fetch's filtered set — no Set-Cookie — and
+    /// <c>responseURL</c> is the final URL.
+    /// </para>
     /// </remarks>
-    private static void RegisterXMLHttpRequest(IJsRealm realm) => realm.EvaluateHostScript(@"
+    private static void RegisterXMLHttpRequest(IJsRealm realm, JsValue window, JsValue nativeFetch)
+    {
+        var factory = realm.EvaluateHostScript(XMLHttpRequestFactorySource, "polyfill:xmlhttprequest");
+        var checkRequestHeader = realm.NewMethod("setRequestHeader", (in call) => CheckXhrRequestHeader(in call), 2);
+        var constructor = realm.Invoke(factory, JsValue.Undefined, [nativeFetch, checkRequestHeader]);
+        realm.DefineValue(window, "XMLHttpRequest", constructor);
+        realm.SetProperty(realm.Global, "XMLHttpRequest", constructor);
+    }
+
+    /// <summary>
+    /// XHR <c>setRequestHeader</c> steps 3 to 5: the value normalized, a name that is not a header
+    /// name or a value that is not a header value a <c>SyntaxError</c>, and a forbidden
+    /// request-header answered with <c>null</c>, which the polyfill ignores. Otherwise the
+    /// normalized value.
+    /// </summary>
+    private static JsValue CheckXhrRequestHeader(in JsCall call)
+    {
+        var realm = call.Realm;
+        var name = realm.ToJsString(call.Length > 0 ? call[0] : JsValue.Undefined);
+        var value = FetchHeaders.NormalizeHeaderValue(realm.ToJsString(call.Length > 1 ? call[1] : JsValue.Undefined));
+        if (!FetchHeaders.IsHeaderName(name))
+            throw realm.DomError("SyntaxError", $"'{name}' is not a valid HTTP header field name.");
+        if (!FetchHeaders.IsHeaderValue(value))
+            throw realm.DomError("SyntaxError", $"'{value}' is not a valid HTTP header field value.");
+
+        return FetchHeaders.IsForbiddenRequestHeader(name, value) ? JsValue.Null : JsValue.String(value);
+    }
+
+    /// <summary>
+    /// The polyfill: a function of the native fetch and the header check that returns the
+    /// <c>XMLHttpRequest</c> constructor.
+    /// </summary>
+    private const string XMLHttpRequestFactorySource = @"
+            (function (nativeFetch, checkRequestHeader) {
                 function XMLHttpRequest() {
                     this.readyState = 0;
                     this.status = 0;
@@ -240,7 +292,19 @@ internal sealed partial class FetchBinding
                     this._dispatchReadyStateChange();
                 };
                 XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
-                    this._headers[name] = value;
+                    // A name or value HTTP cannot carry throws; a forbidden request-header
+                    // (Cookie, Host, Origin, Sec-*, ...) is ignored; a repeated name is combined.
+                    var normalized = checkRequestHeader(name, value);
+                    if (normalized === null) return;
+                    var key = '' + name;
+                    var lower = key.toLowerCase();
+                    for (var existing in this._headers) {
+                        if (existing.toLowerCase() === lower) {
+                            this._headers[existing] = this._headers[existing] + ', ' + normalized;
+                            return;
+                        }
+                    }
+                    this._headers[key] = normalized;
                 };
                 XMLHttpRequest.prototype.getResponseHeader = function(name) {
                     if (!name) return null;
@@ -301,7 +365,12 @@ internal sealed partial class FetchBinding
                         self.dispatchEvent(self._createProgressEvent('loadend', 0, 0, false));
                     }
                     try {
-                        var opts = { method: self._method };
+                        // XHR's request: cors, with credentials only when withCredentials asks.
+                        var opts = {
+                            method: self._method,
+                            mode: 'cors',
+                            credentials: self.withCredentials ? 'include' : 'same-origin'
+                        };
                         var requestBody;
                         if (body !== undefined && body !== null &&
                             self._method !== 'GET' && self._method !== 'HEAD') {
@@ -337,7 +406,7 @@ internal sealed partial class FetchBinding
                             self.upload.dispatchEvent(self._createProgressEvent('loadend', uploadProgress.loaded, uploadProgress.total, uploadProgress.lengthComputable, self.upload));
                         }
                         self.dispatchEvent(self._createProgressEvent('loadstart', 0, 0, false));
-                        fetch(self._url, opts).then(function(response) {
+                        nativeFetch(self._url, opts).then(function(response) {
                             if (self._aborted || self._timedOut) return;
                             self.status = response.status;
                             self.statusText = response.statusText;
@@ -439,6 +508,7 @@ internal sealed partial class FetchBinding
                         handleRequestError();
                     }
                 };
-            ", "polyfill:xmlhttprequest");
+                return XMLHttpRequest;
+            })";
 
 }
