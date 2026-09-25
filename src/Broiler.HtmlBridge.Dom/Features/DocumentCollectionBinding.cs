@@ -109,6 +109,9 @@ internal static class DocumentCollectionBinding
     /// </remarks>
     public static JsValue GetCurrentScript(IDocumentCollectionHost host)
     {
+        if (host.RunningInsertedScript is { } inserted)
+            return host.WrapNode(inserted);
+
         var index = host.CurrentScriptIndex;
         if (index < 0 || index >= host.Elements.Count)
             return JsValue.Null;

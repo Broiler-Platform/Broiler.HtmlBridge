@@ -58,6 +58,8 @@ internal sealed class SubDocumentCollectionHost(ISubDocumentHost host, DomNode d
     /// </summary>
     public int CurrentScriptIndex => -1;
 
+    public DomElement? RunningInsertedScript => null;
+
     public JsValue BuildStyleSheetObject(DomElement styleElement) => host.BuildStyleSheetObject(styleElement);
 
     public bool HasAssociatedStyleSheet(DomElement element) => host.HasAssociatedStyleSheet(element);

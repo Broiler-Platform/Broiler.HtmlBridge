@@ -479,12 +479,24 @@ public sealed partial class DomBridge : Dom.Runtime.IScriptInsertionHost
 
     void Dom.Runtime.IScriptInsertionHost.QueueTask(Action task) => _eventLoop.QueueTask(task);
 
-    void Dom.Runtime.IScriptInsertionHost.EvaluateScript(string source, string label)
+    void Dom.Runtime.IScriptInsertionHost.EvaluateScript(DomElement script, string source, string label)
     {
         // A script body is a turn too, and the one most likely to be the long pole at load; see
         // JsEntryTrace. Inactive by default.
         using var turn = JsEntryTrace.Enter(JsEntryKind.Script, label);
-        _realm?.EvaluateClassicScript(source, label);
+
+        // The script is document.currentScript while it runs, and the one before it — the inserting
+        // script's, for an inline script inserted from another — is restored after, even on a throw.
+        var previous = RunningInsertedScript;
+        RunningInsertedScript = script;
+        try
+        {
+            _realm?.EvaluateClassicScript(source, label);
+        }
+        finally
+        {
+            RunningInsertedScript = previous;
+        }
     }
 
     string Dom.Runtime.IScriptInsertionHost.TextContentOf(DomElement element) => element.TextContent;
