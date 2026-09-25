@@ -23,6 +23,8 @@ public sealed partial class DomBridge : Dom.Features.IDocumentCollectionHost
 {
     int Dom.Features.IDocumentCollectionHost.CurrentScriptIndex => CurrentScriptIndex;
 
+    DomElement? Dom.Features.IDocumentCollectionHost.RunningInsertedScript => RunningInsertedScript;
+
     JsValue Dom.Features.IDocumentCollectionHost.BuildStyleSheetObject(DomElement styleElement)
         => BuildStyleSheet(styleElement);
 

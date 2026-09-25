@@ -198,7 +198,7 @@ internal sealed class ScriptInsertionRunner
 
         var label = $"inserted-{_executedCount++}";
         Record(label, text);
-        Run(text, label);
+        Run(script, text, label);
     }
 
     /// <summary>
@@ -261,7 +261,7 @@ internal sealed class ScriptInsertionRunner
             }
 
             Record(label, source);
-            Run(source, label);
+            Run(script, source, label);
             _host.FireSimpleEvent(script, "load");
         });
     }
@@ -275,11 +275,11 @@ internal sealed class ScriptInsertionRunner
     /// resource failed to load, and this one loaded and then threw. Reporting it as a load failure
     /// would tell a loader that retries on <c>error</c> to fetch the script again.
     /// </remarks>
-    private void Run(string source, string label)
+    private void Run(DomElement script, string source, string label)
     {
         try
         {
-            _host.EvaluateScript(source, label);
+            _host.EvaluateScript(script, source, label);
         }
         catch (Exception ex)
         {

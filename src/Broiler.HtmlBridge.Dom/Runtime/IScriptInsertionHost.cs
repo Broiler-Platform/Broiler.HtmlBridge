@@ -44,7 +44,9 @@ internal interface IScriptInsertionHost : Features.IPageUrlHost
     void QueueTask(Action task);
 
     /// <summary>Evaluates classic script source on the page's behalf, under
-    /// <paramref name="label"/> — the name errors from it are reported against.</summary>
+    /// <paramref name="label"/> — the name errors from it are reported against — with
+    /// <paramref name="script"/>, the element it came from, as <c>document.currentScript</c> while
+    /// it runs.</summary>
     /// <remarks>
     /// A CLASSIC SCRIPT in the specification's sense, which is what decides how the bridge evaluates
     /// it: <c>script-src</c> governs a script element and the caller has already taken that decision,
@@ -52,7 +54,7 @@ internal interface IScriptInsertionHost : Features.IPageUrlHost
     /// the page asking to evaluate a string at run time either — those are the other two thirds of
     /// <c>IJsSource</c>.
     /// </remarks>
-    void EvaluateScript(string source, string label);
+    void EvaluateScript(DomElement script, string source, string label);
 
     /// <summary>The concatenated descendant text of an element: a script element's program text.</summary>
     string TextContentOf(DomElement element);

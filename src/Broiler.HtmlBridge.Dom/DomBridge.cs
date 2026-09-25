@@ -199,6 +199,22 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         set => CurrentScriptIndex = value;
     }
 
+    /// <summary>
+    /// The script-inserted <c>&lt;script&gt;</c> whose program is running now, or null. While it is
+    /// set, <c>document.currentScript</c> is this element rather than the parser's script
+    /// (<see cref="CurrentScriptIndex"/>), which only the document's own scripts set.
+    /// </summary>
+    /// <remarks>
+    /// HTML §4.12.1.1, "execute the script element": a classic script is its document's
+    /// <c>currentScript</c> while it runs, and the old value is restored after. Nothing set it for a
+    /// script the page inserted, so an external one read <c>null</c> and an inline one read the
+    /// script that inserted it. Next.js's Turbopack runtime registers each chunk with
+    /// <c>document.currentScript</c>, and on a null throws "chunk path empty but not in a worker":
+    /// duckduckgo.com's page never rendered its content. <c>document.write</c> keeps its insertion
+    /// point at the parser's script.
+    /// </remarks>
+    internal DomElement? RunningInsertedScript { get; private set; }
+
     // viewport dimensions for window.innerWidth/innerHeight and element box-model properties
     private int _viewportWidth = DefaultViewportWidth;
     private int _viewportHeight = DefaultViewportHeight;

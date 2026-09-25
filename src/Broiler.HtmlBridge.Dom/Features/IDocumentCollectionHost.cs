@@ -35,6 +35,12 @@ internal interface IDocumentCollectionHost : IElementsHost, INodeWrapperHost, IR
     /// </summary>
     int CurrentScriptIndex { get; }
 
+    /// <summary>
+    /// The script-inserted <c>&lt;script&gt;</c> running now, which <c>document.currentScript</c>
+    /// names ahead of <see cref="CurrentScriptIndex"/>, or null.
+    /// </summary>
+    DomElement? RunningInsertedScript { get; }
+
     JsValue BuildStyleSheetObject(DomElement styleElement);
 
     /// <summary>
