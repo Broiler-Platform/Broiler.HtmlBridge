@@ -167,6 +167,17 @@ public sealed partial class DomBridge
         // Expose timer functions as globals (matching window.* counterparts)
         foreach (var name in TimerGlobalNames)
             realm.SetProperty(global, name, realm.GetProperty(window, name));
+
+        // setImmediate is the engine's, the one Node has; Internet Explorer had one too, and no
+        // browser does. A scheduler that finds it uses it -- React's looks for it before a
+        // MessageChannel and takes it for every render -- so leaving it here decided how a page
+        // schedules its work. And the engine's is no timer of the window's: it posts to the calling
+        // thread's SynchronizationContext, not to the event loop above, and fails on a thread that
+        // has none. The thread that settles the load window has none when it runs a script the page
+        // inserted, and duckduckgo.com's React root scheduled its first render from there: a
+        // ReferenceError ("Object reference not set to an instance of an object"), and a page with
+        // nothing on it.
+        realm.DeleteProperty(global, "setImmediate");
     }
 
     /// <summary>
