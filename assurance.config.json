@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "component": "Broiler.HtmlBridge",
+  "projects": [
+    "src/Broiler.HtmlBridge.Core/Broiler.HtmlBridge.Core.csproj",
+    "src/Broiler.HtmlBridge.Dom/Broiler.HtmlBridge.Dom.csproj",
+    "src/Broiler.HtmlBridge.DomBridgeUtils/Broiler.HtmlBridge.DomBridgeUtils.csproj",
+    "src/Broiler.HtmlBridge.Scripting/Broiler.HtmlBridge.Scripting.csproj",
+    "src/Broiler.HtmlBridge.Scripting.Vm/Broiler.HtmlBridge.Scripting.Vm.csproj"
+  ],
+  "exemptionPredicate": "owning-component",
+  "exclude": [],
+  "spdx": {
+    "copyright": [
+      "2026 Broiler Platform contributors"
+    ],
+    "license": "Apache-2.0"
+  },
+  "artefacts": {
+    "humanReview": "HUMAN_REVIEW.units.md"
+  },
+  "regenerateCommand": "dotnet run --project Broiler.Code/src/Broiler.Code.Review.Cli -c Release -- assurance generate --root Broiler.HtmlBridge"
+}
