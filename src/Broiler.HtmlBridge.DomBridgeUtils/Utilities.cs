@@ -1,6 +1,6 @@
-using System.Text;
 using Broiler.Dom;
 using Broiler.JSeal;
+using Broiler.Net.Http;
 
 namespace Broiler.HtmlBridge;
 
@@ -49,55 +49,18 @@ public static partial class DomBridgeUtils
     }
 
     /// <summary>
-    /// Decodes a <c>data:</c> URI and returns the MIME type and decoded body content.
-    /// Supports percent-encoded and base64-encoded payloads, as well as nested data URIs.
+    /// The essence of the MIME type a <c>data:</c> URI declares (<c>text/plain</c> when it declares
+    /// none) and the body it carries, decoded as UTF-8. Both are empty when it is not a <c>data:</c>
+    /// URL a browser decodes (<see cref="DataUrl"/>), which leaves the caller its empty-document path.
     /// </summary>
-    internal static (string mimeType, string body) DecodeDataUriParts(string dataUri)
-    {
-        if (!dataUri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-            return (string.Empty, string.Empty);
-
-        var rest = dataUri[5..]; // strip "data:"
-        var commaIdx = rest.IndexOf(',');
-        if (commaIdx < 0)
-            return (string.Empty, string.Empty);
-
-        var meta = rest[..commaIdx]; // e.g. "text/html;base64" or "text/html;charset=utf-8"
-        var payload = rest[(commaIdx + 1)..];
-
-        // Extract MIME type (before any semicolons)
-        var mimeType = meta;
-        var semiIdx = meta.IndexOf(';');
-        if (semiIdx >= 0)
-            mimeType = meta[..semiIdx];
-        if (string.IsNullOrEmpty(mimeType))
-            mimeType = "text/plain"; // default per RFC 2397
-
-        string body;
-        if (meta.Contains("base64", StringComparison.OrdinalIgnoreCase))
-        {
-            var decoded = Uri.UnescapeDataString(payload);
-            // Strip whitespace (RFC 2045 allows folding)
-            decoded = System.Text.RegularExpressions.Regex.Replace(decoded, @"\s", string.Empty);
-            try
-            {
-                var bytes = Convert.FromBase64String(decoded);
-                body = Encoding.UTF8.GetString(bytes);
-            }
-            catch (FormatException)
-            {
-                // Malformed base64 payload — return empty body so the caller
-                // falls back to the default empty-document path.
-                body = string.Empty;
-            }
-        }
-        else
-        {
-            body = Uri.UnescapeDataString(payload);
-        }
-
-        return (mimeType.Trim(), body);
-    }
+    /// <remarks>
+    /// The base64 body went to <see cref="Convert.FromBase64String"/>, which throws where a browser
+    /// decodes: a frame or stylesheet whose body had no <c>=</c> padding came out empty.
+    /// </remarks>
+    internal static (string mimeType, string body) DecodeDataUriParts(string dataUri) =>
+        DataUrl.TryParse(dataUri, out var dataUrl)
+            ? (dataUrl.MimeType.Essence, dataUrl.DecodeUtf8())
+            : (string.Empty, string.Empty);
 
     /// <summary>
     /// Returns <c>true</c> if the target URL is cross-origin relative to the page URL.
