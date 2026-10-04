@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -82,8 +82,9 @@ internal static class IframeElementBinding
         // Invalidate cached sub-document when the frame source changes
         host.InvalidateCachedSubDocument(element);
         host.ClearOnloadFired(element);
-        // Fire onload for the new resource
-        host.FireSubDocumentOnload(element);
+        // Queue onload and subdocument loading on the event loop for the new resource,
+        // matching the HTML specification and avoiding deep synchronous recursion.
+        host.QueueSubDocumentOnload(element);
         return JsValue.Undefined;
     }
 }

@@ -202,9 +202,9 @@ public sealed partial class DomBridge
         {
             var insertedTag = insertedElement.TagName?.ToLowerInvariant();
             if (IsNestedBrowsingContextContainer(insertedTag))
-                FireSubDocumentOnload(insertedElement);
+                _eventLoop.QueueTask(() => FireSubDocumentOnload(insertedElement));
             else
-                FireDescendantOnloads(insertedElement);
+                _eventLoop.QueueTask(() => FireDescendantOnloads(insertedElement));
 
             // A <link rel=stylesheet> only fetches once it is in the page's document, so insertion — not
             // createElement — is when its load event becomes due (HTML §4.2.4). The page's, not any

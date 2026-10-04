@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -25,4 +25,5 @@ internal interface IIframeElementHost : IRealmHost, ISubDocumentFactoryHost
     void InvalidateCachedSubDocument(DomElement element);
     void ClearOnloadFired(DomElement element);
     void FireSubDocumentOnload(DomElement element);
+    void QueueSubDocumentOnload(DomElement element);
 }

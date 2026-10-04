@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Features;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.JSeal;
@@ -494,6 +494,7 @@ public sealed partial class DomBridge : Dom.Features.IIframeElementHost
     void Dom.Features.IIframeElementHost.InvalidateCachedSubDocument(DomElement element) => InvalidateCachedSubDocument(element);
     void Dom.Features.IIframeElementHost.ClearOnloadFired(DomElement element) => _browsingContexts.ClearOnloadFired(element);
     void Dom.Features.IIframeElementHost.FireSubDocumentOnload(DomElement element) => FireSubDocumentOnload(element);
+    void Dom.Features.IIframeElementHost.QueueSubDocumentOnload(DomElement element) => _eventLoop.QueueTask(() => FireSubDocumentOnload(element));
 }
 
 // Explicit IObjectElementHost implementation for the ObjectElementBinding feature module: the
