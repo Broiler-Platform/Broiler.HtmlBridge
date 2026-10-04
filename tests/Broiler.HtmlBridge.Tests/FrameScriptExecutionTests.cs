@@ -26,9 +26,17 @@ namespace Broiler.HtmlBridge.Tests;
 /// The browser's answer would fail today and say nothing about the swap; these thirteen names in
 /// this order, <c>href</c> and <c>hash</c> as accessors and the seven components as data, is the
 /// statement "the surviving builder is interchangeable with the one it replaces". Every other test
-/// asserts what a browser does — including the three skipped ones, which fail on one fact: every
+/// asserts what a browser does — including the two skipped ones, which fail on one fact: every
 /// document shares one realm, so a frame's scripts are evaluated in the page's own global object
 /// with <c>window</c>/<c>document</c>/<c>location</c>/<c>parent</c> swapped on it for the duration.
+/// </para>
+/// <para>
+/// <b>A property the frame's script sets on its <c>window</c> was skipped as well, until the frame
+/// kept the window its scripts ran against.</b> Reaching the frame built its window, which built its
+/// document, which ran its scripts, which asked for the frame's window: that re-entrant call built
+/// one, and the outer call then replaced it in the cache with a second, so <c>frames[0].marked</c>
+/// was undefined while the frame's own echo proved the assignment had happened.
+/// <c>FramePostMessageTests</c> holds what else hung on that window.
 /// </para>
 /// </summary>
 public class FrameScriptExecutionTests
@@ -181,15 +189,7 @@ public class FrameScriptExecutionTests
                 """));
     }
 
-    [Fact(Skip = "The sub-document script runner asks for the frame's window before the builder " +
-                 "asking for the sub-document has cached one, so the scripts run against a " +
-                 "throwaway window the outer build then replaces in the cache. Only names landing " +
-                 "on the global object survive, recovered by the diff in " +
-                 "DomBridge/SubDocuments.Loading.cs, so `window.x = …` inside a frame is written to " +
-                 "an object nothing keeps: frames[0].marked is undefined while the frame's own echo " +
-                 "proves the assignment happened. Which of the two windows survives also depends on " +
-                 "whether the page reads contentDocument or contentWindow first. " +
-                 "src/Broiler.HtmlBridge.Dom/DomBridge/SubDocuments.cs:395")]
+    [Fact]
     public void APropertyTheFramesScriptPutsOnItsWindowIsOnTheWindowThePageSees()
     {
         Assert.Equal(

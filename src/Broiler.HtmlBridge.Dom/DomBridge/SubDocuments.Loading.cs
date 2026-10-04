@@ -224,12 +224,12 @@ public sealed partial class DomBridge
         return names;
     }
 
-    /// <summary>The names each frame's scripts declared, waiting for that frame's window to exist.
-    /// <para>The window a frame's scripts run against is not the one that survives: building the
-    /// sub-document is what runs them, and it reaches back for a window before
-    /// <see cref="Dom.Features.SubWindowBinding.GetOrCreate"/> has cached the real one, so the
-    /// re-entrant call mints a throwaway that the outer call then replaces. Recording the names here
-    /// and publishing them once the surviving window is built keeps that ordering untouched.</para>
+    /// <summary>The names each frame's scripts declared, waiting to be published on that frame's
+    /// window.
+    /// <para>Building the sub-document is what runs the frame's scripts, and they reach back for the
+    /// frame's window first: <see cref="Dom.Features.SubWindowBinding.GetOrCreate"/> builds it
+    /// re-entrantly, before the scripts have declared anything. The names are recorded once the
+    /// scripts have run, and the outer call publishes them on that same window, which it keeps.</para>
     /// </summary>
     private readonly Dictionary<DomElement, List<string>> _pendingSubDocumentGlobals = [];
 

@@ -381,8 +381,8 @@ public sealed partial class DomBridge
                 QueueSubDocumentModuleRoots(containerElement, subWindow, subModuleContext, extraction.ModuleRoots);
             }
 
-            // Recorded, not published: the window these scripts ran against is a re-entrant
-            // throwaway that the outer GetOrCreate replaces. See DomBridge/SubDocuments.Loading.cs.
+            // Recorded, not published: the window these scripts ran against was built before they
+            // ran, and the outer GetOrCreate publishes them on it. See DomBridge/SubDocuments.Loading.cs.
             RecordSubDocumentGlobals(containerElement, globalsBefore);
         });
     }
