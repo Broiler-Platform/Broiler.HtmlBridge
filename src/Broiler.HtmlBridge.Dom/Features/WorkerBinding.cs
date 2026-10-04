@@ -211,6 +211,24 @@ internal sealed class WorkerBinding : IDisposable
             return JsValue.Undefined;
         });
 
+        // A Worker is an EventTarget, so it has removeEventListener too, and code that listens on
+        // one stops listening when it is done. Without it the call was a TypeError: reCAPTCHA's
+        // frame waits five seconds for its worker's first message, and the timer that gives up calls
+        // `worker.removeEventListener('message', ...)` before rejecting -- so it threw instead, the
+        // promise was never settled and the widget never finished loading. Every registration of the
+        // pair is removed, which is the state a browser leaves, since it never registers a pair twice.
+        realm.DefineMethod(handle, "removeEventListener", 2, (in call) =>
+        {
+            if (call.Length >= 2)
+            {
+                var type = call.Realm.ToJsString(call[0]);
+                var fn = call[1];
+                listeners.RemoveAll(listener => listener.Type == type && listener.Fn == fn);
+            }
+
+            return JsValue.Undefined;
+        });
+
         _handleListeners[handle] = listeners;
     }
 
