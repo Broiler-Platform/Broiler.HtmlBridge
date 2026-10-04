@@ -1,6 +1,6 @@
 using Broiler.Dom;
-using Broiler.HtmlBridge.Net;
 using Broiler.JSeal;
+using Broiler.Net.Http;
 
 namespace Broiler.HtmlBridge;
 
@@ -58,8 +58,8 @@ public static partial class DomBridgeUtils
     /// decodes: a frame or stylesheet whose body had no <c>=</c> padding came out empty.
     /// </remarks>
     internal static (string mimeType, string body) DecodeDataUriParts(string dataUri) =>
-        DataUrl.TryParse(dataUri, out var mimeType, out var body)
-            ? (mimeType, DataUrl.Utf8Decode(body))
+        DataUrl.TryParse(dataUri, out var dataUrl)
+            ? (dataUrl.MimeType.Essence, dataUrl.DecodeUtf8())
             : (string.Empty, string.Empty);
 
     /// <summary>

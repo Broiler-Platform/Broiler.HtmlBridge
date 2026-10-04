@@ -1,7 +1,6 @@
 using Broiler.Dom.Html;
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Logging;
-using Broiler.HtmlBridge.Net;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.Net.Http;
@@ -335,7 +334,7 @@ public static partial class ScriptExtractionService
     /// marked the body as base64.
     /// </remarks>
     public static string DecodeDataUri(string dataUri) =>
-        DataUrl.TryParse(dataUri, out _, out var body) ? DataUrl.Utf8Decode(body) : string.Empty;
+        DataUrl.TryParse(dataUri, out var dataUrl) ? dataUrl.DecodeUtf8() : string.Empty;
 
     /// <summary>
     /// Resolves and downloads an external script from an HTTP/HTTPS/file URL.

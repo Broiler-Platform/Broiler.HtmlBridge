@@ -1,5 +1,5 @@
-﻿using Broiler.HtmlBridge.Net;
-using Broiler.JSeal;
+﻿using Broiler.JSeal;
+using Broiler.Net.Http;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -49,13 +49,13 @@ internal static class Base64Binding
 
     /// <summary>
     /// <c>atob(data)</c> — decodes base64 to a binary string, by Infra's <em>forgiving-base64
-    /// decode</em>, which <c>data:</c> URLs share (<see cref="DataUrl.TryForgivingBase64Decode"/>).
+    /// decode</em> (<see cref="ForgivingBase64"/>), which <c>data:</c> URLs share.
     /// Throws <c>InvalidCharacterError</c> when the input cannot be decoded.
     /// </summary>
     internal static JsValue Atob(in JsCall call)
     {
         var input = call.Length > 0 ? call.Realm.ToJsString(call[0]) : "undefined";
-        if (!DataUrl.TryForgivingBase64Decode(input, out var bytes))
+        if (!ForgivingBase64.TryDecode(input, out var bytes))
         {
             throw call.Realm.DomError("InvalidCharacterError",
                 "The string to be decoded is not correctly encoded.");
