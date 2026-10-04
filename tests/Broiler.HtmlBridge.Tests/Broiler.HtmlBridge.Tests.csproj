@@ -52,4 +52,9 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- web-platform-tests vectors, read at run time; see wpt/README.md. -->
+  <ItemGroup>
+    <None Update="wpt\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

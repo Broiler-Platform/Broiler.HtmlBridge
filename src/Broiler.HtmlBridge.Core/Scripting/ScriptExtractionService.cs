@@ -1,6 +1,7 @@
 using Broiler.Dom.Html;
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Logging;
+using Broiler.HtmlBridge.Net;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.Net.Http;
@@ -8,8 +9,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
-using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Broiler.HtmlBridge;
 
@@ -28,8 +27,6 @@ namespace Broiler.HtmlBridge;
 /// </remarks>
 public static partial class ScriptExtractionService
 {
-    private static readonly Regex WhitespacePattern = WhitespacePatternRegex();
-
     /// <summary>The budget for one external script, through the transport or the fallback client.</summary>
     private static readonly TimeSpan ScriptFetchTimeout = TimeSpan.FromSeconds(30);
 
@@ -328,43 +325,17 @@ public static partial class ScriptExtractionService
     }
 
     /// <summary>
-    /// Decodes a <c>data:</c> URI into its text content.
-    /// Supports percent-encoding and base64 payloads.
+    /// The text a <c>data:</c> URI carries, percent-encoded or in base64, decoded as UTF-8; the empty
+    /// string when it is not a <c>data:</c> URL a browser decodes (<see cref="DataUrl"/>).
     /// </summary>
-    public static string DecodeDataUri(string dataUri)
-    {
-        if (!dataUri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-            return string.Empty;
-
-        var rest = dataUri[5..]; // strip "data:"
-        var commaIdx = rest.IndexOf(',');
-        if (commaIdx < 0)
-            return string.Empty;
-
-        var meta = rest[..commaIdx];
-        var payload = rest[(commaIdx + 1)..];
-
-        if (meta.Contains("base64", StringComparison.OrdinalIgnoreCase))
-        {
-            // Percent-decode first (some Acid3 data URIs percent-encode the base64)
-            var decoded = Uri.UnescapeDataString(payload);
-            // Strip whitespace (RFC 2045 allows folding)
-            decoded = WhitespacePattern.Replace(decoded, string.Empty);
-            try
-            {
-                var bytes = Convert.FromBase64String(decoded);
-                return Encoding.UTF8.GetString(bytes);
-            }
-            catch (FormatException)
-            {
-                return string.Empty;
-            }
-        }
-        else
-        {
-            return Uri.UnescapeDataString(payload);
-        }
-    }
+    /// <remarks>
+    /// The base64 body went to <see cref="Convert.FromBase64String"/>, which throws where a browser
+    /// decodes: a body without its <c>=</c> padding was no script at all, dropped as silently as a
+    /// malformed one. Any <c>base64</c> in the type, not only the closing <c>;base64</c>, also
+    /// marked the body as base64.
+    /// </remarks>
+    public static string DecodeDataUri(string dataUri) =>
+        DataUrl.TryParse(dataUri, out _, out var body) ? DataUrl.Utf8Decode(body) : string.Empty;
 
     /// <summary>
     /// Resolves and downloads an external script from an HTTP/HTTPS/file URL.
@@ -548,7 +519,4 @@ public static partial class ScriptExtractionService
     /// <summary>The <c>crossorigin</c> attribute's value, or <see langword="null"/> when absent.</summary>
     private static string? GetCrossOrigin(IReadOnlyDictionary<string, string> attrs) =>
         attrs.TryGetValue("crossorigin", out var value) ? value : null;
-
-    [GeneratedRegex(@"\s+", RegexOptions.Compiled)]
-    private static partial Regex WhitespacePatternRegex();
 }

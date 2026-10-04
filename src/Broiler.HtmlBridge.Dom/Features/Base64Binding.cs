@@ -1,4 +1,4 @@
-﻿using System.Text;
+﻿using Broiler.HtmlBridge.Net;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -49,12 +49,13 @@ internal static class Base64Binding
 
     /// <summary>
     /// <c>atob(data)</c> — decodes base64 to a binary string, by Infra's <em>forgiving-base64
-    /// decode</em>. Throws <c>InvalidCharacterError</c> when the input cannot be decoded.
+    /// decode</em>, which <c>data:</c> URLs share (<see cref="DataUrl.TryForgivingBase64Decode"/>).
+    /// Throws <c>InvalidCharacterError</c> when the input cannot be decoded.
     /// </summary>
     internal static JsValue Atob(in JsCall call)
     {
         var input = call.Length > 0 ? call.Realm.ToJsString(call[0]) : "undefined";
-        if (!TryForgivingBase64Decode(input, out var bytes))
+        if (!DataUrl.TryForgivingBase64Decode(input, out var bytes))
         {
             throw call.Realm.DomError("InvalidCharacterError",
                 "The string to be decoded is not correctly encoded.");
@@ -68,74 +69,4 @@ internal static class Base64Binding
                 chars[i] = (char)source[i];
         }));
     }
-
-    /// <summary>
-    /// Infra's forgiving-base64 decode. Written out rather than delegated to
-    /// <see cref="Convert.FromBase64String"/> because the two disagree at the edges that matter
-    /// here: this one strips ASCII whitespace anywhere, accepts unpadded input whose length is not a
-    /// multiple of four, and rejects the one-character tail that cannot encode any byte —
-    /// distinctions a page relying on the platform's behaviour will hit.
-    /// </summary>
-    internal static bool TryForgivingBase64Decode(string input, out byte[] bytes)
-    {
-        bytes = [];
-
-        var builder = new StringBuilder(input.Length);
-        foreach (var c in input)
-        {
-            // The ASCII whitespace set Infra defines — notably not every Unicode space.
-            if (c is '\t' or '\n' or '\f' or '\r' or ' ')
-                continue;
-            builder.Append(c);
-        }
-
-        var data = builder.ToString();
-
-        // Padding is stripped only from input that is already a multiple of four; anywhere else an
-        // '=' is simply a character outside the alphabet, and so a failure.
-        if (data.Length % 4 == 0)
-        {
-            if (data.EndsWith("==", StringComparison.Ordinal))
-                data = data[..^2];
-            else if (data.EndsWith('='))
-                data = data[..^1];
-        }
-
-        // A single leftover character carries six bits: not enough for a byte, and not a tail any
-        // encoder produces.
-        if (data.Length % 4 == 1)
-            return false;
-
-        var output = new byte[data.Length * 3 / 4];
-        var written = 0;
-        var buffer = 0;
-        var bits = 0;
-        foreach (var c in data)
-        {
-            var value = DecodeChar(c);
-            if (value < 0)
-                return false;
-
-            buffer = (buffer << 6) | value;
-            bits += 6;
-            if (bits >= 8)
-            {
-                bits -= 8;
-                output[written++] = (byte)((buffer >> bits) & 0xFF);
-            }
-        }
-
-        bytes = written == output.Length ? output : output[..written];
-        return true;
-    }
-
-    private static int DecodeChar(char c) => c switch
-    {
-        >= 'A' and <= 'Z' => c - 'A',
-        >= 'a' and <= 'z' => c - 'a' + 26,
-        >= '0' and <= '9' => c - '0' + 52,
-        '+' => 62,
-        '/' => 63,
-        _ => -1,
-    };
 }
