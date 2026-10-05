@@ -24,7 +24,7 @@ namespace Broiler.HtmlBridge;
 /// <c>DomBridge/Lifecycle.cs</c>, <c>Runtime/JsInterop.cs</c> and <c>BridgeModuleContext.cs</c>
 /// say what else still does.
 /// </remarks>
-public sealed partial class DomBridge : IDomBridgeRuntime
+public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFlight
 {
     // Sub-resource HTTP and the local base path live in ResourceLoader, the single host resource
     // loader. Feature callbacks ask the loader instead of reaching a static HttpClient. Built in the
@@ -245,6 +245,9 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         set => _viewportHeight = value > 0 ? value : DefaultViewportHeight;
     }
 
+    /// <summary>The event loop's virtual clock: ms from document start, as far as its timers have run.</summary>
+    internal double VirtualNowMs => _eventLoop.VirtualNowMs;
+
     /// <summary>
     /// Optional callback invoked after each queued timer, interval, animation-frame,
     /// or frame action task. Callers use this to run spec-like microtask checkpoints.
@@ -288,6 +291,12 @@ public sealed partial class DomBridge : IDomBridgeRuntime
     public DomBridge(DomBridgeSessionOptions? sessionOptions)
     {
         _layoutViewFactory = sessionOptions?.LayoutViewFactory;
+        if (sessionOptions?.Viewport?.Invoke() is { Width: > 0, Height: > 0 } viewport)
+        {
+            ViewportWidth = viewport.Width;
+            ViewportHeight = viewport.Height;
+        }
+
         // The profile's network services. The loader cancels what the document still has in flight
         // when the bridge tears down; the transport and cookie access are the host's and outlive it.
         _resources = new Dom.Runtime.ResourceLoader(sessionOptions?.Network);
@@ -602,5 +611,11 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         ThrowIfDisposed();
         return _eventLoop.DrainStep(TaskCheckpointCallback);
     }
+
+    bool Dom.Runtime.IWorkInFlight.HasWorkInFlight => !_disposed && _workers.HasWorkInFlight;
+
+    bool Dom.Runtime.IWorkInFlight.HasWorkDueNow => !_disposed && _eventLoop.HasWorkDueNow;
+
+    bool Dom.Runtime.IWorkInFlight.AwaitWorkInFlight(TimeSpan timeout) => _disposed || _workers.AwaitWorkInFlight(timeout);
 
 }

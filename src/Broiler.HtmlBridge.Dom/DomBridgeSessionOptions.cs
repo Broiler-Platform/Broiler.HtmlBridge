@@ -51,4 +51,16 @@ public sealed class DomBridgeSessionOptions
     /// Frames the document embeds are derived from the result.
     /// </summary>
     public Func<Uri, DocumentRequestContext>? DocumentContextFactory { get; init; }
+
+    /// <summary>
+    /// The size, in CSS pixels, a host shows its documents at -- asked once for each bridge, as it is
+    /// made, and taken as its <see cref="DomBridge.ViewportWidth"/> and <see cref="DomBridge.ViewportHeight"/>
+    /// -- or <see langword="null"/> for the default viewport.
+    /// </summary>
+    /// <remarks>
+    /// A document's scripts see the viewport from their first line (<c>innerWidth</c>, media queries),
+    /// and its geometry is laid out at it, so a host that shows the page at another size has scripts
+    /// measuring a different page from the one on screen -- and a click hit-tested at the wrong place.
+    /// </remarks>
+    public Func<System.Drawing.Size?>? Viewport { get; init; }
 }

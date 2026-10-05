@@ -58,31 +58,42 @@ public class CrossOriginAccessTests
         "(function (f) { var d = f.contentDocument;" +
         " return d === null ? 'null' : (d.getElementById('in') ? d.getElementById('in').textContent : 'doc'); })";
 
+    /// <summary>
+    /// What a window a script holds lets it do: <c>window</c> when it can read the document,
+    /// <c>SecurityError</c> when it is a cross-origin window, whose document reading throws.
+    /// </summary>
+    private const string KindOf =
+        "(function (w) { if (w === null) return 'null';" +
+        " try { return w.document ? 'window' : 'no document'; } catch (e) { return e.name; } })";
+
     // ---------------------------------------------------------------- sandboxed frames
 
     /// <summary>
     /// A frame sandboxed without <c>allow-same-origin</c> has an opaque origin, so it is cross-origin to
     /// the page whatever it loaded -- including a document its same-origin <c>src</c> redirected to
-    /// another site -- and neither <c>contentDocument</c>, <c>contentWindow</c> nor <c>window.frames</c>
-    /// gives it up. With <c>allow-same-origin</c> a same-origin frame is still the page's to read, and
-    /// so -- by the bridge's long-standing allowance for markup the page wrote into the URL itself -- is
-    /// an unsandboxed <c>data:</c> frame; a sandboxed one is not.
+    /// another site: <c>contentDocument</c> is null, and <c>contentWindow</c> and <c>window.frames</c>
+    /// give the page the frame's cross-origin window, whose document it cannot read. With
+    /// <c>allow-same-origin</c> a same-origin frame is still the page's to read, and so -- by the
+    /// bridge's long-standing allowance for markup the page wrote into the URL itself -- is an
+    /// unsandboxed <c>data:</c> frame; a sandboxed one is not. Either way the frame is listed, as one
+    /// window however the page asks for it.
     /// </summary>
     [Theory]
-    [InlineData("sandbox=\"allow-scripts\" src=\"/hop\"", "null|null|0")]
-    [InlineData("sandbox=\"\" src=\"/hop\"", "null|null|0")]
-    [InlineData("sandbox=\"allow-scripts\" src=\"/same\"", "null|null|0")]
-    [InlineData("src=\"/hop\"", "null|null|0")]
-    [InlineData("sandbox=\"allow-same-origin\" src=\"/same\"", "SAME|[object Object]|1")]
-    [InlineData("sandbox=\"allow-scripts\" src=\"data:text/html,<p id='in'>DATA</p>\"", "null|null|0")]
-    [InlineData("src=\"data:text/html,<p id='in'>DATA</p>\"", "DATA|[object Object]|1")]
+    [InlineData("sandbox=\"allow-scripts\" src=\"/hop\"", "null|SecurityError|1|true")]
+    [InlineData("sandbox=\"\" src=\"/hop\"", "null|SecurityError|1|true")]
+    [InlineData("sandbox=\"allow-scripts\" src=\"/same\"", "null|SecurityError|1|true")]
+    [InlineData("src=\"/hop\"", "null|SecurityError|1|true")]
+    [InlineData("sandbox=\"allow-same-origin\" src=\"/same\"", "SAME|window|1|true")]
+    [InlineData("sandbox=\"allow-scripts\" src=\"data:text/html,<p id='in'>DATA</p>\"", "null|SecurityError|1|true")]
+    [InlineData("src=\"data:text/html,<p id='in'>DATA</p>\"", "DATA|window|1|true")]
     public void ASandboxedFrameIsCrossOriginWhateverItLoaded(string attributes, string expected)
     {
         using var server = NewServer();
         using var profile = NewProfile();
 
         var seen = Run(server, profile, $"<iframe id=\"f\" {attributes}></iframe>",
-            $"[{MarkerOf}(document.getElementById('f')), String(document.getElementById('f').contentWindow), window.frames.length].join('|')");
+            $"[{MarkerOf}(document.getElementById('f')), {KindOf}(document.getElementById('f').contentWindow)," +
+            " window.frames.length, window.frames[0] === document.getElementById('f').contentWindow].join('|')");
 
         Assert.Equal(expected, seen);
     }
@@ -113,7 +124,7 @@ public class CrossOriginAccessTests
 
         Assert.Contains("/report?v=INNER", Reports(server));
         // And the page still cannot read the cross-origin frame.
-        Assert.Equal("null", Run(server, profile, $"<iframe id=\"f\" src=\"{server.Url("/outer")}\"></iframe>", "String(document.getElementById('f').contentWindow)"));
+        Assert.Equal("SecurityError", Run(server, profile, $"<iframe id=\"f\" src=\"{server.Url("/outer")}\"></iframe>", $"{KindOf}(document.getElementById('f').contentWindow)"));
     }
 
     // ---------------------------------------------------------------- postMessage

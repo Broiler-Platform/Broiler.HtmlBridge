@@ -31,6 +31,17 @@ internal interface ISubWindowHost : IRealmHost, ISubDocumentFactoryHost
     /// </summary>
     bool IsWindowCrossOriginToCurrentScript(JsValue window);
 
+    /// <summary>
+    /// Whether the frame <paramref name="container"/> holds is cross-origin to the document whose
+    /// script is running -- the gate on <c>contentDocument</c>, and what decides whether a script is
+    /// handed a frame's window or its cross-origin view. Loads the frame when its <c>src</c> alone
+    /// does not answer.
+    /// </summary>
+    bool IsCurrentIframeCrossOrigin(DomElement container);
+
+    /// <summary>The window of the frame whose script is running, or <see langword="null"/> for the top document's.</summary>
+    JsValue? CurrentSubWindow { get; }
+
     /// <summary>The severed content document of a nested-browsing-context container, or <c>null</c>.</summary>
     DomDocument? GetContentDocument(DomElement container);
 

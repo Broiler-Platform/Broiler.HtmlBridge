@@ -72,6 +72,11 @@ internal sealed class BrowsingContextManager
     private readonly Dictionary<DomElement, DomDocument> _contentDocuments = [];
     private readonly Dictionary<DomDocument, DomElement> _documentContainers = [];
 
+    // The browsing-context names of frames: what `window.name` reads in a frame and what
+    // `frames[name]` finds it by. Per container, and deliberately left alone by
+    // RemoveContainerCaches: a frame keeps its name when it navigates, as a browsing context does.
+    private readonly Dictionary<DomElement, string> _names = [];
+
     /// <summary>The window whose context a nested-browsing-context script is currently running in
     /// (anything that is not an object, <see cref="JsValue.Missing"/> by default, = the main window).
     /// Owned here; the window-context switch saves/restores it.</summary>
@@ -134,6 +139,32 @@ internal sealed class BrowsingContextManager
     public void SetBaseUrl(DomElement container, string baseUrl) =>
         _subDocumentBaseUrls[container] = baseUrl;
 
+    // ── Browsing-context names ───────────────────────────────────────────────
+    /// <summary>
+    /// The name of the frame <paramref name="container"/> holds: the one it was given or has set
+    /// itself, else its container's <c>name</c> attribute, which is what a frame is named when it is
+    /// created (HTML §4.8.5).
+    /// </summary>
+    public string NameOf(DomElement container) =>
+        _names.TryGetValue(container, out var name) ? name : container.GetAttribute("name") ?? string.Empty;
+
+    /// <summary>Records the name of the frame <paramref name="container"/> holds.</summary>
+    public void SetName(DomElement container, string name) => _names[container] = name;
+
+    /// <summary>The top-level window's name: empty until a script names it.</summary>
+    public string TopName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Fixes the name of a frame whose window is being created at its container's <c>name</c>
+    /// attribute, unless it has one already. A browser reads the attribute when it creates the
+    /// browsing context and not after, so renaming the container later does not rename the frame.
+    /// </summary>
+    public void NameAtCreation(DomElement container)
+    {
+        if (!_names.ContainsKey(container))
+            _names[container] = container.GetAttribute("name") ?? string.Empty;
+    }
+
     // ── Load-state marks ─────────────────────────────────────────────────────
     public bool HasObjectLoadFailed(DomElement objectElement) => _objectLoadFailures.Contains(objectElement);
     public void MarkObjectLoadFailed(DomElement objectElement) => _objectLoadFailures.Add(objectElement);
@@ -184,6 +215,7 @@ internal sealed class BrowsingContextManager
     public void ResetSession()
     {
         _subWindowContainers.Clear();
+        _names.Clear();
         CurrentWindowOverride = JsValue.Missing;
     }
 }

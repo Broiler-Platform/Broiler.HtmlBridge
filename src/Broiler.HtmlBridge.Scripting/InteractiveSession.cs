@@ -17,6 +17,12 @@ public sealed class InteractiveSession : IDisposable
     private readonly MicroTaskQueue _microTasks;
     private bool _disposed;
 
+    /// <summary>
+    /// How far onto the virtual clock queued work counts as due: the load window, and the same span
+    /// after the last input the user gave the page (<see cref="DispatchPointer"/>).
+    /// </summary>
+    private double _horizonMs = DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs;
+
     /// <param name="engineLifetime">
     /// Whatever owns the realm's teardown — a <c>JSContext</c> today. This session disposes it and
     /// does not otherwise touch it, which is why the parameter is typed by what it is used for.
@@ -45,7 +51,10 @@ public sealed class InteractiveSession : IDisposable
     /// Whether queued work is due within the load window — the same bounded question the
     /// non-interactive drains ask (<c>ScriptEngine.DrainAsyncWork</c>,
     /// <c>CaptureService.DrainAsyncWork</c>), against the same
-    /// <see cref="DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs"/> horizon.
+    /// <see cref="DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs"/> horizon -- or within that
+    /// span after the last input the page was given, which opens a window of its own: a click's
+    /// handler that animates a spinner or waits on a request schedules its work after the load
+    /// window has long closed.
     /// </summary>
     /// <remarks>
     /// This is the predicate a render pump must drive itself on. <see cref="HasPendingWork"/>
@@ -56,7 +65,56 @@ public sealed class InteractiveSession : IDisposable
     /// Work scheduled past the horizon is later, not stuck, and the page is loaded without it.
     /// </remarks>
     public bool HasWorkDueInLoadWindow =>
-        !_disposed && _bridge.HasPendingTimersDueBy(DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        !_disposed &&
+        (_bridge.HasPendingTimersDueBy(_horizonMs) ||
+         _bridge is Dom.Runtime.IWorkInFlight { HasWorkInFlight: true });
+
+    /// <summary>
+    /// Delivers a user's pointer input to the page's scripts, as the trusted events a browser fires
+    /// for it, and runs the microtasks they queue. Answers whether the scripts were given it and
+    /// whether they cancelled what it does by default.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The input is hit-tested against the document's own layout, at the viewport the bridge was
+    /// given (<see cref="SetViewport"/>), and followed into a frame. A press is <c>pointerdown</c> and
+    /// <c>mousedown</c>; a release is <c>pointerup</c>, <c>mouseup</c> and then <c>click</c> (with a
+    /// checkbox's, a radio button's or a label's activation), <c>dblclick</c> after a double click's
+    /// second, or <c>auxclick</c> for another button. Every one has <c>isTrusted</c> true.
+    /// </para>
+    /// <para>
+    /// What the scripts then schedule is due within <see cref="DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs"/>
+    /// of now on the virtual clock, so <see cref="HasWorkDueInLoadWindow"/> answers for it and a host
+    /// steps it as it steps the load window. Read the document with <see cref="CurrentHtml"/> after,
+    /// and the navigation it may have asked for with <see cref="TakePendingNavigation"/>.
+    /// </para>
+    /// </remarks>
+    public PointerInputResult DispatchPointer(PointerInput input)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return default;
+
+        var result = bridge.DispatchPointerInput(input);
+        _microTasks.Drain();
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return result;
+    }
+
+    /// <summary>
+    /// Sets the size, in CSS pixels, the page is shown at: what its scripts read as
+    /// <c>innerWidth</c> and <c>innerHeight</c>, and what its layout -- and so the hit test of the
+    /// next <see cref="DispatchPointer"/> -- is made at. A host calls it when its window is resized.
+    /// </summary>
+    public void SetViewport(int width, int height)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is DomBridge bridge && width > 0 && height > 0)
+        {
+            bridge.ViewportWidth = width;
+            bridge.ViewportHeight = height;
+        }
+    }
 
     /// <summary>
     /// Takes the cross-document navigation the page asked for, clearing it, or returns <c>null</c>
@@ -84,6 +142,12 @@ public sealed class InteractiveSession : IDisposable
     public string? Step()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+
+        // A worker is answering the page and nothing is due before the clock would move on: the step
+        // waits for the answer rather than run a later timer first, without blocking the caller --
+        // the work in flight counts as pending work (HasWorkDueInLoadWindow), so a host keeps asking.
+        if (_bridge is Dom.Runtime.IWorkInFlight { HasWorkInFlight: true, HasWorkDueNow: false })
+            return null;
 
         if (!_bridge.FlushTimerStep())
             return null;

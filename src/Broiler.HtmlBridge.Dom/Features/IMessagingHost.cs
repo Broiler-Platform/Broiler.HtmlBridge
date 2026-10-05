@@ -80,4 +80,16 @@ internal interface IMessagingHost : IRealmHost
     /// origins, judged from their request contexts.
     /// </summary>
     bool AreWindowsCrossOrigin(JsValue first, JsValue second);
+
+    /// <summary>
+    /// The cross-origin view of a frame's <paramref name="window"/>: the object a script of another
+    /// origin is handed for it, which is also that frame's <c>contentWindow</c> for such a script.
+    /// </summary>
+    JsValue CrossOriginViewOf(JsValue window);
+
+    /// <summary>
+    /// The window a cross-origin view stands for, so that <c>postMessage</c> called on the view
+    /// reaches the frame; <see langword="false"/> for anything that is not a view.
+    /// </summary>
+    bool TryGetViewedWindow(JsValue view, out JsValue window);
 }

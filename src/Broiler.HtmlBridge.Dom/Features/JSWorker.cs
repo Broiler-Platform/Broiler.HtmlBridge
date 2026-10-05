@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading;
 using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
+using Broiler.Net.Http;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -21,9 +23,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// realm is built, used and disposed by one thread and never touched from another. The provider is
 /// the one the <em>page's</em> realm names, because the two exchange structured clones and a clone
 /// carries the engine that made it, and the options carry the page realm's decision about
-/// <c>'unsafe-eval'</c>, so a worker is no way round that decision. (Nothing checks a worker's scripts
-/// against a source list, so it is still a way round <c>worker-src</c> and the directives that stand in
-/// for it: see the comment in <see cref="Pump"/>.)
+/// <c>'unsafe-eval'</c>, so a worker is no way round that decision. (Where its own script may come
+/// from is the creating document's <c>worker-src</c> decision, taken before this worker exists; what
+/// it imports is checked against no source list: see the comment in <see cref="Pump"/>.)
 /// </description></item>
 /// <item><description>
 /// <b>How a value is cloned out of one realm into another.</b> <see cref="IJsClone"/>, in the two
@@ -71,7 +73,18 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal sealed class JSWorker
 {
     private readonly string _name;
-    private readonly WorkerScript _script;
+    private WorkerScript _script;
+
+    /// <summary>The script to fetch before anything runs, for a worker whose script is on the network.</summary>
+    private readonly WorkerScriptSource.Network? _fetch;
+
+    /// <summary>
+    /// The document whose worker this is, as the requests it makes are made for: what it imports, and
+    /// its own script when that is fetched. <see langword="null"/> for a worker read from a file, whose
+    /// imports are files too.
+    /// </summary>
+    private readonly DocumentRequestContext? _client;
+
     private readonly IWorkerHost _host;
     private readonly IJsEngineProvider _provider;
     private readonly JsRealmOptions _options;
@@ -86,6 +99,13 @@ internal sealed class JSWorker
     private WorkerBinding? _owner;
     private volatile bool _closed;
 
+    // The work the page has handed this worker and is waiting on: starting up (fetching and running its
+    // script), and every message not yet handled. See IsInFlight.
+    private readonly object _busyLock = new();
+    private readonly ManualResetEventSlim _idle = new(initialState: true);
+    private int _busy;
+    private long _busySince;
+
     /// <param name="name">The specifier the page constructed the worker with, for its thread and labels.</param>
     /// <param name="script">The worker's resolved top-level script.</param>
     /// <param name="host">The bridge services the worker reaches the page through.</param>
@@ -96,13 +116,92 @@ internal sealed class JSWorker
     /// the page it refuses the worker.
     /// </param>
     public JSWorker(string name, WorkerScript script, IWorkerHost host, IJsEngineProvider provider, JsRealmOptions options)
+        : this(name, script, fetch: null, client: null, host, provider, options)
+    {
+    }
+
+    /// <summary>A worker whose script is carried in its URL: a <c>data:</c> or <c>blob:</c> one.</summary>
+    /// <param name="client">The document whose requests its imports are.</param>
+    public JSWorker(string name, WorkerScript script, DocumentRequestContext client, IWorkerHost host, IJsEngineProvider provider, JsRealmOptions options)
+        : this(name, script, fetch: null, client, host, provider, options)
+    {
+    }
+
+    /// <summary>A worker whose script is fetched over the network, on the worker's own thread, before it runs.</summary>
+    public JSWorker(string name, WorkerScriptSource.Network fetch, IWorkerHost host, IJsEngineProvider provider, JsRealmOptions options)
+        : this(name, default, fetch, fetch.Client, host, provider, options)
+    {
+    }
+
+    private JSWorker(
+        string name, WorkerScript script, WorkerScriptSource.Network? fetch, DocumentRequestContext? client,
+        IWorkerHost host, IJsEngineProvider provider, JsRealmOptions options)
     {
         _name = name;
         _script = script;
+        _fetch = fetch;
+        _client = client;
         _host = host;
         _provider = provider;
         _options = options;
         _thread = new Thread(Pump) { IsBackground = true, Name = $"broiler-worker:{name}" };
+    }
+
+    /// <summary>
+    /// Whether the page should let this worker finish before the page's clock moves on: it has work
+    /// the page handed it -- starting up, or a message -- that it has not finished, and has not been at
+    /// it for longer than <paramref name="allowance"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the page waits at all.</b> The page's timers run on a virtual clock that jumps to the next
+    /// deadline as soon as nothing is due, while a worker runs on a thread in real time. A page that
+    /// posts to its worker and gives up on it after five seconds -- reCAPTCHA's frame does exactly that
+    /// -- had its five seconds pass before the worker had even fetched its script. In a browser the
+    /// worker answers in milliseconds, long before a timer of that length.
+    /// </para>
+    /// <para>
+    /// <b>The allowance bounds it.</b> A worker that is still busy after it has stopped counting, so
+    /// one stuck in a loop holds the page up once, for that long, and no more.
+    /// </para>
+    /// </remarks>
+    public bool IsInFlight(TimeSpan allowance)
+    {
+        lock (_busyLock)
+            return _busy > 0 && Stopwatch.GetElapsedTime(_busySince) < allowance;
+    }
+
+    /// <summary>Waits up to <paramref name="timeout"/> for the worker to finish the work it was handed.</summary>
+    public bool WaitUntilIdle(TimeSpan timeout) => _idle.Wait(timeout);
+
+    private void BeginWork()
+    {
+        lock (_busyLock)
+        {
+            if (_busy++ == 0)
+            {
+                _busySince = Stopwatch.GetTimestamp();
+                _idle.Reset();
+            }
+        }
+    }
+
+    private void EndWork()
+    {
+        lock (_busyLock)
+        {
+            if (_busy > 0 && --_busy == 0)
+                _idle.Set();
+        }
+    }
+
+    private void EndAllWork()
+    {
+        lock (_busyLock)
+        {
+            _busy = 0;
+            _idle.Set();
+        }
     }
 
     /// <summary>
@@ -114,6 +213,9 @@ internal sealed class JSWorker
     {
         _handle = handle;
         _owner = owner;
+
+        // Starting up is the first work the page waits on: fetching the script and running it.
+        BeginWork();
         _thread.Start();
     }
 
@@ -123,6 +225,7 @@ internal sealed class JSWorker
         if (_closed || _cancel.IsCancellationRequested)
             return;
 
+        BeginWork();
         try
         {
             _inbox.Add(detached);
@@ -131,6 +234,7 @@ internal sealed class JSWorker
         {
             // The inbox was completed by a concurrent Terminate; the message is simply not delivered,
             // which is what terminate() means.
+            EndWork();
         }
     }
 
@@ -141,6 +245,7 @@ internal sealed class JSWorker
 
         _cancel.Cancel();
         try { _inbox.CompleteAdding(); } catch (ObjectDisposedException) { }
+        EndAllWork();
 
         if (_thread.IsAlive && !_thread.Join(TimeSpan.FromSeconds(5)))
         {
@@ -157,6 +262,27 @@ internal sealed class JSWorker
         IJsRealm? realm = null;
         try
         {
+            // A network worker's script is fetched here, on the worker's thread, so the page's script
+            // that constructed it never waits on the network. One that cannot be had is the `error`
+            // event a browser fires at the Worker object.
+            if (_fetch is { } fetch)
+            {
+                var fetched = _host.FetchWorkerScript(fetch.Url, fetch.Client, imported: false, _cancel.Token, out var failure);
+                if (fetched is null)
+                {
+                    if (!_cancel.IsCancellationRequested)
+                    {
+                        RenderLogger.LogWarning(LogCategory.JavaScript, "JSWorker.Pump",
+                            $"Worker script '{fetch.Url}' could not be loaded: {failure}");
+                        QueueError($"Worker script could not be loaded: {failure}");
+                    }
+
+                    return;
+                }
+
+                _script = fetched.Value;
+            }
+
             realm = _provider.CreateRealm(_options);
             InstallWorkerGlobals(realm);
 
@@ -164,9 +290,10 @@ internal sealed class JSWorker
             {
                 // A worker's top-level script is a classic script and 'unsafe-eval' has nothing to say
                 // about it, so this is not the eval-gated member -- which it was, on the reasoning that
-                // the text is the page's. True, and not what decides it. Nothing on this path takes the
-                // script-src decision the classic member expects of its caller (for a worker the
-                // directive is worker-src): no Content-Security-Policy is consulted before this runs.
+                // the text is the page's. True, and not what decides it. The decision the classic
+                // member expects of its caller was taken for this script before the worker existed:
+                // the creating document's worker-src, falling back to child-src, script-src and
+                // default-src (IWorkerHost.ResolveWorkerSource). A script it imports is not checked.
                 // The page's 'unsafe-eval' decision does reach the worker: its realm is built above with
                 // the options WorkerBinding derived from the constructing realm, so eval, the Function
                 // constructors and ShadowRealm.prototype.evaluate inside a worker, and inside a script
@@ -187,6 +314,7 @@ internal sealed class JSWorker
             DrainJobs(realm);
 
             _started.Set();
+            EndWork();
 
             // The pump waits for whichever comes first: an inbound message, or the next timer
             // deadline. A plain blocking take would sleep through every timer; a poll would burn a
@@ -226,6 +354,10 @@ internal sealed class JSWorker
                 // is the worker's event loop, and draining the realm's jobs is what an event loop
                 // does between one piece of script and the next.
                 DrainJobs(realm);
+
+                // The message is handled, and any reply it posted is already queued for the page.
+                if (took)
+                    EndWork();
             }
         }
         catch (OperationCanceledException)
@@ -241,6 +373,7 @@ internal sealed class JSWorker
         {
             _started.Set();
             _timers.ClearAll();
+            EndAllWork();
             realm?.Dispose();
         }
     }
@@ -370,6 +503,25 @@ internal sealed class JSWorker
 
         realm.SetProperty(global, "importScripts", realm.NewMethod("importScripts", ImportScripts, 1));
 
+        // WorkerGlobalScope.location: the URL the worker's script came from, which a worker script
+        // reads to find its own directory or origin. A worker read from a file has no URL to give.
+        if (_script.Url is { } url)
+            realm.SetProperty(global, "location", BuildLocation(realm, url));
+
+        // performance.now(), on the worker's own time origin: when it started (HR-Time §5). A worker
+        // script times its work with it as readily as a page's does, and reCAPTCHA's threw on its
+        // first line without it.
+        realm.SetProperty(global, "performance", BuildPerformance(realm));
+
+        // The rest of what a worker's global has and a script reaches for without a document:
+        // atob/btoa, crypto.getRandomValues, TextEncoder/TextDecoder and URL/URLSearchParams -- the
+        // page's own implementations, which need nothing but a realm. reCAPTCHA's worker encodes
+        // text first thing.
+        realm.DefineMethod(global, "btoa", 1, Base64Binding.Btoa);
+        realm.DefineMethod(global, "atob", 1, Base64Binding.Atob);
+        realm.SetProperty(global, "crypto", CryptoBinding.Build(realm));
+        realm.EvaluateHostScript(PolyfillAssets.Worker, "polyfill:worker");
+
         realm.SetProperty(global, "close", realm.NewMethod("close", (in _) =>
         {
             _closed = true;
@@ -479,6 +631,21 @@ internal sealed class JSWorker
             if (string.IsNullOrWhiteSpace(specifier))
                 continue;
 
+            // A worker whose script has a URL imports by URL, relative to its own script's, over the
+            // network; one read from a file imports files, as before.
+            if (_script.Url is { } workerUrl && _client is { } client)
+            {
+                if (!Uri.TryCreate(workerUrl, specifier, out var url))
+                    throw realm.DomError("SyntaxError", $"importScripts: '{specifier}' is not a valid URL.");
+
+                var fetched = _host.FetchWorkerScript(url, client, imported: true, _cancel.Token, out var failure);
+                if (fetched is null)
+                    throw realm.DomError("NetworkError", $"importScripts: could not load '{specifier}': {failure}");
+
+                realm.EvaluateClassicScript(fetched.Value.Source, $"worker:{_name}:{specifier}");
+                continue;
+            }
+
             var imported = _host.ResolveWorkerScript(specifier, _script.BaseDirectory);
             if (imported is null)
             {
@@ -494,6 +661,38 @@ internal sealed class JSWorker
         }
 
         return JsValue.Undefined;
+    }
+
+    /// <summary>A <c>Performance</c> whose <c>now()</c> counts milliseconds since the worker started.</summary>
+    private static JsValue BuildPerformance(IJsRealm realm)
+    {
+        var performance = realm.NewObject();
+        var started = Stopwatch.GetTimestamp();
+        realm.DefineValue(performance, "timeOrigin", JsValue.Number(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), JsPropertyFlags.Enumerable);
+        realm.DefineValue(performance, "now", realm.NewMethod("now",
+            (in _) => JsValue.Number(Stopwatch.GetElapsedTime(started).TotalMilliseconds), 0));
+        return performance;
+    }
+
+    /// <summary>A <c>WorkerLocation</c>: the parts of the worker script's URL, read-only, and its <c>href</c> as its string.</summary>
+    private static JsValue BuildLocation(IJsRealm realm, Uri url)
+    {
+        var location = realm.NewObject();
+        var href = JsValue.String(url.AbsoluteUri);
+        var hierarchical = url.Scheme == Uri.UriSchemeHttp || url.Scheme == Uri.UriSchemeHttps;
+        realm.DefineValue(location, "href", href, JsPropertyFlags.Enumerable);
+        realm.DefineValue(location, "origin", JsValue.String(Broiler.Net.Sites.Origin.FromUrl(url).ToString()), JsPropertyFlags.Enumerable);
+        realm.DefineValue(location, "protocol", JsValue.String(url.Scheme + ":"), JsPropertyFlags.Enumerable);
+        realm.DefineValue(location, "host", JsValue.String(hierarchical ? url.Authority : string.Empty), JsPropertyFlags.Enumerable);
+        realm.DefineValue(location, "hostname", JsValue.String(hierarchical ? url.Host : string.Empty), JsPropertyFlags.Enumerable);
+        realm.DefineValue(location, "port", JsValue.String(hierarchical && !url.IsDefaultPort
+            ? url.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : string.Empty), JsPropertyFlags.Enumerable);
+        realm.DefineValue(location, "pathname", JsValue.String(hierarchical ? url.AbsolutePath : url.AbsoluteUri[(url.Scheme.Length + 1)..]), JsPropertyFlags.Enumerable);
+        realm.DefineValue(location, "search", JsValue.String(hierarchical ? url.Query : string.Empty), JsPropertyFlags.Enumerable);
+        realm.DefineValue(location, "hash", JsValue.String(hierarchical ? url.Fragment : string.Empty), JsPropertyFlags.Enumerable);
+        realm.DefineValue(location, "toString", realm.NewMethod("toString", (in _) => href, 0));
+        return location;
     }
 
     /// <summary>

@@ -37,20 +37,49 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
     /// Dispatches a DOM event on the given element with full capture → target → bubble propagation
     /// (DOM Events Level 3).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The path ends at the target's own document, and then its window</b> (DOM §2.9, "get the
+    /// parent": a document's parent is its window, for every event but <c>load</c>). It ended at the
+    /// top document for every node, so an event inside a frame skipped the frame's document and
+    /// reached the page's, and no window ever saw an element's event: a page delegating clicks from
+    /// <c>window</c>, or a frame from its <c>document</c>, heard nothing.
+    /// </para>
+    /// <para>
+    /// A node in no document -- detached, or in a shadow tree -- still gets the top document at the
+    /// head of its path, as it always did, and no window.
+    /// </para>
+    /// </remarks>
     internal JsValue DispatchEventOnElement(DomNode target, JsValue evt)
     {
         var realm = _host.Realm;
-        var documentNode = _host.DocumentNode;
-
-        // The document/window globals are read once per dispatch: a wrapper that is not an object is
-        // one that has not been installed yet, and the path substitutes JS null for it.
-        var documentWrapper = _host.DocumentWrapper;
-        var documentValue = documentWrapper.IsObject ? documentWrapper : JsValue.Null;
 
         var typeVal = realm.GetProperty(evt, "type");
         // Only a string type names the event; anything else — including an object with a toString —
         // is "unknown", so no coercion runs here.
         var eventType = typeVal.IsString ? typeVal.AsString! : "unknown";
+
+        // The document at the head of the path, the JS object that stands for it, and the window after
+        // it. The document/window globals are read once per dispatch: a wrapper that is not an object is
+        // one that has not been installed yet, and the path substitutes JS null for it.
+        DomNode documentNode;
+        JsValue documentWrapper;
+        var window = JsValue.Missing;
+        if (RootOf(target) is DomDocument connected &&
+            _host.TryGetDocumentTargets(connected, out var connectedWrapper, out var connectedWindow))
+        {
+            documentNode = connected;
+            documentWrapper = connectedWrapper;
+            if (!string.Equals(eventType, "load", StringComparison.Ordinal))
+                window = connectedWindow;
+        }
+        else
+        {
+            documentNode = _host.DocumentNode;
+            documentWrapper = _host.DocumentWrapper;
+        }
+
+        var documentValue = documentWrapper.IsObject ? documentWrapper : JsValue.Null;
 
         // Build the path from the root to the target
         var path = new List<DomNode>();
@@ -94,15 +123,21 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
             (in _) => JsValue.Boolean(!prevented),
             (in setCall) => EventSetReturnValue(realm, currentListenerPassive, evt, ref prevented, in setCall));
 
-        realm.DefineMethod(evt, "composedPath", (in _) => BuildComposedPathValue(target, path));
+        realm.DefineMethod(evt, "composedPath", (in _) => BuildComposedPathValue(target, path, documentNode, documentValue, window));
 
-        // Phase 1: Capture (root → parent of target)
+        // Phase 1: Capture (window → root → parent of target)
         realm.SetProperty(evt, "eventPhase", JsValue.Number(1));
+        if (window.IsObject)
+        {
+            realm.SetProperty(evt, "currentTarget", window);
+            FireWindowListeners(window, eventType, evt, capturePhase: true, ref immediateStopped, ref currentListenerPassive, ref prevented);
+        }
+
         foreach (var ancestor in path)
         {
             if (stopped) break;
             realm.SetProperty(evt, "currentTarget", WrapPathNode(ancestor));
-            FireListeners(ancestor, eventType, evt, capturePhase: true, ref immediateStopped, ref currentListenerPassive);
+            FireListeners(ancestor, eventType, evt, capturePhase: true, ref immediateStopped, ref currentListenerPassive, ref prevented);
         }
 
         // Phase 2: Target — fire capture listeners first, then non-capture listeners.
@@ -110,11 +145,11 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         {
             realm.SetProperty(evt, "eventPhase", JsValue.Number(2));
             realm.SetProperty(evt, "currentTarget", WrapPathNode(target));
-            FireListeners(target, eventType, evt, capturePhase: true, ref immediateStopped, ref currentListenerPassive);
-            FireListeners(target, eventType, evt, capturePhase: false, ref immediateStopped, ref currentListenerPassive);
+            FireListeners(target, eventType, evt, capturePhase: true, ref immediateStopped, ref currentListenerPassive, ref prevented);
+            FireListeners(target, eventType, evt, capturePhase: false, ref immediateStopped, ref currentListenerPassive, ref prevented);
         }
 
-        // Phase 3: Bubble (parent of target → root) — only if event.bubbles is true
+        // Phase 3: Bubble (parent of target → root → window) — only if event.bubbles is true
         var eventBubbles = realm.GetProperty(evt, "bubbles").AsBoolean;
         if (!stopped && eventBubbles)
         {
@@ -123,7 +158,13 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
             {
                 if (stopped) break;
                 realm.SetProperty(evt, "currentTarget", WrapPathNode(path[i]));
-                FireListeners(path[i], eventType, evt, capturePhase: false, ref immediateStopped, ref currentListenerPassive);
+                FireListeners(path[i], eventType, evt, capturePhase: false, ref immediateStopped, ref currentListenerPassive, ref prevented);
+            }
+
+            if (!stopped && window.IsObject)
+            {
+                realm.SetProperty(evt, "currentTarget", window);
+                FireWindowListeners(window, eventType, evt, capturePhase: false, ref immediateStopped, ref currentListenerPassive, ref prevented);
             }
         }
 
@@ -133,13 +174,22 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         return JsValue.Boolean(!prevented);
     }
 
+    /// <summary>The node at the top of <paramref name="node"/>'s tree: its document when it is in one.</summary>
+    private static DomNode RootOf(DomNode node)
+    {
+        var current = node;
+        while (current.ParentNode is { } parent)
+            current = parent;
+        return current;
+    }
+
     /// <summary>
     /// Fires registered listeners for the given event type on a single element.
     /// When <paramref name="capturePhase"/> is <c>true</c>, only capture listeners fire.
     /// When <c>false</c>, only bubble listeners fire.
     /// </summary>
     private void FireListeners(DomNode el, string eventType, JsValue evt,
-        bool capturePhase, ref bool immediateStopped, ref bool currentListenerPassive)
+        bool capturePhase, ref bool immediateStopped, ref bool currentListenerPassive, ref bool prevented)
     {
         if (_host.GetEventListeners(el).TryGetValue(eventType, out var listeners))
         {
@@ -151,38 +201,74 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         // Fire inline event handler (on* property) — fires after addEventListener listeners on the target,
         // and during bubble phase on ancestors (like a bubble listener).
         if (!immediateStopped && !capturePhase)
+            FireInlineHandler(_host.InlineEventHandler(el, eventType), evt, ref currentListenerPassive, ref prevented);
+    }
+
+    /// <summary>
+    /// Fires <paramref name="window"/>'s listeners for the given event type -- its capture listeners
+    /// before the path's, and the rest, and its <c>on…</c> handler, after it.
+    /// </summary>
+    private void FireWindowListeners(JsValue window, string eventType, JsValue evt,
+        bool capturePhase, ref bool immediateStopped, ref bool currentListenerPassive, ref bool prevented)
+    {
+        if (_host.WindowListeners(window, eventType) is { } listeners)
         {
-            var inlineHandler = _host.InlineEventHandler(el, eventType);
-            if (inlineHandler.IsObject)
-            {
-                // Inline on* handlers behave like regular non-passive listeners.
-                currentListenerPassive = false;
-                // The handler is its own receiver.
-                try { _host.Realm.Invoke(inlineHandler, inlineHandler, [evt]); }
-                catch (Exception ex) { RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.dispatchEvent", $"Inline handler error: {ex.Message}", ex); }
-            }
+            EventListenerBinding.InvokeListeners(listeners,
+                listener => DomBridgeUtils.InvokeEventListener(_host.Realm, listener, evt, "DomBridge.window.dispatchEvent"),
+                ref immediateStopped, ref currentListenerPassive, capturePhase);
+        }
+
+        if (!immediateStopped && !capturePhase)
+        {
+            var handler = _host.Realm.GetProperty(window, "on" + eventType);
+            FireInlineHandler(handler.IsFunction ? handler : JsValue.Missing, evt, ref currentListenerPassive, ref prevented);
         }
     }
 
-    private JsValue BuildComposedPathValue(DomNode target, IReadOnlyList<DomNode> path)
+    /// <summary>
+    /// Calls an <c>on…</c> handler, with the object it is on as <c>this</c>, and cancels the event when
+    /// it returns <see langword="false"/> (HTML §8.1.8.1, "the event handler processing algorithm").
+    /// </summary>
+    /// <remarks>
+    /// It was called with itself as <c>this</c>, and what it returned was dropped: a link whose
+    /// <c>onclick</c> ends in <c>return false</c> -- the commonest way an old page says "do not follow
+    /// me" -- was followed anyway.
+    /// </remarks>
+    private void FireInlineHandler(JsValue inlineHandler, JsValue evt, ref bool currentListenerPassive, ref bool prevented)
+    {
+        if (!inlineHandler.IsObject)
+            return;
+
+        // Inline on* handlers behave like regular non-passive listeners.
+        currentListenerPassive = false;
+        var realm = _host.Realm;
+        try
+        {
+            var receiver = realm.GetProperty(evt, "currentTarget");
+            var returned = realm.Invoke(inlineHandler, receiver.IsObject ? receiver : inlineHandler, [evt]);
+            if (returned.IsBoolean && !returned.AsBoolean)
+                EventPreventDefault(realm, currentListenerPassive, evt, ref prevented);
+        }
+        catch (Exception ex) { RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.dispatchEvent", $"Inline handler error: {ex.Message}", ex); }
+    }
+
+    private JsValue BuildComposedPathValue(
+        DomNode target, IReadOnlyList<DomNode> path, DomNode documentNode, JsValue documentValue, JsValue window)
     {
         var realm = _host.Realm;
-        var documentNode = _host.DocumentNode;
-        var documentWrapper = _host.DocumentWrapper;
 
         JsValue ToEventPathObject(DomNode node)
-            => node == documentNode
-                ? (documentWrapper.IsObject ? documentWrapper : JsValue.Null)
-                : _host.WrapNode(node);
+            => node == documentNode ? documentValue : _host.WrapNode(node);
 
         var values = new List<JsValue> { ToEventPathObject(target) };
 
         for (int i = path.Count - 1; i >= 0; i--)
             values.Add(ToEventPathObject(path[i]));
 
-        var windowWrapper = _host.WindowWrapper;
-        if (windowWrapper.IsObject)
-            values.Add(windowWrapper);
+        // The window the path ends at; a node in no document still ends with the top window, as it did.
+        var last = window.IsObject ? window : _host.WindowWrapper;
+        if (last.IsObject)
+            values.Add(last);
 
         return realm.NewArray([.. values]);
     }

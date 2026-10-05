@@ -426,10 +426,12 @@ public sealed partial class DomBridge
         var vpWidth = _viewportWidth;
         var vpHeight = _viewportHeight;
 
-        realm.DefineAccessor(window, "innerWidth", (in _) => JsValue.Number(vpWidth), null);
-        realm.DefineAccessor(window, "innerHeight", (in _) => JsValue.Number(vpHeight), null);
-        realm.DefineAccessor(window, "outerWidth", (in _) => JsValue.Number(vpWidth), null);
-        realm.DefineAccessor(window, "outerHeight", (in _) => JsValue.Number(vpHeight), null);
+        // Read when asked rather than when registered: a host whose window is resized sets the
+        // viewport again (ViewportWidth), and the page's scripts measure the window it now shows.
+        realm.DefineAccessor(window, "innerWidth", (in _) => JsValue.Number(_viewportWidth), null);
+        realm.DefineAccessor(window, "innerHeight", (in _) => JsValue.Number(_viewportHeight), null);
+        realm.DefineAccessor(window, "outerWidth", (in _) => JsValue.Number(_viewportWidth), null);
+        realm.DefineAccessor(window, "outerHeight", (in _) => JsValue.Number(_viewportHeight), null);
         realm.DefineAccessor(window, "scrollX", (in _) => JsValue.Number(GetElementScrollOffset(DocumentElement, vertical: false)), null);
         realm.DefineAccessor(window, "scrollY", (in _) => JsValue.Number(GetElementScrollOffset(DocumentElement, vertical: true)), null);
         realm.DefineAccessor(window, "pageXOffset", (in _) => JsValue.Number(GetElementScrollOffset(DocumentElement, vertical: false)), null);
@@ -482,14 +484,10 @@ public sealed partial class DomBridge
 
         _messaging.RegisterWindowMessaging(window);
 
-        // `frames` is the one member registered twice with *different* shapes: a live getter on the
-        // window and, historically, a static snapshot on the global for the unqualified spelling.
-        // Now that the window IS the global the second write would simply overwrite the first,
-        // freezing `frames` to whatever existed before any <iframe> was scripted. The accessor is
-        // the correct one for both spellings, so it is the only registration.
-        realm.DefineAccessor(
-            window, "frames",
-            (in _) => BuildWindowFramesArray(), null);
+        // `frames` (the page's frames, live, by index and by name), `length` and `name`. `frames` was
+        // once registered twice with different shapes, a live getter on the window and a snapshot on
+        // the global; the window IS the global, so one registration serves both spellings.
+        _subWindows.InstallTopWindowMembers(window, () => _document);
 
         // window.screen — basic stub for screen dimensions
         var screenObj = realm.NewObject();

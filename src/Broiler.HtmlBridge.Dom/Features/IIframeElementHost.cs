@@ -6,7 +6,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The host surface <see cref="IframeElementBinding"/> needs from the bridge for the <c>&lt;iframe&gt;</c>
 /// browsing-context accessors: the realm the accessors are minted in, the same-origin gate
-/// (<c>contentDocument</c>/<c>contentWindow</c>/<c>getSVGDocument()</c> return <c>null</c> across origins),
+/// (<c>contentDocument</c>/<c>getSVGDocument()</c> return <c>null</c> across origins, and <c>contentWindow</c> the frame's
+/// cross-origin window),
 /// the lazy sub-document and sub-window factories, and the <c>src</c>/<c>srcdoc</c> write hooks that reload
 /// the frame (invalidate the cached sub-document, clear the fired-onload latch, then fire <c>onload</c> for
 /// the new resource). The content-attribute reads/writes themselves use the bridge's neutral
@@ -22,6 +23,12 @@ internal interface IIframeElementHost : IRealmHost, ISubDocumentFactoryHost
 {
     bool IsCurrentIframeCrossOrigin(DomElement element);
     JsValue GetOrCreateSubWindow(DomElement element);
+
+    /// <summary>
+    /// The frame's window as the running script may have it: the window itself, or its cross-origin
+    /// view when the frame's document is of another origin.
+    /// </summary>
+    JsValue WindowAsSeen(DomElement element);
     void InvalidateCachedSubDocument(DomElement element);
     void ClearOnloadFired(DomElement element);
     void FireSubDocumentOnload(DomElement element);

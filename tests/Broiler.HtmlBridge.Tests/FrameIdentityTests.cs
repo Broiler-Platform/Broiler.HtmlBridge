@@ -418,9 +418,10 @@ public class FrameIdentityTests
 
     /// <summary>
     /// A frame whose same-origin <c>src</c> redirects to another origin is a cross-origin frame: the page
-    /// gets neither its document nor its window (and so neither its <c>document.cookie</c> nor a way to
-    /// run code as it), and <c>window.frames</c> does not list it. An <c>&lt;object&gt;</c> is judged
-    /// the same way. A frame that stays on the page's origin is still reachable.
+    /// gets neither its document nor more of its window than a cross-origin script may have (and so
+    /// neither its <c>document.cookie</c> nor a way to run code as it). <c>window.frames</c> lists it, as
+    /// that same window. An <c>&lt;object&gt;</c> is judged the same way. A frame that stays on the
+    /// page's origin is still reachable.
     /// </summary>
     [Fact]
     public void AFrameRedirectedToAnotherOriginIsCrossOrigin()
@@ -434,8 +435,10 @@ public class FrameIdentityTests
 
         var rendered = EngineFor(profile).Execute(
             [PageProbe.GuardedProbe(
-                "[String(document.getElementById('f').contentDocument), String(document.getElementById('f').contentWindow)," +
+                "[String(document.getElementById('f').contentDocument)," +
+                " (function (w) { try { return w.document.title; } catch (e) { return e.name; } })(document.getElementById('f').contentWindow)," +
                 " String(document.getElementById('o').contentDocument), window.frames.length," +
+                " window.frames[0] === document.getElementById('f').contentWindow," +
                 " document.getElementById('s').contentDocument.getElementById('in').textContent].join('|')")],
             "<!DOCTYPE html><html><head></head><body><div id=\"out\"></div>" +
             "<iframe id=\"f\" src=\"/hop\"></iframe>" +
@@ -443,7 +446,7 @@ public class FrameIdentityTests
             "<iframe id=\"s\" src=\"/same\"></iframe></body></html>",
             server.LocalhostUrl("/page"));
 
-        Assert.Equal("null|null|null|1|same", PageProbe.OutOf(rendered!));
+        Assert.Equal("null|SecurityError|null|2|true|same", PageProbe.OutOf(rendered!));
     }
     /// <summary>
     /// A frame's module root that outlasts any wait -- a static import the server answers slowly, then

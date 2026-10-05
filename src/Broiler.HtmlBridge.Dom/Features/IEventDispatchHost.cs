@@ -57,4 +57,15 @@ internal interface IEventDispatchHost : IDocumentNodeHost, INodeWrapperHost, IRe
     /// the stored handle's kind. See the remarks on this interface.
     /// </remarks>
     JsValue InlineEventHandler(DomNode node, string eventType);
+
+    /// <summary>
+    /// The JS object of <paramref name="document"/> -- the top document or a frame's -- and of the
+    /// window it is shown in, which end an event's path through a node of that document.
+    /// <see langword="false"/> for a document that is neither; either object may be missing (not an
+    /// object) when it has not been built.
+    /// </summary>
+    bool TryGetDocumentTargets(DomDocument document, out JsValue documentWrapper, out JsValue window);
+
+    /// <summary>The listeners registered on <paramref name="window"/> for <paramref name="eventType"/>, if any.</summary>
+    List<EventListenerRegistration>? WindowListeners(JsValue window, string eventType);
 }
