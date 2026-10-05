@@ -80,9 +80,9 @@ public class OwnerWindowRoutingTests
     /// that never runs is told apart from one that ran in the wrong window. And it touches
     /// <c>contentDocument</c>, which is what builds the sub-document and runs the frame's scripts
     /// (<c>DomBridge/SubDocuments.cs:238-243</c>) — entering there rather than letting the load
-    /// event's <c>window.frames</c> enumeration do it, because that entry order mints a throwaway
-    /// window the outer call then replaces (<c>DomBridge/SubDocuments.Loading.cs</c>) and this test
-    /// should not depend on which of the two the port got filed against.
+    /// event's <c>window.frames</c> enumeration do it. (Every way in used to give the frame a second
+    /// window that replaced the one its scripts ran against; <c>FramePostMessageTests</c> pins that it
+    /// no longer does.)
     /// </para>
     /// <para>
     /// The delivery itself happens in <c>ScriptEngine</c>'s post-load drain: the frame action lands

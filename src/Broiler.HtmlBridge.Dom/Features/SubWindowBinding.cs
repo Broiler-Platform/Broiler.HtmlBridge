@@ -155,6 +155,24 @@ internal sealed class SubWindowBinding(
 
         var realm = _host.Realm;
         var subDocument = _host.GetOrCreateSubDocument(containerElement);
+
+        // Building the sub-document runs the frame's scripts, and they reach back for this window
+        // before it exists (DomBridge.ExecuteSubDocumentScripts): that re-entrant call has built and
+        // cached it by now. It is the window the scripts ran against -- their `message` listeners,
+        // the context their timers run in and the `source` of every message they post are all
+        // filed under it -- so it is the one that stays. A second one minted here replaced it in the
+        // cache, and `contentWindow` answered a window the frame had never seen: a page's
+        // `frame.contentWindow.postMessage(...)` reached no listener, a message from the frame
+        // carried a `source` that was not the frame's `contentWindow`, and what its script set on
+        // `window` could not be read through it. reCAPTCHA's frame waits for the page to hand it a
+        // MessagePort that way, and gave up after five seconds.
+        if (_browsingContexts.TryGetSubWindow(containerElement, out var builtByTheFramesScripts))
+        {
+            // What the scripts declared was recorded after that window was built.
+            _host.PublishPendingSubDocumentGlobals(containerElement, builtByTheFramesScripts);
+            return builtByTheFramesScripts;
+        }
+
         var window = realm.NewObject();
 
         // All four take the handle, so the one object the realm minted above is what the sub-window
