@@ -125,4 +125,29 @@ public class FramePostMessageTests
                 "pageOut.textContent = 'listener-never-ran';" +
                 "document.getElementById('f').contentWindow.postMessage('check', '*');"));
     }
+
+    /// <summary>
+    /// Messages a frame posts arrive in the order it posted them, round after round. The page's queue
+    /// ran its tasks in hash-bucket order, and a task's id hashes to itself: a round whose ids
+    /// straddled a multiple of the bucket count -- as ids do once a session has run a while -- arrived
+    /// with its later messages first.
+    /// </summary>
+    [Fact]
+    public void MessagesArriveInTheOrderTheyWerePosted()
+    {
+        Assert.Equal(
+            "200 in order",
+            Run(
+                "var n = 0;" +
+                "function round() { for (var i = 0; i < 20; i++) parent.postMessage(n++, '*'); if (n < 200) setTimeout(round, 10); }" +
+                "round();",
+                "var pageOut = document.getElementById('out'); var got = [];" +
+                "pageOut.textContent = 'listener-never-ran';" +
+                "window.addEventListener('message', function (e) {" +
+                " got.push(e.data);" +
+                " if (got.length === 200) {" +
+                "  var wrong = got.findIndex(function (v, i) { return v !== i; });" +
+                "  pageOut.textContent = wrong < 0 ? '200 in order' : 'message ' + wrong + ' was ' + got[wrong]; } });" +
+                "document.getElementById('f').contentWindow;"));
+    }
 }

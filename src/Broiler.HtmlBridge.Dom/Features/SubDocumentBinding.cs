@@ -65,6 +65,10 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         // head
         realm.DefineAccessor(doc, "head", (in _) => GetHead(docRoot), null);
 
+        // activeElement and hasFocus(): the frame's document has focus of its own, as the page's does.
+        realm.DefineAccessor(doc, "activeElement", (in _) => _host.ActiveElementOf(docRoot), null);
+        realm.DefineMethod(doc, "hasFocus", 0, (in _) => JsValue.Boolean(_host.HasFocusIn(docRoot)));
+
         // title (dynamic getter from <title> element in <head>)
         realm.DefineAccessor(doc, "title",
             (in _) => GetTitle(docRoot),

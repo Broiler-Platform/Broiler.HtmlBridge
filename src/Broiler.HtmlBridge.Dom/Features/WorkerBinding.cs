@@ -114,12 +114,16 @@ internal sealed class WorkerBinding : IDisposable
             _ => null,
         };
 
+        // A worker belongs to the window whose script constructed it, and its events run as that
+        // window's script: a frame's worker's listener sees the frame's document, not the page's.
+        var ownerWindow = _host.CurrentWindow;
+
         if (script is null && source is not WorkerScriptSource.Network)
         {
             // A worker whose script cannot be fetched fires `error` at the Worker object; it does
             // not throw from the constructor, and it must not take the page down.
             var failed = realm.NewObject();
-            InstallWorkerHandle(realm, failed, worker: null);
+            InstallWorkerHandle(realm, failed, worker: null, ownerWindow);
             _host.QueueFrameAction(() => FireErrorEvent(failed, $"Worker script not found: {specifier}"));
             return failed;
         }
@@ -190,7 +194,7 @@ internal sealed class WorkerBinding : IDisposable
         }
 
         var handle = realm.NewObject();
-        InstallWorkerHandle(realm, handle, worker);
+        InstallWorkerHandle(realm, handle, worker, ownerWindow);
         worker.Attach(handle, this);
         return handle;
     }
@@ -211,8 +215,9 @@ internal sealed class WorkerBinding : IDisposable
     /// member order a page enumerates is observable, and it was first before.
     /// </para>
     /// </remarks>
-    private void InstallWorkerHandle(IJsRealm realm, JsValue handle, JSWorker? worker)
+    private void InstallWorkerHandle(IJsRealm realm, JsValue handle, JSWorker? worker, JsValue ownerWindow)
     {
+        _handleWindows[handle] = ownerWindow;
         realm.DefineMethod(handle, "postMessage", 1, (in call) => PostToWorker(worker, in call));
 
         realm.DefineMethod(handle, "terminate", (in _) => { worker?.Terminate(); return JsValue.Undefined; });
@@ -253,6 +258,9 @@ internal sealed class WorkerBinding : IDisposable
 
     private readonly ConcurrentDictionary<JsValue, List<(string Type, JsValue Fn)>> _handleListeners = new();
 
+    /// <summary>The window each <c>Worker</c> object belongs to: the one whose script constructed it.</summary>
+    private readonly ConcurrentDictionary<JsValue, JsValue> _handleWindows = new();
+
     /// <summary>
     /// <c>worker.postMessage(message, transfer)</c> — clone on the page's thread, then hand the
     /// unreachable intermediate to the worker.
@@ -270,7 +278,7 @@ internal sealed class WorkerBinding : IDisposable
     /// built, which is the same realm and is now said by the call instead of by a closure.
     /// </para>
     /// </remarks>
-    private static JsValue PostToWorker(JSWorker? worker, in JsCall call)
+    private JsValue PostToWorker(JSWorker? worker, in JsCall call)
     {
         if (worker is null)
             return JsValue.Undefined;
@@ -283,12 +291,14 @@ internal sealed class WorkerBinding : IDisposable
         if (!WorkerTransfer.CanStructuredClone(realm))
             throw realm.DomError("DataCloneError", WorkerTransfer.EngineCannotCloneMessage);
 
-        var transfer = WorkerTransfer.BuildTransferList(realm, call.Length > 1 ? call[1] : JsValue.Undefined);
+        // A port of the page in the transfer list goes to the worker, beside the clone.
+        var (buffers, transferredPorts) = WorkerTransfer.BuildTransferList(
+            realm, call.Length > 1 ? call[1] : JsValue.Undefined, _host.IsMessagePort);
 
         JsDetachedValue detached;
         try
         {
-            detached = realm.Detach(call.Length > 0 ? call[0] : JsValue.Undefined, transfer);
+            detached = realm.Detach(call.Length > 0 ? call[0] : JsValue.Undefined, buffers);
         }
         catch (JsEngineException ex)
         {
@@ -297,14 +307,20 @@ internal sealed class WorkerBinding : IDisposable
             throw realm.DomError("DataCloneError", "The object could not be cloned.");
         }
 
-        worker.Post(detached);
+        // Only once the clone has been taken: a message that cannot be sent transfers nothing.
+        var ports = new PortEnd[transferredPorts.Count];
+        for (var i = 0; i < ports.Length; i++)
+            ports[i] = _host.ExportMessagePort(transferredPorts[i]);
+
+        worker.Post(detached, ports);
         return JsValue.Undefined;
     }
 
     /// <summary>
-    /// Delivers a worker's message to the page. Runs on the page thread, from the page's own drain.
+    /// Delivers a worker's message to the page, with the ports the worker transferred, which arrive
+    /// as ports of the page. Runs on the page thread, from the page's own drain.
     /// </summary>
-    internal void DeliverToPage(JsValue handle, JsDetachedValue detached)
+    internal void DeliverToPage(JsValue handle, JsDetachedValue detached, PortEnd[] ports)
     {
         if (_host.Realm is not { } realm)
             return;
@@ -334,11 +350,20 @@ internal sealed class WorkerBinding : IDisposable
             return;
         }
 
+        var window = WindowOf(handle);
+        var portHandles = new JsValue[ports.Length];
+        for (var i = 0; i < portHandles.Length; i++)
+            portHandles[i] = _host.ImportMessagePort(ports[i], window);
+
         var evt = realm.NewObject();
         realm.DefineValue(evt, "type", JsValue.String("message"));
         realm.DefineValue(evt, "data", materialized);
+        realm.DefineValue(evt, "origin", JsValue.String(string.Empty));
+        realm.DefineValue(evt, "lastEventId", JsValue.String(string.Empty));
+        realm.DefineValue(evt, "source", JsValue.Null);
+        realm.DefineValue(evt, "ports", realm.NewArray(portHandles));
 
-        Invoke(realm, handle, "onmessage", "message", evt);
+        _host.RunInWindow(window, () => Invoke(realm, handle, "onmessage", "message", evt));
     }
 
     internal void FireErrorEvent(JsValue handle, string message)
@@ -349,8 +374,11 @@ internal sealed class WorkerBinding : IDisposable
         var evt = realm.NewObject();
         realm.DefineValue(evt, "type", JsValue.String("error"));
         realm.DefineValue(evt, "message", JsValue.String(message));
-        Invoke(realm, handle, "onerror", "error", evt);
+        _host.RunInWindow(WindowOf(handle), () => Invoke(realm, handle, "onerror", "error", evt));
     }
+
+    private JsValue WindowOf(JsValue handle) =>
+        _handleWindows.TryGetValue(handle, out var window) ? window : JsValue.Null;
 
     private void Invoke(IJsRealm realm, JsValue handle, string handlerProperty, string eventType, JsValue evt)
     {
@@ -435,5 +463,6 @@ internal sealed class WorkerBinding : IDisposable
             worker.Terminate();
 
         _handleListeners.Clear();
+        _handleWindows.Clear();
     }
 }

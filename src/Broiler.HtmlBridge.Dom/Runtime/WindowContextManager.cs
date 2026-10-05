@@ -216,7 +216,6 @@ internal sealed class WindowContextManager(
         // value, and the restore then clears the binding.
         var previousWindow = JsValue.Undefined;
         var previousDocument = JsValue.Undefined;
-        var previousLocation = JsValue.Undefined;
         var previousParent = JsValue.Undefined;
         var previousPostMessage = JsValue.Undefined;
         var previousSelf = JsValue.Undefined;
@@ -243,7 +242,6 @@ internal sealed class WindowContextManager(
         {
             previousWindow = Snapshot(realm, "window");
             previousDocument = Snapshot(realm, "document");
-            previousLocation = Snapshot(realm, "location");
             previousParent = Snapshot(realm, "parent");
             previousPostMessage = Snapshot(realm, "postMessage");
             previousSelf = Snapshot(realm, "self");
@@ -251,7 +249,10 @@ internal sealed class WindowContextManager(
 
             SetGlobal(realm, "window", targetWindow);
             SetGlobal(realm, "document", GetWindowDocument(targetWindow));
-            SetGlobal(realm, "location", realm.GetProperty(targetWindow, "location"));
+
+            // `location` is not swapped: the global's is an accessor that answers the Location of the
+            // window whose script is running, which the override below names, and assigning it
+            // navigates (DomBridge.CurrentLocation) -- so writing it here would navigate.
             SetGlobal(realm, "parent", GetWindowParent(targetWindow));
             SetGlobal(realm, "postMessage", realm.GetProperty(targetWindow, "postMessage"));
             SetGlobal(realm, "self", targetWindow);
@@ -273,7 +274,6 @@ internal sealed class WindowContextManager(
 
             SetGlobal(realm, "window", previousWindow);
             SetGlobal(realm, "document", previousDocument);
-            SetGlobal(realm, "location", previousLocation);
             SetGlobal(realm, "parent", previousParent);
             SetGlobal(realm, "postMessage", previousPostMessage);
             SetGlobal(realm, "self", previousSelf);

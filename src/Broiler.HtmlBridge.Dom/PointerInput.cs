@@ -1,6 +1,6 @@
 namespace Broiler.HtmlBridge;
 
-/// <summary>Whether a pointer button went down or came up.</summary>
+/// <summary>What the pointer did: a button went down or came up, or the pointer moved, or left the page.</summary>
 public enum PointerInputKind
 {
     /// <summary>A button was pressed.</summary>
@@ -8,13 +8,19 @@ public enum PointerInputKind
 
     /// <summary>A button was released.</summary>
     Up,
+
+    /// <summary>The pointer moved over the page, with or without a button held (<see cref="PointerInput.Buttons"/>).</summary>
+    Move,
+
+    /// <summary>The pointer left the page: the host's view of it, or the host's window.</summary>
+    Leave,
 }
 
 /// <summary>
-/// A user's press or release of a pointer button over a page, as the page's host delivers it to the
-/// page's scripts (<c>InteractiveSession.DispatchPointer</c>).
+/// A user's press or release of a pointer button over a page, or a move of the pointer, as the page's
+/// host delivers it to the page's scripts (<c>InteractiveSession.DispatchPointer</c>).
 /// </summary>
-/// <param name="Kind">Whether the button went down or came up.</param>
+/// <param name="Kind">What the pointer did.</param>
 /// <param name="X">
 /// Where, across the page's layout, in CSS pixels: the point in the viewport plus the viewport's
 /// scroll. The bridge lays its document out at <c>DomBridge.ViewportWidth</c>, so a host that shows
@@ -32,7 +38,10 @@ public readonly record struct PointerInput(PointerInputKind Kind, double X, doub
     /// <summary>The button that changed: 0 the main one, 1 the middle one, 2 the secondary one (<c>MouseEvent.button</c>).</summary>
     public int Button { get; init; }
 
-    /// <summary>The buttons held once the change is made, as <c>MouseEvent.buttons</c>' bit mask: 1 main, 2 secondary, 4 middle.</summary>
+    /// <summary>
+    /// The buttons held once the change is made -- or while the pointer moves -- as
+    /// <c>MouseEvent.buttons</c>' bit mask: 1 main, 2 secondary, 4 middle.
+    /// </summary>
     public int Buttons { get; init; }
 
     /// <summary>
@@ -59,7 +68,8 @@ public readonly record struct PointerInput(PointerInputKind Kind, double X, doub
 /// <param name="Delivered">Whether the page's scripts were given the input at all.</param>
 /// <param name="DefaultPrevented">
 /// Whether the page's scripts cancelled what the input does by default -- the press's
-/// <c>pointerdown</c> or <c>mousedown</c>, or the release's <c>click</c> -- so a host performs none of
-/// its own default actions for it: no text selection for a press, no link followed for a click.
+/// <c>pointerdown</c> or <c>mousedown</c>, the release's <c>click</c>, or a move's <c>mousemove</c> --
+/// so a host performs none of its own default actions for it: no text selection for a press or a drag,
+/// no link followed for a click.
 /// </param>
 public readonly record struct PointerInputResult(bool Delivered, bool DefaultPrevented);

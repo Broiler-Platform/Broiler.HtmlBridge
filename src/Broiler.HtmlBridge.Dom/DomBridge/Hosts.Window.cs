@@ -354,6 +354,24 @@ public sealed partial class DomBridge : IWorkerHost
         }
     }
 
+    JsValue IWorkerHost.CurrentWindow => ResolveCurrentWindow();
+
+    // The top window's script needs no switch: a frame action already runs as the page's.
+    void IWorkerHost.RunInWindow(JsValue window, Action action)
+    {
+        if (window.IsObject && _browsingContexts.IsSubWindow(window))
+            RunWithWindowContext(window, action);
+        else
+            action();
+    }
+
+    bool IWorkerHost.IsMessagePort(JsValue value) => _messaging.IsMessagePort(value);
+
+    Dom.Runtime.PortEnd IWorkerHost.ExportMessagePort(JsValue port) => _messaging.ExportPort(port);
+
+    JsValue IWorkerHost.ImportMessagePort(Dom.Runtime.PortEnd end, JsValue ownerWindow) =>
+        _messaging.ImportPort(end, ownerWindow);
+
     /// <summary>
     /// Resolves a worker script against <paramref name="baseDirectory"/> when one is given (the
     /// <c>importScripts</c> case), otherwise against the page's local base path, then as given.
@@ -827,6 +845,10 @@ public sealed partial class DomBridge : Dom.Features.IEventTargetHost
         => JsValue.Boolean(_eventDispatch.DispatchEventOnElement(element, evt).AsBoolean);
 
     JsValue Dom.Features.IEventTargetHost.WindowWrapper => WindowHandle;
+
+    void Dom.Features.IEventTargetHost.FocusElement(DomElement element) => FocusElement(element);
+
+    void Dom.Features.IEventTargetHost.BlurElement(DomElement element) => BlurElement(element);
 
     bool Dom.Features.IEventTargetHost.TryGetFormControlChecked(DomElement element, out bool value)
         => _formState.TryGetDirtyChecked(element, out value);

@@ -9,7 +9,8 @@ namespace Broiler.HtmlBridge;
 /// A user's pointer input, delivered to the page's scripts as a browser delivers it: hit-tested to the
 /// element under the pointer -- inside a frame, the frame's element -- and dispatched as trusted
 /// <c>pointerdown</c>/<c>mousedown</c>, <c>pointerup</c>/<c>mouseup</c>, <c>click</c> and
-/// <c>dblclick</c> (or <c>auxclick</c>) events, with the click's activation behaviour.
+/// <c>dblclick</c> (or <c>auxclick</c>) events, with the click's activation behaviour; a move as
+/// <c>pointermove</c>/<c>mousemove</c>, after the events of the boundaries it crossed.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -26,10 +27,24 @@ namespace Broiler.HtmlBridge;
 /// to the frame's content box for an element in a frame, which does not scroll.
 /// </para>
 /// <para>
-/// <b>What is not modelled:</b> focus (the bridge has no focus state, so nothing is focused by a
-/// press), pointer capture, hover (<c>mouseover</c>, <c>mouseenter</c> and the rest, which a press does
-/// not imply), and the activation of a link or a submit button, which the host performs when the click
-/// was not cancelled (<see cref="PointerInputResult.DefaultPrevented"/>).
+/// <b>Hover is a boundary per document.</b> Each document the pointer is in -- the page, and the frame
+/// it is over, and the frame inside that -- has an element under the pointer. When that changes, the
+/// element it left gets <c>pointerout</c> and its ancestors that no longer contain the pointer
+/// <c>pointerleave</c>, innermost first; the element it reached gets <c>pointerover</c> and its newly
+/// entered ancestors <c>pointerenter</c>, outermost first; then the same four as mouse events. That is
+/// Chromium's order, measured. A document the pointer left is done first, from the inside out, and one
+/// it entered last, from the outside in; across two documents no event names the other's element as
+/// its <c>relatedTarget</c>. A press or a release where the pointer was not reported crosses the
+/// boundaries first, as the move a browser would have seen.
+/// </para>
+/// <para>
+/// <b>A press focuses</b> what it lands on, or the nearest focusable element above it, unless its
+/// <c>pointerdown</c> or <c>mousedown</c> was cancelled (<see cref="FocusForPress"/>).
+/// </para>
+/// <para>
+/// <b>What is not modelled:</b> pointer capture, and the activation of a link or a submit button,
+/// which the host performs when the click was not cancelled
+/// (<see cref="PointerInputResult.DefaultPrevented"/>).
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -42,6 +57,11 @@ public sealed partial class DomBridge
     private DomElement? _pressTarget;
     private bool _pressSuppressesMouseEvents;
 
+    // Where the pointer is: the element under it in each document it is in, outermost first, and its
+    // last position in the viewport, which a move's movementX/movementY are measured from.
+    private List<HoverLevel> _hoverLevels = [];
+    private (double X, double Y)? _lastPointerPosition;
+
     /// <summary>
     /// Delivers <paramref name="input"/> to the page's scripts. Answers whether they were given it, and
     /// whether they cancelled what it does by default.
@@ -52,10 +72,25 @@ public sealed partial class DomBridge
         if (_realm is null || DocumentElement is null)
             return default;
 
-        // The hit test is one geometry pass, in which no script may run; the window of the frame it
-        // lands in is resolved after it, since building a frame's window can run the frame's scripts.
-        var located = WithLayoutGeometryCache(() => HitTestInput(input.X, input.Y));
-        var hit = located with { Window = located.Frame is { } frame ? _subWindows.GetOrCreate(frame) : WindowHandle };
+        if (input.Kind == PointerInputKind.Leave)
+        {
+            LeavePage(input);
+            return new PointerInputResult(true, false);
+        }
+
+        // The hit test is one geometry pass, in which no script may run; the window of each frame it
+        // passes through is resolved after it, since building a frame's window can run the frame's
+        // scripts.
+        var levels = WithLayoutGeometryCache(() => HitTestLevels(input.X, input.Y));
+        for (var i = 0; i < levels.Count; i++)
+            levels[i] = levels[i] with { Window = levels[i].Frame is { } frame ? _subWindows.GetOrCreate(frame) : WindowHandle };
+
+        var hit = levels[^1];
+        if (input.Kind == PointerInputKind.Move)
+            return MovePointer(input, levels);
+
+        UpdateHover(levels, input);
+        _lastPointerPosition = (input.X - input.ScrollX, input.Y - input.ScrollY);
         var allowed = true;
 
         if (input.Kind == PointerInputKind.Down)
@@ -73,6 +108,12 @@ public sealed partial class DomBridge
                 allowed = false;
             }
 
+            // Focus moves with the press, as what its mousedown does by default: a cancelled
+            // mousedown keeps it where it was, and so does a cancelled pointerdown, which leaves the
+            // press without a mousedown at all (both measured in Chromium).
+            if (allowed && hit.Target.IsConnected)
+                FocusForPress(hit.Target);
+
             return new PointerInputResult(true, !allowed);
         }
 
@@ -82,6 +123,7 @@ public sealed partial class DomBridge
 
         var press = _pressTarget;
         _pressTarget = null;
+        _pressSuppressesMouseEvents = false;
 
         // A click goes to the nearest element both the press and the release were over; a press in one
         // document and a release in another click nothing.
@@ -128,23 +170,29 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// The element at (<paramref name="x"/>, <paramref name="y"/>) in the page's layout coordinates,
-    /// followed into the frame the point is in.
+    /// The element at (<paramref name="x"/>, <paramref name="y"/>) in the page's layout coordinates in
+    /// each document the point is in: the page's, then the frame's it is over, and so on inward. The
+    /// last is where the pointer's events go.
     /// </summary>
     /// <remarks>
     /// The same walk <c>elementFromPoint</c> makes, without its viewport bounds: a point further down
     /// than the viewport is tall is on the page once the page is scrolled. A point on no element is on
     /// the document's root element.
     /// </remarks>
-    private InputHit HitTestInput(double x, double y)
+    private List<InputHit> HitTestLevels(double x, double y)
     {
+        var levels = new List<InputHit>();
         var target = TopmostElementAt(DocumentElement, x, y);
         DomElement? frame = null;
         double originX = 0, originY = 0;
 
-        for (var depth = 0; depth < MaxInputFrameDepth; depth++)
+        for (var depth = 0; ; depth++)
         {
-            if (!IsFrameContainerElement(target) ||
+            var (left, top, _, _) = GetBoundingClientRectForDomElement(target, isRoot: false);
+            levels.Add(new InputHit(target, frame, originX, originY, left, top));
+
+            if (depth >= MaxInputFrameDepth ||
+                !IsFrameContainerElement(target) ||
                 GetContentDocument(target) is not { } content ||
                 ChildElements(content).FirstOrDefault(static child => !child.TagName.StartsWith('#')) is not { } frameRoot ||
                 !TryGetSharedLayoutGeometry(target, out var geometry))
@@ -162,8 +210,129 @@ public sealed partial class DomBridge
             target = TopmostElementAt(frameRoot, x, y);
         }
 
-        var (left, top, _, _) = GetBoundingClientRectForDomElement(target, isRoot: false);
-        return new InputHit(target, frame, originX, originY, left, top);
+        return levels;
+    }
+
+    /// <summary>
+    /// Where the pointer is in one document: the element under it, its document, and the element's
+    /// ancestors in that document, innermost first, kept for when the element is removed.
+    /// </summary>
+    private sealed record HoverLevel(InputHit Hit, DomDocument Document, DomElement[] Chain)
+    {
+        /// <summary>The element under the pointer, or the nearest of its ancestors still in the document when it was removed.</summary>
+        public DomElement? Element =>
+            Array.Find(Chain, element => element.IsConnected && ReferenceEquals(GetOwningDocument(element), Document));
+    }
+
+    private static HoverLevel ToHoverLevel(InputHit hit)
+    {
+        var chain = new List<DomElement>();
+        for (var current = hit.Target; current is not null; current = ParentEl(current))
+            chain.Add(current);
+
+        return new HoverLevel(hit, GetOwningDocument(hit.Target), [.. chain]);
+    }
+
+    /// <summary>A move: the boundaries the pointer crossed, then <c>pointermove</c> and <c>mousemove</c> at the element it is over.</summary>
+    private PointerInputResult MovePointer(PointerInput input, List<InputHit> levels)
+    {
+        UpdateHover(levels, input);
+
+        var screenX = input.X - input.ScrollX;
+        var screenY = input.Y - input.ScrollY;
+        var (movementX, movementY) = _lastPointerPosition is { } last ? (screenX - last.X, screenY - last.Y) : (0d, 0d);
+        _lastPointerPosition = (screenX, screenY);
+
+        var hit = levels[^1];
+        FireInputEvent(hit, input, "pointermove", detail: 0, movementX: movementX, movementY: movementY);
+
+        // A cancelled pointerdown suppresses the mouse events of its gesture, mousemove among them.
+        var allowed = _pressSuppressesMouseEvents ||
+                      FireInputEvent(hit, input, "mousemove", detail: 0, movementX: movementX, movementY: movementY);
+        return new PointerInputResult(true, !allowed);
+    }
+
+    /// <summary>The pointer left the page: every document it was in, from the inside out, sees it leave.</summary>
+    private void LeavePage(PointerInput input)
+    {
+        var previous = _hoverLevels;
+        _hoverLevels = [];
+        _lastPointerPosition = null;
+        for (var i = previous.Count - 1; i >= 0; i--)
+            CrossBoundary(previous[i], null, input);
+    }
+
+    /// <summary>Moves the hover to <paramref name="levels"/>, firing the boundary events of every document it changed in.</summary>
+    private void UpdateHover(List<InputHit> levels, PointerInput input)
+    {
+        var previous = _hoverLevels;
+        var current = levels.ConvertAll(ToHoverLevel);
+        _hoverLevels = current;
+
+        var shared = 0;
+        while (shared < previous.Count && shared < current.Count &&
+               ReferenceEquals(previous[shared].Document, current[shared].Document))
+        {
+            shared++;
+        }
+
+        // The documents the pointer left, from the inside out; within the deepest one it is still in,
+        // from one element to another; then the documents it entered, from the outside in.
+        for (var i = previous.Count - 1; i >= shared; i--)
+            CrossBoundary(previous[i], null, input);
+
+        if (shared > 0)
+            CrossBoundary(previous[shared - 1], current[shared - 1], input);
+
+        for (var i = shared; i < current.Count; i++)
+            CrossBoundary(null, current[i], input);
+    }
+
+    /// <summary>
+    /// The boundary events of the pointer going from one element of a document to another: out of
+    /// <paramref name="from"/>'s and into <paramref name="to"/>'s. Either is absent when the pointer
+    /// came from, or went to, another document, or outside the page.
+    /// </summary>
+    private void CrossBoundary(HoverLevel? from, HoverLevel? to, PointerInput input)
+    {
+        var left = from?.Element;
+        var entered = to?.Hit.Target;
+        if (ReferenceEquals(left, entered))
+            return;
+
+        var common = left is not null && entered is not null ? CommonInclusiveAncestor(left, entered) : null;
+        var leaving = left is null ? [] : AncestorsBelow(left, common);
+        var entering = entered is null ? [] : AncestorsBelow(entered, common);
+        entering.Reverse();
+
+        foreach (var kind in (ReadOnlySpan<string>)["pointer", "mouse"])
+        {
+            if (left is not null)
+            {
+                var leftHit = from!.Hit with { Target = left };
+                FireInputEvent(leftHit, input, kind + "out", detail: 0, related: entered);
+                foreach (var element in leaving)
+                    FireInputEvent(leftHit with { Target = element }, input, kind + "leave", detail: 0, related: entered, bubbles: false);
+            }
+
+            if (entered is not null)
+            {
+                var enteredHit = to!.Hit;
+                FireInputEvent(enteredHit, input, kind + "over", detail: 0, related: left);
+                foreach (var element in entering)
+                    FireInputEvent(enteredHit with { Target = element }, input, kind + "enter", detail: 0, related: left, bubbles: false);
+            }
+        }
+    }
+
+    /// <summary><paramref name="element"/> and its ancestors below <paramref name="stop"/> -- all of them when it is absent -- innermost first.</summary>
+    private static List<DomElement> AncestorsBelow(DomElement element, DomElement? stop)
+    {
+        var ancestors = new List<DomElement>();
+        for (var current = element; current is not null && !ReferenceEquals(current, stop); current = ParentEl(current))
+            ancestors.Add(current);
+
+        return ancestors;
     }
 
     private DomElement TopmostElementAt(DomElement root, double x, double y)
@@ -385,10 +554,18 @@ public sealed partial class DomBridge
     /// target, as its window's script, and runs the microtask checkpoint after it. Answers whether it was
     /// not cancelled.
     /// </summary>
-    private bool FireInputEvent(InputHit hit, PointerInput input, string type, int detail)
+    /// <param name="related">The other element of a boundary event, in the same document; none otherwise.</param>
+    /// <param name="bubbles">
+    /// False for <c>pointerenter</c>/<c>pointerleave</c> and <c>mouseenter</c>/<c>mouseleave</c>, which
+    /// are neither cancelable nor composed either.
+    /// </param>
+    /// <param name="movementX">How far the pointer moved across since the last move: a move's.</param>
+    /// <param name="movementY">How far it moved down since the last move.</param>
+    private bool FireInputEvent(InputHit hit, PointerInput input, string type, int detail,
+        DomElement? related = null, bool bubbles = true, double movementX = 0, double movementY = 0)
     {
         var realm = Realm;
-        var evt = NewTrustedEvent(realm, type, bubbles: true, cancelable: true, composed: true, MouseEventPrototype(realm));
+        var evt = NewTrustedEvent(realm, type, bubbles, cancelable: bubbles, composed: bubbles, MouseEventPrototype(realm));
 
         var clientX = input.X - (hit.InFrame ? hit.OriginX : input.ScrollX);
         var clientY = input.Y - (hit.InFrame ? hit.OriginY : input.ScrollY);
@@ -406,15 +583,24 @@ public sealed partial class DomBridge
         Define(realm, evt, "pageY", JsValue.Number(hit.InFrame ? clientY : input.Y));
         Define(realm, evt, "offsetX", JsValue.Number(input.X - hit.TargetLeft));
         Define(realm, evt, "offsetY", JsValue.Number(input.Y - hit.TargetTop));
-        Define(realm, evt, "movementX", JsValue.Number(0));
-        Define(realm, evt, "movementY", JsValue.Number(0));
-        Define(realm, evt, "button", JsValue.Number(type is "pointerdown" or "pointerup" or "mousedown" or "mouseup" or "click" or "dblclick" or "auxclick" ? input.Button : 0));
+        Define(realm, evt, "movementX", JsValue.Number(movementX));
+        Define(realm, evt, "movementY", JsValue.Number(movementY));
+
+        // The button that changed; a pointer event in which none did -- a move, a boundary -- says -1,
+        // and its mouse event 0.
+        var button = type switch
+        {
+            "pointerdown" or "pointerup" or "mousedown" or "mouseup" or "click" or "dblclick" or "auxclick" => input.Button,
+            _ when type.StartsWith("pointer", StringComparison.Ordinal) => -1,
+            _ => 0,
+        };
+        Define(realm, evt, "button", JsValue.Number(button));
         Define(realm, evt, "buttons", JsValue.Number(input.Buttons));
         Define(realm, evt, "ctrlKey", JsValue.Boolean(input.CtrlKey));
         Define(realm, evt, "shiftKey", JsValue.Boolean(input.ShiftKey));
         Define(realm, evt, "altKey", JsValue.Boolean(input.AltKey));
         Define(realm, evt, "metaKey", JsValue.Boolean(input.MetaKey));
-        Define(realm, evt, "relatedTarget", JsValue.Null);
+        Define(realm, evt, "relatedTarget", related is null ? JsValue.Null : WrapNode(related));
         realm.DefineMethod(evt, "getModifierState", 1, (in call) =>
         {
             var key = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;

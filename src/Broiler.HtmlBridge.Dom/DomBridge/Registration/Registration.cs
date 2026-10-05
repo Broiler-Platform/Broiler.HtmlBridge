@@ -645,10 +645,10 @@ internal static class PolyfillAssets
         "content-rendering-polyfills.abort-and-fonts.js",
     ];
 
-    // What a worker's global gets: the parts of the bundle that need no document, and the channel a
-    // worker's own ports use.
+    // What a worker's global gets: the parts of the bundle that need no document. Its MessageChannel
+    // is the host's (WorkerMessaging), so that its ports can be transferred to the page.
     private static readonly string[] WorkerParts =
-        ["text-encoding.js", "content-rendering-polyfills.url.js", "worker-message-channel.js"];
+        ["text-encoding.js", "content-rendering-polyfills.url.js"];
 
     private static readonly string[] StreamsParts = ["streams.js", "file-reader.js"];
 
@@ -675,9 +675,8 @@ internal static class PolyfillAssets
     public static string Streams => _streams ??= Load(StreamsParts);
 
     /// <summary>
-    /// <c>TextEncoder</c>/<c>TextDecoder</c>, <c>URL</c>/<c>URLSearchParams</c> and a worker's own
-    /// <c>MessageChannel</c>, for a worker's global: the polyfills of the content-rendering bundle that
-    /// need no document, and the channel between two ports of one worker.
+    /// <c>TextEncoder</c>/<c>TextDecoder</c> and <c>URL</c>/<c>URLSearchParams</c>, for a worker's
+    /// global: the polyfills of the content-rendering bundle that need no document.
     /// </summary>
     public static string Worker => _worker ??= Load(WorkerParts);
 

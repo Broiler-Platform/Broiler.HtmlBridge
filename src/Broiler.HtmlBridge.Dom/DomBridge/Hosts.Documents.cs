@@ -221,6 +221,11 @@ public sealed partial class DomBridge : ISubDocumentHost
     // (DomBridge.cs) as it stands.
     JsValue ISubDocumentHost.MainWindow => WindowHandle;
 
+    JsValue ISubDocumentHost.ActiveElementOf(DomNode docRoot) =>
+        docRoot is DomDocument document && ActiveElementOf(document) is { } active ? WrapNode(active) : JsValue.Null;
+
+    bool ISubDocumentHost.HasFocusIn(DomNode docRoot) => docRoot is DomDocument document && HasFocusIn(document);
+
     void ISubDocumentHost.LinkToInterface(JsValue wrapper, string interfaceName) =>
         LinkToInterface(wrapper, interfaceName);
 
@@ -385,6 +390,8 @@ public sealed partial class DomBridge : ISubWindowHost
 
     bool ISubWindowHost.IsCurrentIframeCrossOrigin(DomElement container) => IsCurrentIframeCrossOrigin(container);
 
+    Dom.Features.ILocationHost ISubWindowHost.FrameLocationHost(DomElement container) => FrameLocationHost(container);
+
     JsValue? ISubWindowHost.CurrentSubWindow => _windowContext.ResolveCurrentSubWindow();
 
     DomDocument? ISubWindowHost.GetContentDocument(DomElement container) => GetContentDocument(container);
@@ -498,7 +505,13 @@ public sealed partial class DomBridge : Dom.Features.IIframeElementHost
     JsValue Dom.Features.IIframeElementHost.WindowAsSeen(DomElement element)
         => _subWindows.WindowAsSeen(element);
 
-    void Dom.Features.IIframeElementHost.InvalidateCachedSubDocument(DomElement element) => InvalidateCachedSubDocument(element);
+    // The frame's src or srcdoc was set, so it shows what they say again, not where its location
+    // last took it.
+    void Dom.Features.IIframeElementHost.InvalidateCachedSubDocument(DomElement element)
+    {
+        ForgetFrameNavigation(element);
+        InvalidateCachedSubDocument(element);
+    }
     void Dom.Features.IIframeElementHost.ClearOnloadFired(DomElement element) => _browsingContexts.ClearOnloadFired(element);
     void Dom.Features.IIframeElementHost.FireSubDocumentOnload(DomElement element) => FireSubDocumentOnload(element);
     void Dom.Features.IIframeElementHost.QueueSubDocumentOnload(DomElement element) => _eventLoop.QueueTask(() => FireSubDocumentOnload(element));

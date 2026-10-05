@@ -276,18 +276,16 @@ public sealed partial class DomBridge
         // own modification date is unknown, which is the specification's stated fallback.
         realm.DefineAccessor(document, "lastModified", (in c) => Dom.Features.WindowDocumentMiscBinding.GetLastModified(in c), null);
 
-        // document.activeElement — the focused element, or, when nothing is focused, the body element:
-        // HTML's algorithm ends "if candidate is null, set candidate to the body element", so `body` is
-        // the answer for an unfocused document rather than null. A capture focuses nothing, so it is
-        // always body. Returning it as a getter (not a stored reference) keeps it correct across
-        // document mutation. Scripts commonly walk up from it — `document.activeElement.tagName`,
-        // `.blur()` — which threw outright while the property was missing.
+        // document.activeElement — the focused element; the frame element when focus is in one of the
+        // page's frames; or, when nothing is focused, the body element: HTML's algorithm ends "if
+        // candidate is null, set candidate to the body element", so `body` is the answer for an
+        // unfocused document rather than null. See DomBridge/Focus.cs.
         realm.DefineAccessor(
-            document, "activeElement", (in c) => Dom.Features.DocumentStructureBinding.GetBody(this, in c), null);
+            document, "activeElement", (in _) => ActiveElementOf(_document) is { } active ? WrapNode(active) : JsValue.Null, null);
 
-        // document.hasFocus() — true; see the binding for why a capture's one document is always the
-        // focused one, matching visibilityState below.
-        realm.DefineMethod(document, "hasFocus", 0, (in c) => Dom.Features.WindowDocumentMiscBinding.HasFocus(in c));
+        // document.hasFocus() — whether focus is in this document or in one of its frames. The page's
+        // window is taken to have the system's focus, so until a frame takes it, that is true.
+        realm.DefineMethod(document, "hasFocus", 0, (in _) => JsValue.Boolean(HasFocusIn(_document)));
 
         // document.hidden / document.visibilityState (Page Visibility, HTML §6.6). A capture
         // renders one document in one viewport and never backgrounds it, so the answer is always

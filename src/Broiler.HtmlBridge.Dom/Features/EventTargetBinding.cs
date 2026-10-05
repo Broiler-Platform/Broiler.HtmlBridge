@@ -139,31 +139,21 @@ internal static class EventTargetBinding
         return JsValue.Undefined;
     }
 
+    /// <remarks>
+    /// The bridge's focus: the element is focused when it can be, with the events a browser fires for
+    /// that. It used to fire an untrusted <c>focus</c> event at any element and focus nothing, so
+    /// <c>document.activeElement</c> never followed.
+    /// </remarks>
     public static JsValue Focus(IEventTargetHost host, DomElement element, in JsCall _)
-        => DispatchSyntheticFocusEvent(host, element, "focus");
-
-    public static JsValue Blur(IEventTargetHost host, DomElement element, in JsCall _)
-        => DispatchSyntheticFocusEvent(host, element, "blur");
-
-    private static JsValue DispatchSyntheticFocusEvent(IEventTargetHost host, DomElement element, string type)
     {
-        var realm = host.Realm;
-        var windowWrapper = host.WindowWrapper;
-        var evt = realm.NewObject();
-        realm.DefineValue(evt, "type", JsValue.String(type));
-        realm.DefineValue(evt, "bubbles", JsValue.False);
-        realm.DefineValue(evt, "cancelable", JsValue.False);
-        realm.DefineValue(evt, "defaultPrevented", JsValue.False);
-        realm.DefineValue(evt, "target", JsValue.Null);
-        realm.DefineValue(evt, "currentTarget", JsValue.Null);
-        realm.DefineValue(evt, "srcElement", JsValue.Null);
-        realm.DefineValue(evt, "eventPhase", JsValue.Number(0));
-        realm.DefineValue(evt, "isTrusted", JsValue.False);
-        realm.DefineValue(evt, "timeStamp", JsValue.Number(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
-        realm.DefineValue(evt, "detail", JsValue.Number(0));
-        realm.DefineValue(evt, "view", windowWrapper.IsObject ? windowWrapper : JsValue.Null);
-        realm.DefineValue(evt, "relatedTarget", JsValue.Null);
-        Dispatch(host, element, evt);
+        host.FocusElement(element);
+        return JsValue.Undefined;
+    }
+
+    /// <inheritdoc cref="Focus"/>
+    public static JsValue Blur(IEventTargetHost host, DomElement element, in JsCall _)
+    {
+        host.BlurElement(element);
         return JsValue.Undefined;
     }
 

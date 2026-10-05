@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.JSeal;
 using Broiler.Net.Http;
 
@@ -102,4 +103,25 @@ internal interface IWorkerHost
     /// <param name="cancellationToken">The worker's: terminating it abandons the fetch.</param>
     /// <param name="failure">Why the script cannot be had, when it cannot.</param>
     WorkerScript? FetchWorkerScript(Uri url, DocumentRequestContext client, bool imported, CancellationToken cancellationToken, out string? failure);
+
+    /// <summary>The window whose script is running, on the page's thread: the one a worker it constructs belongs to.</summary>
+    JsValue CurrentWindow { get; }
+
+    /// <summary>
+    /// Runs <paramref name="action"/> as <paramref name="window"/>'s script, so that a frame's worker's
+    /// listeners see the frame's globals. On the page's thread.
+    /// </summary>
+    void RunInWindow(JsValue window, Action action);
+
+    /// <summary>Whether <paramref name="value"/> is a port of the page that may be transferred to a worker.</summary>
+    bool IsMessagePort(JsValue value);
+
+    /// <summary>Transfers a port of the page to a worker; the page's object goes inert. On the page's thread.</summary>
+    PortEnd ExportMessagePort(JsValue port);
+
+    /// <summary>
+    /// A port a worker transferred, arriving in the page as a port owned by <paramref name="ownerWindow"/>.
+    /// On the page's thread.
+    /// </summary>
+    JsValue ImportMessagePort(PortEnd end, JsValue ownerWindow);
 }

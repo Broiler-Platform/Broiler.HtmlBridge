@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
 using Broiler.JSeal;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Net.Http;
 
@@ -88,7 +89,7 @@ internal sealed class JSWorker
     private readonly IWorkerHost _host;
     private readonly IJsEngineProvider _provider;
     private readonly JsRealmOptions _options;
-    private readonly BlockingCollection<JsDetachedValue> _inbox = new(new ConcurrentQueue<JsDetachedValue>());
+    private readonly BlockingCollection<WorkerTask> _inbox = new(new ConcurrentQueue<WorkerTask>());
     private readonly CancellationTokenSource _cancel = new();
     private readonly Thread _thread;
     private readonly ManualResetEventSlim _started = new();
@@ -97,7 +98,19 @@ internal sealed class JSWorker
 
     private JsValue _handle;
     private WorkerBinding? _owner;
+    private WorkerMessaging? _messaging;
     private volatile bool _closed;
+
+    /// <summary>
+    /// One task of the worker's event loop: a message from the page for the worker's global, with the
+    /// ports transferred with it, or work its own ports queued -- a message waiting for a port.
+    /// </summary>
+    /// <remarks>
+    /// Every task is work the page waits on (<see cref="IsInFlight"/>): a message for one of the
+    /// worker's ports may be the page's question, and one between two of the worker's own ports may be
+    /// the step before its answer. The allowance still bounds the wait.
+    /// </remarks>
+    private readonly record struct WorkerTask(JsDetachedValue? Message, PortEnd[] Ports, Action? Run);
 
     // The work the page has handed this worker and is waiting on: starting up (fetching and running its
     // script), and every message not yet handled. See IsInFlight.
@@ -219,22 +232,43 @@ internal sealed class JSWorker
         _thread.Start();
     }
 
-    /// <summary>Queues an already-detached clone for the worker. Called on the page thread.</summary>
-    public void Post(JsDetachedValue detached)
+    /// <summary>
+    /// Queues an already-detached clone for the worker, with the ends of the ports transferred with it.
+    /// Called on the page thread.
+    /// </summary>
+    public void Post(JsDetachedValue detached, PortEnd[] ports)
+    {
+        if (!Enqueue(new WorkerTask(detached, ports, Run: null)))
+        {
+            // Terminated or closed: the message is not delivered, and the ports it carried go nowhere.
+            foreach (var port in ports)
+                port.Close();
+        }
+    }
+
+    /// <summary>
+    /// Queues <paramref name="task"/> to run on the worker's thread, as a task of its event loop. Called
+    /// from any thread; answers whether it was queued, which a closed or terminated worker does not.
+    /// </summary>
+    private bool QueueTask(Action task) => Enqueue(new WorkerTask(Message: null, [], task));
+
+    private bool Enqueue(WorkerTask task)
     {
         if (_closed || _cancel.IsCancellationRequested)
-            return;
+            return false;
 
         BeginWork();
         try
         {
-            _inbox.Add(detached);
+            _inbox.Add(task);
+            return true;
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
         {
-            // The inbox was completed by a concurrent Terminate; the message is simply not delivered,
-            // which is what terminate() means.
+            // The inbox was completed by a concurrent terminate() or close(); the task is simply not
+            // run, which is what they mean.
             EndWork();
+            return false;
         }
     }
 
@@ -328,10 +362,10 @@ internal sealed class JSWorker
                     : (int)Math.Min(int.MaxValue, Math.Ceiling(untilNext.Value));
 
                 bool took;
-                JsDetachedValue? detached;
+                WorkerTask task;
                 try
                 {
-                    took = _inbox.TryTake(out detached, waitMs, _cancel.Token);
+                    took = _inbox.TryTake(out task, waitMs, _cancel.Token);
                 }
                 catch (OperationCanceledException)
                 {
@@ -343,8 +377,13 @@ internal sealed class JSWorker
                     break;
                 }
 
-                if (took && detached is not null)
-                    DispatchToWorker(realm, detached);
+                if (took)
+                {
+                    if (task.Run is { } run)
+                        RunTask(run);
+                    else if (task.Message is { } detached)
+                        DispatchToWorker(realm, detached, task.Ports);
+                }
 
                 // Always after the take, whether it produced a message or timed out: a message that
                 // arrives just before a deadline must not postpone the timer past it.
@@ -373,8 +412,22 @@ internal sealed class JSWorker
         {
             _started.Set();
             _timers.ClearAll();
+            _messaging?.CloseAll();
             EndAllWork();
             realm?.Dispose();
+        }
+    }
+
+    private void RunTask(Action task)
+    {
+        try
+        {
+            task();
+        }
+        catch (Exception ex)
+        {
+            RenderLogger.LogError(LogCategory.JavaScript, "JSWorker.Pump",
+                $"A task of worker '{_name}' threw: {ex.Message}", ex);
         }
     }
 
@@ -406,7 +459,7 @@ internal sealed class JSWorker
     /// the worker thread, and the realm it is adopted into is this realm because that is the one
     /// asked — which is what makes the resulting objects the worker's own.
     /// </summary>
-    private void DispatchToWorker(IJsRealm realm, JsDetachedValue detached)
+    private void DispatchToWorker(IJsRealm realm, JsDetachedValue detached, PortEnd[] ends)
     {
         if (!WorkerTransfer.CanStructuredClone(realm))
         {
@@ -419,9 +472,18 @@ internal sealed class JSWorker
         {
             var data = realm.Adopt(detached);
 
+            // The ports the page transferred with the message arrive as ports of this worker.
+            var ports = new JsValue[ends.Length];
+            for (var i = 0; i < ports.Length; i++)
+                ports[i] = _messaging!.Import(ends[i]);
+
             var evt = realm.NewObject();
             realm.DefineValue(evt, "type", JsValue.String("message"));
             realm.DefineValue(evt, "data", data);
+            realm.DefineValue(evt, "origin", JsValue.String(string.Empty));
+            realm.DefineValue(evt, "lastEventId", JsValue.String(string.Empty));
+            realm.DefineValue(evt, "source", JsValue.Null);
+            realm.DefineValue(evt, "ports", realm.NewArray(ports));
 
             var handler = realm.GetProperty(realm.Global, "onmessage");
             if (handler.IsFunction)
@@ -522,6 +584,10 @@ internal sealed class JSWorker
         realm.SetProperty(global, "crypto", CryptoBinding.Build(realm));
         realm.EvaluateHostScript(PolyfillAssets.Worker, "polyfill:worker");
 
+        // MessageChannel and MessagePort: the host's, so that a port can be transferred to the page.
+        _messaging = new WorkerMessaging(realm, QueueTask, QueueError, _name);
+        _messaging.Install(global);
+
         realm.SetProperty(global, "close", realm.NewMethod("close", (in _) =>
         {
             _closed = true;
@@ -568,11 +634,15 @@ internal sealed class JSWorker
             return JsValue.Undefined;
         }
 
+        // A port of this worker in the transfer list goes to the page: it is recognised here, and
+        // travels beside the clone as the end the page reaches it through.
+        var (buffers, transferredPorts) = WorkerTransfer.BuildTransferList(
+            realm, call.Length > 1 ? call[1] : JsValue.Undefined, _messaging!.IsPort);
+
         JsDetachedValue detached;
         try
         {
-            var transfer = WorkerTransfer.BuildTransferList(realm, call.Length > 1 ? call[1] : JsValue.Undefined);
-            detached = realm.Detach(call.Length > 0 ? call[0] : JsValue.Undefined, transfer);
+            detached = realm.Detach(call.Length > 0 ? call[0] : JsValue.Undefined, buffers);
         }
         catch (JsEngineException ex)
         {
@@ -581,14 +651,22 @@ internal sealed class JSWorker
             return JsValue.Undefined;
         }
 
+        // Only once the clone has been taken: a message that cannot be sent transfers nothing.
+        var ports = _messaging.ExportAll(transferredPorts);
+
         var handle = _handle;
         var owner = _owner;
         if (!handle.IsObject || owner is null || _cancel.IsCancellationRequested)
+        {
+            foreach (var port in ports)
+                port.Close();
+
             return JsValue.Undefined;
+        }
 
         // Onto the page's event loop, not into it: the queue is concurrent, and the page's own
         // drain is what will run this.
-        _host.QueueFrameAction(() => owner.DeliverToPage(handle, detached));
+        _host.QueueFrameAction(() => owner.DeliverToPage(handle, detached, ports));
         return JsValue.Undefined;
     }
 

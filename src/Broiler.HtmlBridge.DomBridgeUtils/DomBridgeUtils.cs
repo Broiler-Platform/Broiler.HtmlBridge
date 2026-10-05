@@ -29,7 +29,8 @@ public static partial class DomBridgeUtils
 
     internal static readonly string[] InlineEventNames = ["click", "load", "change", "input", "submit", "mousedown",
         "mouseup", "mouseover", "mouseout", "keydown", "keyup", "keypress", "focus", "blur", "error", "scroll",
-        "scrollend"];
+        "scrollend", "dblclick", "auxclick", "mousemove", "mouseenter", "mouseleave", "pointerdown", "pointerup",
+        "pointermove", "pointerover", "pointerout", "pointerenter", "pointerleave", "pointercancel"];
 
     /// <summary>The viewport a bridge assumes when its host does not say otherwise.</summary>
     public const int DefaultViewportWidth = 1024;

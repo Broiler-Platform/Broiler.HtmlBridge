@@ -59,6 +59,12 @@ internal interface ISubDocumentHost : IJsObjectHost, INameValidationHost, INodeI
     /// <summary>Reverse wrapper lookup: the element whose JS wrapper is <paramref name="wrapper"/>.</summary>
     DomElement? FindElement(JsValue wrapper);
 
+    /// <summary><c>document.activeElement</c> of the frame's document rooted at <paramref name="docRoot"/>.</summary>
+    JsValue ActiveElementOf(DomNode docRoot);
+
+    /// <summary><c>document.hasFocus()</c> of the frame's document rooted at <paramref name="docRoot"/>.</summary>
+    bool HasFocusIn(DomNode docRoot);
+
     /// <summary>Reverse wrapper lookup: the node whose JS wrapper is <paramref name="wrapper"/>.</summary>
     DomNode? FindNode(JsValue wrapper);
 

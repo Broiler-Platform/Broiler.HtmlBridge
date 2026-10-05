@@ -384,7 +384,9 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// The request that loads the document of the frame <paramref name="container"/> holds: a nested
-    /// navigation contained by, and initiated by, the container's document (the src attribute).
+    /// navigation contained by the container's document, and initiated by it (the src attribute), or
+    /// by the document whose script navigated the frame through its location -- the frame's own,
+    /// when it moved itself on.
     /// </summary>
     private RequestContext FrameNavigationRequest(DomElement container)
     {
@@ -396,7 +398,7 @@ public sealed partial class DomBridge
             "embed" => RequestDestination.Embed,
             _ => RequestDestination.IFrame,
         };
-        return RequestContext.NestedNavigation(parent, parent, destination);
+        return RequestContext.NestedNavigation(parent, FrameNavigationInitiator(container) ?? parent, destination);
     }
 
     /// <summary>

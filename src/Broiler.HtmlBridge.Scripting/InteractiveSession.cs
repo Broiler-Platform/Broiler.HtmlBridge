@@ -78,15 +78,18 @@ public sealed class InteractiveSession : IDisposable
     /// <para>
     /// The input is hit-tested against the document's own layout, at the viewport the bridge was
     /// given (<see cref="SetViewport"/>), and followed into a frame. A press is <c>pointerdown</c> and
-    /// <c>mousedown</c>; a release is <c>pointerup</c>, <c>mouseup</c> and then <c>click</c> (with a
-    /// checkbox's, a radio button's or a label's activation), <c>dblclick</c> after a double click's
-    /// second, or <c>auxclick</c> for another button. Every one has <c>isTrusted</c> true.
+    /// <c>mousedown</c>, and moves focus; a release is <c>pointerup</c>, <c>mouseup</c> and then
+    /// <c>click</c> (with a checkbox's, a radio button's or a label's activation), <c>dblclick</c> after
+    /// a double click's second, or <c>auxclick</c> for another button. A move is the boundary events of
+    /// what the pointer left and reached, then <c>pointermove</c> and <c>mousemove</c>; a leave, the
+    /// boundary events alone. Every one has <c>isTrusted</c> true.
     /// </para>
     /// <para>
     /// What the scripts then schedule is due within <see cref="DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs"/>
     /// of now on the virtual clock, so <see cref="HasWorkDueInLoadWindow"/> answers for it and a host
-    /// steps it as it steps the load window. Read the document with <see cref="CurrentHtml"/> after,
-    /// and the navigation it may have asked for with <see cref="TakePendingNavigation"/>.
+    /// steps it as it steps the load window. Read the document with <see cref="CurrentHtml"/> after --
+    /// for a move, only when <see cref="RenderVersion"/> says it changed -- and the navigation it may
+    /// have asked for with <see cref="TakePendingNavigation"/>.
     /// </para>
     /// </remarks>
     public PointerInputResult DispatchPointer(PointerInput input)
@@ -100,6 +103,14 @@ public sealed class InteractiveSession : IDisposable
         _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
         return result;
     }
+
+    /// <summary>
+    /// A number that changes whenever what the page renders may have: its document or one of its
+    /// frames' changed, or the bridge's own state the renderer is handed -- inline styles, form values,
+    /// style sheets. A host compares it across the input it delivers, a move above all, to serialize
+    /// and render the page again only when there is something new to show.
+    /// </summary>
+    public long RenderVersion => _disposed || _bridge is not DomBridge bridge ? 0 : bridge.RenderVersion;
 
     /// <summary>
     /// Sets the size, in CSS pixels, the page is shown at: what its scripts read as

@@ -248,6 +248,51 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
     /// <summary>The event loop's virtual clock: ms from document start, as far as its timers have run.</summary>
     internal double VirtualNowMs => _eventLoop.VirtualNowMs;
 
+    // Changes to what this page renders that its DOM does not record -- a form control's state, a
+    // style sheet's rules -- and how deep the bridge is in building a render projection, whose copies
+    // of that state are not changes.
+    private long _renderStateChanges;
+    private int _renderProjectionDepth;
+
+    /// <summary>Counts a change to what the page renders that its DOM does not record, unless it is a projection's copy.</summary>
+    private void NoteRenderStateChange()
+    {
+        if (_renderProjectionDepth == 0)
+            _renderStateChanges++;
+    }
+
+    /// <summary>
+    /// What <c>InteractiveSession.RenderVersion</c> answers: the page's document's version, this
+    /// page's own count of changes the DOM does not record (<see cref="NoteRenderStateChange"/>), and
+    /// each frame document's version and identity. A document's version only grows, and a frame that
+    /// loaded another document has another identity, so the sum changes whenever what the page renders
+    /// may have.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="BridgeRuntimeStateEpoch"/>, which is process-wide and moves whenever any page
+    /// builds a projection -- a hit test or a serialization of this one included -- so a host comparing
+    /// it would serialize after every move. An inline style a script writes is in the DOM already: it
+    /// is written through to the <c>style</c> attribute.
+    /// </remarks>
+    internal long RenderVersion
+    {
+        get
+        {
+            unchecked
+            {
+                var version = (long)_document.Version + _renderStateChanges;
+                var frames = 0L;
+                foreach (var frameDocument in _browsingContexts.ContentDocuments)
+                {
+                    version += (long)frameDocument.Version + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(frameDocument);
+                    frames++;
+                }
+
+                return version * 31 + frames;
+            }
+        }
+    }
+
     /// <summary>
     /// Optional callback invoked after each queued timer, interval, animation-frame,
     /// or frame action task. Callers use this to run spec-like microtask checkpoints.
@@ -315,6 +360,14 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         _select = new Dom.Features.SelectBinding(this);
         _forms = new Dom.Features.FormBinding(this);
         _formControl = new Dom.Features.FormControlBinding(this);
+        // A form control's state is rendered and is not in the DOM: a change to it is one the page's
+        // RenderVersion has to see, as well as the process-wide epoch the geometry snapshot keys on.
+        _formState.OnStateChanged = () =>
+        {
+            BridgeRuntimeStateEpoch.Bump();
+            NoteRenderStateChange();
+        };
+
         _messaging = new Dom.Features.MessagingBinding(this, _eventTargets);
         _workers = new Dom.Features.WorkerBinding(this);
         // Every worker thread is stopped and joined when the bridge tears down; see WorkerBinding.

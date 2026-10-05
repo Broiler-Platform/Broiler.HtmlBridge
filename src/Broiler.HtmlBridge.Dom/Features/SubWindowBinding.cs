@@ -209,9 +209,14 @@ internal sealed class SubWindowBinding(
         // navigation surface that existed only to install the same six members in engine terms.
         // Held in a local because the frame's DOCUMENT shares this exact object with its window,
         // below -- two DefineValue calls over one Location, not two Locations.
+        //
+        // It has a host now: a navigation loads another document into the frame (DomBridge's
+        // FrameNavigation). And `location` itself is [PutForwards=href]: `frames[0].location = url`, the
+        // commonest way a page drives a frame, assigns the frame's href rather than overwriting the
+        // window's property.
         var locationHref = GetSubWindowLocationHref(containerElement);
-        var iframeLocation = LocationBinding.Build(realm, locationHref);
-        realm.DefineValue(window, "location", iframeLocation);
+        var iframeLocation = LocationBinding.Build(realm, locationHref, _host.FrameLocationHost(containerElement));
+        DefineForwardedLocation(realm, window, iframeLocation);
 
         realm.DefineAccessor(window, "scrollX",
             (in _) => JsValue.Number(GetSubWindowScrollOffset(containerElement, vertical: false)), null);
@@ -272,7 +277,7 @@ internal sealed class SubWindowBinding(
         // The frame's document shares its window's Location, as the main document shares the main
         // window's. A framed page reads `document.location` for its origin exactly as a top-level
         // one does, and undefined there throws rather than reading as absent.
-        realm.DefineValue(subDocument, "location", iframeLocation);
+        DefineForwardedLocation(realm, subDocument, iframeLocation);
 
         // window.getComputedStyle — sub-window needs its own copy so that
         // doc.defaultView.getComputedStyle(node, "") resolves CSS rules from
@@ -286,6 +291,19 @@ internal sealed class SubWindowBinding(
 
         return window;
     }
+
+    /// <summary>
+    /// <c>location</c> on a window or a document: the Location, and assigning it assigns the Location's
+    /// <c>href</c> (HTML's [PutForwards=href]), which navigates.
+    /// </summary>
+    internal static void DefineForwardedLocation(IJsRealm realm, JsValue target, JsValue location) =>
+        realm.DefineAccessor(target, "location",
+            (in _) => location,
+            (in call) =>
+            {
+                call.Realm.SetProperty(location, "href", call.Length > 0 ? call[0] : JsValue.Undefined);
+                return JsValue.Undefined;
+            });
 
     // ── Frame names and frame lists ─────────────────────────────────────────
 

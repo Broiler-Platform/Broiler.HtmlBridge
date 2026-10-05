@@ -37,9 +37,14 @@ internal interface IEventTargetHost : IRealmHost
     JsValue DispatchEvent(DomNode element, JsValue evt);
 
 
-    /// <summary>The JS <c>window</c> wrapper the synthetic focus/blur UIEvents expose as <c>view</c>;
-    /// not an object before the window global is installed.</summary>
+    /// <summary>The JS <c>window</c> wrapper; not an object before the window global is installed.</summary>
     JsValue WindowWrapper { get; }
+
+    /// <summary><c>element.focus()</c>: moves focus to <paramref name="element"/> when it can be focused.</summary>
+    void FocusElement(DomElement element);
+
+    /// <summary><c>element.blur()</c>: takes focus from <paramref name="element"/> when it has it.</summary>
+    void BlurElement(DomElement element);
 
     // Form-control checkedness state for synthetic click event toggling.
     bool TryGetFormControlChecked(DomElement element, out bool value);

@@ -89,6 +89,7 @@ public sealed partial class DomBridge
     {
         StyleSheetStateFor(styleElement).RulesMutated = true;
         ClearComputedPropsCache();
+        NoteRenderStateChange();
     }
 
     /// <summary>

@@ -39,6 +39,12 @@ internal interface ISubWindowHost : IRealmHost, ISubDocumentFactoryHost
     /// </summary>
     bool IsCurrentIframeCrossOrigin(DomElement container);
 
+    /// <summary>
+    /// The host the frame's Location hands its navigations to: they load another document into the
+    /// frame, and its <c>hashchange</c> is fired at the frame's window.
+    /// </summary>
+    ILocationHost FrameLocationHost(DomElement container);
+
     /// <summary>The window of the frame whose script is running, or <see langword="null"/> for the top document's.</summary>
     JsValue? CurrentSubWindow { get; }
 

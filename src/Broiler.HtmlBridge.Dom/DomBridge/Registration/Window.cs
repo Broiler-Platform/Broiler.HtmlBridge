@@ -57,7 +57,19 @@ public sealed partial class DomBridge
         realm.DefineValue(location, "origin", JsValue.String(_pageOrigin));
         Dom.Features.LocationBinding.AddNavigationSurface(realm, location, _pageUrl, this);
 
-        realm.DefineValue(window, "location", location);
+        // The global's `location` is the Location of the document whose script is running -- this
+        // one, or a frame's, since every document shares the global -- and it is [PutForwards=href]:
+        // `location = url` and `window.location = url`, the commonest way a page sends itself on,
+        // assign that Location's href and navigate. A data property, the assignment replaced the
+        // Location with a string and nothing navigated.
+        _topLocation = location;
+        realm.DefineAccessor(window, "location",
+            (in _) => CurrentLocation(),
+            (in call) =>
+            {
+                call.Realm.SetProperty(CurrentLocation(), "href", call.Length > 0 ? call[0] : JsValue.Undefined);
+                return JsValue.Undefined;
+            });
 
         // document.location is the *same* Location as window.location (HTML §3.1.5: the getter
         // returns this document's relevant global object's Location), so it is the one object
