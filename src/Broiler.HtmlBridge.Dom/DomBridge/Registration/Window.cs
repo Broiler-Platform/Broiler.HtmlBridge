@@ -426,10 +426,12 @@ public sealed partial class DomBridge
         var vpWidth = _viewportWidth;
         var vpHeight = _viewportHeight;
 
-        realm.DefineAccessor(window, "innerWidth", (in _) => JsValue.Number(vpWidth), null);
-        realm.DefineAccessor(window, "innerHeight", (in _) => JsValue.Number(vpHeight), null);
-        realm.DefineAccessor(window, "outerWidth", (in _) => JsValue.Number(vpWidth), null);
-        realm.DefineAccessor(window, "outerHeight", (in _) => JsValue.Number(vpHeight), null);
+        // Read when asked rather than when registered: a host whose window is resized sets the
+        // viewport again (ViewportWidth), and the page's scripts measure the window it now shows.
+        realm.DefineAccessor(window, "innerWidth", (in _) => JsValue.Number(_viewportWidth), null);
+        realm.DefineAccessor(window, "innerHeight", (in _) => JsValue.Number(_viewportHeight), null);
+        realm.DefineAccessor(window, "outerWidth", (in _) => JsValue.Number(_viewportWidth), null);
+        realm.DefineAccessor(window, "outerHeight", (in _) => JsValue.Number(_viewportHeight), null);
         realm.DefineAccessor(window, "scrollX", (in _) => JsValue.Number(GetElementScrollOffset(DocumentElement, vertical: false)), null);
         realm.DefineAccessor(window, "scrollY", (in _) => JsValue.Number(GetElementScrollOffset(DocumentElement, vertical: true)), null);
         realm.DefineAccessor(window, "pageXOffset", (in _) => JsValue.Number(GetElementScrollOffset(DocumentElement, vertical: false)), null);

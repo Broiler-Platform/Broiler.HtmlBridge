@@ -74,6 +74,9 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
 
     internal int ClearedTimerCount => _clearedTimerIds.Count;
 
+    /// <summary>The virtual clock's current time, in ms from document start.</summary>
+    public double VirtualNowMs => _virtualNowMs;
+
     // ------------------------------------------------------------------
     //  Registration / cancellation
     // ------------------------------------------------------------------

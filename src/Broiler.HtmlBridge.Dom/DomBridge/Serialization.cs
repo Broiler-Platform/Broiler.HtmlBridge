@@ -174,6 +174,17 @@ public sealed partial class DomBridge
         {
             if (_formState.TryGetDirtyValue(element, out var inputValue) && inputValue is string inputString)
                 SetAttr(element, "value", inputString);
+
+            // A checkbox or radio button a script or a click changed shows the state it is in: its
+            // checkedness lives in the form state, and the renderer reads the `checked` attribute.
+            if (_formState.TryGetDirtyChecked(element, out var isChecked))
+            {
+                if (isChecked)
+                    SetAttr(element, "checked", string.Empty);
+                else if (HasAttr(element, "checked"))
+                    RemoveAttr(element, "checked");
+            }
+
             return;
         }
 

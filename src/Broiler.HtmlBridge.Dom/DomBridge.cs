@@ -245,6 +245,9 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         set => _viewportHeight = value > 0 ? value : DefaultViewportHeight;
     }
 
+    /// <summary>The event loop's virtual clock: ms from document start, as far as its timers have run.</summary>
+    internal double VirtualNowMs => _eventLoop.VirtualNowMs;
+
     /// <summary>
     /// Optional callback invoked after each queued timer, interval, animation-frame,
     /// or frame action task. Callers use this to run spec-like microtask checkpoints.
@@ -288,6 +291,12 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
     public DomBridge(DomBridgeSessionOptions? sessionOptions)
     {
         _layoutViewFactory = sessionOptions?.LayoutViewFactory;
+        if (sessionOptions?.Viewport?.Invoke() is { Width: > 0, Height: > 0 } viewport)
+        {
+            ViewportWidth = viewport.Width;
+            ViewportHeight = viewport.Height;
+        }
+
         // The profile's network services. The loader cancels what the document still has in flight
         // when the bridge tears down; the transport and cookie access are the host's and outlive it.
         _resources = new Dom.Runtime.ResourceLoader(sessionOptions?.Network);

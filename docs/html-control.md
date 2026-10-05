@@ -92,7 +92,7 @@ is the thing WebView2 gave up and the thing this component already has.
 | Capability | Here today |
 | --- | --- |
 | Paint | ✖ Not in this component. `Broiler.Layout` boxes it and `Broiler.HTML` paints it; the control would own the loop that connects them. |
-| Hit testing, mouse, keyboard, focus | ✖ Host's. `Broiler.Browser.Core` routes input today. |
+| Hit testing, mouse, keyboard, focus | Partial — a host delivers a pointer press or release through `InteractiveSession.DispatchPointer`: hit-tested against the document's layout and into frames, and dispatched as trusted `pointerdown`/`mousedown`/`pointerup`/`mouseup`/`click`/`dblclick`/`auxclick` with a checkbox's, radio button's or label's activation, as the target's own window's script. Keyboard, hover and focus are the host's. |
 | Scrolling | Partial — `VisualViewport` scroll events dispatch; the scroller is the host's. |
 | `ZoomFactor`, DPI | ✖ |
 
