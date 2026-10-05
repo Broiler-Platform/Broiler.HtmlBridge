@@ -321,8 +321,11 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
         // by timers or earlier rAF callbacks in this step remains effective.
         var rafIds = _rafCallbacks.Keys.OrderBy(static id => id).ToList();
 
+        // In the order they were queued. A ConcurrentDictionary enumerates by hash bucket, and an int
+        // hashes to itself, so two actions whose ids straddle a multiple of the bucket count ran
+        // backwards: a page's second message to a frame, or a port's, arrived before its first.
         var frameActionSnapshot = new List<Action>();
-        foreach (var kv in _frameActions.ToArray())
+        foreach (var kv in _frameActions.ToArray().OrderBy(static kv => kv.Key))
         {
             if (_frameActions.TryRemove(kv.Key, out var action))
                 frameActionSnapshot.Add(action);

@@ -105,18 +105,7 @@ public sealed partial class DomBridge
         DomElement? scope = null) =>
         _selectorMatcher.Matches(element, selector, scope);
 
-    private sealed class BridgeSelectorStateProvider(DomBridge bridge) : ICssSelectorStateProvider
-    {
-        public bool? IsChecked(DomElement element)
-        {
-            if (element is not DomElement bridgeElement)
-                return null;
-
-            return bridge._formState.TryGetDirtyChecked(bridgeElement, out var value)
-                ? value
-                : null;
-        }
-    }
+    // The selector state provider the matcher asks is in DomBridge/UserActionState.cs.
 }
 
 /// <summary>

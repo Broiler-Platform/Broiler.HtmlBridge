@@ -130,12 +130,14 @@ public class WrapperRootReaderTests
     public void ASyntheticFocusEventsViewIsTheWindowRoot()
     {
         // focus() and blur() build their event with the window root as `view`, read through the
-        // event-target host, and put null there when the root is not an object.
+        // event-target host, and put null there when the root is not an object. A span is focused only
+        // once it has a tabindex, as in a browser.
         Assert.Equal(
             "fired=1 view=true notDocument=true",
             Run("""
                 (function () {
                   var kid = document.getElementById('kid');
+                  kid.tabIndex = -1;
                   var seen = [];
                   kid.addEventListener('focus', function (e) {
                     seen.push('view=' + (e.view === window) + ' notDocument=' + (e.view !== document));

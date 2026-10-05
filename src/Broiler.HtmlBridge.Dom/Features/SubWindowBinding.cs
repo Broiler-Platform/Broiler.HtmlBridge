@@ -173,7 +173,14 @@ internal sealed class SubWindowBinding(
             return builtByTheFramesScripts;
         }
 
-        var window = realm.NewObject();
+        // A frame that navigated shows its new document in the window it had, emptied when the old
+        // document went (DomBridge.InvalidateCachedSubDocument): a browsing context keeps its
+        // WindowProxy, so a `contentWindow` the page kept is still the frame's window, and
+        // `frame.contentWindow === kept` holds across the navigation. A new object here answered
+        // `false`, and the kept one stayed on the old document.
+        var window = _browsingContexts.TryTakeRetiredSubWindow(containerElement, out var retired)
+            ? retired
+            : realm.NewObject();
 
         // All four take the handle, so the one object the realm minted above is what the sub-window
         // identity cache, the owner-window map and both messaging installations file, which is what
@@ -209,9 +216,14 @@ internal sealed class SubWindowBinding(
         // navigation surface that existed only to install the same six members in engine terms.
         // Held in a local because the frame's DOCUMENT shares this exact object with its window,
         // below -- two DefineValue calls over one Location, not two Locations.
+        //
+        // It has a host now: a navigation loads another document into the frame (DomBridge's
+        // FrameNavigation). And `location` itself is [PutForwards=href]: `frames[0].location = url`, the
+        // commonest way a page drives a frame, assigns the frame's href rather than overwriting the
+        // window's property.
         var locationHref = GetSubWindowLocationHref(containerElement);
-        var iframeLocation = LocationBinding.Build(realm, locationHref);
-        realm.DefineValue(window, "location", iframeLocation);
+        var iframeLocation = LocationBinding.Build(realm, locationHref, _host.FrameLocationHost(containerElement));
+        DefineForwardedLocation(realm, window, iframeLocation);
 
         realm.DefineAccessor(window, "scrollX",
             (in _) => JsValue.Number(GetSubWindowScrollOffset(containerElement, vertical: false)), null);
@@ -251,13 +263,11 @@ internal sealed class SubWindowBinding(
                 realm.DefineValue(window, ctorName, ctor);
         }
 
-        var parentWindow = GetParentWindowForSubDocument(containerElement);
-        if (parentWindow.IsObject)
-        {
-            realm.DefineValue(window, "parent", parentWindow);
-        }
-
-        realm.DefineValue(window, "top", _host.MainWindow is { IsObject: true } top ? top : window);
+        // The frame's parent and the top window, as the script that asks may have them: the page's own
+        // script gets the global object, which is the top window, and a frame's script a view of it
+        // (TopWindowAsSeen). `parent` is [Replaceable], as on any window.
+        DefineReplaceable(realm, window, "parent", (in _) => ParentAsSeen(containerElement));
+        realm.DefineAccessor(window, "top", (in _) => TopWindowAsSeen(), null);
 
         realm.DefineValue(subDocument, "defaultView", window);
 
@@ -272,7 +282,7 @@ internal sealed class SubWindowBinding(
         // The frame's document shares its window's Location, as the main document shares the main
         // window's. A framed page reads `document.location` for its origin exactly as a top-level
         // one does, and undefined there throws rather than reading as absent.
-        realm.DefineValue(subDocument, "location", iframeLocation);
+        DefineForwardedLocation(realm, subDocument, iframeLocation);
 
         // window.getComputedStyle — sub-window needs its own copy so that
         // doc.defaultView.getComputedStyle(node, "") resolves CSS rules from
@@ -287,6 +297,19 @@ internal sealed class SubWindowBinding(
         return window;
     }
 
+    /// <summary>
+    /// <c>location</c> on a window or a document: the Location, and assigning it assigns the Location's
+    /// <c>href</c> (HTML's [PutForwards=href]), which navigates.
+    /// </summary>
+    internal static void DefineForwardedLocation(IJsRealm realm, JsValue target, JsValue location) =>
+        realm.DefineAccessor(target, "location",
+            (in _) => location,
+            (in call) =>
+            {
+                call.Realm.SetProperty(location, "href", call.Length > 0 ? call[0] : JsValue.Undefined);
+                return JsValue.Undefined;
+            });
+
     // ── Frame names and frame lists ─────────────────────────────────────────
 
     /// <summary>
@@ -299,8 +322,8 @@ internal sealed class SubWindowBinding(
     /// shares the one global object, so a frame's script that reads a bare <c>name</c>, or
     /// <c>this.name</c> at its top level -- Closure's <c>goog.global.name</c> -- reads it here, and
     /// what it means is its own window's name. <c>window.name</c> and <c>self.name</c> already reach
-    /// the frame's window. The price is <c>top.name</c> and <c>parent.name</c> read from a frame,
-    /// which name the same global object and so answer the frame's name too.
+    /// the frame's window, and <c>top.name</c> and <c>parent.name</c> the page's, through the view of
+    /// the top window a frame is handed (<see cref="TopWindowAsSeen"/>).
     /// </para>
     /// <para>
     /// <b><c>frames</c> and <c>length</c> do not.</b> A frame reaches its parent's frames as
@@ -309,6 +332,7 @@ internal sealed class SubWindowBinding(
     /// </remarks>
     internal void InstallTopWindowMembers(JsValue window, Func<DomNode?> topDocument)
     {
+        _topDocument = topDocument;
         var realm = _host.Realm;
         var frames = NewFrameList(topDocument);
         DefineReplaceable(realm, window, "frames", (in _) => frames);
@@ -436,6 +460,8 @@ internal sealed class SubWindowBinding(
     {
         _crossOriginViews.Clear();
         _viewedFrames.Clear();
+        _sameOriginTopView = JsValue.Missing;
+        _crossOriginTopView = JsValue.Missing;
     }
 
     // One view per frame, so `frame.contentWindow === frame.contentWindow`, and the view a message
@@ -483,7 +509,7 @@ internal sealed class SubWindowBinding(
                 case "parent":
                     return ParentAsSeen(container);
                 case "top":
-                    return _host.MainWindow;
+                    return TopWindowAsSeen();
                 case "opener":
                     return JsValue.Null;
                 case "closed":
@@ -621,14 +647,273 @@ internal sealed class SubWindowBinding(
     }
 
     /// <summary>The parent of the frame <paramref name="container"/> holds, as the running script may have it.</summary>
-    /// <remarks>
-    /// The top window is never stood in for: it is the realm's global object, which every document's
-    /// script already holds.
-    /// </remarks>
     private JsValue ParentAsSeen(DomElement container)
     {
         var parentFrame = _host.GetFrameForContentDocument(DomBridgeUtils.GetOwningDocument(container));
-        return parentFrame is null ? _host.MainWindow : WindowAsSeen(parentFrame);
+        return parentFrame is null ? TopWindowAsSeen() : WindowAsSeen(parentFrame);
+    }
+
+    // ── The top window as a frame has it ────────────────────────────────────
+
+    /// <summary>
+    /// The top window as the script now running may have it: the global object for the page's own
+    /// script, and for a frame's a view of it (<see cref="TopWindowAsSeenBy"/>).
+    /// </summary>
+    internal JsValue TopWindowAsSeen() => TopWindowAsSeenBy(_host.CurrentSubWindow ?? JsValue.Missing);
+
+    /// <summary>
+    /// The top window as the script of <paramref name="window"/> may have it: the global object
+    /// itself unless <paramref name="window"/> is a frame's, and for a frame a view of the top window
+    /// -- the whole window when the frame is same-origin with the page, and its cross-origin view
+    /// otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The top window is the realm's global object, and so is every frame's.</b> Every document
+    /// here shares one, and the global answers for the window whose script is running: its
+    /// <c>location</c> is that window's Location, and a frame's script has its own <c>document</c>,
+    /// <c>window</c> and <c>postMessage</c> swapped in. Handed the global as <c>top</c> or
+    /// <c>parent</c>, a frame reached itself through them: <c>top.location</c> was the frame's own
+    /// Location, so a frame-busting <c>top.location = self.location</c> reloaded the frame where a
+    /// browser moves the tab, and <c>parent.document</c> was the frame's own document.
+    /// </para>
+    /// <para>
+    /// <b>The view answers for the top window whichever script reads it.</b> It forwards to the
+    /// global, so the page's functions and variables are there, but its window members are the
+    /// page's: <c>location</c>, which navigates the page when assigned, <c>document</c>,
+    /// <c>name</c>, <c>postMessage</c>, and itself as <c>window</c>, <c>self</c>, <c>top</c> and
+    /// <c>parent</c>. One object per kind, so <c>top === parent</c> in a frame of the page, and a
+    /// message the page posts names it as its <c>source</c>.
+    /// </para>
+    /// </remarks>
+    internal JsValue TopWindowAsSeenBy(JsValue window)
+    {
+        if (!window.IsObject || !_browsingContexts.IsSubWindow(window))
+            return _host.MainWindow;
+
+        var view = _host.IsWindowCrossOriginToTop(window) ? CrossOriginTopView() : SameOriginTopView();
+        return view.IsObject ? view : _host.MainWindow;
+    }
+
+    /// <summary>Whether <paramref name="value"/> is a view of the top window that a frame holds.</summary>
+    internal bool IsTopView(JsValue value) =>
+        value.IsObject && (value == _sameOriginTopView || value == _crossOriginTopView);
+
+    private JsValue _sameOriginTopView;
+    private JsValue _crossOriginTopView;
+
+    // The top document, whose frames the top window's `frames` and `length` count.
+    private Func<DomNode?>? _topDocument;
+
+    // The top window's members a view answers itself, rather than the global object, which in a
+    // frame's script answers for the frame.
+    private static readonly string[] TopWindowOwnMembers =
+        ["window", "self", "top", "parent", "globalThis", "location", "document", "name", "postMessage", "frameElement"];
+
+    /// <summary>The top window as a frame of its origin has it: the whole window, through a forwarding view.</summary>
+    private JsValue SameOriginTopView()
+    {
+        if (_sameOriginTopView.IsObject)
+            return _sameOriginTopView;
+
+        var realm = _host.Realm;
+        var view = JsValue.Missing;
+        var lookup = realm.NewMethod("lookup", (in call) => call.Realm.ToJsString(call[0]) switch
+        {
+            "location" => _host.TopLocation,
+            "document" => _host.MainDocument,
+            "name" => JsValue.String(_browsingContexts.TopName),
+            "postMessage" => _host.TopPostMessage,
+            "frameElement" => JsValue.Null,
+            _ => view,
+        }, 1);
+
+        var assign = realm.NewMethod("assign", (in call) =>
+        {
+            switch (call.Realm.ToJsString(call[0]))
+            {
+                // [PutForwards=href]: assigning the window's location navigates it.
+                case "location":
+                    NavigateTop("href", call[1]);
+                    break;
+                case "name":
+                    _browsingContexts.TopName = call.Realm.ToJsString(call[1]);
+                    break;
+            }
+
+            // The others are the window itself, its document and its postMessage, which an
+            // assignment does not replace.
+            return JsValue.Undefined;
+        }, 2);
+
+        var names = new JsValue[TopWindowOwnMembers.Length];
+        for (var i = 0; i < names.Length; i++)
+            names[i] = JsValue.String(TopWindowOwnMembers[i]);
+
+        view = TopWindowView.Build(realm, _host.MainWindow, realm.NewArray(names), lookup, assign);
+        _sameOriginTopView = view;
+        return view;
+    }
+
+    /// <summary>
+    /// The top window as a frame of another origin has it: what <see cref="CrossOriginViewOf(DomElement)"/>
+    /// lets a script reach of a frame, with the top window's own frames, and a <c>location</c> that may
+    /// only be navigated -- and only after the user has activated the frame (<see cref="NavigateTop"/>).
+    /// </summary>
+    private JsValue CrossOriginTopView()
+    {
+        if (_crossOriginTopView.IsObject)
+            return _crossOriginTopView;
+
+        var realm = _host.Realm;
+        var view = JsValue.Missing;
+        var methods = new Dictionary<string, JsValue>(StringComparer.Ordinal);
+        JsValue location = JsValue.Missing;
+
+        JsValue Method(string name) =>
+            methods.TryGetValue(name, out var method)
+                ? method
+                : methods[name] = name == "postMessage"
+                    ? realm.NewMethod(name, (in call) => _messaging.PostMessageTo(_host.MainWindow, in call), 2)
+                    : realm.NewMethod(name, static (in _) => JsValue.Undefined, 0);
+
+        var lookup = realm.NewMethod("lookup", (in call) =>
+        {
+            var name = call.Realm.ToJsString(call[0]);
+            switch (name)
+            {
+                case "window":
+                case "self":
+                case "frames":
+                case "top":
+                case "parent":
+                    return view;
+                case "opener":
+                    return JsValue.Null;
+                case "closed":
+                    return JsValue.False;
+                case "length":
+                    return JsValue.Number(ChildFrameContainers(_topDocument?.Invoke()).Count);
+                case "location":
+                    return location.IsObject ? location : location = TopLocationView();
+                case "postMessage":
+                case "close":
+                case "focus":
+                case "blur":
+                    return Method(name);
+            }
+
+            if (TopChildAsSeen(name) is { } child)
+                return child;
+
+            throw CrossOriginWindowView.Refusal(call.Realm);
+        }, 1);
+
+        var assign = realm.NewMethod("assign", (in call) =>
+        {
+            if (call.Realm.ToJsString(call[0]) == "location")
+                return NavigateTop("href", call[1]);
+
+            throw CrossOriginWindowView.Refusal(call.Realm);
+        }, 2);
+
+        var keys = realm.NewMethod("keys", (in call) =>
+        {
+            var names = new List<JsValue>();
+            foreach (var name in (string[])["window", "self", "location", "close", "closed", "focus", "blur",
+                         "frames", "length", "top", "opener", "parent", "postMessage"])
+                names.Add(JsValue.String(name));
+            for (var i = 0; i < ChildFrameContainers(_topDocument?.Invoke()).Count; i++)
+                names.Add(JsValue.String(i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            return call.Realm.NewArray(names.ToArray());
+        }, 0);
+
+        view = CrossOriginWindowView.Build(realm, lookup, assign, keys);
+        _crossOriginTopView = view;
+        return view;
+    }
+
+    /// <summary>The top window's <c>location</c> as a frame of another origin has it: navigable, and nothing more.</summary>
+    private JsValue TopLocationView()
+    {
+        var realm = _host.Realm;
+        JsValue replace = JsValue.Missing;
+
+        var lookup = realm.NewMethod("lookup", (in call) =>
+        {
+            if (call.Realm.ToJsString(call[0]) == "replace")
+                return replace.IsObject
+                    ? replace
+                    : replace = call.Realm.NewMethod("replace", (in replaceCall) => NavigateTop("replace", replaceCall[0]), 1);
+
+            throw CrossOriginWindowView.Refusal(call.Realm);
+        }, 1);
+
+        var assign = realm.NewMethod("assign", (in call) =>
+        {
+            if (call.Realm.ToJsString(call[0]) == "href")
+                return NavigateTop("href", call[1]);
+
+            throw CrossOriginWindowView.Refusal(call.Realm);
+        }, 2);
+
+        var keys = realm.NewMethod("keys", (in call) =>
+            call.Realm.NewArray([JsValue.String("href"), JsValue.String("replace")]), 0);
+
+        return CrossOriginWindowView.Build(realm, lookup, assign, keys);
+    }
+
+    /// <summary>
+    /// Navigates the top window through its own <c>Location</c>, for a frame's script: <c>href</c>
+    /// assigned, or <c>replace()</c> called.
+    /// </summary>
+    /// <remarks>
+    /// A frame of another origin may move the whole page only once the user has activated it, as in
+    /// Chromium: an advertisement's frame that sends the tab elsewhere on its own is the abuse that
+    /// rule stops. Otherwise the request is logged and nothing happens.
+    /// </remarks>
+    private JsValue NavigateTop(string how, JsValue url)
+    {
+        if (!_host.MayNavigateTop())
+        {
+            Broiler.HtmlBridge.Logging.RenderLogger.LogWarning(Broiler.HtmlBridge.Logging.LogCategory.JavaScript, "DomBridge.location",
+                "A frame of another origin asked to navigate the top window without the user having activated it; the page stays.");
+            return JsValue.Undefined;
+        }
+
+        var realm = _host.Realm;
+        var location = _host.TopLocation;
+        if (!location.IsObject)
+            return JsValue.Undefined;
+
+        if (how == "href")
+            realm.SetProperty(location, "href", url);
+        else if (realm.GetProperty(location, "replace") is { IsFunction: true } replace)
+            realm.Invoke(replace, location, [url]);
+
+        return JsValue.Undefined;
+    }
+
+    /// <summary>The top window's child frame that <paramref name="name"/> names, by index or by name, as the running script may have it.</summary>
+    private JsValue? TopChildAsSeen(string name)
+    {
+        var children = ChildFrameContainers(_topDocument?.Invoke());
+        if (uint.TryParse(name, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var index) &&
+            index.ToString(System.Globalization.CultureInfo.InvariantCulture) == name)
+        {
+            return index < (uint)children.Count ? WindowAsSeen(children[(int)index]) : null;
+        }
+
+        if (name.Length == 0)
+            return null;
+
+        foreach (var child in children)
+        {
+            if (string.Equals(_browsingContexts.NameOf(child), name, StringComparison.Ordinal))
+                return WindowAsSeen(child);
+        }
+
+        return null;
     }
 
     private string GetSubWindowLocationHref(DomElement containerElement)
@@ -666,22 +951,6 @@ internal sealed class SubWindowBinding(
     {
         var document = _host.GetContentDocument(containerElement);
         return document == null ? null : DomBridgeUtils.GetDocumentElement(document);
-    }
-
-    /// <summary>
-    /// The window a frame's <c>parent</c> names, or a non-object when there is none — the frame's own
-    /// containing frame when it is itself nested, else the top-level window.
-    /// </summary>
-    private JsValue GetParentWindowForSubDocument(DomElement containerElement)
-    {
-        // The container's owning document is a severed sub-document DomDocument when the container is
-        // itself nested in another frame; recover that frame via the reverse map (the owning
-        // document comes from the canonical tree).
-        var parentFrame = _host.GetFrameForContentDocument(DomBridgeUtils.GetOwningDocument(containerElement));
-        if (parentFrame != null)
-            return Build(parentFrame);
-
-        return _host.MainWindow;
     }
 
     // ── Scroll / getComputedStyle callbacks (were JsSubDocumentsScroll006Core … 009Core) ──

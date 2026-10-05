@@ -99,6 +99,8 @@ public sealed partial class DomBridge : IDisposable
         _eventTargets.Clear();
         _browsingContexts.ResetSession();
         _subWindows.ResetSession();
+        ResetInputState();
+        ClearFrameNavigations();
 
         _messaging.ClearPorts();
 

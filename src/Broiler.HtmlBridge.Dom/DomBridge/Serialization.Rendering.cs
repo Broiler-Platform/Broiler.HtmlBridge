@@ -38,7 +38,24 @@ public sealed partial class DomBridge
     /// Builds an isolated renderer document. Importing directly into the new owner
     /// prevents clone construction from publishing mutations against the live document.
     /// </summary>
+    /// <remarks>
+    /// Copying the page's state onto the projection's elements is not a change to the page, so
+    /// <see cref="RenderVersion"/> does not count it (<see cref="NoteRenderStateChange"/>).
+    /// </remarks>
     private RenderProjection CreateRenderProjection()
+    {
+        _renderProjectionDepth++;
+        try
+        {
+            return BuildRenderProjection();
+        }
+        finally
+        {
+            _renderProjectionDepth--;
+        }
+    }
+
+    private RenderProjection BuildRenderProjection()
     {
         var projectedDocument = new DomDocument();
         var projectedToSource = new Dictionary<DomElement, DomElement>(ReferenceEqualityComparer.Instance);
@@ -70,7 +87,7 @@ public sealed partial class DomBridge
                 ApplyZoomSerializationStyles(projectedRoot, 1.0);
             ApplySerializationTransforms(projectedRoot);
             ApplyViewTransitionRendering(projectedRoot);
-            ReflectRenderState(projectedRoot);
+            WithUserActionStates(() => ReflectRenderState(projectedRoot));
         }
         finally
         {
@@ -165,6 +182,29 @@ public sealed partial class DomBridge
     /// rendering mode its file had. Serialization emits the document element alone.</summary>
     private readonly Dictionary<DomDocument, string> _subDocumentDoctype = [];
 
+    // Set while a frame's live document is serialized for the renderer, so that it carries the user's
+    // state of its elements (GetSerializableAttributes).
+    private bool _stampUserActionInMarkup;
+
+    /// <summary>
+    /// The markup a frame renders, with what the user is doing to its elements stamped on them: a frame
+    /// nobody scripted, but whose element the pointer is over, then differs from its resource, and is
+    /// rendered from its live document.
+    /// </summary>
+    private string? RenderedFrameMarkup(DomDocument subDocumentRoot)
+    {
+        var previous = _stampUserActionInMarkup;
+        _stampUserActionInMarkup = true;
+        try
+        {
+            return RenderedSubDocumentMarkup(subDocumentRoot);
+        }
+        finally
+        {
+            _stampUserActionInMarkup = previous;
+        }
+    }
+
     /// <summary>Records how <paramref name="document"/> looked as parsed from
     /// <paramref name="html"/>, before any script ran against it.</summary>
     private void RecordSubDocumentSourceMarkup(DomDocument document, string html)
@@ -184,16 +224,18 @@ public sealed partial class DomBridge
         foreach (var child in ChildElements(element).ToList())
             ProjectScriptedFrameDocuments(child);
 
-        // A srcdoc frame already carries its live document in the attribute it was authored with.
-        if (!IsNestedBrowsingContextContainer(element.TagName?.ToLowerInvariant()) ||
-            HasAttr(element, "srcdoc"))
-        {
+        if (!IsNestedBrowsingContextContainer(element.TagName?.ToLowerInvariant()))
             return;
-        }
 
+        // A srcdoc frame already carries its live document in the attribute it was authored with --
+        // unless its location took it elsewhere, which its srcdoc no longer says.
         var source = ResolveRenderSource(element);
+        var navigated = _frameNavigations.ContainsKey(source);
+        if (HasAttr(element, "srcdoc") && !navigated)
+            return;
+
         if (GetContentDocument(source) is not { } subDocumentRoot ||
-            RenderedSubDocumentMarkup(subDocumentRoot) is not { Length: > 0 } markup)
+            RenderedFrameMarkup(subDocumentRoot) is not { Length: > 0 } markup)
         {
             return;
         }
@@ -205,8 +247,12 @@ public sealed partial class DomBridge
         //
         // And when the document still matches its resource, the renderer's file path already paints
         // it correctly: keeping every untouched frame off the serialize-and-reparse round trip.
-        if (!_subDocumentSourceMarkup.TryGetValue(subDocumentRoot, out var sourceMarkup) ||
-            string.Equals(sourceMarkup, markup, StringComparison.Ordinal))
+        //
+        // A frame its location navigated is the exception: the renderer would re-read its src, which
+        // is the document it left, so its document is stamped whatever it holds.
+        if (!navigated &&
+            (!_subDocumentSourceMarkup.TryGetValue(subDocumentRoot, out var sourceMarkup) ||
+             string.Equals(sourceMarkup, markup, StringComparison.Ordinal)))
         {
             return;
         }

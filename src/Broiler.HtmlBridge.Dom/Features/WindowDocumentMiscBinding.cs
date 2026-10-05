@@ -13,7 +13,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <list type="bullet">
 ///   <item><c>window.alert</c> — logs to debug output (headless; no UI dialog).</item>
 ///   <item><c>performance.now</c> — milliseconds since the performance time origin.</item>
-///   <item><c>document.domain</c> / <c>document.lastModified</c> / <c>document.hasFocus</c> getters.</item>
+///   <item><c>document.domain</c> / <c>document.lastModified</c> getters.</item>
 ///   <item><c>window.visualViewport.scale</c> setter.</item>
 ///   <item><c>document.contentType</c> getter (XHTML vs HTML by page URL).</item>
 /// </list>
@@ -85,19 +85,6 @@ internal static class WindowDocumentMiscBinding
     public static JsValue GetLastModified(in JsCall call)
         // Fully qualified: the Broiler.DateTime namespace shadows the BCL type on a bare `DateTime`.
         => JsValue.String(System.DateTime.Now.ToString("MM/dd/yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
-
-    /// <summary>
-    /// <c>document.hasFocus()</c> — whether the document is the focused document (HTML §6.6).
-    /// </summary>
-    /// <remarks>
-    /// True, for the same reason <c>document.visibilityState</c> is "visible": a capture renders one
-    /// document in one viewport, never backgrounds it and never moves focus off it, so it is the
-    /// active document for its whole life. The alternative was not "false" but the method being
-    /// absent, which is what it was — and a page feature-testing
-    /// <c>document.hasFocus &amp;&amp; document.hasFocus()</c> then silently took the unfocused branch,
-    /// which is the state this capture is furthest from.
-    /// </remarks>
-    public static JsValue HasFocus(in JsCall call) => JsValue.True;
 
     public static JsValue SetVisualViewportScale(IWindowDocumentMiscHost host, in JsCall call)
     {

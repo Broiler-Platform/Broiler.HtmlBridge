@@ -216,7 +216,6 @@ internal sealed class WindowContextManager(
         // value, and the restore then clears the binding.
         var previousWindow = JsValue.Undefined;
         var previousDocument = JsValue.Undefined;
-        var previousLocation = JsValue.Undefined;
         var previousParent = JsValue.Undefined;
         var previousPostMessage = JsValue.Undefined;
         var previousSelf = JsValue.Undefined;
@@ -243,7 +242,6 @@ internal sealed class WindowContextManager(
         {
             previousWindow = Snapshot(realm, "window");
             previousDocument = Snapshot(realm, "document");
-            previousLocation = Snapshot(realm, "location");
             previousParent = Snapshot(realm, "parent");
             previousPostMessage = Snapshot(realm, "postMessage");
             previousSelf = Snapshot(realm, "self");
@@ -251,12 +249,18 @@ internal sealed class WindowContextManager(
 
             SetGlobal(realm, "window", targetWindow);
             SetGlobal(realm, "document", GetWindowDocument(targetWindow));
-            SetGlobal(realm, "location", realm.GetProperty(targetWindow, "location"));
-            SetGlobal(realm, "parent", GetWindowParent(targetWindow));
+
+            // `location` is not swapped: the global's is an accessor that answers the Location of the
+            // window whose script is running, which the override below names, and assigning it
+            // navigates (DomBridge.CurrentLocation) -- so writing it here would navigate.
             SetGlobal(realm, "postMessage", realm.GetProperty(targetWindow, "postMessage"));
             SetGlobal(realm, "self", targetWindow);
-            SetGlobal(realm, "top", _host.WindowObject.IsObject ? _host.WindowObject : targetWindow);
             _browsingContexts.CurrentWindowOverride = targetWindow;
+
+            // After the override: what a frame's script has as its parent and its top depends on whose
+            // script it is, and for a frame that is a view of the top window rather than the global.
+            SetGlobal(realm, "parent", GetWindowParent(targetWindow));
+            SetGlobal(realm, "top", GetWindowTop(targetWindow));
             if (pump is not null)
                 WindowJobPump.Active = pump;
             if (engineJobs is not null)
@@ -273,7 +277,6 @@ internal sealed class WindowContextManager(
 
             SetGlobal(realm, "window", previousWindow);
             SetGlobal(realm, "document", previousDocument);
-            SetGlobal(realm, "location", previousLocation);
             SetGlobal(realm, "parent", previousParent);
             SetGlobal(realm, "postMessage", previousPostMessage);
             SetGlobal(realm, "self", previousSelf);
@@ -307,6 +310,15 @@ internal sealed class WindowContextManager(
         return _browsingContexts.TryGetSubWindowContainer(targetWindow, out var containerElement)
             ? _host.GetOrCreateSubDocument(containerElement)
             : JsValue.Undefined;
+    }
+
+    /// <summary>The top window as <paramref name="targetWindow"/>'s script has it.</summary>
+    private JsValue GetWindowTop(JsValue targetWindow)
+    {
+        if (!_host.WindowObject.IsObject)
+            return targetWindow;
+
+        return IsMainWindow(targetWindow) ? _host.WindowObject : _host.TopWindowAsSeenBy(targetWindow);
     }
 
     public JsValue GetWindowParent(JsValue targetWindow)

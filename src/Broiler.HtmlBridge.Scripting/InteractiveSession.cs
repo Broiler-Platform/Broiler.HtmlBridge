@@ -78,15 +78,18 @@ public sealed class InteractiveSession : IDisposable
     /// <para>
     /// The input is hit-tested against the document's own layout, at the viewport the bridge was
     /// given (<see cref="SetViewport"/>), and followed into a frame. A press is <c>pointerdown</c> and
-    /// <c>mousedown</c>; a release is <c>pointerup</c>, <c>mouseup</c> and then <c>click</c> (with a
-    /// checkbox's, a radio button's or a label's activation), <c>dblclick</c> after a double click's
-    /// second, or <c>auxclick</c> for another button. Every one has <c>isTrusted</c> true.
+    /// <c>mousedown</c>, and moves focus; a release is <c>pointerup</c>, <c>mouseup</c> and then
+    /// <c>click</c> (with a checkbox's, a radio button's or a label's activation), <c>dblclick</c> after
+    /// a double click's second, or <c>auxclick</c> for another button. A move is the boundary events of
+    /// what the pointer left and reached, then <c>pointermove</c> and <c>mousemove</c>; a leave, the
+    /// boundary events alone. Every one has <c>isTrusted</c> true.
     /// </para>
     /// <para>
     /// What the scripts then schedule is due within <see cref="DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs"/>
     /// of now on the virtual clock, so <see cref="HasWorkDueInLoadWindow"/> answers for it and a host
-    /// steps it as it steps the load window. Read the document with <see cref="CurrentHtml"/> after,
-    /// and the navigation it may have asked for with <see cref="TakePendingNavigation"/>.
+    /// steps it as it steps the load window. Read the document with <see cref="CurrentHtml"/> after --
+    /// for a move, only when <see cref="RenderVersion"/> says it changed -- and the navigation it may
+    /// have asked for with <see cref="TakePendingNavigation"/>.
     /// </para>
     /// </remarks>
     public PointerInputResult DispatchPointer(PointerInput input)
@@ -100,6 +103,79 @@ public sealed class InteractiveSession : IDisposable
         _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
         return result;
     }
+
+    /// <summary>
+    /// Delivers a user's press or release of a key to the page's scripts, as a browser delivers it.
+    /// Answers whether they were given it, whether they cancelled what it does by default, and whether
+    /// the page acted on it itself.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The key goes to the focused element -- or the focused document's body -- as <c>keydown</c> or
+    /// <c>keyup</c>, and the page does what the key does by default: Tab and Shift+Tab move focus
+    /// through the page and its frames, Enter follows a focused link, clicks a focused button and
+    /// submits a text field's form, Space clicks a focused button, checkbox or radio button when it
+    /// comes up. A host performs its own default actions -- scrolling, its shortcuts -- only for a key
+    /// that was neither cancelled nor <see cref="KeyboardInputResult.Handled"/>.
+    /// </para>
+    /// <para>
+    /// The characters a press types follow it with <see cref="DispatchText"/>; a host's editor's other
+    /// changes to a field with <see cref="DispatchEdit"/>. Read the document after, as for
+    /// <see cref="DispatchPointer"/>, and the navigation the key may have asked for.
+    /// </para>
+    /// </remarks>
+    public KeyboardInputResult DispatchKey(KeyboardInput input) =>
+        DispatchToBridge(bridge => bridge.DispatchKeyboardInput(input));
+
+    /// <summary>
+    /// Delivers the characters a key press typed: a <c>keypress</c> for each, and in a focused text
+    /// field the edit, with <c>beforeinput</c> and <c>input</c>. A host whose editor has taken the text
+    /// in says what the field now holds (<see cref="TextInput.EditedValue"/>), and undoes it when the
+    /// page cancelled it.
+    /// </summary>
+    public KeyboardInputResult DispatchText(TextInput input) =>
+        DispatchToBridge(bridge => bridge.DispatchTextInput(input));
+
+    /// <summary>
+    /// Delivers a change the host's editor made to the focused text field -- a deletion, a paste --
+    /// as <c>beforeinput</c> and <c>input</c>, after which the page holds the value the field shows.
+    /// The host undoes it when the page cancelled it.
+    /// </summary>
+    public KeyboardInputResult DispatchEdit(FieldEdit edit) =>
+        DispatchToBridge(bridge => bridge.DispatchFieldEdit(edit));
+
+    /// <summary>
+    /// The text field that has focus, where it is and what it holds, for a host that edits it with an
+    /// editor of its own; <see langword="null"/> when focus is on anything else.
+    /// </summary>
+    public FocusedTextField? FocusedTextField =>
+        _disposed || _bridge is not DomBridge bridge ? null : bridge.GetFocusedTextField();
+
+    /// <summary>
+    /// A number that changes whenever the page's focus moves, so that a host following focus with an
+    /// editor of its own asks for <see cref="FocusedTextField"/>, which lays the page out, only then.
+    /// </summary>
+    public long FocusVersion => _disposed || _bridge is not DomBridge bridge ? 0 : bridge.FocusVersion;
+
+    private KeyboardInputResult DispatchToBridge(Func<DomBridge, KeyboardInputResult> dispatch)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return default;
+
+        var result = dispatch(bridge);
+        _microTasks.Drain();
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return result;
+    }
+
+    /// <summary>
+    /// A number that changes whenever what the page renders may have: its document or one of its
+    /// frames' changed, or the bridge's own state the renderer is handed -- inline styles, form values,
+    /// style sheets. A host compares it across the input it delivers, a move above all, to serialize
+    /// and render the page again only when there is something new to show.
+    /// </summary>
+    public long RenderVersion => _disposed || _bridge is not DomBridge bridge ? 0 : bridge.RenderVersion;
 
     /// <summary>
     /// Sets the size, in CSS pixels, the page is shown at: what its scripts read as

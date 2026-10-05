@@ -100,8 +100,11 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
         return false;
     }
 
-    void Dom.Features.IFormControlHost.SetFormControlValue(DomElement element, string value) =>
+    void Dom.Features.IFormControlHost.SetFormControlValue(DomElement element, string value)
+    {
         _formState.SetDirtyValue(element, value);
+        NoteScriptSetFieldValue(element, value);
+    }
 
     string Dom.Features.IFormControlHost.GetSelectValue(DomElement element) => _select.GetValue(element);
 

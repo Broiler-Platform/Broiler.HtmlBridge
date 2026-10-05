@@ -48,6 +48,22 @@ public sealed partial class DomBridge
         }
 
         _browsingContexts.RemoveContainerCaches(containerElement);
+
+        // The frame keeps its window for its next document (SubWindowBinding.Build takes it back), but
+        // nothing the old document gave it -- the bridge's members, which answered for that document,
+        // what its scripts and the page set on it, and its listeners -- belongs to the new one.
+        if (_browsingContexts.TryGetRetiredSubWindow(containerElement, out var window))
+            EmptyWindow(window);
+    }
+
+    /// <summary>Takes every own property and every listener off a frame's window whose document is gone.</summary>
+    private void EmptyWindow(JsValue window)
+    {
+        var realm = Realm;
+        foreach (var name in realm.OwnPropertyNames(window))
+            realm.DeleteProperty(window, name);
+
+        _eventTargets.ForgetTargetListeners(window);
     }
 
     /// <summary>
@@ -64,12 +80,19 @@ public sealed partial class DomBridge
         var tag = element.TagName?.ToLowerInvariant();
         if (!IsNestedBrowsingContextContainer(tag)) return;
 
-        var hasSrcDoc = tag == "iframe" && HasAttr(element, "srcdoc");
-        var resourceUrl = hasSrcDoc ? "about:srcdoc" : GetSubResourceUrl(element);
+        // A frame its location navigated shows that URL, whatever its attributes say.
+        var navigated = TryGetFrameNavigation(element, out var navigatedUrl);
+        var hasSrcDoc = !navigated && tag == "iframe" && HasAttr(element, "srcdoc");
+        var resourceUrl = navigated ? navigatedUrl : hasSrcDoc ? "about:srcdoc" : GetSubResourceUrl(element);
         if (string.IsNullOrWhiteSpace(resourceUrl) && !hasSrcDoc) return;
 
         // Ensure the sub-document is loaded (this triggers the fetch if needed)
         GetOrCreateSubDocument(element);
+
+        // A frame that navigated shows the new document in the window it kept, which a page may be
+        // holding: it answers for the new document now, not once something next asks for it.
+        if (_browsingContexts.TryGetRetiredSubWindow(element, out _))
+            _subWindows.GetOrCreate(element);
 
         _browsingContexts.MarkOnloadFired(element);
 
@@ -178,7 +201,11 @@ public sealed partial class DomBridge
         DomDocument? docRoot = GetContentDocument(containerElement);
         if (docRoot == null)
         {
-            if (string.Equals(containerElement.TagName, "iframe", StringComparison.OrdinalIgnoreCase) &&
+            // A frame its location navigated loads that URL, in place of its src or srcdoc, which a
+            // navigation leaves as they were.
+            var navigated = TryGetFrameNavigation(containerElement, out var navigatedUrl);
+            if (!navigated &&
+                string.Equals(containerElement.TagName, "iframe", StringComparison.OrdinalIgnoreCase) &&
                 TryGetAttribute(containerElement, "srcdoc", out var srcDoc))
             {
                 deliveredPolicy = Csp;
@@ -194,7 +221,7 @@ public sealed partial class DomBridge
             else
             {
                 // Determine the resource URL for this container
-                var resourceUrl = GetSubResourceUrl(containerElement);
+                var resourceUrl = navigated ? navigatedUrl : GetSubResourceUrl(containerElement);
                 var resolvedUrl = ResolveSubResourceUrl(resourceUrl, GetInheritedSubDocumentBaseUrl(containerElement));
                 if (!string.IsNullOrWhiteSpace(resolvedUrl))
                 {

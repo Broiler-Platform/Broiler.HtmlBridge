@@ -27,11 +27,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// follow — an interactive browser does, a capture pinned to one document need not.
 /// </para>
 /// <para>
-/// With no host — a frame's Location, built by <see cref="Build"/> — there is nowhere to record the
-/// request, so it is logged and dropped, which is what every one of these did before the host
-/// surface existed. The log line still matters in that case: a page that ends by navigating away
-/// renders as whatever it had built by then, and the line is the difference between reading that as
-/// the page and reading it as a page that left.
+/// A frame's Location, built by <see cref="Build"/>, has a host of its own, which loads the frame's
+/// next document rather than the page's. With no host at all there is nowhere to record the request,
+/// so it is logged and dropped, which is what every one of these did before the host surface
+/// existed -- and what a frame's did until frames could navigate.
 /// </para>
 /// <para>
 /// <b>A fragment navigation is the exception, because it is not a load.</b> When the target
@@ -69,7 +68,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>Registration/Window.cs</c> builds the top-level Location through the realm and passes both to
 /// <see cref="AddNavigationSurface(IJsRealm, JsValue, string, ILocationHost?)"/>, which is the whole of
 /// that path. A frame's Location, asked for by <c>SubWindowBinding</c>, is
-/// <see cref="Build(IJsRealm, string)"/>, which takes the realm and is entirely realm-framed.
+/// <see cref="Build(IJsRealm, string, ILocationHost?)"/>, which takes the realm and is entirely realm-framed.
 /// Nothing in this file is left in engine terms. The <em>logic</em> is not
 /// duplicated either way: every installer hands the same <see cref="DocumentUrl"/> to the same
 /// <see cref="NavigateTo"/>/<see cref="Request"/> pair, and only the six installations and the two
@@ -109,15 +108,13 @@ internal static class LocationBinding
     /// Builds the Location for a document at <paramref name="href"/>. The components are derived
     /// from the URL when it is absolute; when it is not, only what can be known is defined.
     /// </summary>
-    /// <remarks>
-    /// No host is passed on to the navigation surface: this builds a <em>frame's</em> Location, and
-    /// neither half of the host surface fits a frame. hashchange belongs to the frame's own event
-    /// target, which the window-dispatch contract does not reach; and a frame navigating replaces the
-    /// frame, not the page, which is a different operation from the one the host would perform. The
-    /// frame's <c>href</c> and <c>hash</c> still move on a fragment navigation — that part needs no
-    /// host.
-    /// </remarks>
-    internal static JsValue Build(IJsRealm realm, string href)
+    /// <param name="realm">The realm the Location is built in.</param>
+    /// <param name="href">The URL of the frame's document.</param>
+    /// <param name="host">
+    /// The frame's own: a navigation loads another document into the frame, and <c>hashchange</c>
+    /// fires at the frame's window.
+    /// </param>
+    internal static JsValue Build(IJsRealm realm, string href, ILocationHost? host = null)
     {
         var location = realm.NewObject();
 
@@ -144,7 +141,7 @@ internal static class LocationBinding
 
         // `hash` is not added here — the navigation surface owns it, because a fragment navigation
         // has to move it and `href` together and a data property cannot be kept in step.
-        AddNavigationSurface(realm, location, href, null);
+        AddNavigationSurface(realm, location, href, host);
         return location;
     }
 

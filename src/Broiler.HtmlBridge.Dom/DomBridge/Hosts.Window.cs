@@ -172,6 +172,8 @@ public sealed partial class DomBridge : IWindowContextHost
 
     JsValue IWindowContextHost.WindowObject => WindowHandle;
 
+    JsValue IWindowContextHost.TopWindowAsSeenBy(JsValue window) => _subWindows.TopWindowAsSeenBy(window);
+
     // Undefined rather than the Missing the root holds, as the member's name says: its one consumer,
     // WindowContextManager.GetWindowDocument, answers undefined on its other branch too.
     JsValue IWindowContextHost.MainDocumentOrUndefined =>
@@ -290,11 +292,20 @@ public sealed partial class DomBridge : IMessagingHost
 
     JsValue IMessagingHost.CrossOriginViewOf(JsValue window) => _subWindows.CrossOriginViewOf(window);
 
+    JsValue IMessagingHost.TopWindowAsSeenBy(JsValue window) => _subWindows.TopWindowAsSeenBy(window);
+
     bool IMessagingHost.TryGetViewedWindow(JsValue view, out JsValue window)
     {
         if (view.IsObject && _subWindows.TryGetViewedFrame(view, out var container))
         {
             window = _subWindows.GetOrCreate(container);
+            return true;
+        }
+
+        // A frame's view of the top window stands for the top window: `top.postMessage(...)`.
+        if (_subWindows.IsTopView(view))
+        {
+            window = WindowHandle;
             return true;
         }
 
@@ -353,6 +364,24 @@ public sealed partial class DomBridge : IWorkerHost
             // Raced with disposal; the message simply does not arrive, which is correct.
         }
     }
+
+    JsValue IWorkerHost.CurrentWindow => ResolveCurrentWindow();
+
+    // The top window's script needs no switch: a frame action already runs as the page's.
+    void IWorkerHost.RunInWindow(JsValue window, Action action)
+    {
+        if (window.IsObject && _browsingContexts.IsSubWindow(window))
+            RunWithWindowContext(window, action);
+        else
+            action();
+    }
+
+    bool IWorkerHost.IsMessagePort(JsValue value) => _messaging.IsMessagePort(value);
+
+    Dom.Runtime.PortEnd IWorkerHost.ExportMessagePort(JsValue port) => _messaging.ExportPort(port);
+
+    JsValue IWorkerHost.ImportMessagePort(Dom.Runtime.PortEnd end, JsValue ownerWindow) =>
+        _messaging.ImportPort(end, ownerWindow);
 
     /// <summary>
     /// Resolves a worker script against <paramref name="baseDirectory"/> when one is given (the
@@ -827,6 +856,10 @@ public sealed partial class DomBridge : Dom.Features.IEventTargetHost
         => JsValue.Boolean(_eventDispatch.DispatchEventOnElement(element, evt).AsBoolean);
 
     JsValue Dom.Features.IEventTargetHost.WindowWrapper => WindowHandle;
+
+    void Dom.Features.IEventTargetHost.FocusElement(DomElement element) => FocusElement(element);
+
+    void Dom.Features.IEventTargetHost.BlurElement(DomElement element) => BlurElement(element);
 
     bool Dom.Features.IEventTargetHost.TryGetFormControlChecked(DomElement element, out bool value)
         => _formState.TryGetDirtyChecked(element, out value);

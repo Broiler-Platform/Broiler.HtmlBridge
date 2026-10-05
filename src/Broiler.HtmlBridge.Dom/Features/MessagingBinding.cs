@@ -1,4 +1,5 @@
 ﻿using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.HtmlBridge.Logging;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -212,7 +213,7 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
 
         foreach (var item in WorkerTransfer.ArrayElements(realm, transferValue))
         {
-            if (item.IsObject && _messagePorts.HasPeer(item))
+            if (item.IsObject && _messagePorts.IsPort(item))
             {
                 if (!seenPorts.Add(item))
                     throw realm.DomError("DataCloneError", "The transfer list contains duplicate transferable values.");
@@ -281,14 +282,17 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
     /// across origins in a browser. It was a stand-in of its own, equal to nothing the page held.
     /// </para>
     /// <para>
-    /// Only a frame's window is stood in for. The top window is the realm's global object, which every
-    /// document here shares already; a frame checking <c>e.source === parent</c> keeps working.
+    /// The top window, posting to a frame, is the view of it the frame has as <c>top</c> and
+    /// <c>parent</c>, so a frame checking <c>e.source === parent</c> keeps working: the global object
+    /// itself is what every document here shares, and in a frame's script it answers for the frame.
     /// </para>
     /// </remarks>
     private JsValue SourceAsSeenBy(JsValue sourceWindow, JsValue receiver)
     {
+        if (sourceWindow.IsObject && sourceWindow == _host.WindowObject)
+            return _host.TopWindowAsSeenBy(receiver);
+
         if (!sourceWindow.IsObject ||
-            sourceWindow == _host.WindowObject ||
             _host.FrameWindowOrigin(sourceWindow) is null ||
             !_host.AreWindowsCrossOrigin(sourceWindow, receiver))
             return sourceWindow;
@@ -449,7 +453,12 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
     {
         var realm = call.Realm;
         var sourcePort = call.This.IsObject ? call.This : port;
-        if (_messagePorts.IsClosed(sourcePort) || !_messagePorts.TryGetPeer(sourcePort, out var targetPort) || _messagePorts.IsClosed(targetPort))
+        if (_messagePorts.IsInert(sourcePort))
+            return JsValue.Undefined;
+
+        var hasRemotePeer = _messagePorts.TryGetRemote(sourcePort, out var end, out _);
+        var targetPort = JsValue.Undefined;
+        if (!hasRemotePeer && (!_messagePorts.TryGetPeer(sourcePort, out targetPort) || _messagePorts.IsClosed(targetPort)))
         {
             return JsValue.Undefined;
         }
@@ -469,21 +478,225 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
             }
         }
 
-        var targetOwner = FirstObject(_host.ResolveOwnerWindow(targetPort), _host.WindowObject, sourcePort);
         var (ports, transfer, transferredPorts) = ExtractTransferList(transferValue);
-        var payload = CloneForMessaging(call.Length > 0 ? call[0] : JsValue.Undefined, transfer);
-        CommitTransferredPorts(transferredPorts, targetOwner);
-        _host.QueueFrameAction(() =>
-        {
-            if (_messagePorts.IsClosed(sourcePort) || _messagePorts.IsClosed(targetPort))
-            {
-                return;
-            }
 
-            var evt = CreateMessageEvent(payload, JsValue.Null, string.Empty, ports);
-            DispatchOrQueueMessagePortEvent(targetPort, evt);
-        });
+        // A port cannot be sent through itself (HTML §9.4.4, step 2).
+        if (transferredPorts.Contains(sourcePort))
+            throw realm.DomError("DataCloneError", "A port cannot be transferred through itself.");
+
+        var message = call.Length > 0 ? call[0] : JsValue.Undefined;
+        if (hasRemotePeer)
+        {
+            // The peer is on another thread: the message goes as the sender's clone, which belongs to
+            // no realm, and each port it transfers goes as the end it is reached through.
+            var detached = DetachForMessaging(message, transfer);
+            end.Post(new PortMessage(detached, ExportPorts(transferredPorts)));
+            return JsValue.Undefined;
+        }
+
+        var targetOwner = FirstObject(_host.ResolveOwnerWindow(targetPort), _host.WindowObject, sourcePort);
+        var payload = CloneForMessaging(message, transfer);
+        CommitTransferredPorts(transferredPorts, targetOwner);
+
+        // The message waits at the port and the task takes the next one there, so a port transferred
+        // to a worker before the task runs takes the message along (ExportPort).
+        _messagePorts.Send(targetPort, new PendingPortMessage(sourcePort, payload, ports));
+        _host.QueueFrameAction(() => DeliverLocal(targetPort));
         return JsValue.Undefined;
+    }
+
+    private void DeliverLocal(JsValue targetPort)
+    {
+        if (!_messagePorts.TryTakeInFlight(targetPort, out var message) ||
+            _messagePorts.IsClosed(message.Source) || _messagePorts.IsClosed(targetPort))
+        {
+            return;
+        }
+
+        DispatchOrQueueMessagePortEvent(targetPort, CreateMessageEvent(message.Data, JsValue.Null, string.Empty, message.Ports));
+    }
+
+    // ==================== Ports entangled across threads ====================
+
+    /// <summary>Whether <paramref name="value"/> is a port of this document that may be transferred.</summary>
+    internal bool IsMessagePort(JsValue value) => value.IsObject && _messagePorts.IsPort(value);
+
+    /// <summary>
+    /// Transfers a port of this document to another thread: the object stays behind, inert, and the
+    /// end it is reached through from now on is what travels.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A port whose peer is in this document</b> is entangled anew: a pair of ends, the peer kept
+    /// here on one of them, and the other going with the transfer. <b>One whose peer is already on
+    /// another thread</b> simply takes its end along.
+    /// </para>
+    /// <para>
+    /// <b>Its undelivered messages go with it.</b> Those that reached the port before it was started,
+    /// queued here as events of this document, and those still waiting for the task that delivers
+    /// them, are cloned again, in their order, and wait at the end ahead of anything that arrives
+    /// there later.
+    /// </para>
+    /// </remarks>
+    internal PortEnd ExportPort(JsValue port)
+    {
+        PortEnd end;
+        if (_messagePorts.TryGetRemote(port, out var remote, out var home))
+        {
+            remote.Leave(home);
+            end = remote;
+        }
+        else
+        {
+            var (traveling, staying) = PortEnd.NewPair();
+            end = traveling;
+            if (_messagePorts.TryGetPeer(port, out var peer))
+            {
+                LinkAcross(peer, staying);
+                if (_messagePorts.IsClosed(peer))
+                    staying.Close();
+            }
+        }
+
+        var undelivered = new List<PortMessage>();
+        if (_messagePorts.TakeQueued(port) is { } queued)
+        {
+            foreach (var evt in queued)
+            {
+                var realm = _host.Realm;
+                if (ToPortMessage(realm.GetProperty(evt, "data"), realm.GetProperty(evt, "ports")) is { } message)
+                    undelivered.Add(message);
+            }
+        }
+
+        if (_messagePorts.TakeInFlight(port) is { } inFlight)
+        {
+            foreach (var pending in inFlight)
+            {
+                if (!_messagePorts.IsClosed(pending.Source) && ToPortMessage(pending.Data, pending.Ports) is { } message)
+                    undelivered.Add(message);
+            }
+        }
+
+        end.Requeue(undelivered);
+        if (_messagePorts.IsClosed(port))
+            end.Close();
+
+        _messagePorts.Ship(port);
+        return end;
+    }
+
+    /// <summary>
+    /// A port of another thread arriving in this document, with a message: a new port object of this
+    /// document for <paramref name="end"/>, owned by <paramref name="ownerWindow"/>.
+    /// </summary>
+    internal JsValue ImportPort(PortEnd end, JsValue ownerWindow)
+    {
+        var port = CreateMessagePort(ownerWindow);
+        if (end.IsClosed)
+            _messagePorts.Close(port);
+        else
+            LinkAcross(port, end);
+
+        return port;
+    }
+
+    private PortEnd[] ExportPorts(List<JsValue> ports) => [.. ports.Select(ExportPort)];
+
+    private void LinkAcross(JsValue port, PortEnd end)
+    {
+        var home = new DocumentPortHome(this, port);
+        _messagePorts.LinkRemote(port, end, home);
+        end.Settle(home);
+    }
+
+    /// <summary>
+    /// Delivers the next message waiting at <paramref name="end"/> to <paramref name="port"/>, as one
+    /// task of the page's event loop, once the port is started.
+    /// </summary>
+    private void DeliverAcross(JsValue port, PortEnd end, IPortHome home)
+    {
+        if (_messagePorts.IsInert(port) || !CanDispatchMessagePortEvent(port))
+            return;
+
+        if (!end.TryTake(home, out var message))
+            return;
+
+        var realm = _host.Realm;
+        JsValue data;
+        try
+        {
+            data = realm.Adopt(message.Data);
+        }
+        catch (JsEngineException ex)
+        {
+            RenderLogger.LogError(LogCategory.JavaScript, "DomBridge.messagePort.postMessage",
+                $"A message from another thread could not be materialized: {ex.Message}", ex);
+            return;
+        }
+
+        var owner = FirstObject(_host.ResolveOwnerWindow(port), _host.WindowObject);
+        var ports = new JsValue[message.Ports.Length];
+        for (var i = 0; i < ports.Length; i++)
+            ports[i] = ImportPort(message.Ports[i], owner);
+
+        DispatchMessagePortEvent(port, CreateMessageEvent(data, JsValue.Null, string.Empty, realm.NewArray(ports)));
+    }
+
+    /// <summary>
+    /// A message of this document that a port had not dispatched, as a message for the thread the port
+    /// is going to: its data cloned again, and the ports it carries transferred along.
+    /// </summary>
+    private PortMessage? ToPortMessage(JsValue payload, JsValue ports)
+    {
+        var realm = _host.Realm;
+        JsDetachedValue data;
+        try
+        {
+            data = realm.Detach(payload);
+        }
+        catch (JsEngineException ex)
+        {
+            RenderLogger.LogError(LogCategory.JavaScript, "DomBridge.messagePort.postMessage",
+                $"A queued message could not follow its port to another thread: {ex.Message}", ex);
+            return null;
+        }
+
+        var carried = new List<PortEnd>();
+        if (ports.IsArray)
+        {
+            foreach (var carriedPort in WorkerTransfer.ArrayElements(realm, ports))
+            {
+                if (IsMessagePort(carriedPort))
+                    carried.Add(ExportPort(carriedPort));
+            }
+        }
+
+        return new PortMessage(data, [.. carried]);
+    }
+
+    /// <summary>The sender's clone of a message for another thread, or <c>DataCloneError</c>.</summary>
+    private JsDetachedValue DetachForMessaging(JsValue value, JsValue[] transfer)
+    {
+        var realm = _host.Realm;
+        if (!WorkerTransfer.CanStructuredClone(realm))
+            throw realm.DomError("DataCloneError", WorkerTransfer.EngineCannotCloneMessage);
+
+        try
+        {
+            return realm.Detach(value, transfer);
+        }
+        catch (JsEngineException)
+        {
+            throw realm.DomError("DataCloneError", "The object could not be cloned.");
+        }
+    }
+
+    /// <summary>The page, as the realm a port is in: a message waiting for the port is a frame action.</summary>
+    private sealed class DocumentPortHome(MessagingBinding owner, JsValue port) : IPortHome
+    {
+        public void Schedule(PortEnd end) =>
+            owner._host.QueueFrameAction(() => owner.DeliverAcross(port, end, this));
     }
 
     private JsValue SetOnMessage(ref JsValue onMessageHandler, JsValue port, in JsCall call)
@@ -543,13 +756,17 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
         _messagePorts.Start(port);
 
         var queuedEvents = _messagePorts.TakeQueued(port);
-        if (queuedEvents is null)
-            return;
-
-        foreach (var evt in queuedEvents)
+        if (queuedEvents is not null)
         {
-            DispatchMessagePortEvent(port, evt);
+            foreach (var evt in queuedEvents)
+            {
+                DispatchMessagePortEvent(port, evt);
+            }
         }
+
+        // What waits for it on another thread's side of the channel is delivered from now on.
+        if (_messagePorts.TryGetRemote(port, out var end, out _))
+            end.ScheduleWaiting();
     }
 
     /// <remarks>

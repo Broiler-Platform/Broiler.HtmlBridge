@@ -20,12 +20,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// because "transferred" reads like a promise of zero copies.
 /// </para>
 /// <para>
-/// <b>Only the engine's own transferables.</b> A <c>MessagePort</c> in the list is refused rather
-/// than silently copied — porting a port into a worker needs the port's peer to live on the other
-/// thread, which is a different piece of work. Refusing is the honest answer; a copy would look like
-/// it worked and then deliver messages to nobody. (Same-document messaging <em>does</em> carry ports,
-/// and <see cref="MessagingBinding"/> classifies them itself before asking the realm about anything
-/// it did not recognise.)
+/// <b>Ports are the sender's to recognise, everything else the engine's.</b> A <c>MessagePort</c>
+/// is a thing the host owns -- the page's ports are <see cref="MessagingBinding"/>'s and a worker's
+/// are <see cref="WorkerMessaging"/>'s -- so the sender says which entries are its ports, and they
+/// come back apart from the engine's transferables: they do not go into the clone, they travel beside
+/// it as the ends they are reached through on the other thread. It refused them, so a worker that
+/// handed the page a port of its own got a <c>DataCloneError</c>; reCAPTCHA's does.
 /// </para>
 /// <para>
 /// The validation order matches <c>MessagingBinding.ExtractTransferList</c>, which is the same job
@@ -83,9 +83,10 @@ internal static class WorkerTransfer
         "The object could not be cloned: this JavaScript engine does not implement structured clone.";
 
     /// <summary>
-    /// The transferable objects named by a <c>postMessage</c> transfer argument, ready to hand to
-    /// <see cref="IJsClone.Clone"/> or <see cref="IJsClone.Detach"/>. Empty when nothing is being
-    /// transferred; throws <c>DataCloneError</c> for an invalid list.
+    /// The transferable objects named by a <c>postMessage</c> transfer argument: the engine's, ready
+    /// to hand to <see cref="IJsClone.Clone"/> or <see cref="IJsClone.Detach"/>, and the sender's
+    /// ports. Both empty when nothing is being transferred; throws <c>DataCloneError</c> for an invalid
+    /// list.
     /// </summary>
     /// <param name="realm">The sender's realm — the one the error is raised in, and the one that
     /// classifies an entry.</param>
@@ -93,10 +94,11 @@ internal static class WorkerTransfer
     /// The second <c>postMessage</c> argument: the transfer array itself, or an options object
     /// carrying a <c>transfer</c> property (the modern spelling <c>structuredClone</c> uses).
     /// </param>
-    public static JsValue[] BuildTransferList(IJsRealm realm, JsValue transferValue)
+    /// <param name="isPort">Whether an entry is one of the sender's ports, which may be transferred.</param>
+    public static (JsValue[] Buffers, List<JsValue> Ports) BuildTransferList(IJsRealm realm, JsValue transferValue, Func<JsValue, bool> isPort)
     {
         if (transferValue.IsNullish)
-            return [];
+            return ([], []);
 
         // postMessage(msg, [buf]) and postMessage(msg, { transfer: [buf] }) are both accepted; the
         // second is what structuredClone itself takes, and page code written against either spelling
@@ -113,10 +115,20 @@ internal static class WorkerTransfer
         }
 
         var buffers = new List<JsValue>();
+        var ports = new List<JsValue>();
         var seen = new HashSet<JsValue>();
 
         foreach (var item in ArrayElements(realm, list))
         {
+            if (item.IsObject && isPort(item))
+            {
+                if (!seen.Add(item))
+                    throw realm.DomError("DataCloneError", "The transfer list contains duplicate transferable values.");
+
+                ports.Add(item);
+                continue;
+            }
+
             switch (realm.ClassifyTransferable(item))
             {
                 case JsTransferKind.Detached:
@@ -134,7 +146,7 @@ internal static class WorkerTransfer
             }
         }
 
-        return [.. buffers];
+        return ([.. buffers], ports);
     }
 
     /// <summary>

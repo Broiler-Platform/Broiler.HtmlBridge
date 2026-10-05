@@ -174,6 +174,43 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         return JsValue.Boolean(!prevented);
     }
 
+    /// <summary>
+    /// Dispatches <paramref name="evt"/> at a window itself -- its <c>focus</c> and <c>blur</c> --
+    /// whose path is the window alone: its capture listeners, then the rest and its <c>on…</c>
+    /// handler. Answers whether it was not cancelled.
+    /// </summary>
+    internal JsValue DispatchEventOnWindow(JsValue window, JsValue evt)
+    {
+        var realm = _host.Realm;
+        var typeVal = realm.GetProperty(evt, "type");
+        var eventType = typeVal.IsString ? typeVal.AsString! : "unknown";
+
+        var stopped = false;
+        var immediateStopped = false;
+        var prevented = realm.GetProperty(evt, "defaultPrevented").AsBoolean;
+        var currentListenerPassive = false;
+        var legacyCancelBubble = false;
+
+        realm.SetProperty(evt, "target", window);
+        realm.SetProperty(evt, "srcElement", window);
+        realm.DefineMethod(evt, "stopPropagation", (in _) => EventStopPropagation(ref legacyCancelBubble, ref stopped));
+        realm.DefineMethod(evt, "stopImmediatePropagation",
+            (in _) => EventStopImmediatePropagation(ref immediateStopped, ref legacyCancelBubble, ref stopped));
+        realm.DefineMethod(evt, "preventDefault",
+            (in _) => EventPreventDefault(realm, currentListenerPassive, evt, ref prevented));
+        realm.DefineMethod(evt, "composedPath", (in _) => realm.NewArray([window]));
+
+        realm.SetProperty(evt, "eventPhase", JsValue.Number(2));
+        realm.SetProperty(evt, "currentTarget", window);
+        FireWindowListeners(window, eventType, evt, capturePhase: true, ref immediateStopped, ref currentListenerPassive, ref prevented);
+        if (!immediateStopped)
+            FireWindowListeners(window, eventType, evt, capturePhase: false, ref immediateStopped, ref currentListenerPassive, ref prevented);
+
+        realm.SetProperty(evt, "currentTarget", JsValue.Null);
+        realm.SetProperty(evt, "eventPhase", JsValue.Number(0));
+        return JsValue.Boolean(!prevented);
+    }
+
     /// <summary>The node at the top of <paramref name="node"/>'s tree: its document when it is in one.</summary>
     private static DomNode RootOf(DomNode node)
     {

@@ -54,6 +54,9 @@ internal sealed class BrowsingContextManager
     private readonly Dictionary<DomElement, JsValue> _subDocuments = [];
     private readonly Dictionary<DomElement, JsValue> _subWindows = [];
 
+    // A navigated frame's window, emptied, until its next document is built into it.
+    private readonly Dictionary<DomElement, JsValue> _retiredSubWindows = [];
+
     // Per-container location / base-URL caches.
     private readonly Dictionary<DomElement, string> _subDocumentLocations = [];
     private readonly Dictionary<DomElement, string> _subDocumentBaseUrls = [];
@@ -129,6 +132,17 @@ internal sealed class BrowsingContextManager
     public bool TryGetSubWindowContainer(JsValue subWindow, out DomElement container) =>
         _subWindowContainers.TryGetValue(subWindow, out container!);
 
+    /// <summary>
+    /// The window of a frame whose document <see cref="RemoveContainerCaches"/> dropped, until the
+    /// frame's next document takes it back (<see cref="TryTakeRetiredSubWindow"/>).
+    /// </summary>
+    public bool TryGetRetiredSubWindow(DomElement container, out JsValue subWindow) =>
+        _retiredSubWindows.TryGetValue(container, out subWindow);
+
+    /// <summary>Takes back the window a frame showed its previous document in, for its next one.</summary>
+    public bool TryTakeRetiredSubWindow(DomElement container, out JsValue subWindow) =>
+        _retiredSubWindows.Remove(container, out subWindow);
+
     // ── Location / base-URL caches ───────────────────────────────────────────
     public bool TryGetLocation(DomElement container, out string location) =>
         _subDocumentLocations.TryGetValue(container, out location!);
@@ -200,10 +214,15 @@ internal sealed class BrowsingContextManager
     /// <summary>Drops the per-container caches when a sub-document is invalidated. Called from
     /// <c>DomBridge.InvalidateCachedSubDocument</c>: removes the container→sub-window entry but
     /// deliberately NOT the reverse sub-window→container entry (that is bulk-cleared on session reset).</summary>
+    /// <remarks>
+    /// The window is not dropped but retired: a frame that navigates keeps its window, as a browsing
+    /// context keeps its WindowProxy, so <c>contentWindow</c> is the same object before and after.
+    /// </remarks>
     public void RemoveContainerCaches(DomElement container)
     {
         _subDocuments.Remove(container);
-        _subWindows.Remove(container);
+        if (_subWindows.Remove(container, out var window))
+            _retiredSubWindows[container] = window;
         _subDocumentLocations.Remove(container);
         _subDocumentBaseUrls.Remove(container);
     }
@@ -215,6 +234,7 @@ internal sealed class BrowsingContextManager
     public void ResetSession()
     {
         _subWindowContainers.Clear();
+        _retiredSubWindows.Clear();
         _names.Clear();
         CurrentWindowOverride = JsValue.Missing;
     }

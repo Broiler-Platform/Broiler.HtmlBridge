@@ -223,15 +223,36 @@ Two things are specific to it:
   `MetaRefreshFollowLimit` is two seconds, and it is a judgement rather than a rule — see below for
   what would replace it.
 
+## Frames, and `location = url`
+
+**Frames navigate in the bridge, not through the host.** A frame's Location has a host of its own
+(`DomBridge.FrameLocationHost`): a navigation loads the frame's next document in a later task, in
+place of its `src` or `srcdoc`, and fires the frame element's `load`; a fragment navigation fires
+`hashchange` at the frame's window. A frame that asks for the URL it shows more than three times in a
+row is left alone. The frame keeps its window: the old document's members, expandos and listeners are
+taken off it and the new document is built into it, so a `contentWindow` the page kept is still the
+frame's, as a browsing context keeps its WindowProxy.
+
+**A frame's `top` and `parent` are a view of the top window.** Every document shares one global
+object, and in a frame's script it answers for the frame, so handing it over as `top` made
+`top.location` the frame's own Location. A frame of the page's origin gets a view that forwards to the
+global but answers the page's `location`, `document`, `name` and `postMessage` (`TopWindowView`); a
+frame-busting `top.location = self.location` asks the host to navigate the tab, as in a browser. A
+frame of another origin gets the top window's cross-origin view, whose `location` it may only navigate,
+and only within five seconds of the user pressing something in it (`DomBridge.HasTransientActivation`),
+as Chromium allows; otherwise the request is logged and dropped. A message the page posts to a frame
+names that view as its `source`, so `e.source === parent` holds in the frame.
+
+**`location = url`.** The global's `location` is an accessor now, answering the Location of the
+document whose script is running and forwarding an assignment to its `href`, as a frame's window's
+and document's do (`[PutForwards=href]`). Assigning it replaced the Location with a string before,
+and nothing navigated.
+
 ## Still not wired
 
 **The non-interactive `ScriptEngine.Execute` path.** It returns serialized HTML with nowhere to put
 a pending navigation. A host on that path calls `IDomBridgeRuntime.TakePendingNavigation` directly,
 which is why the member is on the runtime interface rather than only on `InteractiveSession`.
-
-**Frames.** A frame's Location gets no host (`LocationBinding.Build`), so a framed page's navigation
-is logged and dropped. Navigating a frame replaces the frame, not the page — a different operation
-from the one the host performs, and not one this contract expresses.
 
 **A scheduled navigation.** Nothing here can navigate *later*, which is why a long meta refresh is
 declined rather than deferred. A browser honours any wait by scheduling it, and doing the same would

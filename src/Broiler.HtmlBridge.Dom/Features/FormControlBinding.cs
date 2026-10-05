@@ -280,6 +280,11 @@ internal sealed class FormControlBinding(IFormControlHost host)
         _host.InvalidateStyleScope(element);
     }
 
+    /// <remarks>
+    /// Without the attribute, 0 for an element a browser focuses anyway -- a link, a form control, a
+    /// frame -- and -1 for the rest (HTML §6.6.3). It was -1 for every element, so a script asking
+    /// <c>el.tabIndex &gt;= 0</c> whether it could focus a button was told it could not.
+    /// </remarks>
     private static int GetTabIndex(DomElement element)
     {
         if (DomBridgeUtils.TryGetAttribute(element, "tabindex", out var rawTabIndex) && int.TryParse(rawTabIndex, out var parsedTabIndex))
@@ -287,7 +292,7 @@ internal sealed class FormControlBinding(IFormControlHost host)
             return parsedTabIndex;
         }
 
-        return -1;
+        return DomBridge.IsFocusableByDefault(element) ? 0 : -1;
     }
 
     /// <summary>

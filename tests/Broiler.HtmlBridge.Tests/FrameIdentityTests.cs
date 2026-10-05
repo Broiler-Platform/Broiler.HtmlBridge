@@ -538,11 +538,16 @@ public class FrameIdentityTests
     /// The page navigates the frame from a timer and then settles what the old document was waiting
     /// for. The controls, without the navigation, report as the frame.
     /// </summary>
+    /// <remarks>
+    /// The frame is of another origin, so it hands the page its resolver as a global of the realm every
+    /// document shares, not through <c>parent</c>: a frame of another origin can set nothing on its
+    /// parent but its location, here as in a browser.
+    /// </remarks>
     [Theory]
-    [InlineData("page-resolved", "new Promise(function (r) { parent.resolveOld = r; }).then(function () { report('page-resolved'); });", true)]
-    [InlineData("page-resolved", "new Promise(function (r) { parent.resolveOld = r; }).then(function () { report('page-resolved'); });", false)]
-    [InlineData("await-cont", "(async function () { await new Promise(function (r) { parent.resolveOld = r; }); report('await-cont'); })();", true)]
-    [InlineData("await-cont", "(async function () { await new Promise(function (r) { parent.resolveOld = r; }); report('await-cont'); })();", false)]
+    [InlineData("page-resolved", "new Promise(function (r) { resolveOld = r; }).then(function () { report('page-resolved'); });", true)]
+    [InlineData("page-resolved", "new Promise(function (r) { resolveOld = r; }).then(function () { report('page-resolved'); });", false)]
+    [InlineData("await-cont", "(async function () { await new Promise(function (r) { resolveOld = r; }); report('await-cont'); })();", true)]
+    [InlineData("await-cont", "(async function () { await new Promise(function (r) { resolveOld = r; }); report('await-cont'); })();", false)]
     [InlineData("own-timer", "setTimeout(function () { report('own-timer'); }, 300);", true)]
     [InlineData("own-timer", "setTimeout(function () { report('own-timer'); }, 300);", false)]
     public void WorkANavigatedAwayFrameLeftQueuedDoesNotRunAsItsSuccessor(string kind, string frameWork, bool navigate)

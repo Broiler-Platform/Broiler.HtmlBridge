@@ -410,7 +410,10 @@ public sealed partial class DomBridge
     /// </remarks>
     private bool IsCurrentIframeCrossOrigin(DomElement element)
     {
-        if (!HasAttr(element, "srcdoc") &&
+        // A frame its location navigated is not where its attributes say: the fast path would judge
+        // the document it left.
+        if (!_frameNavigations.ContainsKey(element) &&
+            !HasAttr(element, "srcdoc") &&
             TryGetAttribute(element, "src", out var src) &&
             Internal.Scripting.UrlResolver.Resolve(src, GetInheritedSubDocumentBaseUrl(element)) is { } target &&
             (target.Scheme == Uri.UriSchemeHttp || target.Scheme == Uri.UriSchemeHttps) &&
