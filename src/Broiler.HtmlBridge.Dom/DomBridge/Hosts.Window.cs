@@ -413,6 +413,169 @@ public sealed partial class DomBridge : IWorkerHost
                 ? new WorkerScript(File.ReadAllText(path), Path.GetDirectoryName(Path.GetFullPath(path)))
                 : null;
     }
+
+    /// <summary>
+    /// What <c>new Worker(specifier)</c> names, for the document whose script is running.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A web page's worker scripts come from the network.</b> Only local files were read, so every
+    /// worker an <c>http(s)</c> page started failed with an <c>error</c> event -- reCAPTCHA's frame
+    /// starts one and waits for it. An <c>http(s)</c> URL is now fetched on the worker's own thread, as
+    /// a request of the document that created the worker; a <c>data:</c> URL and a <c>blob:</c> URL the
+    /// page made carry their script, and are decoded here.
+    /// </para>
+    /// <para>
+    /// <b>Only the creating document's own origin may be named,</b> as in a browser: another origin's
+    /// URL is a <c>SecurityError</c> from the constructor, and the fetch is same-origin, so a redirect to
+    /// another origin fails it. The document's Content-Security-Policy is asked too
+    /// (<c>worker-src</c>, then <c>child-src</c>, <c>script-src</c>, <c>default-src</c>), which nothing
+    /// asked for a worker before.
+    /// </para>
+    /// <para>
+    /// <b>A local page's workers are read as before</b>, by <see cref="IWorkerHost.ResolveWorkerScript"/>:
+    /// a file path, or a URL relative to the page's directory.
+    /// </para>
+    /// </remarks>
+    WorkerScriptSource IWorkerHost.ResolveWorkerSource(string specifier)
+    {
+        var client = CurrentScriptDocumentContext();
+        var baseUrl = CurrentScriptBaseUrl();
+        var url = Internal.Scripting.UrlResolver.Resolve(specifier, baseUrl);
+        if (url is null)
+            return new WorkerScriptSource.LocalFile();
+
+        if (url.Scheme == Uri.UriSchemeHttp || url.Scheme == Uri.UriSchemeHttps)
+        {
+            if (!Broiler.Net.Sites.Origin.FromUrl(url).IsSameOrigin(client.Origin))
+            {
+                return new WorkerScriptSource.Refused(
+                    $"Script at '{url.AbsoluteUri}' cannot be accessed from origin '{client.Origin}'.");
+            }
+
+            return AllowsWorker(url.AbsoluteUri, baseUrl)
+                ? new WorkerScriptSource.Network(url, client)
+                : new WorkerScriptSource.Refused(
+                    $"Creating a worker from '{url.AbsoluteUri}' violates the document's Content Security Policy.");
+        }
+
+        if (string.Equals(url.Scheme, "data", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!AllowsWorker(url.AbsoluteUri, baseUrl))
+                return new WorkerScriptSource.Refused("Creating a worker from a data: URL violates the document's Content Security Policy.");
+
+            // A data: worker has an opaque origin of its own, so what it imports is never its
+            // creator's same-origin request (HTML §10.2.4).
+            return Broiler.Net.Http.DataUrl.TryParse(url.OriginalString, out var data) && data is not null
+                ? new WorkerScriptSource.Decoded(url, data.DecodeUtf8(), client.CreateChild(url, Broiler.Net.Sites.Origin.CreateOpaque()))
+                : new WorkerScriptSource.Refused($"The data: URL '{specifier}' is not a script.");
+        }
+
+        if (string.Equals(url.Scheme, "blob", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!AllowsWorker(url.AbsoluteUri, baseUrl))
+                return new WorkerScriptSource.Refused("Creating a worker from a blob: URL violates the document's Content Security Policy.");
+
+            // A blob: URL is the page's own object URL; its origin is its creator's.
+            return _blobs.ContentOfUrl(url.OriginalString) is { } blob
+                ? new WorkerScriptSource.Decoded(url, System.Text.Encoding.UTF8.GetString(blob.Bytes), client)
+                : new WorkerScriptSource.Refused($"The object URL '{specifier}' names no blob.");
+        }
+
+        // A file, read by ResolveWorkerScript -- and only for a document that may read local files.
+        return AllowsWorker(url.AbsoluteUri, baseUrl)
+            ? new WorkerScriptSource.LocalFile()
+            : new WorkerScriptSource.Refused(
+                $"Creating a worker from '{url.AbsoluteUri}' violates the document's Content Security Policy.");
+
+        // The running document's policies: a frame's own, or the page's.
+        bool AllowsWorker(string workerUrl, string documentUrl) =>
+            CurrentScriptModuleClient() is { } frame
+                ? frame.Policies.AllowsWorker(workerUrl, frame.BaseUrl)
+                : Csp is null || Csp.AllowsWorker(workerUrl, documentUrl);
+    }
+
+    /// <summary>
+    /// Fetches a worker's script, on the worker's thread: its own script same-origin with the document
+    /// that created it, a script it imports from anywhere, either one only as JavaScript.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The request is the creating document's: its cookies go with the worker's own script, which is
+    /// same-origin by construction, and with an imported one of that origin (credentials
+    /// <c>same-origin</c>, HTML's default for both). Through the profile's transport a same-origin
+    /// request fails on a redirect to another origin before it is sent; through the fallback client,
+    /// which follows redirects itself, the final URL is checked instead.
+    /// </para>
+    /// <para>
+    /// A script served as anything but JavaScript is refused, as HTML refuses a worker script or an
+    /// imported one whose <c>Content-Type</c> is not a JavaScript MIME type.
+    /// </para>
+    /// </remarks>
+    WorkerScript? IWorkerHost.FetchWorkerScript(
+        Uri url, Broiler.Net.Http.DocumentRequestContext client, bool imported, CancellationToken cancellationToken, out string? failure)
+    {
+        failure = null;
+        if (string.Equals(url.Scheme, "data", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Broiler.Net.Http.DataUrl.TryParse(url.OriginalString, out var data) && data is not null)
+                return new WorkerScript(data.DecodeUtf8(), null, url);
+
+            failure = "it is not a well-formed data: URL";
+            return null;
+        }
+
+        if (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps)
+        {
+            failure = $"a worker cannot load {url.Scheme}: scripts";
+            return null;
+        }
+
+        var context = new Broiler.Net.Http.RequestContext
+        {
+            Destination = Broiler.Net.Http.RequestDestination.Script,
+            Client = client,
+            Mode = imported ? Broiler.Net.Http.RequestMode.NoCors : Broiler.Net.Http.RequestMode.SameOrigin,
+            Credentials = Broiler.Net.Http.CredentialsMode.SameOrigin,
+        };
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = _resources.SendAsync(request, context, cancellationToken).GetAwaiter().GetResult();
+            if (response.StatusCode is < 200 or > 299)
+            {
+                failure = $"the server answered {response.StatusCode}";
+                return null;
+            }
+
+            if (!imported && !Broiler.Net.Sites.Origin.FromUrl(response.FinalUrl).IsSameOrigin(client.Origin))
+            {
+                failure = $"it was redirected to another origin ({response.FinalUrl.AbsoluteUri})";
+                return null;
+            }
+
+            var contentType = response.Message.Content.Headers.ContentType?.MediaType;
+            if (!ScriptMimeType.IsClassicScript(contentType))
+            {
+                failure = $"its MIME type ('{contentType}') is not a JavaScript one";
+                return null;
+            }
+
+            var source = response.Message.Content.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult();
+            return new WorkerScript(source, null, response.FinalUrl);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            failure = "the worker was terminated";
+            return null;
+        }
+        catch (Exception ex)
+        {
+            failure = ex.Message;
+            return null;
+        }
+    }
 }
 
 /// <summary>

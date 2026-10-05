@@ -15,9 +15,9 @@ namespace Broiler.HtmlBridge.Tests;
 /// the page reported "reCAPTCHA Timeout".
 /// </para>
 /// <para>
-/// The worker here is one whose script cannot be fetched -- an <c>https:</c> page has no local files
-/// read for it, and that is the only kind of worker script this host reads -- so the <c>error</c>
-/// event it fires is the event listened for, and no worker thread is involved.
+/// The worker here is one whose script cannot be had -- a local file, which an <c>https:</c> page
+/// has none read for it -- so the <c>error</c> event it fires is the event listened for, no worker
+/// thread is involved, and nothing is asked of the network.
 /// </para>
 /// </remarks>
 public class WorkerEventListenerTests
@@ -42,7 +42,7 @@ public class WorkerEventListenerTests
                 var ran = [];
                 function removed() { ran.push('removed'); out.textContent = 'ran=' + ran.join(','); }
                 function kept() { ran.push('kept'); out.textContent = 'ran=' + ran.join(','); }
-                var worker = new Worker('https://example.test/worker.js');
+                var worker = new Worker('file:///broiler-test/worker.js');
                 worker.addEventListener('error', removed);
                 worker.addEventListener('error', kept);
                 worker.removeEventListener('error', removed);
@@ -64,7 +64,7 @@ public class WorkerEventListenerTests
                 var ran = [];
                 function listener() { ran.push('listener'); out.textContent = 'ran=' + ran.join(','); }
                 function other() { ran.push('other'); out.textContent = 'ran=' + ran.join(','); }
-                var worker = new Worker('https://example.test/worker.js');
+                var worker = new Worker('file:///broiler-test/worker.js');
                 worker.addEventListener('error', listener);
                 worker.addEventListener('error', other);
                 worker.removeEventListener('message', listener);

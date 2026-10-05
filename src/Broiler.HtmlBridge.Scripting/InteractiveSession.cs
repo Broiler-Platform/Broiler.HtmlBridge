@@ -56,7 +56,9 @@ public sealed class InteractiveSession : IDisposable
     /// Work scheduled past the horizon is later, not stuck, and the page is loaded without it.
     /// </remarks>
     public bool HasWorkDueInLoadWindow =>
-        !_disposed && _bridge.HasPendingTimersDueBy(DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        !_disposed &&
+        (_bridge.HasPendingTimersDueBy(DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs) ||
+         _bridge is Dom.Runtime.IWorkInFlight { HasWorkInFlight: true });
 
     /// <summary>
     /// Takes the cross-document navigation the page asked for, clearing it, or returns <c>null</c>
@@ -84,6 +86,12 @@ public sealed class InteractiveSession : IDisposable
     public string? Step()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+
+        // A worker is answering the page and nothing is due before the clock would move on: the step
+        // waits for the answer rather than run a later timer first, without blocking the caller --
+        // the work in flight counts as pending work (HasWorkDueInLoadWindow), so a host keeps asking.
+        if (_bridge is Dom.Runtime.IWorkInFlight { HasWorkInFlight: true, HasWorkDueNow: false })
+            return null;
 
         if (!_bridge.FlushTimerStep())
             return null;

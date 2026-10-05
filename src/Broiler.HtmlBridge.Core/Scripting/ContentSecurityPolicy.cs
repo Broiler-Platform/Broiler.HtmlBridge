@@ -34,6 +34,8 @@ public sealed class ContentSecurityPolicy
     private readonly HashSet<string> _styleSrcTokens = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _styleSrcElemTokens = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _styleSrcAttrTokens = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _workerSrcTokens = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _childSrcTokens = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// The honored directives by the name a header spells them with, for <see cref="Parse"/> to look a
@@ -56,6 +58,8 @@ public sealed class ContentSecurityPolicy
             ["style-src"] = _styleSrcTokens,
             ["style-src-elem"] = _styleSrcElemTokens,
             ["style-src-attr"] = _styleSrcAttrTokens,
+            ["worker-src"] = _workerSrcTokens,
+            ["child-src"] = _childSrcTokens,
         };
     }
 
@@ -218,6 +222,36 @@ public sealed class ContentSecurityPolicy
             return true;
 
         return !elementSources.Contains("'unsafe-inline'");
+    }
+
+    /// <summary>
+    /// Whether a worker's script may be fetched from <paramref name="workerUrl"/>: CSP3's
+    /// <c>worker-src</c>, falling back to <c>child-src</c>, <c>script-src</c> and <c>default-src</c>.
+    /// </summary>
+    /// <remarks>
+    /// A worker request carries no nonce and is not parser-inserted, so under
+    /// <c>'strict-dynamic'</c> in the script directive it falls back to, it is allowed (CSP3 §8.2):
+    /// a worker is started by script the policy already trusts.
+    /// </remarks>
+    public bool AllowsWorker(string workerUrl, string? pageUrl)
+    {
+        var sources =
+            _workerSrcTokens.Count > 0 ? _workerSrcTokens
+            : _childSrcTokens.Count > 0 ? _childSrcTokens
+            : _scriptSrcTokens.Count > 0 ? _scriptSrcTokens
+            : _defaultSrcTokens;
+        if (sources.Count == 0)
+            return true;
+
+        if (IsNoneOnly(sources))
+            return false;
+
+        var isScriptDirective = ReferenceEquals(sources, _scriptSrcTokens) || ReferenceEquals(sources, _defaultSrcTokens);
+        if (isScriptDirective && sources.Contains("'strict-dynamic'"))
+            return true;
+
+        var resolved = CspSourceMatching.ResolveUri(workerUrl, pageUrl);
+        return resolved != null && MatchesAnySource(sources, resolved, pageUrl);
     }
 
     /// <summary>

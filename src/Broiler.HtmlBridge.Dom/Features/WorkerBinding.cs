@@ -101,8 +101,20 @@ internal sealed class WorkerBinding : IDisposable
         if (string.IsNullOrWhiteSpace(specifier))
             throw realm.DomError("SyntaxError", "Worker requires a script URL.");
 
-        var script = _host.ResolveWorkerScript(specifier, baseDirectory: null);
-        if (script is null)
+        // Another origin's script, or one the document's policy refuses, is the constructor's
+        // SecurityError, as in a browser; a script that cannot be had is the Worker's `error` event.
+        var source = _host.ResolveWorkerSource(specifier);
+        if (source is WorkerScriptSource.Refused refused)
+            throw realm.DomError("SecurityError", $"Failed to construct 'Worker': {refused.Message}");
+
+        WorkerScript? script = source switch
+        {
+            WorkerScriptSource.Decoded decoded => new WorkerScript(decoded.Source, null, decoded.Url),
+            WorkerScriptSource.LocalFile => _host.ResolveWorkerScript(specifier, baseDirectory: null),
+            _ => null,
+        };
+
+        if (script is null && source is not WorkerScriptSource.Network)
         {
             // A worker whose script cannot be fetched fires `error` at the Worker object; it does
             // not throw from the constructor, and it must not take the page down.
@@ -128,13 +140,15 @@ internal sealed class WorkerBinding : IDisposable
         // there instead.
         //
         // Inherited rather than read from the worker script's own response, which is where a browser
-        // takes a network worker's policy from. A worker script here is read from a file, with no
-        // response and nothing to carry a policy, and an absent policy would allow everything, which
-        // is the bypass itself. A browser also inherits a policy rather than reading one for a worker
-        // whose script URL is data:, taking the policy of whatever created the worker; for a file:
-        // script it makes no such promise, so this is this host's choice rather than a copy of one. This
-        // is the eval decision only: no source list, worker-src or script-src, is consulted for a
-        // worker's scripts (see JSWorker).
+        // takes a network worker's policy from. A file worker's script has no response and nothing to
+        // carry a policy, and a network worker's is fetched on its own thread after its realm's
+        // options are decided here; an absent policy would allow everything, which is the bypass
+        // itself. A browser also inherits a policy rather than reading one for a worker whose script
+        // URL is data:, taking the policy of whatever created the worker; for a file: script it makes
+        // no such promise, so this is this host's choice rather than a copy of one. This is the eval
+        // decision only. Where a worker's own script may come from is the creating document's
+        // worker-src decision (IWorkerHost.ResolveWorkerSource); what it imports is not checked
+        // against a source list.
         var options = new JsRealmOptions
         {
             AllowGuestEval = (realm.Capabilities & JsCapabilities.GuestEval) != 0,
@@ -143,14 +157,19 @@ internal sealed class WorkerBinding : IDisposable
         JSWorker worker;
         try
         {
-            worker = new JSWorker(
-                specifier,
-                script.Value,
-                _host,
-                provider ?? throw new InvalidOperationException(
-                    $"No JavaScript engine provider is registered under '{realm.EngineName}', so a " +
-                    "worker realm cannot be created for the realm the page is running in."),
-                options);
+            var engine = provider ?? throw new InvalidOperationException(
+                $"No JavaScript engine provider is registered under '{realm.EngineName}', so a " +
+                "worker realm cannot be created for the realm the page is running in.");
+
+            // Named for its thread and its script labels by what the page wrote, except a data: URL,
+            // which is the whole script.
+            var name = source is WorkerScriptSource.Decoded { Url.Scheme: "data" } ? "data-worker" : specifier;
+            worker = source switch
+            {
+                WorkerScriptSource.Network network => new JSWorker(name, network, _host, engine, options),
+                WorkerScriptSource.Decoded decoded => new JSWorker(name, script!.Value, decoded.Client, _host, engine, options),
+                _ => new JSWorker(name, script!.Value, _host, engine, options),
+            };
         }
         catch (Exception ex)
         {
@@ -354,6 +373,46 @@ internal sealed class WorkerBinding : IDisposable
         {
             RenderLogger.LogError(LogCategory.JavaScript, "WorkerBinding.Invoke",
                 $"A worker '{eventType}' handler threw: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// How long the page lets one piece of a worker's work -- starting up, or a message -- hold its
+    /// clock before it stops waiting for it. See <see cref="JSWorker.IsInFlight"/>.
+    /// </summary>
+    internal static readonly TimeSpan InFlightAllowance = TimeSpan.FromSeconds(5);
+
+    /// <summary>Whether a worker this page started is still working on what the page handed it.</summary>
+    internal bool HasWorkInFlight
+    {
+        get
+        {
+            lock (_sync)
+                return _workers.Exists(static worker => worker.IsInFlight(InFlightAllowance));
+        }
+    }
+
+    /// <summary>
+    /// Waits, up to <paramref name="timeout"/>, for every worker that is working for the page to
+    /// finish, or to run out of its allowance. Answers whether none is in flight any more.
+    /// </summary>
+    internal bool AwaitWorkInFlight(TimeSpan timeout)
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        while (true)
+        {
+            JSWorker? busy;
+            lock (_sync)
+                busy = _workers.Find(static worker => worker.IsInFlight(InFlightAllowance));
+            if (busy is null)
+                return true;
+
+            var left = timeout - System.Diagnostics.Stopwatch.GetElapsedTime(started);
+            if (left <= TimeSpan.Zero)
+                return false;
+
+            // A slice at a time, so the allowance is looked at again as it runs out.
+            busy.WaitUntilIdle(left < TimeSpan.FromMilliseconds(50) ? left : TimeSpan.FromMilliseconds(50));
         }
     }
 

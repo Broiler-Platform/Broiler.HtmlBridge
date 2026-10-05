@@ -448,6 +448,16 @@ internal sealed class BlobBinding
         return JsValue.String(url);
     }
 
+    /// <summary>
+    /// The bytes and type of the blob an object URL this page made names, or <see langword="null"/>
+    /// for one it never made or has revoked -- what <c>new Worker(URL.createObjectURL(blob))</c>
+    /// runs. Called on the page's thread, which is the one that writes the table.
+    /// </summary>
+    internal (byte[] Bytes, string Type)? ContentOfUrl(string url) =>
+        _objectUrls.TryGetValue(url, out var blob) && TryDataFor(blob, out var data)
+            ? (data.Bytes, data.Type)
+            : null;
+
     private JsValue RevokeObjectUrl(in JsCall call)
     {
         if (call.Length > 0)

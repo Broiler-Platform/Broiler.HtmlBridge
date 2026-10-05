@@ -24,7 +24,7 @@ namespace Broiler.HtmlBridge;
 /// <c>DomBridge/Lifecycle.cs</c>, <c>Runtime/JsInterop.cs</c> and <c>BridgeModuleContext.cs</c>
 /// say what else still does.
 /// </remarks>
-public sealed partial class DomBridge : IDomBridgeRuntime
+public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFlight
 {
     // Sub-resource HTTP and the local base path live in ResourceLoader, the single host resource
     // loader. Feature callbacks ask the loader instead of reaching a static HttpClient. Built in the
@@ -602,5 +602,11 @@ public sealed partial class DomBridge : IDomBridgeRuntime
         ThrowIfDisposed();
         return _eventLoop.DrainStep(TaskCheckpointCallback);
     }
+
+    bool Dom.Runtime.IWorkInFlight.HasWorkInFlight => !_disposed && _workers.HasWorkInFlight;
+
+    bool Dom.Runtime.IWorkInFlight.HasWorkDueNow => !_disposed && _eventLoop.HasWorkDueNow;
+
+    bool Dom.Runtime.IWorkInFlight.AwaitWorkInFlight(TimeSpan timeout) => _disposed || _workers.AwaitWorkInFlight(timeout);
 
 }

@@ -70,7 +70,7 @@ where it offers something WebView2 dropped and a control of this shape should ke
 | `AddHostObjectToScript` | ✔ | ✖ **The largest single gap.** JSEAL has the shape for it — `IJsRealm` can define properties — but nothing projects a CLR object into the realm. |
 | `WebMessageReceived` / `PostWebMessageAsJson` | ✔ | ✖ No host↔page message channel. |
 | Modules, dynamic `import()` | ✔ | ✔ `ModuleRoot` / `ModuleMap`, and the VM provider declares its module capability explicitly. |
-| Workers | ✔ | ✔ Worker realms inherit the page realm's eval decision. |
+| Workers | ✔ | ✔ Worker realms inherit the page realm's eval decision. A web page's worker script is fetched from its own origin (another origin's is a `SecurityError`, and so is one the document's `worker-src` → `child-src` → `script-src` → `default-src` refuses), as JavaScript; `importScripts` loads by URL from anywhere; `data:` and `blob:` workers run. A worker's global has `location`, `performance`, `atob`/`btoa`, `crypto`, `TextEncoder`/`TextDecoder`, `URL` and a `MessageChannel` of its own; a `MessagePort` cannot yet be transferred between a worker and its page. A drain lets a busy worker answer before the page's virtual clock moves on, five seconds per piece of work at most. |
 | Which engine runs the page | fixed (V8) | ✔ **A choice.** JSEAL makes the engine a provider, and two exist. Nothing in WebView2 or MSHTML can do this. |
 
 ### Document

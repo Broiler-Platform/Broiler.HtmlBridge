@@ -71,6 +71,11 @@ public readonly struct ContentSecurityPolicySet
         (_first is null || _first.AllowsExternalScript(scriptUrl, pageUrl, nonce)) &&
         (_second is null || _second.AllowsExternalScript(scriptUrl, pageUrl, nonce));
 
+    /// <inheritdoc cref="ContentSecurityPolicy.AllowsWorker"/>
+    public bool AllowsWorker(string workerUrl, string? pageUrl) =>
+        (_first is null || _first.AllowsWorker(workerUrl, pageUrl)) &&
+        (_second is null || _second.AllowsWorker(workerUrl, pageUrl));
+
     /// <summary>
     /// Whether every policy in the set permits <c>eval</c>. An empty set permits it, as
     /// <see cref="ContentSecurityPolicy.AllowsEval"/> does when no policy was stated.

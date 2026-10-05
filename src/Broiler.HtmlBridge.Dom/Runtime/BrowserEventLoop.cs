@@ -212,6 +212,28 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     }
 
     /// <summary>
+    /// Whether the next <see cref="DrainStep"/> runs something at the current time on the virtual
+    /// clock -- an animation frame, a frame action, a timer already due -- rather than moving the clock
+    /// on to a later timer.
+    /// </summary>
+    public bool HasWorkDueNow
+    {
+        get
+        {
+            if (!_rafCallbacks.IsEmpty || !_frameActions.IsEmpty)
+                return true;
+
+            foreach (var kv in _timers.ToArray())
+            {
+                if (!_clearedTimerIds.ContainsKey(kv.Key) && kv.Value.Deadline <= _virtualNowMs)
+                    return true;
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Runs pending work to a fixed point: repeatedly runs one batch (up to a safety cap) until no
     /// batch does anything, then clears the processed-timer-id set. <paramref name="taskCheckpoint"/>
     /// runs after each task (a spec-like microtask checkpoint). Used before DOM capture/serialisation.
@@ -273,7 +295,11 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
         }
         if (!double.IsPositiveInfinity(earliest))
         {
-            if (earliest > _virtualNowMs) _virtualNowMs = earliest;
+            // A frame action was queued for now -- a posted message, a worker's reply -- so the clock
+            // waits for it: it runs this step, at the current time, and a later timer the next. Moving
+            // the clock first ran the timer before the message: a page that posts and gives up after a
+            // timeout gave up on an answer that was already there.
+            if (earliest > _virtualNowMs && _frameActions.IsEmpty) _virtualNowMs = earliest;
             foreach (var kv in timerSnapshot)
             {
                 if (kv.Value.Deadline <= _virtualNowMs && !_clearedTimerIds.ContainsKey(kv.Key)
