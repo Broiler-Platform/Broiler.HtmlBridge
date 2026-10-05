@@ -186,9 +186,9 @@ internal sealed class SubWindowBinding(
         _messaging.RegisterWindowMessaging(window);
 
         // The document is the frame's own to hand out: a script whose document is cross-origin to it
-        // gets a SecurityError, as reading `document` off a cross-origin WindowProxy does. The
-        // container's contentDocument and contentWindow already say no to such a script; this is the
-        // same answer for a window it came by another way -- a message's `source`, or a reference it
+        // gets a SecurityError, as reading `document` off a cross-origin WindowProxy does. Such a script
+        // is handed the frame's cross-origin window rather than this one by contentWindow, frames and a
+        // message's `source`; this is the same answer for this window reached another way -- a reference
         // kept from before the frame navigated. Loaded first, so what is judged is what it shows.
         realm.DefineAccessor(window, "document",
             (in call) =>
@@ -231,6 +231,20 @@ internal sealed class SubWindowBinding(
 
         realm.DefineValue(window, "globalThis", window);
 
+        // The frame's browsing-context name, which it was given by its container's `name` attribute
+        // when its window was first made and may change itself. It survives the frame navigating,
+        // as a browsing context's name does, so it is kept per container rather than on this object.
+        _browsingContexts.NameAtCreation(containerElement);
+        realm.DefineAccessor(window, "name",
+            (in _) => JsValue.String(_browsingContexts.NameOf(containerElement)),
+            (in call) => SetName(containerElement, in call));
+
+        // The frame's own frames, by index and by name, and how many there are.
+        var frames = NewFrameList(() => _host.GetContentDocument(containerElement));
+        DefineReplaceable(realm, window, "frames", (in _) => frames);
+        DefineReplaceable(realm, window, "length",
+            (in _) => JsValue.Number(ChildFrameContainers(_host.GetContentDocument(containerElement)).Count));
+
         foreach (var ctorName in MirroredGlobals)
         {
             if (_host.TryGetGlobal(ctorName, out var ctor))
@@ -271,6 +285,350 @@ internal sealed class SubWindowBinding(
         _host.PublishPendingSubDocumentGlobals(containerElement, window);
 
         return window;
+    }
+
+    // ── Frame names and frame lists ─────────────────────────────────────────
+
+    /// <summary>
+    /// Installs the top window's <c>frames</c>, <c>length</c> and <c>name</c> on
+    /// <paramref name="window"/>, the realm's global object.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>name</c> answers for the document whose script is running.</b> Every document here
+    /// shares the one global object, so a frame's script that reads a bare <c>name</c>, or
+    /// <c>this.name</c> at its top level -- Closure's <c>goog.global.name</c> -- reads it here, and
+    /// what it means is its own window's name. <c>window.name</c> and <c>self.name</c> already reach
+    /// the frame's window. The price is <c>top.name</c> and <c>parent.name</c> read from a frame,
+    /// which name the same global object and so answer the frame's name too.
+    /// </para>
+    /// <para>
+    /// <b><c>frames</c> and <c>length</c> do not.</b> A frame reaches its parent's frames as
+    /// <c>parent.frames</c>, which is this object, and it has to find the parent's frames there.
+    /// </para>
+    /// </remarks>
+    internal void InstallTopWindowMembers(JsValue window, Func<DomNode?> topDocument)
+    {
+        var realm = _host.Realm;
+        var frames = NewFrameList(topDocument);
+        DefineReplaceable(realm, window, "frames", (in _) => frames);
+        DefineReplaceable(realm, window, "length",
+            (in _) => JsValue.Number(ChildFrameContainers(topDocument()).Count));
+
+        realm.DefineAccessor(window, "name",
+            (in _) => JsValue.String(CurrentFrame() is { } frame
+                ? _browsingContexts.NameOf(frame)
+                : _browsingContexts.TopName),
+            (in call) =>
+            {
+                var name = NameArgument(in call);
+                if (CurrentFrame() is { } frame)
+                    _browsingContexts.SetName(frame, name);
+                else
+                    _browsingContexts.TopName = name;
+                return JsValue.Undefined;
+            });
+    }
+
+    /// <summary>
+    /// Builds the window of every same-origin frame of <paramref name="document"/>, which runs each
+    /// one's scripts: what <c>load</c> does before it fires, so no frame waits for a script to touch it.
+    /// </summary>
+    internal void BuildSameOriginFrameWindows(DomNode? document)
+    {
+        foreach (var container in ChildFrameContainers(document))
+        {
+            if (!_host.IsCurrentIframeCrossOrigin(container))
+                Build(container);
+        }
+    }
+
+    /// <summary>
+    /// The child frames of <paramref name="document"/> -- its <c>&lt;iframe&gt;</c>s and
+    /// <c>&lt;frame&gt;</c>s, in tree order. A frame's own frames are in its document, which is not
+    /// part of this one's tree, so the walk never crosses into them.
+    /// </summary>
+    internal static List<DomElement> ChildFrameContainers(DomNode? document)
+    {
+        var containers = new List<DomElement>();
+        if (document is null)
+            return containers;
+
+        foreach (var element in document.Descendants().OfType<DomElement>())
+        {
+            if (string.Equals(element.TagName, "iframe", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(element.TagName, "frame", StringComparison.OrdinalIgnoreCase))
+            {
+                containers.Add(element);
+            }
+        }
+
+        return containers;
+    }
+
+    private JsValue NewFrameList(Func<DomNode?> document) =>
+        _host.Realm.NewExotic(new WindowFrames(
+            () => ChildFrameContainers(document()),
+            WindowAsSeen,
+            _browsingContexts.NameOf));
+
+    /// <summary>The frame whose script is running, or <see langword="null"/> for the top document's.</summary>
+    private DomElement? CurrentFrame() =>
+        _host.CurrentSubWindow is { } window && _browsingContexts.TryGetSubWindowContainer(window, out var container)
+            ? container
+            : null;
+
+    private JsValue SetName(DomElement container, in JsCall call)
+    {
+        _browsingContexts.SetName(container, NameArgument(in call));
+        return JsValue.Undefined;
+    }
+
+    // The realm's ToString, as an assignment of any value to `name` stores its string.
+    private static string NameArgument(in JsCall call) =>
+        call.Realm.ToJsString(call.Length > 0 ? call[0] : JsValue.Undefined);
+
+    /// <summary>
+    /// Defines a <c>[Replaceable]</c> attribute: a getter, and a setter that replaces the accessor
+    /// with a data property holding what was assigned. That is how <c>frames</c> and <c>length</c>
+    /// are defined on a window, and it matters for the top window, which is the global object: a
+    /// script's <c>var length = 3</c> assigns it, and must read back 3, not the number of frames.
+    /// </summary>
+    private static void DefineReplaceable(IJsRealm realm, JsValue target, string name, JsNativeFunction getter) =>
+        realm.DefineAccessor(target, name, getter, (in call) =>
+        {
+            call.Realm.DefineValue(target, name, call.Length > 0 ? call[0] : JsValue.Undefined);
+            return JsValue.Undefined;
+        });
+
+    // ── Windows as a script sees them ───────────────────────────────────────
+
+    /// <summary>
+    /// The window of the frame <paramref name="container"/> holds, as the script now running may
+    /// have it: the window itself when its document is same-origin with the script's, and otherwise
+    /// the frame's cross-origin view (<see cref="CrossOriginViewOf(DomElement)"/>).
+    /// </summary>
+    /// <remarks>
+    /// What <c>contentWindow</c>, <c>frames[i]</c>, <c>frames[name]</c> and a cross-origin view's own
+    /// <c>parent</c> and children answer. A cross-origin frame used to be <c>null</c> through the
+    /// first and absent from the others, so a page could not start a conversation with a frame of
+    /// another origin: it could only answer one, through the <c>source</c> of a message the frame
+    /// sent first. reCAPTCHA's frames on any site but Google's own are such frames.
+    /// </remarks>
+    internal JsValue WindowAsSeen(DomElement container) =>
+        _host.IsCurrentIframeCrossOrigin(container) ? CrossOriginViewOf(container) : Build(container);
+
+    /// <summary>
+    /// The cross-origin view of the frame that <paramref name="window"/> is the window of, or
+    /// <paramref name="window"/> itself when it is not a frame's.
+    /// </summary>
+    internal JsValue CrossOriginViewOf(JsValue window) =>
+        window.IsObject && _browsingContexts.TryGetSubWindowContainer(window, out var container)
+            ? CrossOriginViewOf(container)
+            : window;
+
+    /// <summary>The frame a cross-origin view stands for, so a call made on the view reaches its window.</summary>
+    internal bool TryGetViewedFrame(JsValue view, out DomElement container) =>
+        _viewedFrames.TryGetValue(view, out container!);
+
+    /// <summary>Forgets every view: the session is resetting, and the frames they stand for are gone.</summary>
+    internal void ResetSession()
+    {
+        _crossOriginViews.Clear();
+        _viewedFrames.Clear();
+    }
+
+    // One view per frame, so `frame.contentWindow === frame.contentWindow`, and the view a message
+    // names as its `source` is the frame's `contentWindow`. Per container rather than per window, as a
+    // browser's WindowProxy is one object for a frame whichever document it shows.
+    private readonly Dictionary<DomElement, JsValue> _crossOriginViews = [];
+    private readonly Dictionary<JsValue, DomElement> _viewedFrames = [];
+
+    /// <summary>
+    /// The window of the frame <paramref name="container"/> holds, as a script of another origin may
+    /// have it: <c>window</c>, <c>self</c>, <c>frames</c>, <c>parent</c>, <c>top</c>, <c>opener</c>,
+    /// <c>length</c>, <c>closed</c>, <c>close()</c>, <c>focus()</c>, <c>blur()</c>,
+    /// <c>postMessage()</c>, its child frames by index and by name, and a <c>location</c> it may only
+    /// navigate. Anything else throws a <c>SecurityError</c> (HTML §7.2.3.3).
+    /// </summary>
+    /// <remarks>
+    /// The frame is loaded only when a member needs its window: a page that only compares the view,
+    /// or keeps it, costs the frame nothing.
+    /// </remarks>
+    internal JsValue CrossOriginViewOf(DomElement container)
+    {
+        if (_crossOriginViews.TryGetValue(container, out var cached))
+            return cached;
+
+        var realm = _host.Realm;
+        var view = JsValue.Missing;
+        var methods = new Dictionary<string, JsValue>(StringComparer.Ordinal);
+
+        JsValue Method(string name) =>
+            methods.TryGetValue(name, out var method)
+                ? method
+                : methods[name] = name == "postMessage"
+                    ? realm.NewMethod(name, (in call) => _messaging.PostMessageTo(Build(container), in call), 2)
+                    : realm.NewMethod(name, static (in _) => JsValue.Undefined, 0);
+
+        var lookup = realm.NewMethod("lookup", (in call) =>
+        {
+            var name = call.Realm.ToJsString(call[0]);
+            switch (name)
+            {
+                case "window":
+                case "self":
+                case "frames":
+                    return view;
+                case "parent":
+                    return ParentAsSeen(container);
+                case "top":
+                    return _host.MainWindow;
+                case "opener":
+                    return JsValue.Null;
+                case "closed":
+                    return JsValue.False;
+                case "length":
+                    return JsValue.Number(FramesIn(container).Count);
+                case "location":
+                    return LocationViewOf(container);
+                case "postMessage":
+                case "close":
+                case "focus":
+                case "blur":
+                    return Method(name);
+            }
+
+            if (ChildAsSeen(container, name) is { } child)
+                return child;
+
+            throw CrossOriginWindowView.Refusal(call.Realm);
+        }, 1);
+
+        var assign = realm.NewMethod("assign", (in call) =>
+        {
+            // `location` is [PutForwards=href]: assigning the window's location navigates it.
+            if (call.Realm.ToJsString(call[0]) == "location")
+                return Navigate(container, "href", call[1]);
+
+            throw CrossOriginWindowView.Refusal(call.Realm);
+        }, 2);
+
+        var keys = realm.NewMethod("keys", (in call) =>
+        {
+            var names = new List<JsValue>();
+            foreach (var name in (string[])["window", "self", "location", "close", "closed", "focus", "blur",
+                         "frames", "length", "top", "opener", "parent", "postMessage"])
+                names.Add(JsValue.String(name));
+            for (var i = 0; i < FramesIn(container).Count; i++)
+                names.Add(JsValue.String(i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            return call.Realm.NewArray(names.ToArray());
+        }, 0);
+
+        view = CrossOriginWindowView.Build(realm, lookup, assign, keys);
+        if (!view.IsObject)
+            return JsValue.Null;
+
+        _crossOriginViews[container] = view;
+        _viewedFrames[view] = container;
+        return view;
+    }
+
+    /// <summary>
+    /// A cross-origin window's <c>location</c>: it can be navigated, by assigning <c>href</c> or
+    /// calling <c>replace()</c>, and nothing about it can be read.
+    /// </summary>
+    /// <remarks>
+    /// Navigating goes through the frame's own <c>Location</c>, so it does what navigating the frame
+    /// does from inside it.
+    /// </remarks>
+    private JsValue LocationViewOf(DomElement container)
+    {
+        var realm = _host.Realm;
+        JsValue replace = JsValue.Missing;
+
+        var lookup = realm.NewMethod("lookup", (in call) =>
+        {
+            if (call.Realm.ToJsString(call[0]) == "replace")
+                return replace.IsObject
+                    ? replace
+                    : replace = call.Realm.NewMethod("replace", (in replaceCall) => Navigate(container, "replace", replaceCall[0]), 1);
+
+            throw CrossOriginWindowView.Refusal(call.Realm);
+        }, 1);
+
+        var assign = realm.NewMethod("assign", (in call) =>
+        {
+            if (call.Realm.ToJsString(call[0]) == "href")
+                return Navigate(container, "href", call[1]);
+
+            throw CrossOriginWindowView.Refusal(call.Realm);
+        }, 2);
+
+        var keys = realm.NewMethod("keys", (in call) =>
+            call.Realm.NewArray([JsValue.String("href"), JsValue.String("replace")]), 0);
+
+        return CrossOriginWindowView.Build(realm, lookup, assign, keys);
+    }
+
+    /// <summary>Navigates the frame through its own <c>Location</c>: <c>href</c> assigned, or <c>replace()</c> called.</summary>
+    private JsValue Navigate(DomElement container, string how, JsValue url)
+    {
+        var realm = _host.Realm;
+        var location = realm.GetProperty(Build(container), "location");
+        if (!location.IsObject)
+            return JsValue.Undefined;
+
+        if (how == "href")
+            realm.SetProperty(location, "href", url);
+        else if (realm.GetProperty(location, "replace") is { IsFunction: true } replace)
+            realm.Invoke(replace, location, [url]);
+
+        return JsValue.Undefined;
+    }
+
+    /// <summary>The frames in the document of the frame <paramref name="container"/> holds, loading it if it is not yet.</summary>
+    private List<DomElement> FramesIn(DomElement container)
+    {
+        Build(container);
+        return ChildFrameContainers(_host.GetContentDocument(container));
+    }
+
+    /// <summary>
+    /// The child frame of <paramref name="container"/>'s frame that <paramref name="name"/> names --
+    /// by index, or by browsing-context name -- as the running script may have it, or
+    /// <see langword="null"/>.
+    /// </summary>
+    private JsValue? ChildAsSeen(DomElement container, string name)
+    {
+        var children = FramesIn(container);
+        if (uint.TryParse(name, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var index) &&
+            index.ToString(System.Globalization.CultureInfo.InvariantCulture) == name)
+        {
+            return index < (uint)children.Count ? WindowAsSeen(children[(int)index]) : null;
+        }
+
+        if (name.Length == 0)
+            return null;
+
+        foreach (var child in children)
+        {
+            if (string.Equals(_browsingContexts.NameOf(child), name, StringComparison.Ordinal))
+                return WindowAsSeen(child);
+        }
+
+        return null;
+    }
+
+    /// <summary>The parent of the frame <paramref name="container"/> holds, as the running script may have it.</summary>
+    /// <remarks>
+    /// The top window is never stood in for: it is the realm's global object, which every document's
+    /// script already holds.
+    /// </remarks>
+    private JsValue ParentAsSeen(DomElement container)
+    {
+        var parentFrame = _host.GetFrameForContentDocument(DomBridgeUtils.GetOwningDocument(container));
+        return parentFrame is null ? _host.MainWindow : WindowAsSeen(parentFrame);
     }
 
     private string GetSubWindowLocationHref(DomElement containerElement)

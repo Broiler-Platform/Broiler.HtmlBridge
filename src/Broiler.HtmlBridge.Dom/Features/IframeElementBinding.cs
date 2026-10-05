@@ -5,8 +5,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The <c>&lt;iframe&gt;</c>-element browsing-context IDL accessors, co-located as an HtmlBridge feature
-/// module: <c>contentDocument</c> / <c>contentWindow</c> / <c>getSVGDocument()</c> (each the
-/// same-origin sub-document or sub-window, or <c>null</c> across origins), the <c>src</c> / <c>srcdoc</c>
+/// module: <c>contentDocument</c> / <c>getSVGDocument()</c> (the same-origin sub-document, or <c>null</c>
+/// across origins), <c>contentWindow</c> (the sub-window, or its cross-origin view), the <c>src</c> / <c>srcdoc</c>
 /// read/write pair (whose setters reload the frame), and the read-only <c>sandbox</c> reflection. The
 /// browsing-context machinery is reached through the <see cref="IIframeElementHost"/> contract; the plain
 /// content-attribute reads/writes use the bridge's neutral <c>internal static</c> <c>SetAttr</c>/
@@ -65,12 +65,11 @@ internal static class IframeElementBinding
         return host.GetOrCreateSubDocument(element);
     }
 
-    private static JsValue GetContentWindow(IIframeElementHost host, DomElement element)
-    {
-        if (host.IsCurrentIframeCrossOrigin(element))
-            return JsValue.Null;
-        return host.GetOrCreateSubWindow(element);
-    }
+    // contentWindow -- the frame's window, or across origins its cross-origin view: a window that can
+    // be posted to and navigated, and whose document cannot be read. It was null across origins, so a
+    // page could not start a conversation with a frame of another origin, only answer one.
+    private static JsValue GetContentWindow(IIframeElementHost host, DomElement element) =>
+        host.WindowAsSeen(element);
 
     // src / srcdoc setter — writes the content attribute and reloads the frame (invalidate cached
     // sub-document, clear the fired-onload latch, fire onload for the new resource).

@@ -78,10 +78,20 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
         _host.Realm.DefineMethod(window, "postMessage", 2, (in call) => WindowPostMessage(window, in call));
     }
 
+    // A cross-origin view stands for a frame's window, and a page that calls a window's postMessage on
+    // one -- `postMessage.call(frame.contentWindow, ...)` -- is posting to that frame.
     private JsValue WindowPostMessage(JsValue window, in JsCall call) =>
-        PostMessageTo(call.This.IsObject ? call.This : window, in call);
+        PostMessageTo(
+            !call.This.IsObject ? window
+            : _host.TryGetViewedWindow(call.This, out var viewed) ? viewed
+            : call.This,
+            in call);
 
-    private JsValue PostMessageTo(JsValue targetWindow, in JsCall call)
+    /// <summary>
+    /// <c>postMessage</c> to <paramref name="targetWindow"/>, from the window whose script is running:
+    /// a window's own <c>postMessage</c>, and a cross-origin view's.
+    /// </summary>
+    internal JsValue PostMessageTo(JsValue targetWindow, in JsCall call)
     {
         var sourceWindow = _host.ResolveCurrentWindow();
         var (targetOrigin, ports, transfer, transferredPorts) = GetPostMessageDispatchOptions(in call);
@@ -255,16 +265,20 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
 
     /// <summary>
     /// What a message's receiver is handed as its <c>source</c>: the sending window itself when the
-    /// receiver's document may read it, and otherwise a stand-in that can only be posted to.
+    /// receiver's document may read it, and otherwise the sending frame's cross-origin view.
     /// </summary>
     /// <remarks>
     /// <para>
     /// In a browser <c>MessageEvent.source</c> is a WindowProxy, and a cross-origin one answers only
     /// the cross-origin properties -- <c>postMessage</c>, <c>window</c>, <c>self</c>, <c>closed</c> and
-    /// a few more -- while reading its <c>document</c> throws. Handing out the frame's own window object
-    /// gave a page that merely received a message from a cross-origin frame that frame's document, and
-    /// everything its script had published on its window, past the gate on <c>contentWindow</c> and
-    /// <c>contentDocument</c>.
+    /// a few more -- while everything else, its <c>document</c> first, throws. Handing out the frame's
+    /// own window object gave a page that merely received a message from a cross-origin frame that
+    /// frame's document, and everything its script had published on its window.
+    /// </para>
+    /// <para>
+    /// The view is the frame's, so it is the frame's <c>contentWindow</c> too: a page can tell which
+    /// of its frames a message came from with <c>e.source === frame.contentWindow</c>, as it does
+    /// across origins in a browser. It was a stand-in of its own, equal to nothing the page held.
     /// </para>
     /// <para>
     /// Only a frame's window is stood in for. The top window is the realm's global object, which every
@@ -279,26 +293,8 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
             !_host.AreWindowsCrossOrigin(sourceWindow, receiver))
             return sourceWindow;
 
-        if (_crossOriginSources.TryGetValue(sourceWindow, out var standIn))
-            return standIn;
-
-        var realm = _host.Realm;
-        standIn = realm.NewObject();
-        var sending = sourceWindow;
-        realm.DefineMethod(standIn, "postMessage", 2, (in reply) => PostMessageTo(sending, in reply));
-        realm.DefineValue(standIn, "window", standIn, JsPropertyFlags.Enumerable);
-        realm.DefineValue(standIn, "self", standIn, JsPropertyFlags.Enumerable);
-        realm.DefineValue(standIn, "closed", JsValue.False, JsPropertyFlags.Enumerable);
-        realm.DefineAccessor(standIn, "document",
-            (in call) => throw call.Realm.DomError("SecurityError", "Blocked a frame from accessing a cross-origin frame."),
-            null,
-            JsPropertyFlags.Enumerable);
-        _crossOriginSources[sourceWindow] = standIn;
-        return standIn;
+        return _host.CrossOriginViewOf(sourceWindow);
     }
-
-    // One stand-in per cross-origin window, so `e.source === e.source` holds across messages.
-    private readonly Dictionary<JsValue, JsValue> _crossOriginSources = [];
 
     private string GetWindowOrigin(JsValue window)
     {

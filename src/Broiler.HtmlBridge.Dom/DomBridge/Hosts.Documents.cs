@@ -383,6 +383,10 @@ public sealed partial class DomBridge : ISubWindowHost
 
     bool ISubWindowHost.IsWindowCrossOriginToCurrentScript(JsValue window) => IsWindowCrossOriginToCurrentScript(window);
 
+    bool ISubWindowHost.IsCurrentIframeCrossOrigin(DomElement container) => IsCurrentIframeCrossOrigin(container);
+
+    JsValue? ISubWindowHost.CurrentSubWindow => _windowContext.ResolveCurrentSubWindow();
+
     DomDocument? ISubWindowHost.GetContentDocument(DomElement container) => GetContentDocument(container);
 
     DomElement? ISubWindowHost.GetFrameForContentDocument(DomNode? owningDocument) =>
@@ -490,6 +494,9 @@ public sealed partial class DomBridge : Dom.Features.IIframeElementHost
 
     JsValue Dom.Features.IIframeElementHost.GetOrCreateSubWindow(DomElement element)
         => _subWindows.GetOrCreate(element);
+
+    JsValue Dom.Features.IIframeElementHost.WindowAsSeen(DomElement element)
+        => _subWindows.WindowAsSeen(element);
 
     void Dom.Features.IIframeElementHost.InvalidateCachedSubDocument(DomElement element) => InvalidateCachedSubDocument(element);
     void Dom.Features.IIframeElementHost.ClearOnloadFired(DomElement element) => _browsingContexts.ClearOnloadFired(element);

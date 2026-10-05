@@ -98,6 +98,7 @@ public sealed partial class DomBridge : IDisposable
 
         _eventTargets.Clear();
         _browsingContexts.ResetSession();
+        _subWindows.ResetSession();
 
         _messaging.ClearPorts();
 
@@ -278,12 +279,10 @@ public sealed partial class DomBridge
         ThrowIfDisposed();
         if (_realm is not { } realm) return;
 
-        // Building the frames array is what mints each nested browsing context's window — and so
-        // what runs that frame's scripts — so it is done eagerly here, before load fires, rather
-        // than left until a page happens to read `frames`. The result is deliberately discarded:
-        // `frames` is a live accessor on the window, which IS the global object, so assigning the
-        // array here would replace that accessor with a snapshot frozen at load time.
-        BuildWindowFramesArray();
+        // Building a frame's window is what runs that frame's scripts, so every same-origin frame's
+        // is built eagerly here, before load fires, rather than left until a page happens to read
+        // `frames`.
+        _subWindows.BuildSameOriginFrameWindows(_document);
 
         // Parsing is over by the time this runs — every synchronous script has executed — so the
         // document is "interactive" before DOMContentLoaded is dispatched, and "complete" once the
@@ -580,41 +579,4 @@ public sealed partial class DomBridge
         }
     }
 
-    /// <summary>
-    /// A fresh <c>window.frames</c>: every same-origin nested browsing context's window, in
-    /// document order. Minted through the realm, so the accessor in
-    /// <c>DomBridge/Registration/Window.cs</c> returns what it is handed instead of converting it.
-    /// </summary>
-    /// <remarks>
-    /// The span is the list's own storage rather than a copy of it; the realm materialises an array
-    /// from it in one pass. Same shape as <c>BuildAnimationList</c> in
-    /// <c>DomBridge/Registration/Window.cs</c>.
-    /// </remarks>
-    private JsValue BuildWindowFramesArray()
-    {
-        var frames = new List<JsValue>();
-        CollectWindowFrames(DocumentElement, frames);
-        return Realm.NewArray(CollectionsMarshal.AsSpan(frames));
-    }
-
-    private void CollectWindowFrames(DomElement element, List<JsValue> frames)
-    {
-        // Reuse canonical Descendants() (public, document-order, level-snapshotted)
-        // instead of a hand-rolled depth-first ChildElements recursion. Sub-documents are severed
-        // — never in-tree children — so the walk never crosses a frame boundary, and a nested
-        // iframe's content (its own sub-document) is not a descendant here, matching the old walk.
-        foreach (var child in element.Descendants().OfType<DomElement>())
-        {
-            // `window.frames` is the child browsing contexts, which includes a frameset's
-            // <frame> cells and not just <iframe> (HTML §"nested browsing contexts").
-            var childTag = child.TagName?.ToLowerInvariant();
-            if (childTag is "iframe" or "frame")
-            {
-                // Judged by the document the frame holds, not only by its src: a same-origin src that
-                // redirected elsewhere is a cross-origin frame (IsCurrentIframeCrossOrigin).
-                if (!IsCurrentIframeCrossOrigin(child))
-                    frames.Add(_subWindows.GetOrCreate(child));
-            }
-        }
-    }
 }

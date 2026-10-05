@@ -288,6 +288,20 @@ public sealed partial class DomBridge : IMessagingHost
     bool IMessagingHost.AreWindowsCrossOrigin(JsValue first, JsValue second) =>
         AreCrossOriginForAccess(DocumentContextOfWindow(first), DocumentContextOfWindow(second));
 
+    JsValue IMessagingHost.CrossOriginViewOf(JsValue window) => _subWindows.CrossOriginViewOf(window);
+
+    bool IMessagingHost.TryGetViewedWindow(JsValue view, out JsValue window)
+    {
+        if (view.IsObject && _subWindows.TryGetViewedFrame(view, out var container))
+        {
+            window = _subWindows.GetOrCreate(container);
+            return true;
+        }
+
+        window = JsValue.Missing;
+        return false;
+    }
+
     /// <summary>The request context of the document <paramref name="window"/> shows: a frame's, or the top document's.</summary>
     private Broiler.Net.Http.DocumentRequestContext DocumentContextOfWindow(JsValue window) =>
         window.IsObject && _browsingContexts.TryGetSubWindowContainer(window, out var container)

@@ -389,8 +389,8 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Whether the frame <paramref name="element"/> holds is cross-origin to the script asking, which
-    /// withholds its <c>contentDocument</c>, its <c>contentWindow</c> and its place in
-    /// <c>window.frames</c>.
+    /// withholds its <c>contentDocument</c>, and makes its <c>contentWindow</c> and its place in
+    /// <c>window.frames</c> the frame's cross-origin window rather than its window.
     /// </summary>
     /// <remarks>
     /// <para>
