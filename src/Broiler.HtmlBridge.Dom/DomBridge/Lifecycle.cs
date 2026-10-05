@@ -404,6 +404,9 @@ public sealed partial class DomBridge
     /// </summary>
     private void FireDomContentLoadedEvent()
     {
+        // One dispatch, at the document: the event bubbles, and a document's event path ends at its
+        // window, so the window's listeners hear it there -- with the document as its target, as in a
+        // browser. A second dispatch at the window ran them twice once the path reached it.
         try
         {
             _eventDispatch.DispatchEventOnElement(_document, SimpleEvent("DOMContentLoaded", bubbles: true));
@@ -411,17 +414,7 @@ public sealed partial class DomBridge
         catch (Exception ex)
         {
             RenderLogger.LogError(LogCategory.JavaScript, "DomBridge.FireDomContentLoadedEvent",
-                $"Error firing document DOMContentLoaded listeners: {ex.Message}", ex);
-        }
-
-        try
-        {
-            DispatchWindowEvent("DOMContentLoaded", bubbles: true);
-        }
-        catch (Exception ex)
-        {
-            RenderLogger.LogError(LogCategory.JavaScript, "DomBridge.FireDomContentLoadedEvent",
-                $"Error firing window DOMContentLoaded listeners: {ex.Message}", ex);
+                $"Error firing DOMContentLoaded listeners: {ex.Message}", ex);
         }
     }
 
@@ -443,12 +436,12 @@ public sealed partial class DomBridge
         return evt;
     }
 
-    private bool DispatchWindowEvent(string eventType, bool bubbles = false)
+    private bool DispatchWindowEvent(string eventType, bool bubbles = false, bool nonCaptureListenersOnly = false)
     {
         if (_realm is null)
             return true;
 
-        return DispatchWindowEvent(SimpleEvent(eventType, bubbles));
+        return DispatchWindowEvent(SimpleEvent(eventType, bubbles), nonCaptureListenersOnly);
     }
 
     /// <summary>
@@ -469,7 +462,12 @@ public sealed partial class DomBridge
     /// <c>toString</c> gets that <c>toString</c> run, and the listener lookup keys on its result.
     /// </para>
     /// </remarks>
-    private bool DispatchWindowEvent(JsValue evt)
+    /// <param name="evt">The event.</param>
+    /// <param name="nonCaptureListenersOnly">
+    /// Whether to leave out the window's capture listeners: for an event a dispatch at the document
+    /// already carried to them (the window is the first stop of a document's event path).
+    /// </param>
+    private bool DispatchWindowEvent(JsValue evt, bool nonCaptureListenersOnly = false)
     {
         // Nothing on this path converts the event. The loop below hands the invoker the handle this
         // method was given, and the invoker calls each listener through the realm. A conversion used
@@ -513,7 +511,8 @@ public sealed partial class DomBridge
         {
             Dom.Features.EventListenerBinding.InvokeListeners(listeners,
                 listener => InvokeEventListener(realm, listener, evt, "DomBridge.window.dispatchEvent"),
-                ref immediateStopped, ref currentListenerPassive);
+                ref immediateStopped, ref currentListenerPassive,
+                nonCaptureListenersOnly ? false : null);
         }
 
         realm.SetProperty(evt, "currentTarget", JsValue.Null);

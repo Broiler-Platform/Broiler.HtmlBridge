@@ -262,13 +262,14 @@ public sealed partial class DomBridge
     /// listener before it starts its transition, so the test simply stopped there.
     /// <para>
     /// Delivered in addition to the element dispatch rather than instead of it, so element-level
-    /// and <c>onscroll</c> listeners keep seeing what they saw before.
+    /// and <c>onscroll</c> listeners keep seeing what they saw before. The element dispatch's path
+    /// already reaches the window's capture listeners, so only the others are run here.
     /// </para>
     /// </remarks>
     private void DispatchViewportScrollEventToWindow(DomElement element, string eventType)
     {
         if (ReferenceEquals(element, DocumentElement))
-            DispatchWindowEvent(eventType);
+            DispatchWindowEvent(eventType, nonCaptureListenersOnly: true);
     }
 
     private void DispatchElementEvent(DomElement element, string eventType)

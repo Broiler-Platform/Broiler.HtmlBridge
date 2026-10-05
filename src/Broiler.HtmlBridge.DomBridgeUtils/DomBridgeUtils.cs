@@ -311,7 +311,11 @@ public static partial class DomBridgeUtils
         {
             if (listener.IsFunction)
             {
-                realm.Invoke(listener, listener, [evt]);
+                // `this` is the object the listener is registered on (DOM §2.10, "inner invoke"): the
+                // event's current target. It was the listener itself, so a handler written as
+                // `function () { this.classList.toggle('open'); }` threw on every event.
+                var receiver = realm.GetProperty(evt, "currentTarget");
+                realm.Invoke(listener, receiver.IsObject ? receiver : listener, [evt]);
                 return;
             }
 

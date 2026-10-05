@@ -776,6 +776,39 @@ public sealed partial class DomBridge : IEventDispatchHost
         GetInlineEventHandlers(node).TryGetValue(eventType, out var handler) && handler.IsFunction
             ? handler
             : JsValue.Missing;
+
+    bool IEventDispatchHost.TryGetDocumentTargets(DomDocument document, out JsValue documentWrapper, out JsValue window)
+    {
+        if (ReferenceEquals(document, _document))
+        {
+            documentWrapper = DocumentHandle;
+            window = WindowHandle;
+            return true;
+        }
+
+        // A frame's document: its wrapper is the sub-document object its frame filed for it, and its
+        // window the one its scripts ran against, if one was built.
+        if (GetFrameForContentDocument(document) is { } container)
+        {
+            documentWrapper = _jsObjects.TryGet(document, out var wrapper) ? wrapper : JsValue.Missing;
+            window = _browsingContexts.TryGetSubWindow(container, out var subWindow) ? subWindow : JsValue.Missing;
+            return true;
+        }
+
+        documentWrapper = JsValue.Missing;
+        window = JsValue.Missing;
+        return false;
+    }
+
+    List<EventListenerRegistration>? IEventDispatchHost.WindowListeners(JsValue window, string eventType)
+    {
+        if (window == WindowHandle)
+            return _eventTargets.TryGetWindowListeners(eventType, out var top) ? top : null;
+
+        return _eventTargets.TryGetTargetListeners(window, out var byType) && byType.TryGetValue(eventType, out var frame)
+            ? frame
+            : null;
+    }
 }
 
 // Explicit IEventTargetHost implementation for the EventTargetBinding feature module: the bridge
