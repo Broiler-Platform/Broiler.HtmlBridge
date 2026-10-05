@@ -172,6 +172,8 @@ public sealed partial class DomBridge : IWindowContextHost
 
     JsValue IWindowContextHost.WindowObject => WindowHandle;
 
+    JsValue IWindowContextHost.TopWindowAsSeenBy(JsValue window) => _subWindows.TopWindowAsSeenBy(window);
+
     // Undefined rather than the Missing the root holds, as the member's name says: its one consumer,
     // WindowContextManager.GetWindowDocument, answers undefined on its other branch too.
     JsValue IWindowContextHost.MainDocumentOrUndefined =>
@@ -290,11 +292,20 @@ public sealed partial class DomBridge : IMessagingHost
 
     JsValue IMessagingHost.CrossOriginViewOf(JsValue window) => _subWindows.CrossOriginViewOf(window);
 
+    JsValue IMessagingHost.TopWindowAsSeenBy(JsValue window) => _subWindows.TopWindowAsSeenBy(window);
+
     bool IMessagingHost.TryGetViewedWindow(JsValue view, out JsValue window)
     {
         if (view.IsObject && _subWindows.TryGetViewedFrame(view, out var container))
         {
             window = _subWindows.GetOrCreate(container);
+            return true;
+        }
+
+        // A frame's view of the top window stands for the top window: `top.postMessage(...)`.
+        if (_subWindows.IsTopView(view))
+        {
+            window = WindowHandle;
             return true;
         }
 

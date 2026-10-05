@@ -95,6 +95,14 @@ public sealed partial class DomBridge
 
         if (input.Kind == PointerInputKind.Down)
         {
+            NotifyUserActivation(GetOwningDocument(hit.Target));
+            _keyboardModality = false;
+            if (input.Button == 0)
+            {
+                _activeTarget = hit.Target;
+                NoteUserActionStateChange(hoverOrActive: true);
+            }
+
             _pressTarget = hit.Target;
             _pressSuppressesMouseEvents = false;
             if (!FireInputEvent(hit, input, "pointerdown", detail: 0))
@@ -115,6 +123,12 @@ public sealed partial class DomBridge
                 FocusForPress(hit.Target);
 
             return new PointerInputResult(true, !allowed);
+        }
+
+        if (input.Button == 0 && _activeTarget is not null)
+        {
+            _activeTarget = null;
+            NoteUserActionStateChange(hoverOrActive: true);
         }
 
         FireInputEvent(hit, input, "pointerup", detail: 0);
@@ -300,6 +314,7 @@ public sealed partial class DomBridge
         if (ReferenceEquals(left, entered))
             return;
 
+        NoteUserActionStateChange(hoverOrActive: true);
         var common = left is not null && entered is not null ? CommonInclusiveAncestor(left, entered) : null;
         var leaving = left is null ? [] : AncestorsBelow(left, common);
         var entering = entered is null ? [] : AncestorsBelow(entered, common);

@@ -87,7 +87,7 @@ public sealed partial class DomBridge
                 ApplyZoomSerializationStyles(projectedRoot, 1.0);
             ApplySerializationTransforms(projectedRoot);
             ApplyViewTransitionRendering(projectedRoot);
-            ReflectRenderState(projectedRoot);
+            WithUserActionStates(() => ReflectRenderState(projectedRoot));
         }
         finally
         {
@@ -182,6 +182,29 @@ public sealed partial class DomBridge
     /// rendering mode its file had. Serialization emits the document element alone.</summary>
     private readonly Dictionary<DomDocument, string> _subDocumentDoctype = [];
 
+    // Set while a frame's live document is serialized for the renderer, so that it carries the user's
+    // state of its elements (GetSerializableAttributes).
+    private bool _stampUserActionInMarkup;
+
+    /// <summary>
+    /// The markup a frame renders, with what the user is doing to its elements stamped on them: a frame
+    /// nobody scripted, but whose element the pointer is over, then differs from its resource, and is
+    /// rendered from its live document.
+    /// </summary>
+    private string? RenderedFrameMarkup(DomDocument subDocumentRoot)
+    {
+        var previous = _stampUserActionInMarkup;
+        _stampUserActionInMarkup = true;
+        try
+        {
+            return RenderedSubDocumentMarkup(subDocumentRoot);
+        }
+        finally
+        {
+            _stampUserActionInMarkup = previous;
+        }
+    }
+
     /// <summary>Records how <paramref name="document"/> looked as parsed from
     /// <paramref name="html"/>, before any script ran against it.</summary>
     private void RecordSubDocumentSourceMarkup(DomDocument document, string html)
@@ -212,7 +235,7 @@ public sealed partial class DomBridge
             return;
 
         if (GetContentDocument(source) is not { } subDocumentRoot ||
-            RenderedSubDocumentMarkup(subDocumentRoot) is not { Length: > 0 } markup)
+            RenderedFrameMarkup(subDocumentRoot) is not { Length: > 0 } markup)
         {
             return;
         }

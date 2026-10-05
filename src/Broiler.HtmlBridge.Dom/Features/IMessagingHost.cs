@@ -88,6 +88,12 @@ internal interface IMessagingHost : IRealmHost
     JsValue CrossOriginViewOf(JsValue window);
 
     /// <summary>
+    /// The top window as the script of <paramref name="window"/> has it: the global object, or for a
+    /// frame the view of it that its script has as <c>top</c> and <c>parent</c>.
+    /// </summary>
+    JsValue TopWindowAsSeenBy(JsValue window);
+
+    /// <summary>
     /// The window a cross-origin view stands for, so that <c>postMessage</c> called on the view
     /// reaches the frame; <see langword="false"/> for anything that is not a view.
     /// </summary>

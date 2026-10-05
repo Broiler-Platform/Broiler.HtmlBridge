@@ -171,8 +171,10 @@ public sealed partial class DomBridge
         // the rest of that script would have registered.
         DefineWindowGlobal(window, "top", globalThis);
 
-        // document.defaultView — returns the window object
-        realm.DefineValue(document, "defaultView", window);
+        // document.defaultView — the window object, as the script that asks has it: a frame's script
+        // reaching the page's document through `parent.document` gets the view of the top window it
+        // has as `parent`, not the global object, which in its script answers for the frame.
+        realm.DefineAccessor(document, "defaultView", (in _) => _subWindows.TopWindowAsSeen(), null);
         realm.SetProperty(global, "console", console);
         realm.SetProperty(global, "fetch", fetchFn);
 
@@ -495,6 +497,10 @@ public sealed partial class DomBridge
         realm.DefineMethod(window, "dispatchEvent", 1, (in c) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c));
 
         _messaging.RegisterWindowMessaging(window);
+
+        // Kept, because a frame's script has its own swapped onto the global, and a frame that posts to
+        // `top` or `parent` posts through the top window's (SubWindowBinding.TopWindowAsSeen).
+        _topPostMessage = realm.GetProperty(window, "postMessage");
 
         // `frames` (the page's frames, live, by index and by name), `length` and `name`. `frames` was
         // once registered twice with different shapes, a live getter on the window and a snapshot on

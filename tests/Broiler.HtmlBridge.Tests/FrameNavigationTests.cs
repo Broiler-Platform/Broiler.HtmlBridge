@@ -157,22 +157,21 @@ public class FrameNavigationTests
     }
 
     /// <summary>
-    /// A frame whose script keeps asking for the URL it shows -- here a page's frame-busting
-    /// <c>top.location = self.location</c>, which, every document sharing one global object, is the
-    /// frame's own Location -- is reloaded three times and then left alone, rather than forever.
+    /// A frame whose script keeps asking for the URL it shows is reloaded three times and then left
+    /// alone, rather than forever.
     /// </summary>
     [Fact]
     public void AFrameThatKeepsReloadingItselfIsStopped()
     {
         using var server = new LoopbackCookieServer();
-        server.Map("/busting", new Reply(Body: Html(
+        server.Map("/again", new Reply(Body: Html(
             "parent.ran = (parent.ran || 0) + 1; pageOut.textContent = 'ran ' + parent.ran;" +
-            "if (top !== self) top.location = self.location.href;")));
+            "location.href = self.location.href;")));
 
         Assert.Equal(
             "ran 4",
-            Settle(server, FrameAt("/busting"), "document.getElementById('f').contentWindow;"));
-        Assert.Equal(4, server.RequestsFor("/busting").Length);
+            Settle(server, FrameAt("/again"), "document.getElementById('f').contentWindow;"));
+        Assert.Equal(4, server.RequestsFor("/again").Length);
     }
 
     /// <summary>

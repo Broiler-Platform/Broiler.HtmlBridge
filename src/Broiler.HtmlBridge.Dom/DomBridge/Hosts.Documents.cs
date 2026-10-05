@@ -386,6 +386,20 @@ public sealed partial class DomBridge : ISubWindowHost
     // and never hands it to script, which is what the null check it replaces did.
     JsValue ISubWindowHost.MainWindow => WindowHandle;
 
+    JsValue ISubWindowHost.MainDocument => DocumentHandle.IsMissing ? JsValue.Undefined : DocumentHandle;
+
+    JsValue ISubWindowHost.TopLocation => _topLocation;
+
+    JsValue ISubWindowHost.TopPostMessage => _topPostMessage;
+
+    bool ISubWindowHost.IsWindowCrossOriginToTop(JsValue window) =>
+        AreCrossOriginForAccess(DocumentContextOfWindow(window), TopDocumentContext);
+
+    bool ISubWindowHost.MayNavigateTop() =>
+        CurrentScriptFrame() is not { } frame ||
+        !AreCrossOriginForAccess(FrameDocumentContext(frame), TopDocumentContext) ||
+        GetContentDocument(frame) is { } document && HasTransientActivation(document);
+
     bool ISubWindowHost.IsWindowCrossOriginToCurrentScript(JsValue window) => IsWindowCrossOriginToCurrentScript(window);
 
     bool ISubWindowHost.IsCurrentIframeCrossOrigin(DomElement container) => IsCurrentIframeCrossOrigin(container);

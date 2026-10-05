@@ -26,12 +26,16 @@ namespace Broiler.HtmlBridge;
 /// supersedes it.
 /// </para>
 /// <para>
-/// <b>A frame that keeps reloading itself is stopped.</b> Every document here shares one global
-/// object, so in a frame's script <c>top.location</c> is the frame's own Location: a page's
-/// frame-busting <c>top.location = self.location</c>, which in a browser moves the whole tab, would
-/// reload the frame, whose script would ask again, forever. A frame's own script may ask for the URL
-/// it already shows <see cref="MaxFrameSelfReloads"/> times in a row; the next request is logged and
-/// dropped.
+/// <b>A frame that keeps reloading itself is stopped.</b> A frame's own script may ask for the URL it
+/// already shows <see cref="MaxFrameSelfReloads"/> times in a row; the next request is logged and
+/// dropped, rather than the frame loading forever. A frame-busting <c>top.location = self.location</c>
+/// is not such a request: <c>top</c> is a view of the top window (<c>SubWindowBinding.TopWindowAsSeen</c>),
+/// and assigning its location asks the host to navigate the page.
+/// </para>
+/// <para>
+/// <b>The frame keeps its window.</b> The old document's window is emptied and the new document is
+/// built into it (<c>BrowsingContextManager.RemoveContainerCaches</c>), so a <c>contentWindow</c> the
+/// page kept is the frame's window still.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -48,6 +52,9 @@ public sealed partial class DomBridge
 
     /// <summary>The page's own Location, which the global's <c>location</c> answers outside a frame's script.</summary>
     private JsValue _topLocation;
+
+    /// <summary>The page's own <c>postMessage</c>, which the global answers outside a frame's script.</summary>
+    private JsValue _topPostMessage;
 
     /// <summary>
     /// The Location of the window whose script is running: a frame's, inside its script, and the

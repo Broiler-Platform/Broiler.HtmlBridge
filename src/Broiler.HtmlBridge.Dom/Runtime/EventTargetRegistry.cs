@@ -77,6 +77,16 @@ internal sealed class EventTargetRegistry
     public bool TryGetTargetListeners(JsValue target, out Dictionary<string, List<EventListenerRegistration>> byType) =>
         _targetListeners.TryGetValue(target, out byType!);
 
+    /// <summary>
+    /// Drops every listener <paramref name="target"/> has: a frame's window whose document is gone, and
+    /// whose listeners were that document's. A dispatch already under way skips them.
+    /// </summary>
+    public void ForgetTargetListeners(JsValue target)
+    {
+        if (_targetListeners.Remove(target, out var byType))
+            RemoveListeners(byType);
+    }
+
     // ------------------------------------------------------------------
     //  Generic-target owner windows (routes dispatch to the owning window)
     // ------------------------------------------------------------------

@@ -47,4 +47,10 @@ internal interface IWindowContextHost : Features.ISubDocumentFactoryHost
     /// offers nothing -- in which case its promise jobs are not attributed to a frame.
     /// </summary>
     IEngineJobs? EngineJobs { get; }
+
+    /// <summary>
+    /// The top window as the script of <paramref name="window"/> has it: the global object itself,
+    /// unless <paramref name="window"/> is a frame's, whose script is handed a view of it.
+    /// </summary>
+    JsValue TopWindowAsSeenBy(JsValue window);
 }

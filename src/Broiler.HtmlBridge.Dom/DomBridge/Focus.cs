@@ -43,6 +43,9 @@ public sealed partial class DomBridge
     // Bumped on every change, so that a focus change a listener makes during another stops the outer one.
     private int _focusGeneration;
 
+    /// <summary>A number that changes whenever focus moves: a host following focus with an editor of its own compares it.</summary>
+    internal long FocusVersion => _focusGeneration;
+
     /// <summary>The document that has focus: the page's, unless the user or a script moved it into a frame that is still there.</summary>
     private DomDocument FocusedDocument =>
         _focusedDocument is { } focused &&
@@ -97,12 +100,12 @@ public sealed partial class DomBridge
         // A frame element's focus is its document's.
         if (IsFrameContainerElement(element) && element.IsConnected && GetContentDocument(element) is { } content)
         {
-            MoveFocus(content, null, byUser: false);
+            MoveFocus(content, null, FocusOrigin.Script);
             return;
         }
 
         if (IsFocusable(element))
-            MoveFocus(GetOwningDocument(element), element, byUser: false);
+            MoveFocus(GetOwningDocument(element), element, FocusOrigin.Script);
     }
 
     /// <summary><c>element.blur()</c>: takes focus from <paramref name="element"/> when it has it, leaving the body active.</summary>
@@ -110,7 +113,7 @@ public sealed partial class DomBridge
     {
         var document = FocusedDocument;
         if (ReferenceEquals(FocusedElementIn(document), element))
-            MoveFocus(document, null, byUser: false);
+            MoveFocus(document, null, FocusOrigin.Script);
     }
 
     /// <summary>
@@ -130,19 +133,33 @@ public sealed partial class DomBridge
             }
         }
 
-        MoveFocus(GetOwningDocument(target), focusable, byUser: true);
+        MoveFocus(GetOwningDocument(target), focusable, FocusOrigin.Pointer);
+    }
+
+    /// <summary>What moved focus: a script, a press of a pointer, or a key -- Tab.</summary>
+    private enum FocusOrigin
+    {
+        Script,
+        Pointer,
+        Keyboard,
     }
 
     /// <summary>
     /// Moves focus to <paramref name="element"/> of <paramref name="document"/> -- or to the document
     /// itself, with no element focused -- firing the events of each step.
     /// </summary>
-    /// <param name="byUser">
-    /// Whether the user moved it: then each event ends a task, and the microtask checkpoint follows
-    /// it. A script's <c>focus()</c> runs its events inside the script's own task.
+    /// <param name="origin">
+    /// What moved it. When the user did, each event ends a task, and the microtask checkpoint follows
+    /// it; a script's <c>focus()</c> runs its events inside the script's own task. And it decides
+    /// whether the element shows its focus (<see cref="ShowsFocus"/>).
     /// </param>
-    private void MoveFocus(DomDocument document, DomElement? element, bool byUser)
+    /// <remarks>
+    /// A text field the user edited fires <c>change</c> as it loses focus, before <c>blur</c>, with
+    /// <c>activeElement</c> already the body (measured).
+    /// </remarks>
+    private void MoveFocus(DomDocument document, DomElement? element, FocusOrigin origin)
     {
+        var byUser = origin != FocusOrigin.Script;
         var oldDocument = FocusedDocument;
         var oldElement = FocusedElementIn(oldDocument);
         var sameDocument = ReferenceEquals(oldDocument, document);
@@ -153,6 +170,12 @@ public sealed partial class DomBridge
         if (oldElement is not null)
         {
             _focusedElement = null;
+            _focusVisible = false;
+            NoteUserActionStateChange();
+            FireChangeIfEdited(oldElement);
+            if (generation != _focusGeneration)
+                return;
+
             FireFocusEvent(oldElement, "blur", sameDocument ? element : null, byUser);
             FireFocusEvent(oldElement, "focusout", sameDocument ? element : null, byUser);
             if (generation != _focusGeneration)
@@ -172,9 +195,27 @@ public sealed partial class DomBridge
             return;
 
         _focusedElement = element;
+        _focusVisible = ShowsFocus(element, origin);
+        _changeField = IsEditableTextField(element) ? element : null;
+        _changeBaseline = _changeField is null ? null : _formState.GetEffectiveValue(element);
+        _fieldEditedByUser = false;
+        NoteUserActionStateChange();
         FireFocusEvent(element, "focus", sameDocument ? oldElement : null, byUser);
         FireFocusEvent(element, "focusin", sameDocument ? oldElement : null, byUser);
     }
+
+    /// <summary>
+    /// Whether <paramref name="element"/>, focused by <paramref name="origin"/>, shows its focus
+    /// (<c>:focus-visible</c>), by Chromium's rule as measured: always when the keyboard moved it there,
+    /// and for a text field however it got there; never for anything else a pointer focused; and when a
+    /// script focused it, as long as the user's last input was the keyboard, or there was none.
+    /// </summary>
+    private bool ShowsFocus(DomElement element, FocusOrigin origin) => origin switch
+    {
+        FocusOrigin.Keyboard => true,
+        FocusOrigin.Pointer => IsTextEntry(element),
+        _ => _keyboardModality || IsTextEntry(element),
+    };
 
     /// <summary>The focused element of <paramref name="document"/>, when it is the focused document and the element is still in it.</summary>
     private DomElement? FocusedElementIn(DomDocument document) =>
@@ -314,5 +355,15 @@ public sealed partial class DomBridge
         _pressTarget = null;
         _pressSuppressesMouseEvents = false;
         _lastPointerPosition = null;
+        _lastActivations.Clear();
+        _lastKeyDown = null;
+        _keyDownCancelled = false;
+        _spaceArmed = null;
+        _activeTarget = null;
+        _keyboardModality = true;
+        _focusVisible = false;
+        _changeField = null;
+        _changeBaseline = null;
+        _fieldEditedByUser = false;
     }
 }

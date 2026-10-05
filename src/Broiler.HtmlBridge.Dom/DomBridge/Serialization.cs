@@ -1,4 +1,5 @@
 using Broiler.CSS;
+using Broiler.CSS.Dom;
 using Broiler.Dom;
 using Broiler.Dom.Html;
 using static Broiler.HtmlBridge.DomBridgeUtils;
@@ -138,6 +139,7 @@ public sealed partial class DomBridge
             SyncStyleAttributeFromInlineStyle(element);
 
             ReflectFormControlValue(element);
+            StampUserActionState(element);
         }
 
         foreach (var child in ChildElements(element))
@@ -584,6 +586,9 @@ public sealed partial class DomBridge
             if (scriptSetSelected is not null && name.Equals("selected", StringComparison.OrdinalIgnoreCase))
                 continue;
 
+            if (_stampUserActionInMarkup && name.Equals(CssUserActionStateMarkup.AttributeName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
             yield return new(
                 name,
                 name.Equals("srcdoc", StringComparison.OrdinalIgnoreCase) && serializedSrcDoc is not null
@@ -593,6 +598,11 @@ public sealed partial class DomBridge
 
         if (scriptSetValue is not null)
             yield return new("value", scriptSetValue);
+
+        // A frame's live document, serialized for the renderer, carries what the user is doing to its
+        // elements as the page's projection does (StampUserActionState); a script's outerHTML does not.
+        if (_stampUserActionInMarkup && CssUserActionStateMarkup.Format(UserActionStateOf(element)) is { } userAction)
+            yield return new(CssUserActionStateMarkup.AttributeName, userAction);
 
         if (scriptSetSelected is true)
             yield return new("selected", string.Empty);
@@ -645,7 +655,9 @@ public sealed partial class DomBridge
         if (subDocumentRoot == null || subDocumentRoot.ChildNodes.Count == 0)
             return null;
 
-        return RenderedSubDocumentMarkup(subDocumentRoot);
+        // A projected frame -- the page serialized for the renderer -- carries its elements' user-action
+        // state, as a src frame's stamped document does; a script's own serialization does not.
+        return sourceElement is null ? RenderedSubDocumentMarkup(subDocumentRoot) : RenderedFrameMarkup(subDocumentRoot);
     }
 
 }

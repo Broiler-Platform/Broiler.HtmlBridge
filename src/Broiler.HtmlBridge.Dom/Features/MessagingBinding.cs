@@ -282,14 +282,17 @@ internal sealed partial class MessagingBinding(IMessagingHost host, EventTargetR
     /// across origins in a browser. It was a stand-in of its own, equal to nothing the page held.
     /// </para>
     /// <para>
-    /// Only a frame's window is stood in for. The top window is the realm's global object, which every
-    /// document here shares already; a frame checking <c>e.source === parent</c> keeps working.
+    /// The top window, posting to a frame, is the view of it the frame has as <c>top</c> and
+    /// <c>parent</c>, so a frame checking <c>e.source === parent</c> keeps working: the global object
+    /// itself is what every document here shares, and in a frame's script it answers for the frame.
     /// </para>
     /// </remarks>
     private JsValue SourceAsSeenBy(JsValue sourceWindow, JsValue receiver)
     {
+        if (sourceWindow.IsObject && sourceWindow == _host.WindowObject)
+            return _host.TopWindowAsSeenBy(receiver);
+
         if (!sourceWindow.IsObject ||
-            sourceWindow == _host.WindowObject ||
             _host.FrameWindowOrigin(sourceWindow) is null ||
             !_host.AreWindowsCrossOrigin(sourceWindow, receiver))
             return sourceWindow;

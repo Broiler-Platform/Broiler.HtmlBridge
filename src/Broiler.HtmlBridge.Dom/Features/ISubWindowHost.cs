@@ -24,6 +24,24 @@ internal interface ISubWindowHost : IRealmHost, ISubDocumentFactoryHost
     /// the sub-document is not itself nested), or a non-object when the bridge has no window.</summary>
     JsValue MainWindow { get; }
 
+    /// <summary>The top-level document object, which a view of the top window answers as its <c>document</c>.</summary>
+    JsValue MainDocument { get; }
+
+    /// <summary>The top-level window's own Location, which its global <c>location</c> answers only outside a frame's script.</summary>
+    JsValue TopLocation { get; }
+
+    /// <summary>The top-level window's own <c>postMessage</c>, which a frame's script has swapped off the global.</summary>
+    JsValue TopPostMessage { get; }
+
+    /// <summary>Whether the document <paramref name="window"/> shows has a different origin from the top-level document.</summary>
+    bool IsWindowCrossOriginToTop(JsValue window);
+
+    /// <summary>
+    /// Whether the script now running may navigate the top-level window: the page's own script, a
+    /// frame of the page's origin, and a frame of another origin that the user has just activated.
+    /// </summary>
+    bool MayNavigateTop();
+
     /// <summary>
     /// Whether the document <paramref name="window"/> shows has a different origin from the document
     /// whose script is running, judged from the documents' request contexts. The caller loads the

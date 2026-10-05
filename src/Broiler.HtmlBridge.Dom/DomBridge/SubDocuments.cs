@@ -48,6 +48,22 @@ public sealed partial class DomBridge
         }
 
         _browsingContexts.RemoveContainerCaches(containerElement);
+
+        // The frame keeps its window for its next document (SubWindowBinding.Build takes it back), but
+        // nothing the old document gave it -- the bridge's members, which answered for that document,
+        // what its scripts and the page set on it, and its listeners -- belongs to the new one.
+        if (_browsingContexts.TryGetRetiredSubWindow(containerElement, out var window))
+            EmptyWindow(window);
+    }
+
+    /// <summary>Takes every own property and every listener off a frame's window whose document is gone.</summary>
+    private void EmptyWindow(JsValue window)
+    {
+        var realm = Realm;
+        foreach (var name in realm.OwnPropertyNames(window))
+            realm.DeleteProperty(window, name);
+
+        _eventTargets.ForgetTargetListeners(window);
     }
 
     /// <summary>
@@ -72,6 +88,11 @@ public sealed partial class DomBridge
 
         // Ensure the sub-document is loaded (this triggers the fetch if needed)
         GetOrCreateSubDocument(element);
+
+        // A frame that navigated shows the new document in the window it kept, which a page may be
+        // holding: it answers for the new document now, not once something next asks for it.
+        if (_browsingContexts.TryGetRetiredSubWindow(element, out _))
+            _subWindows.GetOrCreate(element);
 
         _browsingContexts.MarkOnloadFired(element);
 
