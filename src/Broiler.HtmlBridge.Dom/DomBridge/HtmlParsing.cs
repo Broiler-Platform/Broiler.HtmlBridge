@@ -230,7 +230,7 @@ public sealed partial class DomBridge
                     _resources.Prefetch(
                         [.. result.Candidates
                             .Where(candidate => candidate.Kind == PreloadKind.StyleSheet && candidate.ResolvedUrl is not null)
-                            .Select(candidate => (candidate.ResolvedUrl!, SpeculativeStyleSheetRequest(document, candidate, quirksMode)))],
+                            .Select(candidate => (candidate.ResolvedUrl!, SpeculativeStyleSheetRequest(document, candidate, quirksMode, html)))],
                         minimumToOverlap: 1);
             });
     }
@@ -239,17 +239,19 @@ public sealed partial class DomBridge
     /// The request a speculatively found <c>&lt;link rel="stylesheet"&gt;</c> is prefetched with: what
     /// <see cref="LinkStyleSheetRequest"/> builds for the link — the mode and credentials of its
     /// <c>crossorigin</c> attribute, the same <c>style-src</c> check with the link's nonce for every
-    /// redirect, and the document's mode for the check on the response's type.
+    /// redirect, and the document's mode for the check on the response's type. The parser inserts the
+    /// link, so it holds up rendering when it is in the head of <paramref name="html"/>.
     /// </summary>
     private Dom.Runtime.StyleSheetRequest SpeculativeStyleSheetRequest(
-        DocumentRequestContext document, PreloadCandidate candidate, bool quirksMode)
+        DocumentRequestContext document, PreloadCandidate candidate, bool quirksMode, string html)
     {
         var nonce = candidate.Nonce;
         var context = RequestContext.Subresource(document, RequestDestination.Style, CorsSettings.Parse(candidate.CrossOrigin)) with
         {
             HopPolicy = (url, _) => IsStyleFetchAllowedByCsp(url.AbsoluteUri, nonce),
         };
-        return new Dom.Runtime.StyleSheetRequest(context, quirksMode);
+        return new Dom.Runtime.StyleSheetRequest(
+            context, quirksMode, new ResourceTimingRequest("link", document, ResourceTimingSink, ResourceTimingRequest.IsInHead(html, candidate.RawUrl)));
     }
 }
 

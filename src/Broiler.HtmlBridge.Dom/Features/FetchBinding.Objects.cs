@@ -385,12 +385,28 @@ internal sealed partial class FetchBinding
         {
             if (IsBodyUnavailable(realm, owner))
                 throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute body reader on '{ownerName}': body is already used.");
-            realm.SetProperty(owner, "bodyUsed", JsValue.True);
+            MarkBodyDisturbed(realm, owner);
             return CreateThenable(realm, read);
         }
 
         realm.DefineMethod(owner, member, 0, JsRegistrationBodyReader);
     }
+
+    // The body is being read: bodyUsed, and whatever waited for the read (ReleaseOnBodyRead).
+    private void MarkBodyDisturbed(IJsRealm realm, JsValue owner)
+    {
+        realm.SetProperty(owner, "bodyUsed", JsValue.True);
+        if (_bodyReadCallbacks.TryGetValue(IdentityOf(owner), out var onRead))
+        {
+            _bodyReadCallbacks.Remove(IdentityOf(owner));
+            onRead();
+        }
+    }
+
+    // Runs onRead when the body of the response a fetch() resolved with is first read, by a body
+    // reader or through its stream -- or a clone's is.
+    private void ReleaseOnBodyRead(JsValue response, Action onRead) =>
+        _bodyReadCallbacks.AddOrUpdate(IdentityOf(response), onRead);
 
     // A real ReadableStream over the body's bytes, the same interface a page's own
     // `new ReadableStream` and `blob.stream()` produce. What stood here before was a shape-only
@@ -401,7 +417,7 @@ internal sealed partial class FetchBinding
         // bodyUsed is the Body mixin's "disturbed" flag, and it is the stream being read that
         // sets it — reported from the underlying source, so the stream a page holds is an
         // ordinary one with no own properties of its own.
-        _host.StreamOverBytesObserved(body, () => realm.SetProperty(owner, "bodyUsed", JsValue.True));
+        _host.StreamOverBytesObserved(body, () => MarkBodyDisturbed(realm, owner));
 
     private JsValue CreateRequestObject(IJsRealm realm, JsValue inputValue, JsValue initValue = default)
     {
@@ -554,7 +570,10 @@ internal sealed partial class FetchBinding
         {
             if (IsBodyUnavailable(realm, responseObject))
                 throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'clone' on 'Response': body is already used.");
-            return CreateResponse(realm, body, statusCode, statusText, responseUrl, type, redirected, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase));
+            var clone = CreateResponse(realm, body, statusCode, statusText, responseUrl, type, redirected, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase));
+            if (_bodyReadCallbacks.TryGetValue(IdentityOf(responseObject), out var onRead))
+                ReleaseOnBodyRead(clone, onRead);
+            return clone;
         }
         realm.DefineMethod(responseObject, "clone", 0, JsRegistrationClone109);
 

@@ -70,8 +70,11 @@ where it offers something WebView2 dropped and a control of this shape should ke
 | `AddHostObjectToScript` | ✔ | ✖ **The largest single gap.** JSEAL has the shape for it — `IJsRealm` can define properties — but nothing projects a CLR object into the realm. |
 | `WebMessageReceived` / `PostWebMessageAsJson` | ✔ | ✖ No host↔page message channel. |
 | Modules, dynamic `import()` | ✔ | ✔ `ModuleRoot` / `ModuleMap`, and the VM provider declares its module capability explicitly. |
-| Workers | ✔ | ✔ Worker realms inherit the page realm's eval decision. A web page's worker script is fetched from its own origin (another origin's is a `SecurityError`, and so is one the document's `worker-src` → `child-src` → `script-src` → `default-src` refuses), as JavaScript; `importScripts` loads by URL from anywhere; `data:` and `blob:` workers run. A worker's global has `location`, `performance`, `atob`/`btoa`, `crypto` (with `subtle` for a secure page's worker), `TextEncoder`/`TextDecoder`, `URL`, `MessageChannel` and `MessagePort`. A port transferred between a worker and its page, either way, stays entangled with its peer across the two threads and takes its undelivered messages along; the object left behind is inert. A drain lets a busy worker answer before the page's virtual clock moves on, five seconds per piece of work at most. |
-| Web Crypto | ✔ | Partial — `crypto.getRandomValues` and `randomUUID`, and in a secure context (HTTPS, or HTTP to a loopback address or a localhost name, for the running script's document and every document containing it) `crypto.subtle` with `digest` (SHA-1, SHA-256, SHA-384, SHA-512) and AES-GCM's raw `importKey`, `encrypt` and `decrypt`, answering and refusing as Chromium does. Every other algorithm, format and method rejects with `NotSupportedError`. |
+| Timers, User Timing, `PerformanceObserver` | ✔ | ✔ `setTimeout` and `setInterval` hand their callback the arguments after the delay, with the window -- a frame's own, a worker's global -- that registered it as `this`. `performance.mark`, `measure`, `clearMarks` and `clearMeasures` record and clear `PerformanceMark` and `PerformanceMeasure` entries, the entry getters answer from the document's buffer in order of start, and a `PerformanceObserver` hears of the marks, measures, resource entries, long tasks and navigation entry it observes in a task, buffered or not; every conversion, ordering and error is Chromium's. Each document keeps its own timeline, a frame's navigation entry its own URL. |
+| Resource Timing | ✔ | ✔ A `PerformanceResourceTiming` entry for each script, style sheet and `@import`, frame document, worker script, `fetch()` (once its body is read), `XMLHttpRequest` and beacon a document fetches, and for the scripts its host fetched before running it (`ScriptEngine.DocumentResourceTimings`, measured from the navigation's start when the host hands that over as `ScriptEngine.DocumentFetchTiming`). What another origin may see is gated as Chromium gates it -- `Timing-Allow-Origin` for timings, sizes and protocol, CORS for status and type -- and `Server-Timing` is parsed. The buffer holds 250 entries unless resized, and fires `resourcetimingbufferfull` at `performance` when full. |
+| Long Tasks | ✔ | ✔ A `PerformanceLongTaskTiming` entry for each task -- a page script, a timer, an animation frame, a message, a user's input -- that ran for more than 50 ms, to its document (`self`) and its ancestors of the same origin (`same-origin-descendant`, with the frame element). A frame's share of a task, and the loading of its document, is the frame's task; a wait on the network is no task's. |
+| Workers | ✔ | ✔ Worker realms inherit the page realm's eval decision. A web page's worker script is fetched from its own origin (another origin's is a `SecurityError`, and so is one the document's `worker-src` → `child-src` → `script-src` → `default-src` refuses), as JavaScript; `importScripts` loads by URL from anywhere; `data:` and `blob:` workers run. A worker's global has `location`, `performance`, `atob`/`btoa`, `crypto` (with `subtle` for a secure page's worker), `isSecureContext`, `TextEncoder`/`TextDecoder`, `URL`, `MessageChannel` and `MessagePort`. A port transferred between a worker and its page, either way, stays entangled with its peer across the two threads and takes its undelivered messages along; the object left behind is inert. A drain lets a busy worker answer before the page's virtual clock moves on, thirty seconds per piece of work at most: compiling a large worker script takes this engine seconds that a browser does not spend. |
+| Web Crypto | ✔ | Partial — `crypto.getRandomValues` and `randomUUID`, and in a secure context (HTTPS, or HTTP to a loopback address or a localhost name, for the running script's document and every document containing it, none of them a `data:` document; `isSecureContext` reports it) `crypto.subtle` with `digest` (SHA-1, SHA-256, SHA-384, SHA-512) and AES-GCM's raw `importKey`, `encrypt` and `decrypt`, answering and refusing as Chromium does. Every other algorithm, format and method rejects with `NotSupportedError`. |
 | Which engine runs the page | fixed (V8) | ✔ **A choice.** JSEAL makes the engine a provider, and two exist. Nothing in WebView2 or MSHTML can do this. |
 
 ### Document
@@ -147,10 +150,30 @@ and where the fix would go.
 - **The rest of Web Crypto.** `crypto.subtle` does digests and AES-GCM with a raw key only. .NET's
   `AesGcm` takes a 96-bit IV and a tag of 96 bits or more, so another IV length or a 32- or 64-bit tag is
   an `OperationError` where Chromium computes it. `crypto.subtle` reads `undefined` outside a secure
-  context, where Chromium has no such property at all (`'subtle' in crypto` is `true` here), and there is
-  no `isSecureContext`.
+  context, where Chromium has no such property at all (`'subtle' in crypto` is `true` here).
 - **`getRandomValues` fills one byte per element.** A `Uint16Array` or `Uint32Array` gets values below
   256 (`CryptoBinding.GetRandomValues` sets each element to a random byte); Chromium fills every byte.
+- **`frames` is not the window.** In a browser `frames === window`. Here a window's `frames` is a list of
+  its frames that answers every other member from the window, so `frames.performance` and
+  `frames.x = 1` act on the window, but the two are not one object, and a frame's bare `frames` is the
+  page's list: every document shares the one global object, which cannot be given indexed lookup.
+- **What the performance timeline does not record.** Paint, event-timing and visibility entries are not
+  kept. Resource Timing has no entry for an image (images are fetched by the renderer, not here), a
+  `data:` URL or a fetch that failed; the connection's own phases are not observed, so an entry reports
+  them where a browser reports a reused connection's, at the fetch's start; and the transport
+  decompresses below what the bridge sees, so a compressed response reports its decoded size as its
+  encoded size and no `contentEncoding`. Without the navigation's start from the host the time origin is
+  taken when the document is attached, after the host's fetches, which are clamped to it. A frame's
+  `performance.now()` and `timeOrigin` are the page's, and a frame's navigation entry reports none of its
+  timings.
+- **No `Referer`.** No request carries one, so a frame's `document.referrer` is empty where Chromium
+  names the page that contains it -- its URL, or its origin for a frame of another origin and for
+  `srcdoc`.
+- **Long tasks are this engine's.** A task runs as long here as this engine takes, which for script is
+  far longer than a browser takes, so a page sees long tasks a browser would not have. Every document
+  shares one thread, and a task that touches two documents is shared out between them by the time spent
+  in each window's context; a document of another origin is told nothing of another's long tasks, as a
+  browser that isolates it in a process of its own tells it nothing.
 - **A flaky worker test.** `WorkerPortTests.AWorkersOwnChannelCopiesItsMessages` failed once, as
   `waiting`, in a full Release-VM run on a busy machine, and passed in two more full runs and five on
   its own: the worker's answer can miss the load window when the machine is loaded.

@@ -78,8 +78,10 @@ internal sealed partial class FetchBinding
                     message.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
             }
 
+            var client = _host.FetchClient;
             using var response = SendAuthorRequest(
-                message, RequestContext.Fetch(_host.FetchClient, mode, CredentialsMode.Include));
+                message, RequestContext.Fetch(client, mode, CredentialsMode.Include),
+                new ResourceTimingRequest("beacon", client, _host.ResourceTimings));
             attempt.Completed(null, response.StatusCode, response.Message.Content.Headers.ContentType?.MediaType, "POST");
         }
         catch (Exception ex)

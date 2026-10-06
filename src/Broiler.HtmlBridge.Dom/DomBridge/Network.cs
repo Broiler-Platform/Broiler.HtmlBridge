@@ -278,10 +278,12 @@ public sealed partial class DomBridge
     /// <summary>
     /// The script fetch context for <paramref name="document"/>, or <see langword="null"/> without a
     /// profile transport. It is bound to the current document lifetime, so the bridge's teardown
-    /// cancels what it started.
+    /// cancels what it started, and its fetches are recorded in the document's Resource Timing.
     /// </summary>
     internal ScriptFetchContext? ScriptFetchFor(DocumentRequestContext document) =>
-        _resources.Network is { } network ? new ScriptFetchContext(network, document, _resources.Lifetime) : null;
+        _resources.Network is { } network
+            ? new ScriptFetchContext(network, document, _resources.Lifetime) { ResourceTimings = ResourceTimingSink }
+            : null;
 
     /// <summary>
     /// Establishes the top document's context for an <c>Attach</c>, before anything is parsed or
@@ -430,10 +432,32 @@ public sealed partial class DomBridge
     private Dom.Runtime.StyleSheetRequest LinkStyleSheetRequest(DomElement link)
     {
         var nonce = TryGetAttribute(link, "nonce", out var value) ? value : null;
+        var document = DocumentContextFor(link);
         var context = RequestContext.Subresource(
-                DocumentContextFor(link), RequestDestination.Style, CorsSettings.Parse(GetAttr(link, "crossorigin")))
+                document, RequestDestination.Style, CorsSettings.Parse(GetAttr(link, "crossorigin")))
             with { HopPolicy = (url, _) => IsStyleFetchAllowedByCsp(url.AbsoluteUri, nonce) };
-        return new Dom.Runtime.StyleSheetRequest(context, IsQuirksModeFor(link));
+        return new Dom.Runtime.StyleSheetRequest(
+            context, IsQuirksModeFor(link), new ResourceTimingRequest("link", document, ResourceTimingSink, IsRenderBlockingLink(link)));
+    }
+
+    /// <summary>
+    /// Whether a linked style sheet holds up its document's rendering (Resource Timing's
+    /// <c>renderBlockingStatus</c>): one in the head of a document that is still being parsed. Every
+    /// element of a document is in place before its scripts run here, so a link a script inserts into
+    /// the head while the document is loading is taken for one the parser inserted.
+    /// </summary>
+    private bool IsRenderBlockingLink(DomElement link)
+    {
+        if (ReadyStateOf(GetOwningDocument(link)) != "loading")
+            return false;
+
+        for (var node = link.ParentNode; node is not null; node = node.ParentNode)
+        {
+            if (node is DomElement { TagName: { } tag } && tag.Equals("head", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -446,13 +470,21 @@ public sealed partial class DomBridge
     /// document with no browsing context of its own imports as the top document.
     /// </param>
     /// <param name="exemptFromCsp">Whether the policy exempted this import.</param>
-    private Dom.Runtime.StyleSheetRequest ImportStyleSheetRequest(DomNode importer, bool exemptFromCsp) =>
-        new(
-            RequestContext.Subresource(DocumentContextFor(importer), RequestDestination.Style) with
+    /// <remarks>
+    /// An import holds up its document's rendering, as the sheet that imports it does, while the
+    /// document is still being parsed.
+    /// </remarks>
+    private Dom.Runtime.StyleSheetRequest ImportStyleSheetRequest(DomNode importer, bool exemptFromCsp)
+    {
+        var document = DocumentContextFor(importer);
+        return new(
+            RequestContext.Subresource(document, RequestDestination.Style) with
             {
                 HopPolicy = exemptFromCsp ? null : (url, _) => IsStyleFetchAllowedByCsp(url.AbsoluteUri, nonce: null),
             },
-            IsQuirksModeFor(importer));
+            IsQuirksModeFor(importer),
+            new ResourceTimingRequest("css", document, ResourceTimingSink, ReadyStateOf(GetOwningDocument(importer)) == "loading"));
+    }
 
     /// <summary>
     /// Whether the document that owns <paramref name="node"/> is in quirks mode — what decides whether a

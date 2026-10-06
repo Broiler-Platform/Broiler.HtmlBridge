@@ -68,6 +68,10 @@ internal sealed partial class FetchBinding
     /// <summary>The body of each <c>Response</c> this binding made.</summary>
     private readonly ConditionalWeakTable<object, StoredBody> _responseBodies = new();
 
+    // Response → what to do when its body is first read: the fetch's Resource Timing record, held back
+    // until then. A clone shares its original's, and the first of them to be read releases it.
+    private readonly ConditionalWeakTable<object, Action> _bodyReadCallbacks = new();
+
     /// <summary>A request's or response's body, held for the life of its object.</summary>
     private sealed class StoredBody(byte[] bytes, string? contentType)
     {

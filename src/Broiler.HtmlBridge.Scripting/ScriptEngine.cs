@@ -5,6 +5,7 @@ using Broiler.JavaScript.BuiltIns.Function;
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Dom;
 using Broiler.HtmlBridge.Logging;
+using Broiler.HtmlBridge.Net;
 using Broiler.HtmlBridge.Scripting;
 
 namespace Broiler.HtmlBridge;
@@ -39,6 +40,12 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
 
     /// <inheritdoc />
     public MicroTaskQueue MicroTasks { get; } = new();
+
+    /// <inheritdoc />
+    public DocumentFetchTiming? DocumentFetchTiming { get; set; }
+
+    /// <inheritdoc />
+    public IReadOnlyList<ResourceTimingRecord> DocumentResourceTimings { get; set; } = [];
 
     /// <summary>
     /// Diagnostic for async-drain-limit exhaustion. <see langword="true"/> when a call to
@@ -138,6 +145,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         Func<IDomBridgeRuntime, T> createResult)
         where T : class
     {
+        var documentTimings = TakeDocumentTimings();
         var roots = moduleRoots ?? [];
         if (scripts.Count == 0 && deferredScripts.Count == 0 && roots.Count == 0)
             return null;
@@ -164,11 +172,13 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
                 bridge.Csp = Csp;
                 bridge.TaskCheckpointCallback = () => MicroTasks.Drain();
                 UseMicroTaskQueue(bridge);
+                UseDocumentFetchTiming(bridge, documentTimings.Fetch);
 
                 if (!string.IsNullOrEmpty(url))
                     bridge.Attach(context, html, url);
                 else
                     bridge.Attach(context, html);
+                AddDocumentResourceTimings(bridge, documentTimings.Resources);
 
                 // Event-loop ordering: run the synchronous script phases (regular → deferred → modules)
                 // with only microtask checkpoints between them, then — after the window load event — drain the
@@ -234,10 +244,13 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         var scriptElements = ScriptElementMap.Classic(bridge.Elements);
         var deferredScriptElements = ScriptElementMap.Deferred(bridge.Elements);
 
+        // Each script, with the checkpoint after it, is one of the page's tasks, and so is the load
+        // event (StartTask).
         for (var i = 0; i < scripts.Count; i++)
         {
             bridge.CurrentScriptIndex = i < scriptElements.Count ? scriptElements[i] : -1;
             var label = ScriptLabel.Inline(i);
+            StartTask(bridge);
             try
             {
                 var source = PrepareSource(scripts[i]);
@@ -247,6 +260,10 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
             catch (Exception ex)
             {
                 RenderLogger.LogError(LogCategory.JavaScript, logSource, $"Script {label} failed: {ex.Message}", ex);
+            }
+            finally
+            {
+                EndTask(bridge);
             }
         }
         bridge.CurrentScriptIndex = -1;
@@ -258,6 +275,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
             // document.currentScript and takes document.write at its own position.
             bridge.CurrentScriptIndex = i < deferredScriptElements.Count ? deferredScriptElements[i] : -1;
             var label = ScriptLabel.Deferred(i);
+            StartTask(bridge);
             try
             {
                 var source = PrepareSource(deferredScripts[i]);
@@ -267,6 +285,10 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
             catch (Exception ex)
             {
                 RenderLogger.LogError(LogCategory.JavaScript, logSource, $"Script {label} failed: {ex.Message}", ex);
+            }
+            finally
+            {
+                EndTask(bridge);
             }
         }
 
@@ -280,6 +302,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         {
             foreach (var root in roots)
             {
+                StartTask(bridge);
                 try
                 {
                     RunMeasured(ScriptLabel.Module(root.Key), () =>
@@ -291,12 +314,34 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
                 {
                     RenderLogger.LogError(LogCategory.JavaScript, logSource, $"Module root {root.Key} failed: {ex.Message}", ex);
                 }
+                finally
+                {
+                    EndTask(bridge);
+                }
             }
         }
 
-        bridge.FireWindowLoadEvent();
+        StartTask(bridge);
+        try
+        {
+            bridge.FireWindowLoadEvent();
+        }
+        finally
+        {
+            EndTask(bridge);
+        }
+
         finalDrain(bridge);
     }
+
+    /// <summary>
+    /// Begins one of the page's tasks, which the bridge times to report the long ones
+    /// (<see cref="Dom.Runtime.ITaskMonitor"/>); <see cref="EndTask"/> ends it.
+    /// </summary>
+    internal static void StartTask(IDomBridgeRuntime bridge) => (bridge as Dom.Runtime.ITaskMonitor)?.TaskStarted();
+
+    /// <summary>Ends the task <see cref="StartTask"/> began.</summary>
+    internal static void EndTask(IDomBridgeRuntime bridge) => (bridge as Dom.Runtime.ITaskMonitor)?.TaskEnded();
 
     /// <summary>
     /// Runs <paramref name="work"/> (a single script/module evaluation), timing it through
@@ -332,6 +377,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// </summary>
     public InteractiveSession? ExecuteInteractive(IReadOnlyList<string> scripts, IReadOnlyList<string> deferredScripts, string html, string? url, IReadOnlyList<ModuleRoot>? moduleRoots)
     {
+        var documentTimings = TakeDocumentTimings();
         var roots = moduleRoots ?? [];
         if (scripts.Count == 0 && deferredScripts.Count == 0 && roots.Count == 0)
             return null;
@@ -360,11 +406,13 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
             bridge.Csp = Csp;
             bridge.TaskCheckpointCallback = () => MicroTasks.Drain();
             UseMicroTaskQueue(bridge);
+            UseDocumentFetchTiming(bridge, documentTimings.Fetch);
 
             if (!string.IsNullOrEmpty(url))
                 bridge.Attach(context, html, url);
             else
                 bridge.Attach(context, html);
+            AddDocumentResourceTimings(bridge, documentTimings.Resources);
 
             // Same pipeline as the render path, but the interactive session drains only microtasks at every
             // point (inter-script and final) and leaves pending timers for the caller to step through one
@@ -439,6 +487,32 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
             domBridge.MicroTaskQueue = MicroTasks;
             domBridge.EngineJobs = EngineJobs.Instance;
         }
+    }
+
+    /// <summary>
+    /// Takes what the host said of the document about to run (<see cref="DocumentFetchTiming"/>,
+    /// <see cref="DocumentResourceTimings"/>), so a later document is never measured by an earlier one's.
+    /// </summary>
+    private (DocumentFetchTiming? Fetch, IReadOnlyList<ResourceTimingRecord> Resources) TakeDocumentTimings()
+    {
+        var taken = (DocumentFetchTiming, DocumentResourceTimings);
+        DocumentFetchTiming = null;
+        DocumentResourceTimings = [];
+        return taken;
+    }
+
+    /// <summary>The navigation's start as the bridge's time origin, read when it is attached.</summary>
+    private static void UseDocumentFetchTiming(IDomBridgeRuntime bridge, DocumentFetchTiming? fetchTiming)
+    {
+        if (fetchTiming is not null && bridge is DomBridge domBridge)
+            domBridge.DocumentFetchTiming = fetchTiming;
+    }
+
+    /// <summary>The host's fetches for the attached document, as its Resource Timing entries.</summary>
+    private static void AddDocumentResourceTimings(IDomBridgeRuntime bridge, IReadOnlyList<ResourceTimingRecord> records)
+    {
+        if (records.Count > 0 && bridge is DomBridge domBridge)
+            domBridge.AddDocumentResourceTimings(records);
     }
 
     /// <summary>

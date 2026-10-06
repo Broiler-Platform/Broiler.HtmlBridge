@@ -154,6 +154,8 @@ internal sealed class SubWindowBinding(
         if (_browsingContexts.TryGetSubWindow(containerElement, out var cached))
             return cached;
 
+        // A browser builds a frame's window as it navigates the frame, in tasks of the frame's own.
+        using var frameWork = _host.FrameWork(containerElement);
         var realm = _host.Realm;
         var subDocument = _host.GetOrCreateSubDocument(containerElement);
 
@@ -245,6 +247,20 @@ internal sealed class SubWindowBinding(
         realm.DefineValue(window, "self", window);
         realm.DefineValue(window, "window", window);
 
+        // A frame has no opener: null, as the page's own window has (DomBridge.DefineOpener).
+        DomBridge.DefineOpener(realm, window);
+
+        // Whether the frame's document is a secure context: its own answer, as the parent reads it off
+        // `contentWindow` and the frame's script off `window` (the bare name is the global's, which
+        // answers for the frame's script too). Loaded first, so what is judged is what it shows.
+        realm.DefineAccessor(window, "isSecureContext",
+            (in _) =>
+            {
+                _host.GetOrCreateSubDocument(containerElement);
+                return JsValue.Boolean(_host.IsSecureContext(containerElement));
+            },
+            null);
+
         realm.DefineValue(window, "globalThis", window);
 
         // The frame's browsing-context name, which it was given by its container's `name` attribute
@@ -256,7 +272,7 @@ internal sealed class SubWindowBinding(
             (in call) => SetName(containerElement, in call));
 
         // The frame's own frames, by index and by name, and how many there are.
-        var frames = NewFrameList(() => _host.GetContentDocument(containerElement));
+        var frames = NewFrameList(() => _host.GetContentDocument(containerElement), () => window);
         DefineReplaceable(realm, window, "frames", (in _) => frames);
         DefineReplaceable(realm, window, "length",
             (in _) => JsValue.Number(ChildFrameContainers(_host.GetContentDocument(containerElement)).Count));
@@ -338,7 +354,7 @@ internal sealed class SubWindowBinding(
     {
         _topDocument = topDocument;
         var realm = _host.Realm;
-        var frames = NewFrameList(topDocument);
+        var frames = NewFrameList(topDocument, () => window);
         DefineReplaceable(realm, window, "frames", (in _) => frames);
         DefineReplaceable(realm, window, "length",
             (in _) => JsValue.Number(ChildFrameContainers(topDocument()).Count));
@@ -394,11 +410,13 @@ internal sealed class SubWindowBinding(
         return containers;
     }
 
-    private JsValue NewFrameList(Func<DomNode?> document) =>
+    private JsValue NewFrameList(Func<DomNode?> document, Func<JsValue> window) =>
         _host.Realm.NewExotic(new WindowFrames(
             () => ChildFrameContainers(document()),
             WindowAsSeen,
-            _browsingContexts.NameOf));
+            _browsingContexts.NameOf,
+            _host.Realm,
+            window));
 
     /// <summary>The frame whose script is running, or <see langword="null"/> for the top document's.</summary>
     private DomElement? CurrentFrame() =>
@@ -712,7 +730,7 @@ internal sealed class SubWindowBinding(
     // The top window's members a view answers itself, rather than the global object, which in a
     // frame's script answers for the frame.
     private static readonly string[] TopWindowOwnMembers =
-        ["window", "self", "top", "parent", "globalThis", "location", "document", "name", "postMessage", "frameElement"];
+        ["window", "self", "top", "parent", "globalThis", "location", "document", "name", "postMessage", "frameElement", "isSecureContext"];
 
     /// <summary>The top window as a frame of its origin has it: the whole window, through a forwarding view.</summary>
     private JsValue SameOriginTopView()
@@ -729,6 +747,7 @@ internal sealed class SubWindowBinding(
             "name" => JsValue.String(_browsingContexts.TopName),
             "postMessage" => _host.TopPostMessage,
             "frameElement" => JsValue.Null,
+            "isSecureContext" => JsValue.Boolean(_host.IsSecureContext(null)),
             // The page's onload, onmessage, …: the global's answer for the frame's script is the frame's.
             var handler when DomBridge.IsWindowEventHandlerName(handler) => _host.PageWindowHandler(handler),
             _ => view,

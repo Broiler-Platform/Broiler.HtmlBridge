@@ -38,6 +38,12 @@ internal interface IFetchHost : IPageUrlHost, IRealmHost
     Broiler.Net.Http.DocumentRequestContext FetchClient { get; }
 
     /// <summary>
+    /// Where the records of the fetches this binding sends go: the Resource Timing of the document each
+    /// was sent for (<see cref="FetchClient"/> at the time of the call).
+    /// </summary>
+    IResourceTimingSink ResourceTimings { get; }
+
+    /// <summary>
     /// The base URL a relative request URL resolves against, for the same document as
     /// <see cref="FetchClient"/>: the frame's base URL for a frame's script, the page URL otherwise.
     /// </summary>

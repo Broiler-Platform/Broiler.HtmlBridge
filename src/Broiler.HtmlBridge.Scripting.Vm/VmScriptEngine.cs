@@ -163,6 +163,22 @@ public sealed class VmScriptEngine : IScriptEngine
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>The document engine runs the document, and takes it.</remarks>
+    public Net.DocumentFetchTiming? DocumentFetchTiming
+    {
+        get => _documentEngine.DocumentFetchTiming;
+        set => _documentEngine.DocumentFetchTiming = value;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>The document engine runs the document, and takes them.</remarks>
+    public IReadOnlyList<ResourceTimingRecord> DocumentResourceTimings
+    {
+        get => _documentEngine.DocumentResourceTimings;
+        set => _documentEngine.DocumentResourceTimings = value;
+    }
+
     /// <summary>
     /// Whether this engine will answer a guest-initiated load — <c>eval</c>, <c>new Function</c>,
     /// dynamic <c>import()</c> — for the policy currently set.

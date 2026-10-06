@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace Broiler.HtmlBridge;
@@ -64,18 +65,38 @@ internal static class BridgeTransport
     /// throws <see cref="InvalidDataException"/> and its body is never read. <see langword="null"/>
     /// accepts every successful response.
     /// </param>
+    /// <param name="timing">
+    /// When given, the fetch is timed and its record handed to the request's sink once the body has
+    /// arrived -- a response of any status, as Resource Timing reports it.
+    /// </param>
     internal static string GetText(
         IBrowserRequestTransport transport,
         Uri url,
         RequestContext context,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        Func<TransportResponse, bool>? acceptResponse = null)
+        Func<TransportResponse, bool>? acceptResponse = null,
+        ResourceTimingRequest? timing = null)
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(timeout);
+        using var waiting = TaskClock.Waiting();
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        var redirectEnd = new StrongBox<long>();
+        if (timing is not null)
+            context = ResourceTimingRequest.NotingRedirects(context, redirectEnd);
+        var fetchStart = ResourceTimingRequest.Now();
         using var response = transport.Send(request, context, budget.Token);
+        var responseStart = ResourceTimingRequest.Now();
+
+        // The body is read before the status is judged when the fetch is timed: the entry is the
+        // network's account of the fetch, which a browser records for an error status too.
+        byte[]? body = timing is null
+            ? null
+            : response.Message.Content.ReadAsByteArrayAsync(budget.Token).ConfigureAwait(false).GetAwaiter().GetResult();
+        if (timing is not null)
+            timing.Sink.Record(timing.Describe(url, fetchStart, redirectEnd.Value, responseStart, ResourceTimingRequest.Now(), response, body!.LongLength));
+
         if (response.StatusCode is < 200 or > 299)
             throw new HttpRequestException(
                 $"Response status code does not indicate success: {response.StatusCode}.",

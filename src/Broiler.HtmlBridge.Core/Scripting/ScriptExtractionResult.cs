@@ -134,4 +134,12 @@ public sealed class ScriptExtractionResult(
     /// sole module-execution input.
     /// </summary>
     public IReadOnlyList<ModuleRoot> ModuleRoots { get; } = moduleRoots ?? [];
+
+    /// <summary>
+    /// The Resource Timing records of the external scripts this extraction fetched through its
+    /// <see cref="ScriptFetchContext"/>'s own log: what a host hands the engine that runs the document
+    /// (<c>ScriptEngine.DocumentResourceTimings</c>), so that the page finds its scripts in
+    /// <c>performance.getEntriesByType('resource')</c>. Empty when the fetches went to another sink.
+    /// </summary>
+    public IReadOnlyList<ResourceTimingRecord> ResourceTimings { get; init; } = [];
 }

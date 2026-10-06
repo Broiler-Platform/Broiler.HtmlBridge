@@ -56,5 +56,15 @@ internal sealed class NavigationTimingState
     /// <summary>Brackets the <c>load</c> dispatch.</summary>
     public void MarkLoadEventStart() => LoadEventStart = Now();
 
-    public void MarkLoadEventEnd() => LoadEventEnd = Now();
+    public void MarkLoadEventEnd()
+    {
+        LoadEventEnd = Now();
+        LoadEventEnded?.Invoke();
+    }
+
+    /// <summary>
+    /// Raised when the <c>load</c> dispatch has ended, which is when the navigation entry is complete and
+    /// is handed to the observers waiting for one.
+    /// </summary>
+    public event Action? LoadEventEnded;
 }

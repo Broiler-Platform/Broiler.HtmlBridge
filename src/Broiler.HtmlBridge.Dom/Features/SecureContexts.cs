@@ -11,13 +11,21 @@ internal static class SecureContexts
 {
     /// <summary>
     /// Whether a document is a secure context: it and every document containing it are at
-    /// potentially trustworthy URLs.
+    /// potentially trustworthy URLs, and none of them is a <c>data:</c> document.
     /// </summary>
+    /// <remarks>
+    /// A <c>data:</c> document has an opaque origin of its own, which is not potentially trustworthy,
+    /// so Chromium makes it no secure context -- <c>isSecureContext</c> false, no <c>crypto.subtle</c>
+    /// -- and nothing inside it either: a <c>srcdoc</c> frame within one, which carries its URL. A
+    /// sandboxed document keeps its URL's answer although its origin is opaque too, and a worker a
+    /// secure document starts from a <c>data:</c> URL is secure (<see cref="IsPotentiallyTrustworthy"/>).
+    /// </remarks>
     internal static bool IsSecure(DocumentRequestContext document)
     {
         for (var current = document; current is not null; current = current.Parent)
         {
-            if (!IsPotentiallyTrustworthy(current.DocumentUrl))
+            if (!IsPotentiallyTrustworthy(current.DocumentUrl) ||
+                string.Equals(current.DocumentUrl?.Scheme, "data", StringComparison.OrdinalIgnoreCase))
                 return false;
         }
 

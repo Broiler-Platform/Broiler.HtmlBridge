@@ -20,6 +20,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </remarks>
 internal interface ISubWindowHost : IRealmHost, ISubDocumentFactoryHost
 {
+    /// <summary>
+    /// Marks what follows, until the scope is disposed, as the work of the frame
+    /// <paramref name="container"/> holds -- building its window -- for the task it runs in.
+    /// </summary>
+    IDisposable FrameWork(DomElement container);
+
     /// <summary>The top-level window object (the sub-window's <c>top</c>, and its <c>parent</c> when
     /// the sub-document is not itself nested), or a non-object when the bridge has no window.</summary>
     JsValue MainWindow { get; }
@@ -48,6 +54,12 @@ internal interface ISubWindowHost : IRealmHost, ISubDocumentFactoryHost
     /// window's document first.
     /// </summary>
     bool IsWindowCrossOriginToCurrentScript(JsValue window);
+
+    /// <summary>
+    /// Whether the document of the frame <paramref name="container"/> holds -- or the top-level
+    /// document, for <see langword="null"/> -- is a secure context (<see cref="SecureContexts.IsSecure"/>).
+    /// </summary>
+    bool IsSecureContext(DomElement? container);
 
     /// <summary>
     /// Whether the frame <paramref name="container"/> holds is cross-origin to the document whose
