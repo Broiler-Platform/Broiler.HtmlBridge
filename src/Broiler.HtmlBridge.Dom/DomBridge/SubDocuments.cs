@@ -183,6 +183,15 @@ public sealed partial class DomBridge
         if (_browsingContexts.TryGetSubDocument(containerElement, out var cached))
             return cached;
 
+        // The frame's document loads here, inside whatever task reached it, where a browser loads it
+        // in tasks of the frame's own: the time is the frame's (DomBridge/LongTasks.cs).
+        using var frameWork = FrameWork(containerElement);
+        return CreateSubDocument(containerElement);
+    }
+
+    /// <summary>Builds and caches the document of the frame <paramref name="containerElement"/> holds.</summary>
+    private JsValue CreateSubDocument(DomElement containerElement)
+    {
         var executeHtmlScripts = false;
         string? htmlToExecute = null;
 
@@ -717,9 +726,10 @@ public sealed partial class DomBridge
         {
             // A submission's post sends its body; anything else is a get.
             using var request = postBody is null ? null : PostRequest(resolvedUrl, postBody);
+            // Recorded in the Resource Timing of the document the frame is in, named by its container.
             using var transportResponse = (request is null
-                    ? _resources.GetAsync(resolvedUrl, FrameNavigationRequest(container))
-                    : _resources.SendAsync(request, FrameNavigationRequest(container)))
+                    ? _resources.GetAsync(resolvedUrl, FrameNavigationRequest(container), FrameResourceTiming(container))
+                    : _resources.SendAsync(request, FrameNavigationRequest(container), FrameResourceTiming(container)))
                 .GetAwaiter()
                 .GetResult();
             var response = transportResponse.Message;

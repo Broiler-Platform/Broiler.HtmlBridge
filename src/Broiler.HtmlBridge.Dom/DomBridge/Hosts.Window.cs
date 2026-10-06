@@ -581,10 +581,14 @@ public sealed partial class DomBridge : IWorkerHost
             Credentials = Broiler.Net.Http.CredentialsMode.SameOrigin,
         };
 
+        // The worker's own script is in the Resource Timing of the document that created the worker, as
+        // `other`; what it imports would be in the worker's own, which it does not have.
+        var timing = imported ? null : new ResourceTimingRequest("other", client, ResourceTimingSink);
+
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            using var response = _resources.SendAsync(request, context, cancellationToken).GetAwaiter().GetResult();
+            using var response = _resources.SendAsync(request, context, timing, cancellationToken).GetAwaiter().GetResult();
             if (response.StatusCode is < 200 or > 299)
             {
                 failure = $"the server answered {response.StatusCode}";
@@ -645,6 +649,8 @@ public sealed partial class DomBridge : IFetchHost
         _blobs.CreateBlobFromBytes(Realm, bytes, contentType);
 
     Broiler.Net.Http.DocumentRequestContext IFetchHost.FetchClient => CurrentScriptDocumentContext();
+
+    IResourceTimingSink IFetchHost.ResourceTimings => ResourceTimingSink;
 
     string IFetchHost.FetchBaseUrl => CurrentScriptBaseUrl();
 

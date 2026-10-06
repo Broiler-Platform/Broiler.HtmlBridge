@@ -546,10 +546,10 @@ internal sealed class JSWorker
             realm.NewMethod("addEventListener", AddWorkerEventListener, 2));
 
         realm.SetProperty(global, "setTimeout", realm.NewMethod("setTimeout",
-            (in call) => JsValue.Number(_timers.Add(CallbackOf(in call), DelayOf(in call), repeating: false)), 2));
+            (in call) => JsValue.Number(_timers.Add(CallbackOf(in call), DelayOf(in call), repeating: false)), 1));
 
         realm.SetProperty(global, "setInterval", realm.NewMethod("setInterval",
-            (in call) => JsValue.Number(_timers.Add(CallbackOf(in call), DelayOf(in call), repeating: true)), 2));
+            (in call) => JsValue.Number(_timers.Add(CallbackOf(in call), DelayOf(in call), repeating: true)), 1));
 
         // One id space, and clearTimeout/clearInterval interchangeable, per the HTML spec — the same
         // contract the page's loop keeps. One function object under two names, as it always was.
@@ -582,9 +582,14 @@ internal sealed class JSWorker
         realm.DefineMethod(global, "btoa", 1, Base64Binding.Btoa);
         realm.DefineMethod(global, "atob", 1, Base64Binding.Atob);
         // A worker is as secure as the document that made it, and a network worker's own URL is too.
-        var secure = (_client is not { } owner || SecureContexts.IsSecure(owner)) &&
+        // A data: worker's client is a context of its own, made beside that document with the worker's
+        // URL: the document is its parent, and a data: worker is secure where it is (Chromium).
+        // isSecureContext reports it, as a getter with no setter, as on a window.
+        var owner = _client is { Parent: { } parent } client && client.DocumentUrl == _script.Url ? parent : _client;
+        var secure = (owner is null || SecureContexts.IsSecure(owner)) &&
                      SecureContexts.IsPotentiallyTrustworthy(_script.Url);
         realm.SetProperty(global, "crypto", CryptoBinding.Build(realm, () => secure));
+        realm.DefineAccessor(global, "isSecureContext", (in _) => JsValue.Boolean(secure), null);
         realm.EvaluateHostScript(PolyfillAssets.Worker, "polyfill:worker");
 
         // MessageChannel and MessagePort: the host's, so that a port can be transferred to the page.
@@ -782,9 +787,10 @@ internal sealed class JSWorker
     /// </summary>
     /// <remarks>
     /// <see cref="WorkerTimers"/> schedules deadlines and names no JavaScript type, so the call into
-    /// JavaScript is made here — the same receiver (<c>undefined</c>) and empty argument list the
-    /// scheduler used to pass itself. A null answer is what keeps <c>setTimeout("string")</c> handing
-    /// back a clearable id that never fires.
+    /// JavaScript is made here, as HTML's timer initialization steps make it: with the worker's global
+    /// as <c>this</c>, and with the arguments that followed the delay, kept from the call and handed over
+    /// every time the timer runs. A null answer is what keeps <c>setTimeout("string")</c> handing back a
+    /// clearable id that never fires.
     /// </remarks>
     private static Action? CallbackOf(in JsCall call)
     {
@@ -793,7 +799,8 @@ internal sealed class JSWorker
 
         var realm = call.Realm;
         var callback = call[0];
-        return () => realm.Invoke(callback, JsValue.Undefined);
+        JsValue[] arguments = call.Length > 2 ? call.Arguments[2..].ToArray() : [];
+        return () => realm.Invoke(callback, realm.Global, arguments);
     }
 
     /// <summary>The delay argument of a timer call, defaulting to 0 when absent or not a number.</summary>

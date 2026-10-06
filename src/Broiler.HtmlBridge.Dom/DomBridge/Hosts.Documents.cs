@@ -404,6 +404,11 @@ public sealed partial class DomBridge : ISubWindowHost
 
     bool ISubWindowHost.IsWindowCrossOriginToCurrentScript(JsValue window) => IsWindowCrossOriginToCurrentScript(window);
 
+    IDisposable ISubWindowHost.FrameWork(DomElement container) => FrameWork(container);
+
+    bool ISubWindowHost.IsSecureContext(DomElement? container) =>
+        Dom.Features.SecureContexts.IsSecure(container is null ? TopDocumentContext : FrameDocumentContext(container));
+
     bool ISubWindowHost.IsCurrentIframeCrossOrigin(DomElement container) => IsCurrentIframeCrossOrigin(container);
 
     Dom.Features.ILocationHost ISubWindowHost.FrameLocationHost(DomElement container) => FrameLocationHost(container);

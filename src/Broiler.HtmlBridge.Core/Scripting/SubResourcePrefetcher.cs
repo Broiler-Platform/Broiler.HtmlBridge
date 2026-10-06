@@ -107,7 +107,9 @@ public sealed class SubResourcePrefetcher
             return null;
 
         // Not ConfigureAwait-able through a Lazy; GetAwaiter().GetResult() on a task that was
-        // started with Task.Run never has a captured context to deadlock against.
+        // started with Task.Run never has a captured context to deadlock against. The wait for the
+        // network is not the running task's time.
+        using var waiting = TaskClock.Waiting();
         return EntryFor(url).Value.GetAwaiter().GetResult();
     }
 

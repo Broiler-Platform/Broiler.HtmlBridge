@@ -56,21 +56,33 @@ public sealed class ScriptFetchContext
     public CancellationToken CancellationToken { get; }
 
     /// <summary>
+    /// Where each script fetch's Resource Timing record goes. A <see cref="ResourceTimingLog"/> of its own
+    /// unless the caller names another: what a host's <see cref="ScriptExtractionService.ExtractAll(string, string?, Scripting.ContentSecurityPolicy?, ScriptFetchContext?)"/>
+    /// fetched is then in the result's <see cref="ScriptExtractionResult.ResourceTimings"/>, for the engine
+    /// that runs the document.
+    /// </summary>
+    public IResourceTimingSink ResourceTimings { get; init; } = new ResourceTimingLog();
+
+    /// <summary>
     /// The request for one script of this document: destination <c>script</c>, with the mode and
     /// credentials HTML derives from the element's <c>crossorigin</c> value and, for a module, the
     /// CORS default a missing attribute means for modules. <paramref name="hopPolicy"/> is the
     /// Content-Security-Policy check the caller applied to the URL, repeated for every redirect.
     /// </summary>
-    internal ScriptRequest ForScript(bool isModule, string? crossOrigin, Func<Uri, int, bool>? hopPolicy) =>
-        new(this, BridgeTransport.ScriptRequestContext(Document, isModule, crossOrigin, hopPolicy));
+    internal ScriptRequest ForScript(bool isModule, string? crossOrigin, Func<Uri, int, bool>? hopPolicy, bool renderBlocking = false) =>
+        new(this, BridgeTransport.ScriptRequestContext(Document, isModule, crossOrigin, hopPolicy),
+            new ResourceTimingRequest("script", Document, ResourceTimings, renderBlocking));
 
     /// <summary>The same context for another document of the same profile and lifetime.</summary>
     internal ScriptFetchContext WithDocument(DocumentRequestContext document) =>
-        ReferenceEquals(document, Document) ? this : new(Transport, document, CancellationToken);
+        ReferenceEquals(document, Document) ? this : new(Transport, document, CancellationToken) { ResourceTimings = ResourceTimings };
 }
 
-/// <summary>One script fetch: the document's fetch context and the request context for this script.</summary>
-internal readonly record struct ScriptRequest(ScriptFetchContext Fetch, RequestContext Context)
+/// <summary>
+/// One script fetch: the document's fetch context, the request context for this script, and how the fetch
+/// is recorded for the document's Resource Timing.
+/// </summary>
+internal readonly record struct ScriptRequest(ScriptFetchContext Fetch, RequestContext Context, ResourceTimingRequest? Timing = null)
 {
     /// <summary>
     /// Whether a prefetch issued as <paramref name="issued"/> may serve a fetch requested as

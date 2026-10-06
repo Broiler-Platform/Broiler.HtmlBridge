@@ -25,8 +25,41 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal static class TimerBinding
 {
     public static JsValue SetTimeout(BrowserEventLoop loop, WindowContextManager windows, in JsCall call) =>
-        JsValue.Number(loop.SetTimeout(
-            BindToRegisteringContext(call.Realm, windows, call[0]), ReadDelayMs(in call)));
+        Schedule(loop, windows, in call, repeat: false);
+
+    /// <summary>
+    /// The timer initialization steps (HTML §8.6) for <c>setTimeout</c> and <c>setInterval</c>: the callback
+    /// is invoked with the arguments that followed the delay, kept from the call, and with the window that
+    /// registered it as <c>this</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The arguments.</b> Everything after the delay is handed to the callback every time it runs -- each
+    /// tick of an interval gets the same values -- and was dropped, so the callback ran with none.
+    /// reCAPTCHA's checkbox frame passes its batches of mouse events on this way
+    /// (<c>setTimeout(handler, 0, batch)</c>, through <c>setTimeout.apply</c>), and its handler threw reading
+    /// the batch it never got, once for every move.
+    /// </para>
+    /// <para>
+    /// <b>The receiver.</b> HTML invokes the callback with the registering global's WindowProxy as
+    /// <c>this</c>, which strict code sees as it stands: <c>this</c> was <c>undefined</c>. A frame's timer
+    /// runs with the frame's window, which sloppy code sees too -- an absent receiver there becomes the
+    /// shared global object, the page's window.
+    /// </para>
+    /// </remarks>
+    private static JsValue Schedule(BrowserEventLoop loop, WindowContextManager windows, in JsCall call, bool repeat)
+    {
+        var realm = call.Realm;
+        var frameWindow = call[0].IsFunction ? windows.ResolveCurrentSubWindow() : null;
+        var callback = frameWindow is { } frame ? BindToFrame(realm, windows, frame, call[0]) : call[0];
+        var thisArg = frameWindow ?? realm.Global;
+        JsValue[]? arguments = call.Length > 2 ? call.Arguments[2..].ToArray() : null;
+        var delay = ReadDelayMs(in call);
+
+        return JsValue.Number(repeat
+            ? loop.SetInterval(callback, delay, thisArg, arguments)
+            : loop.SetTimeout(callback, delay, thisArg, arguments));
+    }
 
     // The delay argument (call[1]) in ms; absent / NaN / negative are treated as 0 (the event loop
     // clamps too). ToNumber rather than the handle's own reading: `setTimeout(f, "100")` is ordinary
@@ -42,8 +75,7 @@ internal static class TimerBinding
     }
 
     public static JsValue SetInterval(BrowserEventLoop loop, WindowContextManager windows, in JsCall call) =>
-        JsValue.Number(loop.SetInterval(
-            BindToRegisteringContext(call.Realm, windows, call[0]), ReadDelayMs(in call)));
+        Schedule(loop, windows, in call, repeat: true);
 
     public static JsValue ClearInterval(BrowserEventLoop loop, in JsCall call)
     {
@@ -100,29 +132,32 @@ internal static class TimerBinding
     /// document, and the old document's timer would fire as the new one.
     /// </para>
     /// </remarks>
-    private static JsValue BindToRegisteringContext(IJsRealm realm, WindowContextManager windows, JsValue callback)
-    {
-        if (!callback.IsFunction || windows.ResolveCurrentSubWindow() is not { } frameWindow)
-            return callback;
+    internal static JsValue BindToRegisteringContext(IJsRealm realm, WindowContextManager windows, JsValue callback) =>
+        callback.IsFunction && windows.ResolveCurrentSubWindow() is { } frameWindow
+            ? BindToFrame(realm, windows, frameWindow, callback)
+            : callback;
 
+    /// <summary>
+    /// <paramref name="callback"/>, run in <paramref name="frameWindow"/>'s browsing context while the
+    /// document that registered it is still the frame's. See <see cref="BindToRegisteringContext"/>.
+    /// </summary>
+    private static JsValue BindToFrame(IJsRealm realm, WindowContextManager windows, JsValue frameWindow, JsValue callback)
+    {
         var isLive = windows.LivenessOf(frameWindow);
         return realm.NewMethod("callback", (in call) =>
         {
             if (isLive is not null && !isLive())
                 return JsValue.Undefined;
 
-            // A queued callback is invoked with at most one real argument — a rAF timestamp, an
-            // IdleDeadline — and a call frame cannot be captured by the closure below, so the call is
-            // read out into locals here. `This` is already `undefined` rather than absent when the
+            // The queue invokes the callback with its receiver and its arguments -- a timer's own, a rAF
+            // timestamp, an IdleDeadline -- and a call frame cannot be captured by the closure below, so the
+            // call is read out into locals here. `This` is already `undefined` rather than absent when the
             // caller supplied no receiver, so it forwards as it stands.
             var thisValue = call.This;
-            var argument = call[0];
+            JsValue[] arguments = call.Length == 0 ? [] : call.Arguments.ToArray();
 
             JsValue result = JsValue.Undefined;
-            windows.RunWithWindowContext(frameWindow, () =>
-                result = argument.IsMissing
-                    ? realm.Invoke(callback, thisValue)
-                    : realm.Invoke(callback, thisValue, [argument]));
+            windows.RunWithWindowContext(frameWindow, () => result = realm.Invoke(callback, thisValue, arguments));
             return result;
         });
     }

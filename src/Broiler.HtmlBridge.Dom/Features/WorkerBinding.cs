@@ -408,7 +408,16 @@ internal sealed class WorkerBinding : IDisposable
     /// How long the page lets one piece of a worker's work -- starting up, or a message -- hold its
     /// clock before it stops waiting for it. See <see cref="JSWorker.IsInFlight"/>.
     /// </summary>
-    internal static readonly TimeSpan InFlightAllowance = TimeSpan.FromSeconds(5);
+    /// <remarks>
+    /// The time is this engine's, not a browser's: most of what a worker does first is compile its
+    /// script, which Broiler.JS does at a small fraction of a browser's speed. reCAPTCHA's checkbox
+    /// frame starts its worker -- which imports 850 KB of script before it answers -- and gives up on it
+    /// after five seconds. Here the worker needs about nine, and an allowance of five let the page's
+    /// clock run on to that timeout ("reCAPTCHA Timeout (D)"), where a browser has the answer long
+    /// before it. Thirty leaves that room on a slower machine, and still holds a page up only once for
+    /// a worker that never finishes.
+    /// </remarks>
+    internal static readonly TimeSpan InFlightAllowance = TimeSpan.FromSeconds(30);
 
     /// <summary>Whether a worker this page started is still working on what the page handed it.</summary>
     internal bool HasWorkInFlight

@@ -165,4 +165,29 @@ public class FrameNameTests
                 "var length = 3; var frames = 'mine';" +
                 "document.getElementById('out').textContent = [length, frames].join('|');"));
     }
+
+    /// <summary>
+    /// What is not a frame is the window's: in a browser <c>frames</c> is the window itself, so its
+    /// <c>performance</c>, its <c>document</c> and an assignment to it are the window's -- the page's,
+    /// and a frame's through its <c>window.frames</c> (a frame's bare <c>frames</c> is the global's,
+    /// which every document shares). They read as <c>undefined</c>, and reCAPTCHA's checkbox frame,
+    /// which reads its resource timings as <c>frames.performance.getEntries()</c>, threw.
+    /// </summary>
+    [Fact]
+    public void WhatIsNotAFrameIsTheWindows()
+    {
+        Assert.Equal(
+            "true,true,true,true,1,true|true,true,function,2",
+            Run(
+                Frame("id=\"a\"",
+                    "window.frames.extra = 2;" +
+                    "pageOut.title = [window.frames.performance === performance, window.frames.document === document," +
+                    " typeof window.frames.performance.getEntries, window.extra].join();"),
+                "var pageOut = document.getElementById('out');" +
+                "frames.extra = 1;" +
+                "var page = [frames.performance === performance, frames.document === document, frames.setTimeout === setTimeout," +
+                " 'performance' in frames, window.extra, Array.isArray(frames.performance.getEntries())].join();" +
+                "frames[0];" +
+                "pageOut.textContent = page + '|' + pageOut.title; pageOut.removeAttribute('title');"));
+    }
 }

@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.Net.Http;
 
@@ -203,11 +204,13 @@ internal sealed class ResourceLoader : IDisposable
                         {
                             tainting = response.Tainting;
                             return BridgeTransport.IsAcceptableStyleSheet(response, quirksMode);
-                        });
+                        },
+                        request.Timing);
                     _styleSheetTainting[url] = tainting;
                 }
                 else
                 {
+                    using var waiting = TaskClock.Waiting();
                     content = SharedClient.GetStringAsync(url, lifetime).ConfigureAwait(false).GetAwaiter().GetResult();
                 }
 
@@ -362,34 +365,60 @@ internal sealed class ResourceLoader : IDisposable
     /// automatic redirect, the final one. Network errors throw, as <see cref="HttpClient"/> did.
     /// </remarks>
     public Task<TransportResponse> SendAsync(HttpRequestMessage request, RequestContext context, CancellationToken cancellationToken = default) =>
-        SendCoreAsync(request, context, cancellationToken);
+        SendCoreAsync(request, context, timing: null, cancellationToken);
+
+    /// <summary>
+    /// As <see cref="SendAsync(HttpRequestMessage, RequestContext, CancellationToken)"/>, the fetch timed
+    /// and its record handed to <paramref name="timing"/>'s sink once the body has arrived.
+    /// </summary>
+    public Task<TransportResponse> SendAsync(HttpRequestMessage request, RequestContext context, ResourceTimingRequest? timing, CancellationToken cancellationToken = default) =>
+        SendCoreAsync(request, context, timing, cancellationToken);
 
     /// <summary>
     /// GETs <paramref name="url"/> as a nested navigation (an iframe/frame/object sub-document) and
     /// answers the complete response. <see cref="TransportResponse.FinalUrl"/> is the URL the
     /// document was actually served from, after redirects.
     /// </summary>
-    public async Task<TransportResponse> GetAsync(string url, RequestContext context, CancellationToken cancellationToken = default)
+    public async Task<TransportResponse> GetAsync(string url, RequestContext context, ResourceTimingRequest? timing = null, CancellationToken cancellationToken = default)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        return await SendCoreAsync(request, context, cancellationToken).ConfigureAwait(false);
+        return await SendCoreAsync(request, context, timing, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<TransportResponse> SendCoreAsync(HttpRequestMessage request, RequestContext context, CancellationToken cancellationToken)
+    private async Task<TransportResponse> SendCoreAsync(HttpRequestMessage request, RequestContext context, ResourceTimingRequest? timing, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
+        // Taken on the caller's thread, before the first await: the task it is running waits.
+        using var waiting = TaskClock.Waiting();
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Lifetime);
         budget.CancelAfter(FetchTimeout);
 
         if (_network is { } network)
         {
+            var timedUrl = request.RequestUri;
+            var redirectEnd = new StrongBox<long>();
+            if (timing is not null)
+                context = ResourceTimingRequest.NotingRedirects(context, redirectEnd);
+            var fetchStart = ResourceTimingRequest.Now();
             var response = await network.SendAsync(request, context, budget.Token).ConfigureAwait(false);
+            var responseStart = ResourceTimingRequest.Now();
             try
             {
                 // Buffered within the same budget: the fallback client read the whole body before it
                 // returned, and the callers read it synchronously afterwards with no token of their own.
                 await response.Message.Content.LoadIntoBufferAsync(budget.Token).ConfigureAwait(false);
+
+                // Timed through the transport only: it is what tells the record's checks -- tainting and
+                // the URL list -- apart, and a bridge without one is not a web page's.
+                if (timing is not null && timedUrl is not null)
+                {
+                    var decoded = response.Message.Content.Headers.ContentLength ??
+                                  (await response.Message.Content.ReadAsByteArrayAsync(budget.Token).ConfigureAwait(false)).LongLength;
+                    timing.Sink.Record(timing.Describe(
+                        timedUrl, fetchStart, redirectEnd.Value, responseStart, ResourceTimingRequest.Now(), response, decoded));
+                }
+
                 return response;
             }
             catch
@@ -414,7 +443,8 @@ internal sealed class ResourceLoader : IDisposable
 /// </summary>
 /// <param name="Context">The request: destination <c>style</c>, for the requesting document.</param>
 /// <param name="QuirksMode">Whether the requesting document is in quirks mode.</param>
-internal readonly record struct StyleSheetRequest(RequestContext Context, bool QuirksMode)
+/// <param name="Timing">How the fetch is recorded for the document's Resource Timing, or <see langword="null"/>.</param>
+internal readonly record struct StyleSheetRequest(RequestContext Context, bool QuirksMode, ResourceTimingRequest? Timing = null)
 {
     /// <summary>
     /// Whether a prefetch issued as <paramref name="issued"/> may serve <paramref name="wanted"/>: the

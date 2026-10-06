@@ -288,9 +288,61 @@ internal sealed partial class FetchBinding
     /// <summary>
     /// Sends an author request for <paramref name="client"/> and answers the complete response, its
     /// body already buffered. Blocking: a page's <c>fetch()</c> has always settled before it returned.
+    /// The fetch is recorded as <paramref name="timing"/> says, for the calling document's Resource Timing.
     /// </summary>
-    private TransportResponse SendAuthorRequest(HttpRequestMessage message, RequestContext context) =>
-        _resources.SendAsync(message, context).GetAwaiter().GetResult();
+    private TransportResponse SendAuthorRequest(HttpRequestMessage message, RequestContext context, ResourceTimingRequest timing) =>
+        _resources.SendAsync(message, context, timing).GetAwaiter().GetResult();
+
+    /// <summary>
+    /// Whether a response has no body for a page to read, so that its fetch is complete as soon as it
+    /// arrives: an opaque one, the answer to a <c>HEAD</c>, and one of a null-body status (Fetch's main
+    /// fetch).
+    /// </summary>
+    private static bool HasNoBodyToRead(TransportResponse response, string method) =>
+        response.Tainting is ResponseTainting.Opaque or ResponseTainting.OpaqueRedirect ||
+        method is "HEAD" or "CONNECT" ||
+        response.StatusCode is 101 or 103 or 204 or 205 or 304;
+
+    /// <summary>
+    /// A fetch's Resource Timing record held back until the fetch is complete for the page -- until it
+    /// has read the response's body -- and then handed on, once, whichever comes first.
+    /// </summary>
+    private sealed class DeferredResourceTiming(IResourceTimingSink sink) : IResourceTimingSink
+    {
+        private readonly Lock _gate = new();
+        private ResourceTimingRecord? _record;
+        private bool _released;
+
+        public void Record(ResourceTimingRecord record)
+        {
+            lock (_gate)
+            {
+                if (!_released)
+                {
+                    _record = record;
+                    return;
+                }
+            }
+
+            sink.Record(record);
+        }
+
+        public void Release()
+        {
+            ResourceTimingRecord? record;
+            lock (_gate)
+            {
+                if (_released)
+                    return;
+                _released = true;
+                record = _record;
+                _record = null;
+            }
+
+            if (record is not null)
+                sink.Record(record);
+        }
+    }
 
     /// <summary>
     /// The <c>Response</c> a page receives for <paramref name="response"/>: Fetch's filtered response

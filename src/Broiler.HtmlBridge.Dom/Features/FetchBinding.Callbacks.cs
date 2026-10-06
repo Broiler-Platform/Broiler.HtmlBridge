@@ -56,7 +56,8 @@ internal sealed partial class FetchBinding
     }
 
 
-    private JsValue JsRegistrationFetch120Core(JsPropertyStringGetter tryGetJsPropertyString, ObjectStringEntriesEnumerator enumerateObjectStringEntries, Func<JsValue, JsValue> createAbortErrorValue, ResponseFactory createResponse, in JsCall call)
+    /// <param name="initiatorType">What the fetch is to Resource Timing: <c>fetch</c>, or <c>xmlhttprequest</c> for the XMLHttpRequest polyfill's sends.</param>
+    private JsValue JsRegistrationFetch120Core(JsPropertyStringGetter tryGetJsPropertyString, ObjectStringEntriesEnumerator enumerateObjectStringEntries, Func<JsValue, JsValue> createAbortErrorValue, ResponseFactory createResponse, string initiatorType, in JsCall call)
     {
         var realm = call.Realm;
 
@@ -184,10 +185,20 @@ internal sealed partial class FetchBinding
         var attempt = ResourceTrace.Begin(ResourceTraceKind.Fetch, request.Url.AbsoluteUri);
         try
         {
+            // Resource Timing's entry: an XMLHttpRequest's as soon as its response is complete, which is
+            // when it reads the body itself, and a fetch()'s once the page has read the body -- at once
+            // when there is none to read. A fetch whose body is never read has none (Chromium, measured).
+            var timing = new DeferredResourceTiming(_host.ResourceTimings);
             using var message = CreateMessage(request);
             using var response = SendAuthorRequest(
-                message, RequestContext.Fetch(client, request.Mode, request.Credentials, request.Redirect));
-            resolve(ExposeResponse(response, createResponse, attempt, request.Method));
+                message, RequestContext.Fetch(client, request.Mode, request.Credentials, request.Redirect),
+                new ResourceTimingRequest(initiatorType, client, timing));
+            var exposed = ExposeResponse(response, createResponse, attempt, request.Method);
+            if (initiatorType != "fetch" || HasNoBodyToRead(response, request.Method))
+                timing.Release();
+            else
+                ReleaseOnBodyRead(exposed, timing.Release);
+            resolve(exposed);
         }
         catch (Exception ex)
         {

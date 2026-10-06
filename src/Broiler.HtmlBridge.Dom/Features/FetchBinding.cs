@@ -109,19 +109,22 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         realm.SetProperty(realm.Global, "Request", requestCtor);
         realm.SetProperty(realm.Global, "Response", responseCtor);
         // fetch(url, options) — polyfill backed by the injected ResourceLoader
-        var fetchFn = realm.NewMethod(
+        JsValue NativeFetch(string initiatorType) => realm.NewMethod(
             "fetch",
             (in call) => JsRegistrationFetch120Core(
                 (obj, names) => TryGetJsPropertyString(realm, obj, names),
                 obj => EnumerateObjectStringEntries(realm, obj),
                 signal => CreateAbortErrorValue(realm, signal),
                 createResponse,
+                initiatorType,
                 in call),
             1);
+        var fetchFn = NativeFetch("fetch");
         realm.DefineValue(window, "fetch", fetchFn);
-        // XMLHttpRequest — basic polyfill over this fetch function, captured here so a page that
-        // replaces window.fetch cannot see or redirect what XHR sends.
-        RegisterXMLHttpRequest(realm, window, fetchFn, realm.NewMethod("decodeText", DecodeXhrText, 2));
+        // XMLHttpRequest — basic polyfill over a fetch function of its own, captured here so a page that
+        // replaces window.fetch cannot see or redirect what XHR sends, and whose sends Resource Timing
+        // records as XMLHttpRequest's.
+        RegisterXMLHttpRequest(realm, window, NativeFetch("xmlhttprequest"), realm.NewMethod("decodeText", DecodeXhrText, 2));
         return fetchFn;
     }
 

@@ -100,6 +100,23 @@ public interface IScriptExecutor
     /// </para>
     /// </remarks>
     ContentSecurityPolicy? Csp { get; set; }
+
+    /// <summary>
+    /// The start of the navigation that fetched the next document this engine runs, with the phases of
+    /// the fetch the host measured (<see cref="Net.DocumentFetchTiming.StartNavigation"/>): the document's
+    /// time origin, from which <c>performance.now()</c> and its whole performance timeline are measured.
+    /// Without it the origin is taken when the document is attached, after its fetches. The next
+    /// document takes it, and leaves <see langword="null"/>.
+    /// </summary>
+    Net.DocumentFetchTiming? DocumentFetchTiming { get; set; }
+
+    /// <summary>
+    /// The records of the fetches the host made for the next document this engine runs, before running
+    /// it -- the scripts it extracted (<see cref="ScriptExtractionResult.ResourceTimings"/>) -- which
+    /// become the document's <c>PerformanceResourceTiming</c> entries. The next document takes them,
+    /// and leaves none.
+    /// </summary>
+    IReadOnlyList<ResourceTimingRecord> DocumentResourceTimings { get; set; }
 }
 
 /// <summary>

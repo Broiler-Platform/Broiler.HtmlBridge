@@ -54,8 +54,13 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     /// every callback in an <see cref="Action"/> keeps <c>setTimeout</c> — which busy pages call constantly —
     /// free of a closure allocation per registration.
     /// </para>
+    /// <para>
+    /// A page callback runs with <paramref name="This"/> as its receiver and <paramref name="Args"/> as its
+    /// arguments -- the window that registered it and what followed the delay, kept from the call (HTML's
+    /// timer initialization steps) -- every time it runs.
+    /// </para>
     /// </summary>
-    private readonly record struct TimerEntry(double Deadline, long Seq, JsValue Fn, Action? HostTask, double? Period);
+    private readonly record struct TimerEntry(double Deadline, long Seq, JsValue Fn, Action? HostTask, double? Period, JsValue This, JsValue[]? Args);
 
     private long _timerSeqCounter;
     // The loop's virtual clock (ms). Advances to the earliest pending deadline as timers fire, so a timer
@@ -74,6 +79,12 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
 
     internal int ClearedTimerCount => _clearedTimerIds.Count;
 
+    /// <summary>
+    /// Told when each task a drain runs begins and ends, its checkpoint included: what the page's long
+    /// tasks are measured by. <see langword="null"/> for none.
+    /// </summary>
+    public ITaskMonitor? TaskMonitor { get; set; }
+
     /// <summary>The virtual clock's current time, in ms from document start.</summary>
     public double VirtualNowMs => _virtualNowMs;
 
@@ -86,14 +97,19 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     /// <paramref name="delayMs"/> sets the timer's virtual deadline (<c>now + max(0, delay)</c>); it is
     /// clamped to a non-negative finite value (a <c>NaN</c>/negative/absent delay is 0), so timeouts fire in
     /// deadline order.</summary>
-    public int SetTimeout(JsValue callback, double delayMs = 0)
+    public int SetTimeout(JsValue callback, double delayMs = 0) =>
+        SetTimeout(callback, delayMs, JsValue.Undefined, arguments: null);
+
+    /// <summary>As <see cref="SetTimeout(JsValue, double)"/>, the callback to run with
+    /// <paramref name="thisArg"/> as its receiver and <paramref name="arguments"/> as its arguments.</summary>
+    public int SetTimeout(JsValue callback, double delayMs, JsValue thisArg, JsValue[]? arguments)
     {
         var id = Interlocked.Increment(ref _timerIdCounter);
         if (callback.IsFunction)
         {
             var delay = double.IsNaN(delayMs) || delayMs < 0 ? 0 : delayMs;
             var seq = Interlocked.Increment(ref _timerSeqCounter);
-            _timers[id] = new TimerEntry(_virtualNowMs + delay, seq, callback, HostTask: null, Period: null);
+            _timers[id] = new TimerEntry(_virtualNowMs + delay, seq, callback, HostTask: null, Period: null, thisArg, arguments);
         }
         return id;
     }
@@ -121,7 +137,7 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     {
         var id = Interlocked.Decrement(ref _hostTaskIdCounter);
         var seq = Interlocked.Increment(ref _timerSeqCounter);
-        _timers[id] = new TimerEntry(_virtualNowMs, seq, Fn: JsValue.Missing, task, Period: null);
+        _timers[id] = new TimerEntry(_virtualNowMs, seq, Fn: JsValue.Missing, task, Period: null, JsValue.Undefined, Args: null);
     }
 
     /// <summary>Cancels a timeout and marks its id cleared so an in-flight drain skips it.</summary>
@@ -130,14 +146,19 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     /// <summary>Registers a repeating interval, returning its id. <paramref name="periodMs"/> is the tick
     /// period (clamped to a non-negative finite value); the interval fires at <c>now + period</c> and then
     /// every <c>period</c> ms on the virtual clock, in deadline order with the other timers.</summary>
-    public int SetInterval(JsValue callback, double periodMs = 0)
+    public int SetInterval(JsValue callback, double periodMs = 0) =>
+        SetInterval(callback, periodMs, JsValue.Undefined, arguments: null);
+
+    /// <summary>As <see cref="SetInterval(JsValue, double)"/>, the callback to run with
+    /// <paramref name="thisArg"/> as its receiver and <paramref name="arguments"/> as its arguments on every tick.</summary>
+    public int SetInterval(JsValue callback, double periodMs, JsValue thisArg, JsValue[]? arguments)
     {
         var id = Interlocked.Increment(ref _timerIdCounter);
         if (callback.IsFunction)
         {
             var period = double.IsNaN(periodMs) || periodMs < 0 ? 0 : periodMs;
             var seq = Interlocked.Increment(ref _timerSeqCounter);
-            _timers[id] = new TimerEntry(_virtualNowMs + period, seq, callback, HostTask: null, period);
+            _timers[id] = new TimerEntry(_virtualNowMs + period, seq, callback, HostTask: null, period, thisArg, arguments);
         }
         return id;
     }
@@ -345,6 +366,8 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
             foreach (var (id, entry) in pending)
             {
                 if (_clearedTimerIds.ContainsKey(id)) continue;
+                var monitor = TaskMonitor;
+                monitor?.TaskStarted();
                 try
                 {
                     // A timer callback is one of the turns the host hands to script; see JsEntryTrace.
@@ -354,17 +377,21 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
                         entry.Period is null ? $"timeout#{id}" : $"interval#{id}");
 
                     if (entry.Fn.IsFunction)
-                        _realm()?.Invoke(entry.Fn, JsValue.Undefined);
+                        _realm()?.Invoke(entry.Fn, entry.This, entry.Args);
                     else
                         entry.HostTask?.Invoke();
                 }
                 catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"timer callback error: {ex.Message}", ex); }
-                finally { RunTaskCheckpoint(); }
+                finally
+                {
+                    RunTaskCheckpoint();
+                    monitor?.TaskEnded();
+                }
 
                 if (entry.Period is double period && !_clearedTimerIds.ContainsKey(id))
                 {
                     var nextSeq = Interlocked.Increment(ref _timerSeqCounter);
-                    _timers[id] = new TimerEntry(entry.Deadline + period, nextSeq, entry.Fn, entry.HostTask, period);
+                    _timers[id] = entry with { Deadline = entry.Deadline + period, Seq = nextSeq };
                 }
             }
 
@@ -374,17 +401,25 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
                 if (!_rafCallbacks.TryRemove(id, out var fn))
                     continue;
 
+                var monitor = TaskMonitor;
+                monitor?.TaskStarted();
                 try
                 {
                     using var turn = JsEntryTrace.Enter(JsEntryKind.AnimationFrame, $"raf#{id}");
                     _realm()?.Invoke(fn, JsValue.Undefined, [JsValue.Number(0)]);
                 }
                 catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"rAF callback error: {ex.Message}", ex); }
-                finally { RunTaskCheckpoint(); }
+                finally
+                {
+                    RunTaskCheckpoint();
+                    monitor?.TaskEnded();
+                }
             }
 
             foreach (var action in frameActionSnapshot)
             {
+                var monitor = TaskMonitor;
+                monitor?.TaskStarted();
                 try
                 {
                     // A frame action is a host action, but it reaches script through the bridge often
@@ -393,7 +428,11 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
                     action();
                 }
                 catch (Exception ex) { RenderLogger.LogError(LogCategory.JavaScript, "BrowserEventLoop.DrainStep", $"frame action error: {ex.Message}", ex); }
-                finally { RunTaskCheckpoint(); }
+                finally
+                {
+                    RunTaskCheckpoint();
+                    monitor?.TaskEnded();
+                }
             }
 
             return true;
