@@ -255,12 +255,12 @@ public static partial class DomBridgeUtils
     /// document-mode output. The tokenizer is lazy, so this stops at the first token that decides.
     /// </para>
     /// <para>
-    /// A frame nobody scripted is not stamped, and its mode comes from Layout's
-    /// <c>DocumentModeContext.IsQuirksHtml</c> instead, which takes the first <c>&lt;!doctype</c> anywhere in
-    /// the source. So the two disagree for a frame with content before its DOCTYPE: it renders in
-    /// standards mode until a script touches it and in quirks mode after, which is Chromium's answer. The
-    /// hand scanner disagreed the same way, except for a leading non-ASCII space such as U+00A0, which it
-    /// skipped as whitespace and this does not.
+    /// A frame nobody scripted is not stamped, and its mode comes from the renderer's
+    /// <c>HtmlDocumentQueries.IsQuirksMode</c> instead. That applies the same initial-insertion-mode rule,
+    /// so the two agree about content before the DOCTYPE, and it also reads the legacy identifiers, which
+    /// this does not. So they disagree about a legacy DOCTYPE still named <c>html</c>, such as
+    /// <c>&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"&gt;</c>: that frame renders in
+    /// quirks mode until a script touches it, and in standards mode after.
     /// </para>
     /// </remarks>
     internal static bool HasHtmlDoctype(string html) =>

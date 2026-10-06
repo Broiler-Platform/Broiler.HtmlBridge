@@ -494,7 +494,7 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// The mode is read from the document's doctype, with the predicate the parse applied to the page's
-    /// markup (<c>DocumentModeContext.IsQuirksDoctype</c>, as <see cref="SelectsStandardsMode"/> uses
+    /// markup (<c>HtmlDocumentQueries.IsQuirksDoctype</c>, as <see cref="SelectsStandardsMode"/> uses
     /// it): a legacy doctype selects quirks mode, and so does none at all — except in an
     /// <c>iframe srcdoc</c> document, which the HTML parser never puts in quirks mode.
     /// </remarks>
@@ -505,7 +505,7 @@ public sealed partial class DomBridge
             document = _document;
 
         if (document.DocumentType is { } doctype)
-            return Layout.DocumentModeContext.IsQuirksDoctype(doctype.Name, doctype.PublicId, doctype.SystemId);
+            return Broiler.Dom.Html.HtmlDocumentQueries.IsQuirksDoctype(doctype.Name, doctype.PublicId, doctype.SystemId);
 
         return !(GetFrameForContentDocument(document) is { } frame &&
                  string.Equals(frame.TagName, "iframe", StringComparison.OrdinalIgnoreCase) &&

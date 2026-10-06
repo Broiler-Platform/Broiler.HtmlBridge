@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Globalization;
 
 using Broiler.Dom;
+using Broiler.Dom.Html;
 using Broiler.HtmlBridge;
 using Broiler.Layout;
 
@@ -1071,7 +1072,7 @@ public class DependencyAlignmentShadowScopeTests
 /// name/public-id/system-id triple the HTML Standard's condition is written over.
 /// <para>
 /// Nothing downstream is handed this component's document; it is handed a STRING, and re-derives
-/// the mode from it with <c>DocumentModeContext.IsQuirksHtml</c> — the same predicate the parse
+/// the mode from it with <c>HtmlDocumentQueries.IsQuirksMode</c> — the same predicate the parse
 /// applied to the markup on the way in. So the property that has to hold is that the two agree:
 /// a page that parsed in quirks mode must serialise to a string that parses in quirks mode.
 /// </para>
@@ -1079,8 +1080,9 @@ public class DependencyAlignmentShadowScopeTests
 /// It did not hold for a legacy doctype. <c>SelectsStandardsMode</c> tested that the doctype's NAME
 /// was <c>html</c>, which <c>&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"&gt;</c>
 /// is — so the bare <c>&lt;!DOCTYPE html&gt;</c> went out and the document came back standards. The
-/// predicate over a parsed triple is <c>DocumentModeContext.IsQuirksDoctype</c>, new in
-/// <c>Broiler.Layout 0.1.0-preview.5</c>; the identifiers are still dropped from the emitted text,
+/// predicate over a parsed triple is <c>HtmlDocumentQueries.IsQuirksDoctype</c> (Broiler.Dom.Html
+/// 0.1.0-preview.13, and Broiler.Layout's <c>DocumentModeContext</c> before it); the identifiers are
+/// still dropped from the emitted text,
 /// which they always were, because it is the mode and not the spelling that has to survive.
 /// </para>
 /// </summary>
@@ -1107,7 +1109,7 @@ public class DependencyAlignmentDocumentModeTests
         var html = Serialize(doctype);
 
         Assert.DoesNotContain("<!DOCTYPE", html, StringComparison.OrdinalIgnoreCase);
-        Assert.True(DocumentModeContext.IsQuirksHtml(html));
+        Assert.True(HtmlDocumentQueries.IsQuirksMode(html));
     }
 
     /// <summary>
@@ -1125,7 +1127,7 @@ public class DependencyAlignmentDocumentModeTests
         var html = Serialize(doctype);
 
         Assert.StartsWith("<!DOCTYPE html>", html, StringComparison.Ordinal);
-        Assert.False(DocumentModeContext.IsQuirksHtml(html));
+        Assert.False(HtmlDocumentQueries.IsQuirksMode(html));
     }
 
     /// <summary>
@@ -1140,7 +1142,7 @@ public class DependencyAlignmentDocumentModeTests
         var html = Serialize(doctype);
 
         Assert.DoesNotContain("<!DOCTYPE", html, StringComparison.OrdinalIgnoreCase);
-        Assert.True(DocumentModeContext.IsQuirksHtml(html));
+        Assert.True(HtmlDocumentQueries.IsQuirksMode(html));
     }
 
     /// <summary>
@@ -1158,8 +1160,8 @@ public class DependencyAlignmentDocumentModeTests
                 "\"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">")]
     public void TheDocumentModeSurvivesSerialization(string doctype) =>
         Assert.Equal(
-            DocumentModeContext.IsQuirksHtml(Page(doctype)),
-            DocumentModeContext.IsQuirksHtml(Serialize(doctype)));
+            HtmlDocumentQueries.IsQuirksMode(Page(doctype)),
+            HtmlDocumentQueries.IsQuirksMode(Serialize(doctype)));
 
     private static string Page(string doctype) =>
         doctype + "<html><body><p>t</p><div id=\"out\"></div></body></html>";
