@@ -647,8 +647,10 @@ public sealed partial class DomBridge
     {
         var realm = Realm;
 
-        // window.crypto — the getRandomValues/randomUUID subset — co-located CryptoBinding module
-        var cryptoObj = Dom.Features.CryptoBinding.Build(realm);
+        // window.crypto — getRandomValues, randomUUID and, for a secure context, subtle — co-located
+        // CryptoBinding module. Secure is the running script's document's, as it is for fetch().
+        var cryptoObj = Dom.Features.CryptoBinding.Build(realm,
+            () => Dom.Features.SecureContexts.IsSecure(CurrentScriptDocumentContext()));
         realm.DefineValue(window, "crypto", cryptoObj);
         realm.SetProperty(realm.Global, "crypto", cryptoObj);
 

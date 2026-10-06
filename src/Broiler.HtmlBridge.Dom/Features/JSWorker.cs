@@ -581,7 +581,10 @@ internal sealed class JSWorker
         // text first thing.
         realm.DefineMethod(global, "btoa", 1, Base64Binding.Btoa);
         realm.DefineMethod(global, "atob", 1, Base64Binding.Atob);
-        realm.SetProperty(global, "crypto", CryptoBinding.Build(realm));
+        // A worker is as secure as the document that made it, and a network worker's own URL is too.
+        var secure = (_client is not { } owner || SecureContexts.IsSecure(owner)) &&
+                     SecureContexts.IsPotentiallyTrustworthy(_script.Url);
+        realm.SetProperty(global, "crypto", CryptoBinding.Build(realm, () => secure));
         realm.EvaluateHostScript(PolyfillAssets.Worker, "polyfill:worker");
 
         // MessageChannel and MessagePort: the host's, so that a port can be transferred to the page.

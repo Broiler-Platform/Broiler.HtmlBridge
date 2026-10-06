@@ -70,7 +70,8 @@ where it offers something WebView2 dropped and a control of this shape should ke
 | `AddHostObjectToScript` | ✔ | ✖ **The largest single gap.** JSEAL has the shape for it — `IJsRealm` can define properties — but nothing projects a CLR object into the realm. |
 | `WebMessageReceived` / `PostWebMessageAsJson` | ✔ | ✖ No host↔page message channel. |
 | Modules, dynamic `import()` | ✔ | ✔ `ModuleRoot` / `ModuleMap`, and the VM provider declares its module capability explicitly. |
-| Workers | ✔ | ✔ Worker realms inherit the page realm's eval decision. A web page's worker script is fetched from its own origin (another origin's is a `SecurityError`, and so is one the document's `worker-src` → `child-src` → `script-src` → `default-src` refuses), as JavaScript; `importScripts` loads by URL from anywhere; `data:` and `blob:` workers run. A worker's global has `location`, `performance`, `atob`/`btoa`, `crypto`, `TextEncoder`/`TextDecoder`, `URL`, `MessageChannel` and `MessagePort`. A port transferred between a worker and its page, either way, stays entangled with its peer across the two threads and takes its undelivered messages along; the object left behind is inert. A drain lets a busy worker answer before the page's virtual clock moves on, five seconds per piece of work at most. |
+| Workers | ✔ | ✔ Worker realms inherit the page realm's eval decision. A web page's worker script is fetched from its own origin (another origin's is a `SecurityError`, and so is one the document's `worker-src` → `child-src` → `script-src` → `default-src` refuses), as JavaScript; `importScripts` loads by URL from anywhere; `data:` and `blob:` workers run. A worker's global has `location`, `performance`, `atob`/`btoa`, `crypto` (with `subtle` for a secure page's worker), `TextEncoder`/`TextDecoder`, `URL`, `MessageChannel` and `MessagePort`. A port transferred between a worker and its page, either way, stays entangled with its peer across the two threads and takes its undelivered messages along; the object left behind is inert. A drain lets a busy worker answer before the page's virtual clock moves on, five seconds per piece of work at most. |
+| Web Crypto | ✔ | Partial — `crypto.getRandomValues` and `randomUUID`, and in a secure context (HTTPS, or HTTP to a loopback address or a localhost name, for the running script's document and every document containing it) `crypto.subtle` with `digest` (SHA-1, SHA-256, SHA-384, SHA-512) and AES-GCM's raw `importKey`, `encrypt` and `decrypt`, answering and refusing as Chromium does. Every other algorithm, format and method rejects with `NotSupportedError`. |
 | Which engine runs the page | fixed (V8) | ✔ **A choice.** JSEAL makes the engine a provider, and two exist. Nothing in WebView2 or MSHTML can do this. |
 
 ### Document
@@ -143,6 +144,13 @@ and where the fix would go.
   `SyntaxError`. Its comment says what retiring the stub would take.
 - **Streaming request bodies.** A `ReadableStream` body is sent as its string conversion; Chromium
   sends one only with `duplex: 'half'`, and refuses it otherwise with a `TypeError`.
+- **The rest of Web Crypto.** `crypto.subtle` does digests and AES-GCM with a raw key only. .NET's
+  `AesGcm` takes a 96-bit IV and a tag of 96 bits or more, so another IV length or a 32- or 64-bit tag is
+  an `OperationError` where Chromium computes it. `crypto.subtle` reads `undefined` outside a secure
+  context, where Chromium has no such property at all (`'subtle' in crypto` is `true` here), and there is
+  no `isSecureContext`.
+- **`getRandomValues` fills one byte per element.** A `Uint16Array` or `Uint32Array` gets values below
+  256 (`CryptoBinding.GetRandomValues` sets each element to a random byte); Chromium fills every byte.
 - **A flaky worker test.** `WorkerPortTests.AWorkersOwnChannelCopiesItsMessages` failed once, as
   `waiting`, in a full Release-VM run on a busy machine, and passed in two more full runs and five on
   its own: the worker's answer can miss the load window when the machine is loaded.
