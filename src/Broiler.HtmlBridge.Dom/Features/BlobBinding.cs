@@ -298,6 +298,41 @@ internal sealed class BlobBinding
         TryDataFor(candidate, out var data) ? data.Bytes : null;
 
     /// <summary>
+    /// <paramref name="candidate"/>, a blob, as the file a <c>FormData</c> entry holds (XHR "create an
+    /// entry"): a plain blob becomes a file named <c>blob</c>, and a <paramref name="filename"/> renames
+    /// either. <see langword="null"/> for anything that is not a blob.
+    /// </summary>
+    internal JsValue? AsEntryFile(IJsRealm realm, JsValue candidate, string? filename)
+    {
+        if (!TryDataFor(candidate, out var data))
+            return null;
+
+        if (data.Name is not null && filename is null)
+            return candidate;
+
+        return Mint(realm, new BlobData(data.Bytes, data.Type)
+        {
+            Name = filename ?? "blob",
+            LastModified = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        }, file: true);
+    }
+
+    /// <summary>
+    /// A file with no name, no bytes and the type <c>application/octet-stream</c>: what a file input with
+    /// nothing chosen contributes to its form's entry list (HTML "constructing the entry list"; measured
+    /// in Chromium).
+    /// </summary>
+    internal JsValue CreateEmptyEntryFile(IJsRealm realm) =>
+        Mint(realm, new BlobData([], "application/octet-stream")
+        {
+            Name = string.Empty,
+            LastModified = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        }, file: true);
+
+    /// <summary>The name of a file, or <see langword="null"/> for anything that is not one.</summary>
+    internal string? FileNameOf(JsValue candidate) => TryDataFor(candidate, out var data) ? data.Name : null;
+
+    /// <summary>
     /// The bytes and the normalized type behind a blob object, or <see langword="null"/> for
     /// anything that is not one: the body and <c>Content-Type</c> Fetch's "extract a body" takes
     /// from a <c>Blob</c> (<c>navigator.sendBeacon</c>).

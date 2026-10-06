@@ -25,6 +25,25 @@ internal interface IDialogHost : IRealmHost, IStyleInvalidationHost
     /// <summary>Whether <paramref name="element"/> currently has the <c>open</c> attribute.</summary>
     bool HasOpenAttribute(DomElement element);
 
+    /// <summary>Whether <paramref name="element"/> is open as a modal dialog.</summary>
+    bool IsDialogModal(DomElement element);
+
+    /// <summary>
+    /// Fires the trusted, non-bubbling <paramref name="type"/> at <paramref name="element"/> -- a
+    /// <c>ToggleEvent</c> carrying <paramref name="oldState"/> and <paramref name="newState"/> when they are
+    /// given -- and answers whether it was not cancelled.
+    /// </summary>
+    bool FireDialogEvent(DomElement element, string type, bool cancelable, string? oldState = null, string? newState = null);
+
+    /// <summary>Queues <paramref name="task"/> as a task, to run after the script that is running.</summary>
+    void QueueDialogTask(Action task);
+
+    /// <summary>Queues <paramref name="action"/> for the next animation frame.</summary>
+    void QueueDialogFrameAction(Action action);
+
+    /// <summary>Runs <paramref name="call"/>, a script's call: the events it fires end with no microtask checkpoint.</summary>
+    JsValue RunAsScriptCall(Func<JsValue> call);
+
     /// <summary>Assigns <paramref name="element"/> the next monotonic top-layer order (promotes it
     /// above previously promoted dialogs/popovers).</summary>
     void AssignNextTopLayerOrder(DomElement element);

@@ -115,8 +115,15 @@ public static partial class DomBridgeUtils
         }
 
         if (CssUserAgentDefaults.DisplayValues.TryGetValue(element.TagName, out var display))
-            computed["display"] = display;
+        {
+            // HTML's stylesheet has dialog { display: block } and dialog:not([open]) { display: none }, and
+            // the table holds only the closed dialog's value: an open one's is the host's to give.
+            computed["display"] = display == "none" && IsOpenDialog(element) ? "block" : display;
+        }
     }
+
+    private static bool IsOpenDialog(DomElement element) =>
+        string.Equals(element.TagName, "dialog", StringComparison.OrdinalIgnoreCase) && HasAttr(element, "open");
 
     internal static void ApplyUserAgentPropertyDefaults(Dictionary<string, string> computed, DomElement element)
     {

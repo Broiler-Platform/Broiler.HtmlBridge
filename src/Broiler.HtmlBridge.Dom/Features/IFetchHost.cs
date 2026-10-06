@@ -67,6 +67,18 @@ internal interface IFetchHost : IPageUrlHost, IRealmHost
     JsValue FormDataForForm(JsValue candidate, JsValue submitter);
 
     /// <summary>
+    /// <paramref name="value"/> as a <c>FormData</c> entry's value: a blob as its file, renamed
+    /// <paramref name="filename"/> when one is given, anything else as a string.
+    /// </summary>
+    JsValue FormDataEntryValue(IJsRealm realm, JsValue value, string? filename);
+
+    /// <summary>The empty, nameless <c>application/octet-stream</c> file of a file input with nothing chosen.</summary>
+    JsValue EmptyEntryFile(IJsRealm realm);
+
+    /// <summary>The name of <paramref name="value"/>, a file, or <see langword="null"/>.</summary>
+    string? FileNameOf(JsValue value);
+
+    /// <summary>
     /// A real <c>ReadableStream</c> over a body's text, for <c>response.body</c> and
     /// <c>request.body</c>. The interface belongs to the streams asset, not here — this seam exists
     /// so a fetch body is the same object <c>blob.stream()</c> and a page's own

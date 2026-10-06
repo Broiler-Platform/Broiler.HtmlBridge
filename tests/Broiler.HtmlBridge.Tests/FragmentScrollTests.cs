@@ -63,8 +63,27 @@ public class FragmentScrollTests
     }
 
     /// <summary>
+    /// The page hears its own scroll in the next frame, as Chromium fires it in its rendering update: one
+    /// <c>scroll</c> and one <c>scrollend</c> for two <c>scrollTo</c> calls, after the script, its microtasks
+    /// and a timer it queued -- not in the call that scrolled, which fired them synchronously before.
+    /// </summary>
+    [Fact]
+    public void APagesOwnScrollIsHeardInTheNextFrame()
+    {
+        using var session = Start(
+            "function mark(label) { at(label); show(); }" +
+            "addEventListener('scroll', function () { mark('scroll'); });" +
+            "addEventListener('scrollend', function () { mark('scrollend'); });" +
+            "scrollTo(0, 700); scrollTo(0, 900); at('after');" +
+            "Promise.resolve().then(function () { mark('microtask'); });" +
+            "setTimeout(function () { mark('timeout'); }, 0);");
+
+        Assert.Equal("after 900|microtask 900|timeout 900|scroll 900|scrollend 900", PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
+    }
+
+    /// <summary>
     /// The host reads where the page scrolled itself, and the page follows the host's scroll and hears its
-    /// <c>scroll</c> in a later task; a link into the page the host followed is the host's to scroll.
+    /// <c>scroll</c> in the next frame; a link into the page the host followed is the host's to scroll.
     /// </summary>
     [Fact]
     public void ThePageAndTheHostFollowEachOthersScroll()
@@ -75,7 +94,7 @@ public class FragmentScrollTests
         session.SettleLoadWindow();
         Assert.Equal(700, session.ViewportScroll.Y);
 
-        // The page's scroll event is a task: it has not fired when the call returns.
+        // The page's scroll event comes with the next frame: it has not fired when the call returns.
         session.ScrollViewportTo(0, 1200);
         Assert.Equal(1200, session.ViewportScroll.Y);
         Assert.DoesNotContain("scroll 1200", PageProbe.OutOf(session.CurrentHtml(), decode: true));

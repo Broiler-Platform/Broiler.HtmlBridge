@@ -1,5 +1,7 @@
 using Broiler.HtmlBridge;
 using Broiler.HtmlBridge.Dom;
+using Broiler.Net.Http;
+using Reply = Broiler.HtmlBridge.Tests.LoopbackCookieServer.Reply;
 
 namespace Broiler.HtmlBridge.Tests;
 
@@ -162,5 +164,110 @@ public class SessionHistoryTests
             Settle(
                 "setTimeout(function () { note('page ' + path() + ' ' + history.length + ' ' + JSON.stringify(history.state)); }, 50);",
                 $"<iframe srcdoc=\"&lt;script&gt;{frameScript.Replace("'", "&#39;").Replace("\"", "&quot;")}&lt;/script&gt;\"></iframe>"));
+    }
+
+    /// <summary>
+    /// A traversal puts the scroll back where its entry was left -- after <c>popstate</c>, which still sees the
+    /// scroll the traversal left -- unless the entry's <c>scrollRestoration</c> is <c>manual</c>, which leaves the scroll where it is;
+    /// the mode is each entry's own, and a value that is neither is ignored. Chromium's figures, step for step.
+    /// </summary>
+    [Fact]
+    public void ATraversalRestoresTheScroll()
+    {
+        var engine = new ScriptEngine(new DomBridgeFactory(new DomBridgeSessionOptions
+        {
+            LayoutViewFactory = () => new DeclaredBoxLayoutView(new Dictionary<string, System.Drawing.RectangleF>
+            {
+                ["root"] = new(0, 0, 1024, 5000),
+            }),
+        }));
+        using var session = engine.ExecuteInteractive(
+            ["var out = document.getElementById('out'), log = [];" +
+             "function note(entry) { log.push(entry); out.textContent = log.join('|'); }" +
+             "function later(f) { setTimeout(f, 50); }" +
+             "addEventListener('popstate', function (e) { note('popstate ' + JSON.stringify(e.state) + ' y=' + scrollY); });" +
+             "history.replaceState({ n: 0 }, '', '?r=0'); scrollTo(0, 300);" +
+             "history.pushState({ n: 1 }, '', '?r=1'); scrollTo(0, 1200);" +
+             "history.pushState({ n: 2 }, '', '?r=2'); scrollTo(0, 2000);" +
+             "history.back(); later(function () { note('after back y=' + scrollY); history.back();" +
+             "  later(function () { note('after back 2 y=' + scrollY); history.forward();" +
+             "    later(function () { note('after forward y=' + scrollY + ' ' + history.scrollRestoration);" +
+             "      history.scrollRestoration = 'manual'; history.scrollRestoration = 'bogus'; note(history.scrollRestoration);" +
+             "      scrollTo(0, 50); history.back(); later(function () { note('manual back y=' + scrollY + ' ' + history.scrollRestoration);" +
+             "        scrollTo(0, 700); history.forward(); later(function () { note('forward to manual y=' + scrollY + ' ' + history.scrollRestoration); }); }); }); }); });"],
+            [], "<html id=\"root\"><body><div id=\"out\"></div></body></html>", PageUrl)!;
+
+        Assert.Equal(
+            "popstate {\"n\":1} y=2000|after back y=1200|popstate {\"n\":0} y=1200|after back 2 y=300|" +
+            "popstate {\"n\":1} y=300|after forward y=1200 auto|manual|popstate {\"n\":0} y=50|manual back y=300 auto|" +
+            "popstate {\"n\":1} y=700|forward to manual y=700 manual",
+            PageProbe.OutOf(session!.SettleLoadWindow(), decode: true));
+    }
+
+    /// <summary>
+    /// One history for the page and its frame: the page's <c>back()</c> undoes its own push, the next the
+    /// frame's, and <c>forward()</c> redoes the frame's, each heard by the document it moves; the length counts
+    /// both (measured in Chromium).
+    /// </summary>
+    [Fact]
+    public void ThePageGoesBackThroughItsFramesEntries()
+    {
+        var log = Settle(
+            "var fw = document.getElementById('f').contentWindow;" +
+            "fw.addEventListener('popstate', function (e) { note('frame popstate ' + JSON.stringify(e.state)); });" +
+            "fw.history.pushState({ f: 1 }, ''); note('frame pushed ' + history.length);" +
+            "history.pushState({ p: 1 }, '', '?joint=1'); note('page pushed ' + history.length);" +
+            "history.back(); setTimeout(function () { history.back(); setTimeout(function () { history.forward();" +
+            "  setTimeout(function () { note('frame state ' + JSON.stringify(fw.history.state) + ' page ' + path()); }, 50); }, 50); }, 50);",
+            "<iframe id=\"f\" srcdoc=\"&lt;p&gt;frame&lt;/p&gt;\"></iframe>");
+
+        Assert.Equal(
+            "frame pushed 2|page pushed 3|popstate null /start null|frame popstate null|frame popstate {\"f\":1}|frame state {\"f\":1} page /start",
+            log);
+    }
+
+    /// <summary>A frame's entry is the window's too: the host hears it at the page's URL, and its back reaches it.</summary>
+    [Fact]
+    public void TheHostHearsTheFramesEntries()
+    {
+        using var session = Start(
+            "var fw = document.getElementById('f').contentWindow;" +
+            "fw.addEventListener('popstate', function (e) { note('frame popstate ' + JSON.stringify(e.state)); });" +
+            "fw.history.pushState({ f: 1 }, '');",
+            "<iframe id=\"f\" srcdoc=\"&lt;p&gt;frame&lt;/p&gt;\"></iframe>");
+        session.SettleLoadWindow();
+
+        Assert.Equal([new HistoryChange(HistoryChangeKind.Push, PageUrl)], session.TakeHistoryChanges());
+        Assert.True(session.TraverseHistory(-1));
+        Assert.Equal("frame popstate null", PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
+        Assert.Empty(session.TakeHistoryChanges());
+    }
+
+    /// <summary>
+    /// A frame's navigation to another document is an entry of the joint history, and going back to it loads
+    /// the document the frame left again.
+    /// </summary>
+    [Fact]
+    public void AFramesNavigationIsAnEntryToo()
+    {
+        using var server = new LoopbackCookieServer()
+            .Map("/a", new Reply(Body: "<html><body><p id=\"which\">a</p></body></html>"))
+            .Map("/b", new Reply(Body: "<html><body><p id=\"which\">b</p></body></html>"));
+        using var profile = new BrowserNetworkSession(new BrowserNetworkSessionOptions { Timeout = TimeSpan.FromSeconds(20) });
+        using var session = new ScriptEngine(new DomBridgeFactory(new DomBridgeSessionOptions { Network = profile, Cookies = profile }))
+            .ExecuteInteractive(
+                ["var out = document.getElementById('out'), log = [];" +
+                 "function note(entry) { log.push(entry); out.textContent = log.join('|'); }" +
+                 "var f = document.getElementById('f'); f.contentWindow;" +
+                 "function which() { var p = f.contentDocument && f.contentDocument.getElementById('which'); return p ? p.textContent : 'none'; }" +
+                 "note('start ' + which() + ' ' + history.length);" +
+                 "f.contentWindow.location.href = '/b';" +
+                 "setTimeout(function () { note('navigated ' + which() + ' ' + history.length); history.back();" +
+                 "  setTimeout(function () { note('back ' + which() + ' ' + history.length); }, 200); }, 200);"],
+                [], $"<!DOCTYPE html><html><body><div id=\"out\"></div><iframe id=\"f\" src=\"{server.LocalhostUrl("/a")}\"></iframe></body></html>",
+                server.LocalhostUrl("/page"))!;
+
+        Assert.Equal("start a 1|navigated b 2|back a 2", PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
+        Assert.Equal(2, server.RequestsFor("/a").Length);
     }
 }

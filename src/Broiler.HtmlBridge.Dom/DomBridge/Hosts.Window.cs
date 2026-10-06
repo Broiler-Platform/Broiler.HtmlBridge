@@ -38,6 +38,13 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
     void Dom.Features.ILocationHost.NavigatedToFragment(string fragment)
         => SetTargetFromFragment(_document, fragment);
 
+    JsValue Dom.Features.IFetchHost.FormDataEntryValue(IJsRealm realm, JsValue value, string? filename) =>
+        _blobs.AsEntryFile(realm, value, filename) ?? JsValue.String(realm.ToJsString(value));
+
+    JsValue Dom.Features.IFetchHost.EmptyEntryFile(IJsRealm realm) => _blobs.CreateEmptyEntryFile(realm);
+
+    string? Dom.Features.IFetchHost.FileNameOf(JsValue value) => _blobs.FileNameOf(value);
+
     void Dom.Features.ILocationHost.FragmentChanged(string oldUrl, string newUrl, bool replace)
         => PageFragmentChanged(oldUrl, newUrl, replace);
 

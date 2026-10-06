@@ -9,78 +9,122 @@ using static Broiler.HtmlBridge.DomBridgeUtils;
 namespace Broiler.HtmlBridge;
 
 /// <summary>
-/// A document's session history -- the entries <c>pushState</c>, <c>replaceState</c> and its fragment
-/// navigations make, and the traversals <c>back</c>, <c>forward</c> and <c>go</c> make between them -- as
-/// its <c>History</c> object shows it, with the page's reported to the host so its back and forward go
-/// through them too.
+/// The page's joint session history -- the entries <c>pushState</c>, <c>replaceState</c> and fragment
+/// navigations make in the page and in its frames, and a frame's navigations to other documents -- and the
+/// traversals <c>back</c>, <c>forward</c> and <c>go</c> make between them, as each document's <c>History</c>
+/// object shows it, reported to the host so its back and forward go through them too.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>History was a stub.</b> <c>pushState</c> stored the state and left the URL alone, so a router that
-/// pushes a path and reads <c>location.pathname</c> back read the old one; <c>history.length</c> was always
-/// one; <c>back()</c>, <c>forward()</c> and <c>go()</c> did nothing.
+/// <b>History was a stub</b>, and then one history per document: <c>pushState</c> moved its own document's
+/// URL and <c>back()</c> went back through that document's entries alone, so a page could not go back
+/// through what its frame did, and no traversal put the scroll back where it was.
 /// </para>
 /// <para>
 /// <b>As Chromium keeps it, measured.</b> <c>pushState</c> moves the document's URL -- <c>href</c>,
-/// <c>pathname</c>, <c>search</c>, <c>document.URL</c> -- at once, adds an entry and makes the state a
-/// clone of the one given; <c>replaceState</c> replaces the entry; a URL of another origin is a
+/// <c>pathname</c>, <c>search</c>, <c>document.URL</c> -- at once, adds an entry and makes the state a clone
+/// of the one given; <c>replaceState</c> replaces the entry; a URL of another origin is a
 /// <c>SecurityError</c>; neither fires an event, moves <c>:target</c> or scrolls. <c>back()</c>,
 /// <c>forward()</c> and <c>go(n)</c> traverse in a later task: the URL and the state move, <c>popstate</c>
-/// fires with the entry's state, and <c>hashchange</c> follows in a task of its own when the fragment
-/// changed; past either end they do nothing, and <c>go(0)</c> reloads.
+/// fires with the entry's state, <c>hashchange</c> follows in a task of its own when only the fragment
+/// changed, and then the scroll is put back where the entry was left -- unless the entry's
+/// <c>scrollRestoration</c> is <c>manual</c>, which is each entry's own. Past either end they do nothing,
+/// and <c>go(0)</c> reloads.
 /// </para>
 /// <para>
-/// <b>The page's history is the host's too.</b> The host keeps the window's history, of which the page's
-/// entries are a run: every push, replace and traversal the page makes is reported
-/// (<see cref="TakeHistoryChanges"/>), a traversal past the page's own entries is the host's to make, and
-/// the host's back and forward between the page's entries come here (<see cref="TraverseHistory"/>). A
-/// frame keeps a history of its own, which the host is not told about.
+/// <b>One history for the page and its frames.</b> Every entry is added at a step of the joint session
+/// history, the page's and every frame's alike, and adding one forgets every step after the current one, in
+/// every document. A traversal goes to a step: each document goes to its entry for it, and only those whose
+/// entry changed hear of it. A frame's navigation to another document is an entry too, and traversing back
+/// to it loads that document again. <c>history.length</c> counts the steps, and the window's entries
+/// around the page's.
+/// </para>
+/// <para>
+/// <b>The joint history is the host's too.</b> The host keeps the window's history, of which the page's
+/// steps are a run: every step added -- a frame's at the page's URL -- and every replace and traversal is
+/// reported (<see cref="TakeHistoryChanges"/>), a traversal past the steps is the host's to make, and the
+/// host's back and forward between them come here (<see cref="TraverseHistory"/>).
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
 {
-    /// <summary>One entry of a document's session history: its URL, and the state its push or replace gave it.</summary>
-    private sealed record HistoryEntry(string Url, JsValue State);
-
-    /// <summary>A document's session history: the page's, or a frame's.</summary>
-    private sealed class DocumentHistory(DocumentUrl url, DomElement? frame)
+    /// <summary>
+    /// One entry of a document's session history: its URL, the state its push or replace gave it, the joint
+    /// step it was added at, which of its frame's documents it is in, and where its document was scrolled when
+    /// it was left, which a traversal back to it restores unless the page asked it not to.
+    /// </summary>
+    private sealed class HistoryEntry(string url, JsValue state, int step, int document)
     {
-        public DocumentUrl Url { get; } = url;
+        public string Url { get; } = url;
 
-        /// <summary>The frame whose document this is, or null for the page.</summary>
-        public DomElement? Frame { get; } = frame;
+        public JsValue State { get; } = state;
 
-        public List<HistoryEntry> Entries { get; } = [new(url.Href, JsValue.Null)];
+        public int Step { get; } = step;
+
+        public int Document { get; } = document;
+
+        public (double X, double Y) Scroll { get; set; }
+
+        public bool ManualScrollRestoration { get; set; }
+
+        /// <summary>This entry with another URL and state, as a replace leaves it.</summary>
+        public HistoryEntry Replaced(string url, JsValue state, int? document = null) =>
+            new(url, state, Step, document ?? Document) { Scroll = Scroll, ManualScrollRestoration = ManualScrollRestoration };
+    }
+
+    /// <summary>The session history of the page, or of a frame across the documents it shows.</summary>
+    private sealed class DocumentHistory
+    {
+        public DocumentHistory(DocumentUrl url, DomElement? frame, int step)
+        {
+            Url = url;
+            Frame = frame;
+            Entries.Add(new HistoryEntry(url.Href, JsValue.Null, step, 0));
+        }
+
+        /// <summary>The URL of the document shown, which its Location shares.</summary>
+        public DocumentUrl Url { get; set; }
+
+        /// <summary>The frame whose documents these are, or null for the page.</summary>
+        public DomElement? Frame { get; }
+
+        public List<HistoryEntry> Entries { get; } = [];
 
         public int Index { get; set; }
 
-        /// <summary>The entries of the window's history before and after this document's, which only the host knows.</summary>
+        /// <summary>Which of the frame's documents is shown, as its entries number them.</summary>
+        public int Document { get; set; }
+
+        /// <summary>The entries of the window's history before and after the page's, which only the host knows.</summary>
         public int Before { get; set; }
 
         public int After { get; set; }
 
         public JsValue Object { get; set; }
+
+        public HistoryEntry Current => Entries[Index];
     }
 
-    /// <summary>
-    /// <c>history.length</c>, which in a frame is the page's too: the window's entries -- the page's own and
-    /// those around them -- and every entry a frame added (Chromium, measured).
-    /// </summary>
-    private int JointHistoryLength
+    /// <summary>How a frame's next document enters its history: a new entry, in place of the current one, or as the entry a traversal went to.</summary>
+    private enum FrameHistoryHandling
     {
-        get
-        {
-            var length = _pageHistory is { } page ? page.Before + page.Entries.Count + page.After : 1;
-            foreach (var frame in _frameHistories.Values)
-                length += frame.Entries.Count - 1;
-            return length;
-        }
+        Push,
+        Replace,
+        Traverse,
     }
+
+    /// <summary><c>history.length</c>, the page's and a frame's alike: the joint history's steps and the window's entries around them (Chromium, measured).</summary>
+    private int JointHistoryLength => (_pageHistory is { } page ? page.Before + page.After : 0) + _lastStep + 1;
 
     private DocumentUrl? _pageDocumentUrl;
     private DocumentHistory? _pageHistory;
     private readonly Dictionary<DomElement, DocumentHistory> _frameHistories = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<DomElement, FrameHistoryHandling> _frameHistoryLoads = new(ReferenceEqualityComparer.Instance);
     private readonly List<HistoryChange> _historyChanges = [];
+
+    // The joint session history's step the documents are at, and its last.
+    private int _currentStep;
+    private int _lastStep;
 
     // The host is navigating the page to a fragment itself, so it has its entry already.
     private bool _hostNavigatingToFragment;
@@ -88,7 +132,7 @@ public sealed partial class DomBridge
     /// <summary>The page's document URL as it is now -- moved by its fragment navigations and its pushState.</summary>
     private string CurrentPageUrl => _pageHistory?.Url.Href ?? _pageUrl;
 
-    /// <summary>What the page's history did that the host has not taken yet, oldest first, and forgets it.</summary>
+    /// <summary>What the joint history did that the host has not taken yet, oldest first, and forgets it.</summary>
     public IReadOnlyList<HistoryChange> TakeHistoryChanges()
     {
         var changes = _historyChanges.ToArray();
@@ -110,36 +154,76 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// The host's back or forward by <paramref name="delta"/> entries, when the entry it reaches is one of
-    /// the page's own: the page traverses to it, with its <c>popstate</c>. Answers whether it was, and so
-    /// whether the page did; the host loads anything else itself.
+    /// The host's back or forward by <paramref name="delta"/> entries, when the entry it reaches is one of the
+    /// page's steps: the documents traverse to it, with their <c>popstate</c>. Answers whether it was, and so
+    /// whether they did; the host loads anything else itself.
     /// </summary>
     public bool TraverseHistory(int delta)
     {
-        if (_realm is null || _pageHistory is not { } history)
+        if (_realm is null || _pageHistory is null)
             return false;
 
-        var target = history.Index + delta;
-        if (delta == 0 || target < 0 || target >= history.Entries.Count)
+        var target = _currentStep + delta;
+        if (delta == 0 || target < 0 || target > _lastStep)
             return false;
 
-        TraverseTo(history, target, report: false);
+        TraverseToStep(target, report: false);
         return true;
     }
 
-    /// <summary>Builds the page's <c>History</c> over its document URL.</summary>
+    /// <summary>Builds the page's <c>History</c> over its document URL, at the first step.</summary>
     private JsValue BuildPageHistory(DocumentUrl url)
     {
-        _pageHistory = new DocumentHistory(url, frame: null);
+        _currentStep = _lastStep = 0;
+        _pageHistory = new DocumentHistory(url, frame: null, step: 0);
         return _pageHistory.Object = BuildHistoryObject(_pageHistory);
     }
 
-    /// <summary>A frame's <c>History</c>, over the URL its Location shows.</summary>
+    /// <summary>
+    /// A frame's <c>History</c>, over the URL its Location shows. The frame's first document starts its
+    /// history at the current step; a later one is an entry of it -- a new one, the current one replaced, or
+    /// the one a traversal went to -- so that going back reaches the documents it showed before.
+    /// </summary>
     internal JsValue FrameHistory(DomElement container, DocumentUrl url)
     {
-        var history = new DocumentHistory(url, container);
-        _frameHistories[container] = history;
+        if (_frameHistories.TryGetValue(container, out var history) && container.IsConnected)
+        {
+            history.Url = url;
+            switch (_frameHistoryLoads.Remove(container, out var handling) ? handling : FrameHistoryHandling.Replace)
+            {
+                case FrameHistoryHandling.Push:
+                    PushEntry(history, url.Href, JsValue.Null, newDocument: true);
+                    _historyChanges.Add(new HistoryChange(HistoryChangeKind.Push, CurrentPageUrl));
+                    break;
+
+                case FrameHistoryHandling.Replace:
+                    history.Entries[history.Index] = history.Current.Replaced(url.Href, JsValue.Null, ++history.Document);
+                    break;
+
+                case FrameHistoryHandling.Traverse:
+                    // The traversal moved the history to the entry already; this document is that entry's.
+                    break;
+            }
+        }
+        else
+        {
+            history = new DocumentHistory(url, container, _currentStep);
+            _frameHistories[container] = history;
+            _frameHistoryLoads.Remove(container);
+        }
+
         return history.Object = BuildHistoryObject(history);
+    }
+
+    /// <summary>A frame is about to leave its document: the entry it leaves keeps where it was scrolled, and the next document comes in as <paramref name="handling"/> says.</summary>
+    private void NoteFrameNavigation(DomElement container, FrameHistoryHandling handling)
+    {
+        if (!_frameHistories.TryGetValue(container, out var history))
+            return;
+
+        if (handling != FrameHistoryHandling.Traverse)
+            SaveScroll(history);
+        _frameHistoryLoads[container] = handling;
     }
 
     /// <summary>The <c>History</c> of the document whose script is running: a frame's, or the page's.</summary>
@@ -160,8 +244,17 @@ public sealed partial class DomBridge
         var realm = Realm;
         var obj = realm.NewObject();
         realm.DefineAccessor(obj, "length", (in _) => JsValue.Number(JointHistoryLength), null);
-        realm.DefineAccessor(obj, "state", (in _) => history.Entries[history.Index].State, null);
-        realm.DefineValue(obj, "scrollRestoration", JsValue.String("auto"));
+        realm.DefineAccessor(obj, "state", (in _) => history.Current.State, null);
+        realm.DefineAccessor(obj, "scrollRestoration",
+            (in _) => JsValue.String(history.Current.ManualScrollRestoration ? "manual" : "auto"),
+            (in call) =>
+            {
+                // An enumeration: any other value is ignored.
+                var value = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+                if (value is "auto" or "manual")
+                    history.Current.ManualScrollRestoration = value == "manual";
+                return JsValue.Undefined;
+            });
         realm.DefineMethod(obj, "pushState", 2, (in call) => AddHistoryEntry(history, in call, replace: false, "pushState"));
         realm.DefineMethod(obj, "replaceState", 2, (in call) => AddHistoryEntry(history, in call, replace: true, "replaceState"));
         realm.DefineMethod(obj, "back", 0, (in _) => Go(history, -1));
@@ -195,26 +288,57 @@ public sealed partial class DomBridge
         }
 
         if (replace)
-        {
-            history.Entries[history.Index] = new HistoryEntry(newUrl, state);
-        }
+            history.Entries[history.Index] = history.Current.Replaced(newUrl, state);
         else
-        {
-            PushEntry(history, new HistoryEntry(newUrl, state));
-        }
+            PushEntry(history, newUrl, state);
 
         history.Url.Set(newUrl);
-        if (history.Frame is null)
-            _historyChanges.Add(new HistoryChange(replace ? HistoryChangeKind.Replace : HistoryChangeKind.Push, newUrl));
+        ReportEntry(history, replace);
         return JsValue.Undefined;
     }
 
-    private static void PushEntry(DocumentHistory history, HistoryEntry entry)
+    /// <summary>Tells the host of an entry added or replaced: the page's at its URL, a frame's added one at the page's.</summary>
+    private void ReportEntry(DocumentHistory history, bool replace)
     {
-        history.Entries.RemoveRange(history.Index + 1, history.Entries.Count - history.Index - 1);
-        history.Entries.Add(entry);
+        if (history.Frame is null)
+            _historyChanges.Add(new HistoryChange(replace ? HistoryChangeKind.Replace : HistoryChangeKind.Push, history.Url.Href));
+        else if (!replace)
+            _historyChanges.Add(new HistoryChange(HistoryChangeKind.Push, CurrentPageUrl));
+    }
+
+    /// <summary>
+    /// Adds <paramref name="history"/> an entry at a new step of the joint history, every document forgetting
+    /// what came after the current step first; the entry left keeps where its document was scrolled -- a
+    /// frame's leaving its document kept that before the document went (<see cref="NoteFrameNavigation"/>).
+    /// </summary>
+    private void PushEntry(DocumentHistory history, string url, JsValue state, bool newDocument = false)
+    {
+        if (!newDocument)
+            SaveScroll(history);
+
+        foreach (var each in AllHistories())
+        {
+            each.Entries.RemoveAll(entry => entry.Step > _currentStep);
+            each.Index = Math.Min(each.Index, each.Entries.Count - 1);
+        }
+
+        if (_pageHistory is { } page)
+            page.After = 0;
+
+        _lastStep = ++_currentStep;
+        if (newDocument)
+            history.Document++;
+        history.Entries.Add(new HistoryEntry(url, state, _currentStep, history.Document));
         history.Index = history.Entries.Count - 1;
-        history.After = 0;
+    }
+
+    /// <summary>The page's history and its frames', the page's first.</summary>
+    private IEnumerable<DocumentHistory> AllHistories()
+    {
+        if (_pageHistory is { } page)
+            yield return page;
+        foreach (var frame in _frameHistories.Values)
+            yield return frame;
     }
 
     /// <summary>
@@ -265,23 +389,23 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// A fragment navigation of <paramref name="history"/>'s document: an entry for its new URL, or -- for
-    /// <c>location.replace</c> -- the current one replaced, both without state; the page's reported to the
-    /// host unless the host started it.
+    /// <c>location.replace</c> -- the current one replaced, both without state; reported to the host unless the
+    /// host started it.
     /// </summary>
     private void NoteFragmentNavigation(DocumentHistory history, string newUrl, bool replace)
     {
         if (replace)
-            history.Entries[history.Index] = new HistoryEntry(newUrl, JsValue.Null);
+            history.Entries[history.Index] = history.Current.Replaced(newUrl, JsValue.Null);
         else
-            PushEntry(history, new HistoryEntry(newUrl, JsValue.Null));
+            PushEntry(history, newUrl, JsValue.Null);
 
-        if (history.Frame is null && !_hostNavigatingToFragment)
-            _historyChanges.Add(new HistoryChange(replace ? HistoryChangeKind.Replace : HistoryChangeKind.Push, newUrl));
+        if (history.Frame is not null || !_hostNavigatingToFragment)
+            ReportEntry(history, replace);
     }
 
     /// <summary>
-    /// <c>back()</c>, <c>forward()</c> and <c>go(delta)</c>: a traversal by <paramref name="delta"/> in a later
-    /// task -- among the document's own entries here, past them the host's to make; <c>go(0)</c> reloads.
+    /// <c>back()</c>, <c>forward()</c> and <c>go(delta)</c>: a traversal by <paramref name="delta"/> steps in a
+    /// later task -- among the joint history's steps here, past them the host's to make; <c>go(0)</c> reloads.
     /// </summary>
     private JsValue Go(DocumentHistory history, int delta)
     {
@@ -300,15 +424,15 @@ public sealed partial class DomBridge
             if (_realm is null || (history.Frame is { } frameContainer && !ReferenceEquals(GetContentDocument(frameContainer), document)))
                 return;
 
-            var target = history.Index + delta;
-            if (target >= 0 && target < history.Entries.Count)
+            var target = _currentStep + delta;
+            if (target >= 0 && target <= _lastStep)
             {
-                TraverseTo(history, target, report: true);
+                TraverseToStep(target, report: true);
             }
-            else if (history.Frame is null && target >= -history.Before && target < history.Entries.Count + history.After)
+            else if (_pageHistory is { } page && target >= -page.Before && target <= _lastStep + page.After)
             {
                 // Another document's entry: the host loads it.
-                _historyChanges.Add(new HistoryChange(HistoryChangeKind.TraverseAway, history.Url.Href, delta));
+                _historyChanges.Add(new HistoryChange(HistoryChangeKind.TraverseAway, CurrentPageUrl, delta));
             }
         });
 
@@ -316,35 +440,82 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Moves <paramref name="history"/> to its entry <paramref name="target"/>: the URL and the state move,
-    /// the element its fragment names is the target, <c>popstate</c> fires with the state, and
-    /// <c>hashchange</c> follows in a task when the fragment changed.
+    /// Moves the joint history to <paramref name="step"/>: each document goes to its entry for that step --
+    /// the last one added at or before it -- and those whose entry changed traverse; the host hears of it
+    /// when the page asked.
     /// </summary>
-    private void TraverseTo(DocumentHistory history, int target, bool report)
+    private void TraverseToStep(int step, bool report)
     {
-        var delta = target - history.Index;
+        var from = _currentStep;
+        _currentStep = step;
+        foreach (var history in AllHistories().ToArray())
+        {
+            if (history.Frame is { IsConnected: false })
+                continue;
+
+            var index = Math.Max(0, history.Entries.FindLastIndex(entry => entry.Step <= step));
+            if (index != history.Index)
+                TraverseDocument(history, index);
+        }
+
+        if (report)
+            _historyChanges.Add(new HistoryChange(HistoryChangeKind.Traverse, CurrentPageUrl, step - from));
+    }
+
+    /// <summary>
+    /// Moves <paramref name="history"/> to its entry <paramref name="index"/>. An entry of the document shown:
+    /// the URL and the state move, the element its fragment names is the target, <c>popstate</c> fires with
+    /// the state, <c>hashchange</c> follows in a task when only the fragment changed, and the scroll goes back
+    /// to where the entry was left. An entry of another of a frame's documents: that document loads again.
+    /// </summary>
+    private void TraverseDocument(DocumentHistory history, int index)
+    {
+        var entry = history.Entries[index];
+        if (history.Frame is { } frame && entry.Document != history.Document)
+        {
+            SaveScroll(history);
+            history.Index = index;
+            history.Document = entry.Document;
+            RequestFrameNavigation(frame, new NavigationRequest(entry.Url, NavigationKind.Replace), history: FrameHistoryHandling.Traverse);
+            return;
+        }
+
+        SaveScroll(history);
         var oldUrl = history.Url.Href;
         var oldFragment = history.Url.Fragment;
-        history.Index = target;
-        var entry = history.Entries[target];
+        history.Index = index;
         history.Url.Set(entry.Url);
 
-        var document = history.Frame is { } frame ? GetContentDocument(frame) : _document;
+        var document = history.Frame is { } container ? GetContentDocument(container) : _document;
         if (document is not null)
             SetTargetFromFragment(document, history.Url.Fragment);
-
-        if (report && history.Frame is null)
-            _historyChanges.Add(new HistoryChange(HistoryChangeKind.Traverse, entry.Url, delta));
 
         // hashchange only between two entries of one URL but for the fragment: Chromium fires none for a
         // traversal that moves the path too (measured).
         var fragmentChanged = !string.Equals(oldFragment, history.Url.Fragment, StringComparison.Ordinal) &&
                               string.Equals(WithoutFragment(oldUrl), WithoutFragment(entry.Url), StringComparison.Ordinal);
-        if (history.Frame is { } container)
-            FireFrameHistoryEvents(container, entry.State, fragmentChanged ? (oldUrl, entry.Url) : null);
+        if (history.Frame is { } framed)
+            FireFrameHistoryEvents(framed, entry.State, fragmentChanged ? (oldUrl, entry.Url) : null);
         else
             FirePageHistoryEvents(entry.State, fragmentChanged ? (oldUrl, entry.Url) : null);
+
+        // After popstate, which still sees the scroll the traversal left (measured).
+        if (!entry.ManualScrollRestoration && DocumentRootOf(history) is { } root)
+            SetElementScrollOffsetsWithBehavior(root, entry.Scroll.X, entry.Scroll.Y, behavior: "instant");
     }
+
+    /// <summary>The current entry of <paramref name="history"/> keeps where its document is scrolled.</summary>
+    private void SaveScroll(DocumentHistory history)
+    {
+        if (DocumentRootOf(history) is { } root)
+            history.Current.Scroll = (GetElementScrollOffset(root, vertical: false), GetElementScrollOffset(root, vertical: true));
+    }
+
+    /// <summary>The root element of the document <paramref name="history"/> shows, if it is there.</summary>
+    private DomElement? DocumentRootOf(DocumentHistory history) =>
+        history.Frame is { } frame
+            ? GetContentDocument(frame) is { } content ? ChildElements(content).FirstOrDefault(static child => !child.TagName.StartsWith('#')) : null
+            : DocumentElement;
 
     private static string WithoutFragment(string url)
     {
@@ -357,7 +528,9 @@ public sealed partial class DomBridge
         _pageDocumentUrl = null;
         _pageHistory = null;
         _frameHistories.Clear();
+        _frameHistoryLoads.Clear();
         _historyChanges.Clear();
+        _currentStep = _lastStep = 0;
         _hostNavigatingToFragment = false;
     }
 }

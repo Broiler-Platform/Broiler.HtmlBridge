@@ -128,7 +128,7 @@ internal sealed partial class FetchBinding
            || (value >= (byte)'0' && value <= (byte)'9')
            || value is (byte)'*' or (byte)'-' or (byte)'.' or (byte)'_';
 
-    private static string EncodeFormComponent(string value)
+    internal static string EncodeFormComponent(string value)
     {
         var bytes = Encoding.UTF8.GetBytes(value);
         var builder = new StringBuilder(bytes.Length);
@@ -160,23 +160,33 @@ internal sealed partial class FetchBinding
     /// <c>delete</c> made to it through <paramref name="onEdit"/> -- what a form's submission hands its
     /// <c>formdata</c> listeners, so what they change can reach the host's entry list.
     /// </summary>
-    internal JsValue CreateFormData(IJsRealm realm, IEnumerable<KeyValuePair<string, string>> entries, Action<FormDataEdit>? onEdit) =>
-        CreateFormDataObject(realm, default, entries, onEdit);
+    internal JsValue CreateFormData(IJsRealm realm, IEnumerable<FormEntry> entries, Action<FormDataEdit>? onEdit) =>
+        CreateFormDataObject(realm, default,
+            entries.Select(entry => new KeyValuePair<string, JsValue>(entry.Name, entry.IsFile ? _host.EmptyEntryFile(realm) : JsValue.String(entry.Value))),
+            onEdit);
 
     // A FormData built from a <form> reads that form's entry list through the host, which is what
     // `new FormData(form)` means. It used to enumerate the wrapper's own string properties
     // instead, so it produced the element object's members — tagName, innerHTML and the rest —
     // rather than the form's fields.
+    // Each entry's value is a string or a file (a blob a page appended, or a file input's), as a browser's is.
     private JsValue CreateFormDataObject(IJsRealm realm, JsValue initValue = default,
-        IEnumerable<KeyValuePair<string, string>>? initialEntries = null, Action<FormDataEdit>? onEdit = null)
+        IEnumerable<KeyValuePair<string, JsValue>>? initialEntries = null, Action<FormDataEdit>? onEdit = null)
     {
         var formDataObject = realm.NewObject();
-        var entries = new List<KeyValuePair<string, string>>(initialEntries ?? []);
+        var entries = new List<KeyValuePair<string, JsValue>>(initialEntries ?? []);
 
-        void AppendEntry(string name, string value)
-            => entries.Add(new KeyValuePair<string, string>(name, value));
+        void AppendEntry(string name, JsValue value)
+            => entries.Add(new KeyValuePair<string, JsValue>(name, value));
 
-        void SetEntry(string name, string value)
+        // What a host replaying a listener's change submits for the value: a string, or a file's name,
+        // which is what a URL-encoded submission sends for a file.
+        string EditValue(JsValue value) => value.IsString ? value.AsString! : _host.FileNameOf(value) ?? string.Empty;
+
+        JsValue EntryValue(in JsCall call) =>
+            _host.FormDataEntryValue(call.Realm, call[1], call.Length > 2 && !call[2].IsUndefined ? call.Realm.ToJsString(call[2]) : null);
+
+        void SetEntry(string name, JsValue value)
         {
             var firstIndex = -1;
             for (var i = 0; i < entries.Count; i++)
@@ -187,7 +197,7 @@ internal sealed partial class FetchBinding
                 if (firstIndex < 0)
                 {
                     firstIndex = i;
-                    entries[i] = new KeyValuePair<string, string>(name, value);
+                    entries[i] = new KeyValuePair<string, JsValue>(name, value);
                 }
                 else
                 {
@@ -197,7 +207,7 @@ internal sealed partial class FetchBinding
             }
 
             if (firstIndex < 0)
-                entries.Add(new KeyValuePair<string, string>(name, value));
+                entries.Add(new KeyValuePair<string, JsValue>(name, value));
         }
 
         if (!initValue.IsNullish)
@@ -205,7 +215,7 @@ internal sealed partial class FetchBinding
             if (initValue.IsObject)
             {
                 foreach (var (key, value) in EnumerateObjectStringEntries(realm, initValue))
-                    AppendEntry(key, value);
+                    AppendEntry(key, JsValue.String(value));
             }
             else
             {
@@ -217,7 +227,7 @@ internal sealed partial class FetchBinding
                         var separatorIndex = segment.IndexOf('=');
                         var rawName = separatorIndex >= 0 ? segment[..separatorIndex] : segment;
                         var rawValue = separatorIndex >= 0 ? segment[(separatorIndex + 1)..] : string.Empty;
-                        AppendEntry(DecodeFormComponent(rawName), DecodeFormComponent(rawValue));
+                        AppendEntry(DecodeFormComponent(rawName), JsValue.String(DecodeFormComponent(rawValue)));
                     }
                 }
             }
@@ -226,9 +236,9 @@ internal sealed partial class FetchBinding
         {
             if (call.Length >= 2)
             {
-                var (name, value) = (call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+                var (name, value) = (call.Realm.ToJsString(call[0]), EntryValue(in call));
                 AppendEntry(name, value);
-                onEdit?.Invoke(new FormDataEdit(FormDataEditKind.Append, name, value));
+                onEdit?.Invoke(new FormDataEdit(FormDataEditKind.Append, name, EditValue(value)));
             }
 
             return JsValue.Undefined;
@@ -255,7 +265,7 @@ internal sealed partial class FetchBinding
                 foreach (var entry in entries)
                 {
                     realm.Invoke(callback, callback,
-                        [JsValue.String(entry.Value), JsValue.String(entry.Key), formDataObject]);
+                        [entry.Value, JsValue.String(entry.Key), formDataObject]);
                 }
             }
 
@@ -270,7 +280,7 @@ internal sealed partial class FetchBinding
             foreach (var entry in entries)
             {
                 if (string.Equals(entry.Key, name, StringComparison.Ordinal))
-                    return JsValue.String(entry.Value);
+                    return entry.Value;
             }
 
             return JsValue.Null;
@@ -285,7 +295,7 @@ internal sealed partial class FetchBinding
             foreach (var entry in entries)
             {
                 if (string.Equals(entry.Key, name, StringComparison.Ordinal))
-                    result.Add(JsValue.String(entry.Value));
+                    result.Add(entry.Value);
             }
 
             return call.Realm.NewArray([.. result]);
@@ -303,9 +313,9 @@ internal sealed partial class FetchBinding
         {
             if (call.Length >= 2)
             {
-                var (name, value) = (call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+                var (name, value) = (call.Realm.ToJsString(call[0]), EntryValue(in call));
                 SetEntry(name, value);
-                onEdit?.Invoke(new FormDataEdit(FormDataEditKind.Set, name, value));
+                onEdit?.Invoke(new FormDataEdit(FormDataEditKind.Set, name, EditValue(value)));
             }
 
             return JsValue.Undefined;
@@ -315,7 +325,7 @@ internal sealed partial class FetchBinding
         // entries(), keys(), values() and the iterator: what `for (const [name, value] of formData)`,
         // Object.fromEntries(formData) and new URLSearchParams(formData) read. They did not exist, so
         // each of those threw or saw nothing.
-        JsValue Iterate(IJsRealm callRealm, Func<KeyValuePair<string, string>, JsValue> select)
+        JsValue Iterate(IJsRealm callRealm, Func<KeyValuePair<string, JsValue>, JsValue> select)
         {
             var array = callRealm.NewArray([.. entries.Select(select)]);
             return callRealm.Invoke(callRealm.GetProperty(array, "values"), array);
@@ -324,17 +334,17 @@ internal sealed partial class FetchBinding
         realm.DefineMethod(formDataObject, "entries", 0, (in call) =>
         {
             var callRealm = call.Realm;
-            return Iterate(callRealm, entry => callRealm.NewArray([JsValue.String(entry.Key), JsValue.String(entry.Value)]));
+            return Iterate(callRealm, entry => callRealm.NewArray([JsValue.String(entry.Key), entry.Value]));
         });
         realm.DefineMethod(formDataObject, "keys", 0, (in call) => Iterate(call.Realm, static entry => JsValue.String(entry.Key)));
-        realm.DefineMethod(formDataObject, "values", 0, (in call) => Iterate(call.Realm, static entry => JsValue.String(entry.Value)));
+        realm.DefineMethod(formDataObject, "values", 0, (in call) => Iterate(call.Realm, static entry => entry.Value));
         if (_formDataIterable.IsFunction)
             realm.Invoke(_formDataIterable, JsValue.Undefined, [formDataObject]);
         realm.DefineMethod(
             formDataObject,
             "toString",
             0,
-            (in _) => JsValue.String(string.Join("&", entries.Select(static entry => $"{EncodeFormComponent(entry.Key)}={EncodeFormComponent(entry.Value)}"))));
+            (in _) => JsValue.String(string.Join("&", entries.Select(entry => $"{EncodeFormComponent(entry.Key)}={EncodeFormComponent(EditValue(entry.Value))}"))));
 
         return formDataObject;
     }

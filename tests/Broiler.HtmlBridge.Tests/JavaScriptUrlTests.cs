@@ -99,8 +99,8 @@ public class JavaScriptUrlTests
     {
         using var server = new LoopbackCookieServer();
         server.Map("/same", new Reply(Body:
-            "<html><body><a id='link' target='_top' href=\"javascript:document.getElementById('out').textContent += '|same-link-to-page'\">link</a><script>" +
-            "top.location.href = \"javascript:document.getElementById('out').textContent += '|same-to-page'\";" +
+            "<html><body><a id='link' target='_top' href=\"javascript:void (document.getElementById('out').textContent += '|same-link-to-page')\">link</a><script>" +
+            "top.location.href = \"javascript:void (document.getElementById('out').textContent += '|same-to-page')\";" +
             "document.getElementById('link').click();</script></body></html>"));
         server.Map("/other", new Reply(Body: "<html><body><p>other</p></body></html>"));
 
@@ -175,6 +175,29 @@ public class JavaScriptUrlTests
 
         Assert.Equal("replace SecurityError|link clicked", PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
         Assert.Null(session.TakePendingNavigation());
+    }
+
+    /// <summary>
+    /// What a <c>javascript:</c> URL's script answers, when it is a string, is a document: a frame's replaces
+    /// the frame's at the URL it shows, its scripts running, and the page's is handed to the host to show at
+    /// the page's URL, its entry replaced (measured in Chromium). Anything else replaces nothing.
+    /// </summary>
+    [Fact]
+    public void AStringResultIsTheDocument()
+    {
+        using var session = Start(
+            "var f = document.getElementById('f'); f.contentWindow;" +
+            "f.addEventListener('load', function () { var p = f.contentDocument.querySelector('p');" +
+            "  if (p && p.textContent === 'replaced') note(p.textContent + ' at ' + f.contentWindow.location.href); });" +
+            "f.contentWindow.location.href = \"javascript:'<p>replaced</p><script>parent.note(\\\"script ran\\\")</script>'\";" +
+            "location.href = \"javascript:'<h1>page</h1>'\"; location.href = 'javascript:void 0'; location.href = 'javascript:42';",
+            body: "<iframe id=\"f\" srcdoc=\"&lt;p&gt;first&lt;/p&gt;\"></iframe>");
+
+        Assert.Equal("script ran|replaced at about:srcdoc", PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
+        var pending = session.TakePendingNavigation();
+        Assert.Equal(NavigationKind.Replace, pending?.Kind);
+        Assert.Equal(PageUrl, pending!.Url);
+        Assert.Equal("<h1>page</h1>", pending.Document);
     }
 
     /// <summary>A Content-Security-Policy that does not allow inline script refuses a <c>javascript:</c> URL.</summary>

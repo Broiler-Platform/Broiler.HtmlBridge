@@ -152,6 +152,13 @@ public sealed record NavigationRequest(string Url, NavigationKind Kind, TimeSpan
     public IReadOnlyList<FormDataEdit> FormDataEdits { get; init; } = [];
 
     /// <summary>
+    /// The document a <c>javascript:</c> URL's script answered with: a string, which replaces the page's
+    /// document at <see cref="Url"/>, the page's own, and leaves its history entry as it is (HTML "navigate
+    /// to a javascript: URL"). A host shows it without fetching anything.
+    /// </summary>
+    public string? Document { get; init; }
+
+    /// <summary>
     /// The document that started the navigation, as its request context, or <see langword="null"/>
     /// when no document is known.
     /// </summary>

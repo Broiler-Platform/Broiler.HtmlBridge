@@ -339,6 +339,40 @@ public sealed partial class DomBridge : IDialogHost
 
     bool IDialogHost.HasOpenAttribute(DomElement element) => HasAttr(element, "open");
 
+    bool IDialogHost.IsDialogModal(DomElement element) => IsModalDialog(element);
+
+    bool IDialogHost.FireDialogEvent(DomElement element, string type, bool cancelable, string? oldState, string? newState)
+    {
+        var realm = Realm;
+        var evt = NewTrustedEvent(realm, type, bubbles: false, cancelable, composed: false,
+            InterfacePrototype(realm, oldState is null ? "Event" : "ToggleEvent"));
+        if (oldState is not null)
+        {
+            Define(realm, evt, "oldState", JsValue.String(oldState));
+            Define(realm, evt, "newState", JsValue.String(newState ?? string.Empty));
+        }
+
+        return DispatchKeyboardEvent(element, evt);
+    }
+
+    void IDialogHost.QueueDialogTask(Action task) => _eventLoop.QueueTask(() =>
+    {
+        if (_realm is not null)
+            task();
+    });
+
+    void IDialogHost.QueueDialogFrameAction(Action action) => QueueFrameAction(() =>
+    {
+        if (_realm is not null)
+            action();
+    });
+
+    JsValue IDialogHost.RunAsScriptCall(Func<JsValue> call) => RunAsScriptCall(call);
+
+    /// <summary>Whether <paramref name="element"/> is a dialog open as a modal one.</summary>
+    private bool IsModalDialog(DomElement element) =>
+        HasAttr(element, "open") && DialogStateFor(element).Modal is { IsSet: true, Value: true };
+
     void IDialogHost.AssignNextTopLayerOrder(DomElement element) =>
         DialogStateFor(element).TopLayerOrder.Set(++_topLayerCounter);
 

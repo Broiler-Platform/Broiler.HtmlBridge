@@ -128,8 +128,8 @@ public class FormDataEventTests
     }
 
     /// <summary>
-    /// A submission into a frame is not one the host can perform, and a script's into a new window is
-    /// stopped as a pop-up: neither navigates the page.
+    /// A submission into a frame is the frame's to load (FrameSubmissionTests), and a script's into a new
+    /// window is stopped as a pop-up: neither navigates the page.
     /// </summary>
     [Fact]
     public void ASubmissionIntoAnotherBrowsingContextLeavesThePageAlone()
@@ -139,6 +139,31 @@ public class FormDataEventTests
 
         var (_, blank) = Run("$('bf').submit()");
         Assert.Null(blank);
+    }
+
+    /// <summary>
+    /// A file input with nothing chosen is an empty, nameless <c>application/octet-stream</c> file in its
+    /// form's entry list, as Chromium has it; a blob a page appends is a <c>File</c>, named <c>blob</c> or as
+    /// the page says; and the host replays a listener's file as its name, what a URL-encoded submission sends.
+    /// </summary>
+    [Fact]
+    public void FilesAreFileEntries()
+    {
+        var (log, pending) = Run(
+            "var form = document.createElement('form'); form.action = '/files';" +
+            "form.innerHTML = '<input type=\"file\" name=\"up\"><input name=\"q\" value=\"v\">'; document.body.appendChild(form);" +
+            "function describe(v) { return typeof v === 'string' ? v : (v instanceof File) + ' ' + JSON.stringify(v.name) + ' ' + v.type + ' ' + v.size; }" +
+            "var fd = new FormData(form); log.push(describe(fd.get('up')));" +
+            "fd.append('b', new Blob(['xy'], { type: 'text/plain' })); log.push(describe(fd.get('b')));" +
+            "fd.append('n', new Blob(['z']), 'named.txt'); log.push(describe(fd.get('n')));" +
+            "fd.set('s', 5); log.push(describe(fd.get('s')));" +
+            "form.addEventListener('formdata', function (e) { e.formData.append('att', new Blob(['x']), 'a.txt'); log.push(describe(e.formData.get('up'))); });" +
+            "form.submit()");
+
+        Assert.Equal(
+            "true \"\" application/octet-stream 0|true \"blob\" text/plain 2|true \"named.txt\"  1|5|true \"\" application/octet-stream 0",
+            log);
+        Assert.Equal([new FormDataEdit(FormDataEditKind.Append, "att", "a.txt")], pending!.FormDataEdits);
     }
 
     /// <summary>A <c>FormData</c> is iterable: <c>entries()</c>, <c>keys()</c>, <c>values()</c> and <c>for…of</c>.</summary>

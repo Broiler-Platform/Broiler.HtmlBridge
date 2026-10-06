@@ -79,7 +79,7 @@ internal sealed class SubWindowBinding(
         // Event constructors.
         "Event", "CustomEvent", "MouseEvent", "FocusEvent", "KeyboardEvent",
         "WheelEvent", "UIEvent", "MessageChannel", "PointerEvent", "InputEvent", "CompositionEvent",
-        "SubmitEvent", "FormDataEvent", "PopStateEvent", "HashChangeEvent",
+        "SubmitEvent", "FormDataEvent", "PopStateEvent", "HashChangeEvent", "ToggleEvent",
 
         // Fundamental objects and their namespaces.
         "Object", "Function", "Boolean", "Symbol", "Math", "JSON", "Reflect",

@@ -239,12 +239,12 @@ public sealed partial class DomBridge
     /// an <c>&lt;input type=submit&gt;</c> — submits only as <paramref name="submitter"/>, in its place in
     /// tree order: a button its <c>value</c> or nothing, a submit input its <c>value</c> or its label
     /// "Submit", an image button <c>name.x</c> and <c>name.y</c> (<c>x</c> and <c>y</c> without a name) at
-    /// <paramref name="imagePoint"/> (Chromium, measured). A file input submits nothing because this engine
-    /// has no file selection; the host adds the files its pickers chose.
+    /// <paramref name="imagePoint"/> (Chromium, measured). A file input with nothing chosen submits an empty,
+    /// nameless file, as Chromium's does; the files a host's picker chose are the host's to add.
     /// </remarks>
-    internal List<KeyValuePair<string, string>> BuildFormEntryList(DomElement form, DomElement? submitter = null, (int X, int Y) imagePoint = default)
+    internal List<Dom.Features.FormEntry> BuildFormEntryList(DomElement form, DomElement? submitter = null, (int X, int Y) imagePoint = default)
     {
-        var entries = new List<KeyValuePair<string, string>>();
+        var entries = new List<Dom.Features.FormEntry>();
         foreach (var control in CollectFormControlsIncludingCustom(form))
         {
             if (Broiler.Dom.Html.HtmlFormQueries.IsFormControlDisabled(control))
@@ -257,7 +257,7 @@ public sealed partial class DomBridge
             if (_customElements?.IsFormAssociated(control) == true)
             {
                 if (_elementInternals?.SubmissionEntriesFor(control, name) is { } custom)
-                    entries.AddRange(custom);
+                    entries.AddRange(custom.Select(static entry => new Dom.Features.FormEntry(entry.Key, entry.Value)));
                 continue;
             }
 
@@ -294,7 +294,7 @@ public sealed partial class DomBridge
     }
 
     /// <summary>The submitter's own entries: <c>name.x</c>/<c>name.y</c> for an image button, its name and value otherwise.</summary>
-    private static void AppendSubmitterEntries(List<KeyValuePair<string, string>> entries, DomElement submitter, string name, (int X, int Y) imagePoint)
+    private static void AppendSubmitterEntries(List<Dom.Features.FormEntry> entries, DomElement submitter, string name, (int X, int Y) imagePoint)
     {
         var isInput = submitter.TagName.Equals("input", StringComparison.OrdinalIgnoreCase);
         if (isInput && InputTypeOf(submitter) == "image")
@@ -312,7 +312,7 @@ public sealed partial class DomBridge
         entries.Add(new(name, TryGetAttribute(submitter, "value", out var value) ? value : isInput ? "Submit" : string.Empty));
     }
 
-    private void AppendInputEntry(List<KeyValuePair<string, string>> entries, DomElement input, string name)
+    private void AppendInputEntry(List<Dom.Features.FormEntry> entries, DomElement input, string name)
     {
         var type = TryGetAttribute(input, "type", out var declaredType)
             ? AsciiToLower(declaredType)
@@ -320,7 +320,11 @@ public sealed partial class DomBridge
 
         switch (type)
         {
-            case "submit" or "reset" or "button" or "image" or "file":
+            case "submit" or "reset" or "button" or "image":
+                return;
+
+            case "file":
+                entries.Add(new(name, string.Empty, IsFile: true));
                 return;
 
             case "checkbox" or "radio":

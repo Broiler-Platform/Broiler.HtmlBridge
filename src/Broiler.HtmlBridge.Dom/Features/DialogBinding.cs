@@ -22,6 +22,11 @@ internal sealed class DialogBinding(IDialogHost host)
 {
     private readonly IDialogHost _host = host;
 
+    // The toggle event each dialog has queued and not fired yet: HTML's "queue a dialog toggle event task"
+    // keeps one per dialog, its first old state and its last new state (measured: show() and close() in
+    // one task fire a single toggle, closed -> closed).
+    private readonly Dictionary<DomElement, (string OldState, string NewState)> _pendingToggles = new(ReferenceEqualityComparer.Instance);
+
     /// <summary>
     /// Fullscreen's <c>Element.requestFullscreen()</c> and its <c>webkit</c> alias — on
     /// <c>Element.prototype</c>, since the Fullscreen API extends <c>Element</c> rather than any tag
@@ -62,9 +67,18 @@ internal sealed class DialogBinding(IDialogHost host)
 
         if (tag == "dialog")
         {
-            realm.DefineMethod(obj, "showModal", 0, (in _) => ShowModal(element));
-            realm.DefineMethod(obj, "show", 0, (in _) => Show(element));
+            realm.DefineMethod(obj, "showModal", 0, (in call) => ShowModal(element, call.Realm));
+            realm.DefineMethod(obj, "show", 0, (in call) => Show(element, call.Realm));
             realm.DefineMethod(obj, "close", 1, (in call) => Close(element, in call));
+            realm.DefineMethod(obj, "requestClose", 1, (in call) =>
+            {
+                string? returnValue = call.Length > 0 && !call[0].IsUndefined ? call.Realm.ToJsString(call[0]) : null;
+                return _host.RunAsScriptCall(() =>
+                {
+                    RequestClose(element, returnValue);
+                    return JsValue.Undefined;
+                });
+            });
             realm.DefineAccessor(obj, "open",
                 (in _) => JsValue.Boolean(_host.HasOpenAttribute(element)),
                 (in call) => SetOpenState(element, in call));
@@ -145,20 +159,93 @@ internal sealed class DialogBinding(IDialogHost host)
         return ResolvedPromise();
     }
 
-    private JsValue ShowModal(DomElement element)
+    /// <summary>
+    /// <c>showModal()</c>, as HTML and Chromium have it (measured): an <c>InvalidStateError</c> for a dialog
+    /// open as a non-modal one or out of a document, nothing for one already modal; otherwise a cancelable
+    /// <c>beforetoggle</c>, then the dialog opens in the top layer and its <c>toggle</c> follows as a task.
+    /// </summary>
+    private JsValue ShowModal(DomElement element, IJsRealm realm)
     {
-        _host.SetOpenAttribute(element, true);
-        _host.SetDialogModal(element, true);
-        _host.AssignNextTopLayerOrder(element);
-        _host.InvalidateStyleScope(element);
-        return JsValue.Undefined;
+        if (_host.HasOpenAttribute(element))
+        {
+            if (_host.IsDialogModal(element))
+                return JsValue.Undefined;
+
+            throw realm.DomError("InvalidStateError",
+                "Failed to execute 'showModal' on 'HTMLDialogElement': The dialog is already open as a non-modal dialog, and therefore cannot be opened as a modal dialog.");
+        }
+
+        if (!element.IsConnected)
+            throw realm.DomError("InvalidStateError", "Failed to execute 'showModal' on 'HTMLDialogElement': The element is not in a Document.");
+
+        return _host.RunAsScriptCall(() =>
+        {
+            if (!_host.FireDialogEvent(element, "beforetoggle", cancelable: true, "closed", "open") || _host.HasOpenAttribute(element))
+                return JsValue.Undefined;
+
+            QueueToggleEvent(element, "closed", "open");
+            _host.SetOpenAttribute(element, true);
+            _host.SetDialogModal(element, true);
+            _host.AssignNextTopLayerOrder(element);
+            _host.InvalidateStyleScope(element);
+            return JsValue.Undefined;
+        });
     }
 
-    private JsValue Show(DomElement element)
+    /// <summary>
+    /// <c>show()</c>: an <c>InvalidStateError</c> for a dialog open as a modal one, nothing for one already
+    /// open; otherwise a cancelable <c>beforetoggle</c>, then the dialog opens and its <c>toggle</c> follows.
+    /// A dialog out of a document opens too (measured).
+    /// </summary>
+    private JsValue Show(DomElement element, IJsRealm realm)
     {
-        _host.SetOpenAttribute(element, true);
-        _host.InvalidateStyleScope(element);
-        return JsValue.Undefined;
+        if (_host.HasOpenAttribute(element))
+        {
+            if (!_host.IsDialogModal(element))
+                return JsValue.Undefined;
+
+            throw realm.DomError("InvalidStateError",
+                "Failed to execute 'show' on 'HTMLDialogElement': The dialog is already open as a modal dialog, and therefore cannot be opened as a non-modal dialog.");
+        }
+
+        return _host.RunAsScriptCall(() =>
+        {
+            if (!_host.FireDialogEvent(element, "beforetoggle", cancelable: true, "closed", "open") || _host.HasOpenAttribute(element))
+                return JsValue.Undefined;
+
+            QueueToggleEvent(element, "closed", "open");
+            _host.SetOpenAttribute(element, true);
+            _host.InvalidateStyleScope(element);
+            return JsValue.Undefined;
+        });
+    }
+
+    /// <summary>
+    /// A dialog's close request -- <c>requestClose()</c>, or Escape on a modal dialog: a cancelable
+    /// <c>cancel</c>, then, unless that is cancelled, the dialog closes (measured).
+    /// </summary>
+    internal void RequestClose(DomElement element, string? returnValue)
+    {
+        if (!_host.HasOpenAttribute(element) || !_host.FireDialogEvent(element, "cancel", cancelable: true))
+            return;
+
+        CloseDialog(element, returnValue);
+    }
+
+    private void QueueToggleEvent(DomElement element, string oldState, string newState)
+    {
+        if (_pendingToggles.TryGetValue(element, out var pending))
+        {
+            _pendingToggles[element] = (pending.OldState, newState);
+            return;
+        }
+
+        _pendingToggles[element] = (oldState, newState);
+        _host.QueueDialogTask(() =>
+        {
+            if (_pendingToggles.Remove(element, out var toggle))
+                _host.FireDialogEvent(element, "toggle", cancelable: false, toggle.OldState, toggle.NewState);
+        });
     }
 
     // showPopover() promotes the element to the top layer (so its ::backdrop renders), modeled with
@@ -188,20 +275,37 @@ internal sealed class DialogBinding(IDialogHost host)
     /// <summary>
     /// Closes <paramref name="element"/> with <paramref name="returnValue"/>, as <c>close(returnValue)</c>
     /// does -- what a <c>method="dialog"</c> form's submission does to its dialog; a null result leaves the
-    /// <c>returnValue</c> as it was.
+    /// <c>returnValue</c> as it was. A closed dialog stays as it is. Otherwise <c>beforetoggle</c> fires
+    /// first, <c>toggle</c> follows as a task and <c>close</c> with the next animation frame, where
+    /// Chromium fires it (measured: a hidden page, which draws no frames, never hears it).
     /// </summary>
     internal void CloseDialog(DomElement element, string? returnValue)
     {
-        if (!_host.DialogKeepsDisplayOnClose(element))
-            _host.SetOpenAttribute(element, false);
-        if (!_host.DialogKeepsOverlayOnClose(element))
-            _host.SetDialogModal(element, false);
-        if (returnValue is not null)
-            _host.SetReturnValue(element, returnValue);
-        _host.InvalidateStyleScope(element);
+        if (!_host.HasOpenAttribute(element))
+            return;
+
+        _host.FireDialogEvent(element, "beforetoggle", cancelable: false, "open", "closed");
+        if (!_host.HasOpenAttribute(element))
+            return;
+
+        QueueToggleEvent(element, "open", "closed");
+        CloseNow(element, returnValue);
+        _host.QueueDialogFrameAction(() => _host.FireDialogEvent(element, "close", cancelable: false));
     }
 
     private JsValue Close(DomElement element, in JsCall call)
+    {
+        // ToJsString, not the handle's rendering: `close(obj)` stores what the object's own
+        // toString answers, which is the coercion a page observes on `dialog.returnValue`.
+        string? returnValue = call.Length > 0 ? call.Realm.ToJsString(call[0]) : null;
+        return _host.RunAsScriptCall(() =>
+        {
+            CloseDialog(element, returnValue);
+            return JsValue.Undefined;
+        });
+    }
+
+    private void CloseNow(DomElement element, string? returnValue)
     {
         // CSS Position §overlay: closing a dialog whose `overlay` is transitioned with
         // `transition-behavior: allow-discrete` keeps it in the top layer for the transition's
@@ -219,12 +323,9 @@ internal sealed class DialogBinding(IDialogHost host)
             _host.SetOpenAttribute(element, false);
         if (!_host.DialogKeepsOverlayOnClose(element))
             _host.SetDialogModal(element, false);
-        if (call.Length > 0)
-            // ToJsString, not the handle's rendering: `close(obj)` stores what the object's own
-            // toString answers, which is the coercion a page observes on `dialog.returnValue`.
-            _host.SetReturnValue(element, call.Realm.ToJsString(call[0]));
+        if (returnValue is not null)
+            _host.SetReturnValue(element, returnValue);
         _host.InvalidateStyleScope(element);
-        return JsValue.Undefined;
     }
 
     private JsValue SetReturnValue(DomElement element, in JsCall call)

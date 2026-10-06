@@ -1,4 +1,5 @@
 using Broiler.Dom;
+using Broiler.HtmlBridge.Dom;
 using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 using Broiler.Net.Http;
@@ -20,8 +21,9 @@ namespace Broiler.HtmlBridge;
 /// <para>
 /// <b>As Chromium runs it, measured.</b> In a later task -- after the script that asked, its microtasks
 /// and a <c>setTimeout(…, 0)</c> it queued first -- in the document's own realm, as its script, under its
-/// Content-Security-Policy, which must allow inline script. A string result replaces the document in
-/// Chromium; here it does not, which is logged.
+/// Content-Security-Policy, which must allow inline script. A string result is a document, which replaces
+/// the one the URL ran in at its URL, the history entry staying -- <c>javascript:x.textContent = 'y'</c>
+/// included, whose assignment answers a string.
 /// </para>
 /// <para>
 /// <b>Only for a script of the document's own origin</b> (HTML: the navigation's initiator must be same
@@ -82,10 +84,7 @@ public sealed partial class DomBridge
                 {
                     var result = Realm.EvaluateClassicScript(source, "javascript-url");
                     if (result.IsString)
-                    {
-                        RenderLogger.LogDebug(LogCategory.JavaScript, "DomBridge.javascript-url",
-                            "A javascript: URL answered a string, which does not replace the document here");
-                    }
+                        ReplaceDocumentWith(frame, result.AsString!);
                 }
                 catch (Exception ex)
                 {
@@ -103,6 +102,22 @@ public sealed partial class DomBridge
     }
 
     /// <summary>The script of a <c>javascript:</c> URL: what follows the scheme, percent-decoded.</summary>
+    /// <summary>
+    /// Replaces the document a <c>javascript:</c> URL ran in with <paramref name="html"/>, what its script
+    /// answered: the page's through the host, a frame's here; at the URL each shows, as Chromium does (measured).
+    /// </summary>
+    private void ReplaceDocumentWith(DomElement? frame, string html)
+    {
+        if (frame is null)
+        {
+            RequestNavigation(new NavigationRequest(CurrentPageUrl, NavigationKind.Replace) { Document = html, Initiator = TopDocumentContext });
+            return;
+        }
+
+        var url = _browsingContexts.TryGetLocation(frame, out var location) ? location : "about:blank";
+        RequestFrameNavigation(frame, new NavigationRequest(url, NavigationKind.Replace), html: html);
+    }
+
     private static string ScriptOf(string url)
     {
         var encoded = url.TrimStart()["javascript:".Length..];

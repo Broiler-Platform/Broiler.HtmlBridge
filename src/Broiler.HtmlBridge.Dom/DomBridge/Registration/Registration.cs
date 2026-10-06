@@ -559,6 +559,15 @@ public sealed partial class DomBridge
                     return evt;
                 }
 
+                function ToggleEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('ToggleEvent');
+                    evt.initEvent(type, options.bubbles === true, options.cancelable === true);
+                    evt.oldState = options.oldState !== undefined ? String(options.oldState) : '';
+                    evt.newState = options.newState !== undefined ? String(options.newState) : '';
+                    return evt;
+                }
+
                 function HashChangeEvent(type, options) {
                     options = options || {};
                     var evt = document.createEvent('HashChangeEvent');
@@ -589,6 +598,7 @@ public sealed partial class DomBridge
                     inherit(FormDataEvent, Event);
                     inherit(PopStateEvent, Event);
                     inherit(HashChangeEvent, Event);
+                    inherit(ToggleEvent, Event);
                     Object.defineProperty(PointerEvent.prototype, 'getCoalescedEvents', {
                         value: function getCoalescedEvents() { return []; }, writable: true, configurable: true
                     });

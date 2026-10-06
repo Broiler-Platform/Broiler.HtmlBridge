@@ -112,6 +112,11 @@ public sealed partial class DomBridge
             case "Enter" when focused is not null:
                 return Enter(input, focused);
 
+            case "Escape" when TopmostModalDialog(GetOwningDocument(target)) is { } dialog:
+                // A modal dialog's close request: cancel, then it closes (measured); a non-modal one stays.
+                _dialogs.RequestClose(dialog, returnValue: null);
+                return new KeyboardInputResult(true, false) { Handled = true };
+
             case " " when focused is not null && ActivatedBySpace(focused):
                 // Space clicks the control when it comes up; until then the control is :active.
                 _spaceArmed = focused;
@@ -121,6 +126,13 @@ public sealed partial class DomBridge
 
         return new KeyboardInputResult(true, false);
     }
+
+    /// <summary>The modal dialog of <paramref name="document"/> last put in the top layer, or null.</summary>
+    private DomElement? TopmostModalDialog(DomDocument document) =>
+        document.Descendants().OfType<DomElement>()
+            .Where(element => element.TagName.Equals("dialog", StringComparison.OrdinalIgnoreCase) && IsModalDialog(element))
+            .OrderByDescending(element => DialogStateFor(element).TopLayerOrder.Value)
+            .FirstOrDefault();
 
     private KeyboardInputResult KeyUp(KeyboardInput input, DomElement target)
     {

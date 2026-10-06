@@ -201,8 +201,8 @@ public sealed partial class DomBridge
                     ScrollStateFor(element).Left.Set(targetLeft);
                     ScrollStateFor(element).Top.Set(targetTop);
                     NotifyVisualViewportScrollIfNeeded(queuedPreviousVisualPageLeft, queuedPreviousVisualPageTop, trackVisualViewport);
-                    DispatchScrollEventIfNeeded(element, queuedPreviousLeft, queuedPreviousTop);
-                    DispatchScrollEndEventIfNeeded(element, queuedPreviousLeft, queuedPreviousTop);
+                    PendScrollEventIfMoved(element, queuedPreviousLeft, queuedPreviousTop);
+                    PendScrollEndEventIfMoved(element, queuedPreviousLeft, queuedPreviousTop);
                     _smoothScrollTokens.TryRemove(element, out _);
                 }
             });
@@ -212,15 +212,15 @@ public sealed partial class DomBridge
             ScrollStateFor(element).Left.Set(previousLeft + ((targetLeft - previousLeft) / 2.0));
             ScrollStateFor(element).Top.Set(previousTop + ((targetTop - previousTop) / 2.0));
             NotifyVisualViewportScrollIfNeeded(previousVisualPageLeft, previousVisualPageTop, trackVisualViewport);
-            DispatchScrollEventIfNeeded(element, previousLeft, previousTop);
+            PendScrollEventIfMoved(element, previousLeft, previousTop);
             return;
         }
 
         ScrollStateFor(element).Left.Set(targetLeft);
         ScrollStateFor(element).Top.Set(targetTop);
         NotifyVisualViewportScrollIfNeeded(previousVisualPageLeft, previousVisualPageTop, trackVisualViewport);
-        DispatchScrollEventIfNeeded(element, previousLeft, previousTop);
-        DispatchScrollEndEventIfNeeded(element, previousLeft, previousTop);
+        PendScrollEventIfMoved(element, previousLeft, previousTop);
+        PendScrollEndEventIfMoved(element, previousLeft, previousTop);
     }
 
     private void QueueFrameAction(Action callback) => _eventLoop.QueueFrameAction(callback);
@@ -236,9 +236,8 @@ public sealed partial class DomBridge
     /// <summary>
     /// The user scrolled the host's view of the page to (<paramref name="x"/>, <paramref name="y"/>): the
     /// page's viewport follows, clamped to what it can scroll, and the page hears <c>scroll</c> and
-    /// <c>scrollend</c> in a later task -- one pair however many moves come before it, as a browser fires a
-    /// user's scroll in its next frame. Nothing of the page's runs in the call, which a host makes as it
-    /// draws.
+    /// <c>scrollend</c> in the next frame -- one pair however many moves come before it, as a browser fires
+    /// a user's scroll. Nothing of the page's runs in the call, which a host makes as it draws.
     /// </summary>
     internal void ScrollViewportTo(double x, double y)
     {
@@ -252,47 +251,78 @@ public sealed partial class DomBridge
 
         ScrollStateFor(root).Left.Set(left);
         ScrollStateFor(root).Top.Set(top);
-        if (_viewportScrollEventQueued)
-            return;
-
-        _viewportScrollEventQueued = true;
-        _eventLoop.QueueTask(() =>
-        {
-            _viewportScrollEventQueued = false;
-            if (_realm is null || DocumentElement is not { } scrolled)
-                return;
-
-            foreach (var type in (ReadOnlySpan<string>)["scroll", "scrollend"])
-            {
-                DispatchElementEvent(scrolled, type);
-                DispatchViewportScrollEventToWindow(scrolled, type);
-            }
-        });
+        PendScrollEvent(_pendingScrollTargets, root);
+        PendScrollEvent(_pendingScrollEndTargets, root);
     }
 
-    // Whether the scroll events of a host's scroll are queued and not fired yet.
-    private bool _viewportScrollEventQueued;
+    // The elements whose scroll position changed, and those whose scrolling ended, since the last frame, each
+    // once and in the order it first did: HTML's "pending scroll event targets" and CSSOM View's scrollend
+    // targets. The next frame fires scroll at the one and then scrollend at the other ("run the scroll
+    // steps"), as Chromium does in its rendering update -- not in the call that scrolled.
+    private readonly List<DomElement> _pendingScrollTargets = [];
+    private readonly List<DomElement> _pendingScrollEndTargets = [];
+    private bool _scrollStepsQueued;
+
+    private void PendScrollEvent(List<DomElement> targets, DomElement element)
+    {
+        if (!targets.Contains(element))
+            targets.Add(element);
+
+        if (_scrollStepsQueued)
+            return;
+
+        _scrollStepsQueued = true;
+        QueueFrameAction(RunScrollSteps);
+    }
+
+    private void ResetScrollSteps()
+    {
+        _pendingScrollTargets.Clear();
+        _pendingScrollEndTargets.Clear();
+        _scrollStepsQueued = false;
+    }
+
+    private void RunScrollSteps()
+    {
+        _scrollStepsQueued = false;
+        var scrolled = _pendingScrollTargets.ToArray();
+        var ended = _pendingScrollEndTargets.ToArray();
+        _pendingScrollTargets.Clear();
+        _pendingScrollEndTargets.Clear();
+        if (_realm is null)
+            return;
+
+        foreach (var element in scrolled)
+        {
+            DispatchElementEvent(element, "scroll");
+            DispatchViewportScrollEventToWindow(element, "scroll");
+        }
+
+        foreach (var element in ended)
+        {
+            DispatchElementEvent(element, "scrollend");
+            DispatchViewportScrollEventToWindow(element, "scrollend");
+        }
+    }
 
     private void CancelSmoothScroll(DomElement element) => _smoothScrollTokens.TryRemove(element, out _);
 
-    private void DispatchScrollEventIfNeeded(DomElement element, double previousLeft, double previousTop)
+    private void PendScrollEventIfMoved(DomElement element, double previousLeft, double previousTop)
     {
         if (AreClose(previousLeft, GetElementScrollOffset(element, vertical: false)) &&
             AreClose(previousTop, GetElementScrollOffset(element, vertical: true)))
             return;
 
-        DispatchElementEvent(element, "scroll");
-        DispatchViewportScrollEventToWindow(element, "scroll");
+        PendScrollEvent(_pendingScrollTargets, element);
     }
 
-    private void DispatchScrollEndEventIfNeeded(DomElement element, double previousLeft, double previousTop)
+    private void PendScrollEndEventIfMoved(DomElement element, double previousLeft, double previousTop)
     {
         if (AreClose(previousLeft, GetElementScrollOffset(element, vertical: false)) &&
             AreClose(previousTop, GetElementScrollOffset(element, vertical: true)))
             return;
 
-        DispatchElementEvent(element, "scrollend");
-        DispatchViewportScrollEventToWindow(element, "scrollend");
+        PendScrollEvent(_pendingScrollEndTargets, element);
     }
 
     /// <summary>

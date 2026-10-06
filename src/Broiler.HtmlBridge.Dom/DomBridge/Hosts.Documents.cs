@@ -531,6 +531,8 @@ public sealed partial class DomBridge : Dom.Features.IIframeElementHost
     // last took it.
     void Dom.Features.IIframeElementHost.InvalidateCachedSubDocument(DomElement element)
     {
+        // Another document for the frame: a new entry of the joint history, as a navigation is.
+        NoteFrameNavigation(element, FrameHistoryHandling.Push);
         ForgetFrameNavigation(element);
         InvalidateCachedSubDocument(element);
     }

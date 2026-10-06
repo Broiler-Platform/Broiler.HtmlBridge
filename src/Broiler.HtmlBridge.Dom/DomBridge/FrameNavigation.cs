@@ -43,8 +43,16 @@ public sealed partial class DomBridge
     /// <summary>How many times in a row a frame's own script may have it load the URL it shows.</summary>
     private const int MaxFrameSelfReloads = 3;
 
-    /// <summary>Where a frame was navigated to, and by which document's script.</summary>
-    private sealed record FrameNavigationTarget(string Url, DocumentRequestContext Initiator);
+    /// <summary>
+    /// Where a frame was navigated to, by which document's script, with what body when it was a <c>post</c>,
+    /// and with what document when a <c>javascript:</c> URL's script answered one (<see cref="Html"/>).
+    /// </summary>
+    private sealed record FrameNavigationTarget(
+        string Url, DocumentRequestContext Initiator, FrameRequestBody? Body = null, string? Html = null,
+        FrameHistoryHandling History = FrameHistoryHandling.Push);
+
+    /// <summary>What a <c>method="post"</c> submission into a frame sends (DomBridge/FrameSubmission.cs).</summary>
+    private sealed record FrameRequestBody(byte[] Content, string ContentType);
 
     private readonly Dictionary<DomElement, FrameNavigationTarget> _frameNavigations = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<DomElement, int> _frameNavigationGenerations = new(ReferenceEqualityComparer.Instance);
@@ -75,6 +83,14 @@ public sealed partial class DomBridge
         url = string.Empty;
         return false;
     }
+
+    /// <summary>The body <paramref name="container"/>'s frame was navigated with: a submission's <c>post</c>.</summary>
+    private FrameRequestBody? FrameNavigationBody(DomElement container) =>
+        _frameNavigations.TryGetValue(container, out var navigation) ? navigation.Body : null;
+
+    /// <summary>The document <paramref name="container"/>'s frame was navigated to by a <c>javascript:</c> URL's string, if it was.</summary>
+    private string? FrameNavigationDocument(DomElement container) =>
+        _frameNavigations.TryGetValue(container, out var navigation) ? navigation.Html : null;
 
     /// <summary>The document whose script navigated <paramref name="container"/>'s frame, when it was navigated.</summary>
     private DocumentRequestContext? FrameNavigationInitiator(DomElement container) =>
@@ -113,8 +129,16 @@ public sealed partial class DomBridge
     }
 
     /// <summary>Queues the navigation of <paramref name="container"/>'s frame to what <paramref name="request"/> names.</summary>
-    private void RequestFrameNavigation(DomElement container, NavigationRequest request)
+    private void RequestFrameNavigation(
+        DomElement container, NavigationRequest request, FrameRequestBody? body = null, string? html = null,
+        FrameHistoryHandling? history = null)
     {
+        // A reload or a replace takes the frame's current entry, a traversal the entry it went to; anything
+        // else is a new entry of the joint history (DomBridge/SessionHistory.cs).
+        var handling = history ?? (request.Kind is NavigationKind.Reload or NavigationKind.Replace
+            ? FrameHistoryHandling.Replace
+            : FrameHistoryHandling.Push);
+
         var current = _browsingContexts.TryGetLocation(container, out var location) ? location : null;
         var url = request.Kind == NavigationKind.Reload ? current : request.Url;
         if (string.IsNullOrWhiteSpace(url))
@@ -129,7 +153,8 @@ public sealed partial class DomBridge
             return;
         }
 
-        if (ReferenceEquals(CurrentScriptFrame(), container) && IsSameDocumentUrl(url, current))
+        // A javascript: URL's document is shown at the URL the frame already shows; it is not a reload.
+        if (html is null && ReferenceEquals(CurrentScriptFrame(), container) && IsSameDocumentUrl(url, current))
         {
             var reloads = _frameSelfReloads.GetValueOrDefault(container) + 1;
             _frameSelfReloads[container] = reloads;
@@ -148,7 +173,7 @@ public sealed partial class DomBridge
         var generation = _frameNavigationGenerations.GetValueOrDefault(container) + 1;
         _frameNavigationGenerations[container] = generation;
         var initiator = CurrentScriptDocumentContext();
-        _eventLoop.QueueTask(() => NavigateFrame(container, new FrameNavigationTarget(url, initiator), generation));
+        _eventLoop.QueueTask(() => NavigateFrame(container, new FrameNavigationTarget(url, initiator, body, html, handling), generation));
     }
 
     private void NavigateFrame(DomElement container, FrameNavigationTarget target, int generation)
@@ -157,6 +182,7 @@ public sealed partial class DomBridge
         if (_frameNavigationGenerations.GetValueOrDefault(container) != generation || !container.IsConnected || _realm is null)
             return;
 
+        NoteFrameNavigation(container, target.History);
         _frameNavigations[container] = target;
         InvalidateCachedSubDocument(container);
         _browsingContexts.ClearOnloadFired(container);

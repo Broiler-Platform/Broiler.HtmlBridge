@@ -278,6 +278,23 @@ public sealed class InteractiveSession : IDisposable
         return queued;
     }
 
+    /// <summary>
+    /// The user chose the option <paramref name="optionIndex"/> of the page's select
+    /// <paramref name="selectIndex"/> -- both counted in tree order -- in a control the host draws for it:
+    /// the page's select takes the choice and hears <c>input</c> and <c>change</c>, as a user's. Answers
+    /// whether the selection changed.
+    /// </summary>
+    public bool SelectOptionByUser(int selectIndex, int optionIndex)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var changed = bridge.SelectOptionByUser(selectIndex, optionIndex);
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return changed;
+    }
+
     private KeyboardInputResult DispatchToBridge(Func<DomBridge, KeyboardInputResult> dispatch)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

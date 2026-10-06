@@ -382,7 +382,7 @@ public sealed partial class DomBridge
     {
         var hits = new List<DomElement>();
         CollectHitTestMatches(root, x, y, hits);
-        foreach (var hit in hits)
+        foreach (var hit in InPaintOrder(root, hits))
         {
             // The root's own rectangle is its viewport, which inside a frame is not where the frame is.
             if (!ReferenceEquals(hit, root))

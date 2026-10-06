@@ -114,8 +114,19 @@ public sealed partial class DomBridge
             return true;
         }
 
-        if (!SubmissionTargetsThisWindow(form, submitter))
+        var target = ResolveSubmissionTarget(form, submitter);
+        if (target.Refused)
             return false;
+
+        // A frame loads its own submissions (DomBridge/FrameSubmission.cs); the host submits the page's forms.
+        if (target.Frame is { } frame)
+        {
+            SubmitIntoFrame(frame, form, submitter, imagePoint, constructed.Edits);
+            return true;
+        }
+
+        if (GetFrameForContentDocument(GetOwningDocument(form)) is not null)
+            return SubmitFromFrameIntoPage(form, submitter, imagePoint, constructed.Edits);
 
         RequestFormSubmission(form, submitter, imagePoint, constructed.Edits);
         return true;
@@ -200,40 +211,6 @@ public sealed partial class DomBridge
         : InputTypeOf(submitter) == "image" && submitter.TagName.Equals("input", StringComparison.OrdinalIgnoreCase)
             ? $"{imagePoint.X},{imagePoint.Y}"
             : TryGetAttribute(submitter, "value", out var value) ? value : null;
-
-    /// <summary>
-    /// Whether a submission goes to this window: no target, or <c>_self</c>, <c>_top</c> or
-    /// <c>_parent</c>. A frame the target names is another browsing context, whose submission the host
-    /// cannot perform; a new window (<c>_blank</c>, or a name nothing has) is this window for the user's own
-    /// submission -- the window follows such a link in place too -- and nothing for a script's, which a
-    /// browser's pop-up blocker stops.
-    /// </summary>
-    private bool SubmissionTargetsThisWindow(DomElement form, DomElement? submitter)
-    {
-        var declared = submitter is not null && TryGetAttribute(submitter, "formtarget", out var formTarget) ? formTarget
-            : TryGetAttribute(form, "target", out var target) ? target
-            : BaseTargetOf(GetOwningDocument(form));
-        var name = declared.Trim();
-        if (name.Length == 0 || name.ToLowerInvariant() is "_self" or "_top" or "_parent")
-            return true;
-
-        var document = GetOwningDocument(form);
-        if (!name.Equals("_blank", StringComparison.OrdinalIgnoreCase) &&
-            document.Descendants().OfType<DomElement>().Any(element => IsFrameContainerElement(element) &&
-                TryGetAttribute(element, "name", out var frameName) && frameName == name))
-        {
-            RenderLogger.LogDebug(LogCategory.JavaScript, FormSubmitLogContext,
-                $"A submission into the frame \"{name}\" is not performed: only this window's are");
-            return false;
-        }
-
-        if (HasTransientActivation(document))
-            return true;
-
-        RenderLogger.LogDebug(LogCategory.JavaScript, FormSubmitLogContext,
-            $"A script's submission into another window (target=\"{name}\") opens nothing");
-        return false;
-    }
 
     /// <summary>The <c>target</c> of the document's first <c>&lt;base&gt;</c> that has one, or empty.</summary>
     private static string BaseTargetOf(DomDocument document) =>

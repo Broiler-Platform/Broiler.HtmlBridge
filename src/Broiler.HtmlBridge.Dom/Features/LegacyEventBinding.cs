@@ -67,6 +67,7 @@ internal static class LegacyEventBinding
         ["FormDataEvent"] = "FormDataEvent",
         ["PopStateEvent"] = "PopStateEvent",
         ["HashChangeEvent"] = "HashChangeEvent",
+        ["ToggleEvent"] = "ToggleEvent",
     };
 
     public static JsValue Create(in JsCall call)

@@ -207,7 +207,23 @@ public sealed partial class DomBridge
             // A frame its location navigated loads that URL, in place of its src or srcdoc, which a
             // navigation leaves as they were.
             var navigated = TryGetFrameNavigation(containerElement, out var navigatedUrl);
-            if (!navigated &&
+            if (navigated && FrameNavigationDocument(containerElement) is { } replacement)
+            {
+                // A javascript: URL's string (DomBridge/JavaScriptUrl.cs): a document at the URL the frame
+                // shows, of the origin it had. Its policy is what its scheme would give its own load -- the
+                // page's for a local one -- rather than a clone of the replaced document's; the script that
+                // made it ran in that document, so this widens nothing the frame could not already do.
+                var shown = IsHttpUrl(navigatedUrl);
+                deliveredPolicy = shown ? null : Csp;
+                _browsingContexts.SetLocation(containerElement, navigatedUrl);
+                _browsingContexts.SetBaseUrl(containerElement, shown ? navigatedUrl : GetInheritedSubDocumentBaseUrl(containerElement));
+                docRoot = BuildSubDocumentFromHtml(replacement, containerElement);
+                frameContext = CreateFrameDocumentContext(containerElement, documentUrl: shown ? navigatedUrl : null);
+                htmlToExecute = replacement;
+                executeHtmlScripts = true;
+            }
+            // A traversal back to a srcdoc frame's first document asks for about:srcdoc, which is its srcdoc again.
+            else if ((!navigated || string.Equals(navigatedUrl, "about:srcdoc", StringComparison.OrdinalIgnoreCase)) &&
                 string.Equals(containerElement.TagName, "iframe", StringComparison.OrdinalIgnoreCase) &&
                 TryGetAttribute(containerElement, "srcdoc", out var srcDoc))
             {
@@ -236,7 +252,8 @@ public sealed partial class DomBridge
                 deliveredPolicy = localScheme ? Csp : null;
 
                 var (fetchedContent, contentType, responsePolicy, documentUrl) =
-                    TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(containerElement), containerElement);
+                    TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(containerElement), containerElement,
+                        navigated ? FrameNavigationBody(containerElement) : null);
 
                 // The frame is where its response came from, not where its src pointed: after a
                 // redirect, location and the base its relative URLs resolve against are the final URL.
@@ -606,7 +623,8 @@ public sealed partial class DomBridge
     private (string? content, string contentType, ContentSecurityPolicy? policy, string? documentUrl) TryFetchSubResource(
         string resourceUrl,
         string? baseUrl,
-        DomElement container)
+        DomElement container,
+        FrameRequestBody? postBody = null)
     {
         if (string.IsNullOrWhiteSpace(resourceUrl))
             return (null, string.Empty, null, null);
@@ -682,8 +700,11 @@ public sealed partial class DomBridge
         var attempt = ResourceTrace.Begin(ResourceTraceKind.SubDocument, resolvedUrl);
         try
         {
-            using var transportResponse = _resources
-                .GetAsync(resolvedUrl, FrameNavigationRequest(container))
+            // A submission's post sends its body; anything else is a get.
+            using var request = postBody is null ? null : PostRequest(resolvedUrl, postBody);
+            using var transportResponse = (request is null
+                    ? _resources.GetAsync(resolvedUrl, FrameNavigationRequest(container))
+                    : _resources.SendAsync(request, FrameNavigationRequest(container)))
                 .GetAwaiter()
                 .GetResult();
             var response = transportResponse.Message;
