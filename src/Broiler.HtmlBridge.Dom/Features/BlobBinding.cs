@@ -322,6 +322,17 @@ internal sealed class BlobBinding
     /// nothing chosen contributes to its form's entry list (HTML "constructing the entry list"; measured
     /// in Chromium).
     /// </summary>
+    /// <summary>
+    /// A <c>File</c> of <paramref name="bytes"/> named <paramref name="name"/>: the object a file input holds
+    /// for a file the user chose in the host's picker.
+    /// </summary>
+    internal JsValue CreateFile(IJsRealm realm, byte[] bytes, string name, string type, double lastModified) =>
+        Mint(realm, new BlobData(bytes, type.ToLowerInvariant())
+        {
+            Name = name,
+            LastModified = lastModified,
+        }, file: true);
+
     internal JsValue CreateEmptyEntryFile(IJsRealm realm) =>
         Mint(realm, new BlobData([], "application/octet-stream")
         {

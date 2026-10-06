@@ -202,14 +202,15 @@ public sealed partial class DomBridge
         }
 
         if (element.TagName.Equals("select", StringComparison.OrdinalIgnoreCase) &&
-            _formState.TryGetDirtySelectedIndex(element, out var selectedIndex))
+            IsSelectHeld(element))
         {
             // The same walk the select binding selects through, so "which option is the third one"
             // has one answer rather than two that can disagree about nested optgroups.
             var options = Dom.Features.SelectBinding.CollectSelectOptions(element);
-            for (var index = 0; index < options.Count; index++)
+            var selected = _select.Selectedness(element);
+            for (var index = 0; index < options.Count && index < selected.Length; index++)
             {
-                if (index == selectedIndex)
+                if (selected[index])
                     SetAttr(options[index], "selected", string.Empty);
                 else if (HasAttr(options[index], "selected"))
                     RemoveAttr(options[index], "selected");
@@ -613,8 +614,8 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Whether a script has decided this option's selectedness, and how — <c>null</c> when it is not
-    /// an option, or when its select carries no index a script chose, in which case the authored
+    /// Whether a script or the user has decided this option's selectedness, and how — <c>null</c> when it
+    /// is not an option, or when its select is still as its markup says, in which case the authored
     /// <c>selected</c> attribute is still the answer.
     /// </summary>
     /// <remarks>
@@ -638,13 +639,12 @@ public sealed partial class DomBridge
             }
         }
 
-        if (select is null ||
-            !_formState.TryGetDirtySelectedIndex(select, out var chosen))
-        {
+        if (select is null || !IsSelectHeld(select))
             return null;
-        }
 
-        return Dom.Features.SelectBinding.CollectSelectOptions(select).IndexOf(element) == chosen;
+        var index = Dom.Features.SelectBinding.CollectSelectOptions(select).IndexOf(element);
+        var selected = _select.Selectedness(select);
+        return index >= 0 && index < selected.Length && selected[index];
     }
 
     private string? TrySerializeCurrentSrcDoc(DomElement element, DomElement? sourceElement)

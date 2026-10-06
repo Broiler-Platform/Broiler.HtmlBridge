@@ -290,7 +290,12 @@ public sealed partial class DomBridge
             // are non-clobbering, so applying them after the projection preserves the prior
             // seed-first ordering (an author `display` still wins).
             ResolveExplicitInheritedValues(props, element);
+            var declaresDisplay = props.ContainsKey("display");
             ApplyUserAgentDisplayDefaults(props, element);
+            // HTML Rendering: `[popover]:not(:popover-open):not(dialog[open]) { display: none }`, a user-agent
+            // rule an author's display still beats. Without it a closed popover was laid out in the flow.
+            if (!declaresDisplay && IsClosedPopover(element))
+                props["display"] = "none";
             ApplyUserAgentPropertyDefaults(props, element);
 
             _styleContext.SetComputedProps(element, props);

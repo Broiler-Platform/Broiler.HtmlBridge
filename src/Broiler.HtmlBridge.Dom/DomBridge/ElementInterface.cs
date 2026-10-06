@@ -439,6 +439,9 @@ public sealed partial class DomBridge
     private void InstallHtmlElementInterface(JsValue target, Dom.Features.JsElementSource element)
     {
         Dom.Features.GlobalAttributeBinding.InstallHtmlElementMembers(this, Realm, target, element);
+
+        // popover, showPopover(), hidePopover(), togglePopover() and inert (DomBridge/Popovers.cs).
+        InstallPopoverMembers(target, element);
         Dom.Features.ElementContentBinding.InstallHtmlElementMembers(Realm, target, element);
 
         // hidden and tabIndex — the two genuinely global reflectors the form-control module carries.

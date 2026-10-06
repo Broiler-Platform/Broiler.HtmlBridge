@@ -112,9 +112,13 @@ public sealed partial class DomBridge
             case "Enter" when focused is not null:
                 return Enter(input, focused);
 
-            case "Escape" when TopmostModalDialog(GetOwningDocument(target)) is { } dialog:
-                // A modal dialog's close request: cancel, then it closes (measured); a non-modal one stays.
-                _dialogs.RequestClose(dialog, returnValue: null);
+            case "Escape" when CloseRequestTarget(GetOwningDocument(target)) is { } closing:
+                // A close request goes to what opened last: an auto popover hides (measured: beforetoggle after
+                // the keydown); a modal dialog hears cancel, then closes; a non-modal one stays.
+                if (IsPopoverShowing(closing))
+                    HidePopover(closing, focusPreviousElement: true, fireEvents: true, realm: null);
+                else
+                    _dialogs.RequestClose(closing, returnValue: null);
                 return new KeyboardInputResult(true, false) { Handled = true };
 
             case " " when focused is not null && ActivatedBySpace(focused):
@@ -127,12 +131,19 @@ public sealed partial class DomBridge
         return new KeyboardInputResult(true, false);
     }
 
-    /// <summary>The modal dialog of <paramref name="document"/> last put in the top layer, or null.</summary>
-    private DomElement? TopmostModalDialog(DomDocument document) =>
-        document.Descendants().OfType<DomElement>()
-            .Where(element => element.TagName.Equals("dialog", StringComparison.OrdinalIgnoreCase) && IsModalDialog(element))
-            .OrderByDescending(element => DialogStateFor(element).TopLayerOrder.Value)
-            .FirstOrDefault();
+    /// <summary>
+    /// What a close request in <paramref name="document"/> closes: of its topmost auto popover and the modal
+    /// dialog that blocks it, the one that went into the top layer last; null for neither.
+    /// </summary>
+    private DomElement? CloseRequestTarget(DomDocument document)
+    {
+        var dialog = BlockingModalDialog(document);
+        var popover = TopmostAutoPopover(document);
+        if (dialog is null || popover is null)
+            return popover ?? dialog;
+
+        return DialogStateFor(popover).TopLayerOrder.Value > DialogStateFor(dialog).TopLayerOrder.Value ? popover : dialog;
+    }
 
     private KeyboardInputResult KeyUp(KeyboardInput input, DomElement target)
     {
@@ -363,6 +374,10 @@ public sealed partial class DomBridge
             SubmitForm(form, element);
         else if (IsResetButton(element) && FormOwnerOf(element) is { } resetForm)
             ResetForm(resetForm);
+
+        // A button's popovertarget acts after its click, as a pointer's does (DomBridge/Popovers.cs).
+        if (element.TagName.ToLowerInvariant() is "button" or "input")
+            ActivatePopoverTarget(element, element);
     }
 
     /// <summary>
@@ -433,6 +448,15 @@ public sealed partial class DomBridge
         {
             var at = backward ? index - 1 : index + 1;
             next = at >= 0 && at < order.Count ? order[at] : null;
+        }
+
+        // A modal dialog keeps focus: Tab goes round its own elements and never leaves it, and with none to go
+        // to, focus stays where it is (measured: the last one's Tab focuses the first, with no blur of the window).
+        if (next is null && BlockingModalDialog(_document) is not null)
+        {
+            if (order.Count == 0)
+                return;
+            next = backward ? order[^1] : order[0];
         }
 
         if (next is null)

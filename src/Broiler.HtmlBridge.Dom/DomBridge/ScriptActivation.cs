@@ -188,6 +188,10 @@ public sealed partial class DomBridge
         {
             FollowHyperlinkByScript(activation);
         }
+
+        // A button's popovertarget, after its form's part: a form's submit button has none (DomBridge/Popovers.cs).
+        if (activation.TagName.ToLowerInvariant() is "button" or "input")
+            ActivatePopoverTarget(activation, target);
     }
 
     /// <summary>A trusted <c>input</c> or <c>change</c> at a control a script's click changed: not cancelable, and only <c>input</c> leaves a shadow tree.</summary>

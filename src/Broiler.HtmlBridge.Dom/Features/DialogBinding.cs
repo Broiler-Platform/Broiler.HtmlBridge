@@ -4,13 +4,12 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The dialog / popover / details JS API feature binding —
-/// <c>HTMLDialogElement</c> (<c>showModal</c>/<c>show</c>/<c>close</c>/<c>open</c>/
-/// <c>returnValue</c>), the popover API (<c>showPopover</c>/<c>hidePopover</c> on any element with
-/// the global <c>popover</c> attribute) and <c>HTMLDetailsElement.open</c>. It drives the element's
-/// <c>open</c> attribute and the modal/popover/top-layer/return-value runtime state through the
+/// The dialog / details JS API feature binding —
+/// <c>HTMLDialogElement</c> (<c>showModal</c>/<c>show</c>/<c>close</c>/<c>requestClose</c>/<c>open</c>/
+/// <c>returnValue</c>) and <c>HTMLDetailsElement.open</c>. It drives the element's
+/// <c>open</c> attribute and the modal/top-layer/return-value runtime state through the
 /// narrow <see cref="IDialogHost"/> contract; the backdrop/top-layer <em>rendering</em> stays in the
-/// bridge's anchor resolver.
+/// bridge's anchor resolver. The popover API is every HTML element's, and the bridge's (DomBridge/Popovers.cs).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,11 +20,6 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal sealed class DialogBinding(IDialogHost host)
 {
     private readonly IDialogHost _host = host;
-
-    // The toggle event each dialog has queued and not fired yet: HTML's "queue a dialog toggle event task"
-    // keeps one per dialog, its first old state and its last new state (measured: show() and close() in
-    // one task fire a single toggle, closed -> closed).
-    private readonly Dictionary<DomElement, (string OldState, string NewState)> _pendingToggles = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>
     /// Fullscreen's <c>Element.requestFullscreen()</c> and its <c>webkit</c> alias — on
@@ -50,11 +44,10 @@ internal sealed class DialogBinding(IDialogHost host)
     }
 
     /// <summary>
-    /// Installs the dialog/details interface members and the popover methods on
-    /// <paramref name="obj"/> for <paramref name="element"/> (by <paramref name="tag"/> for
-    /// dialog/details; by <paramref name="hasPopover"/> for the tag-agnostic popover API).
+    /// Installs the dialog/details interface members on <paramref name="obj"/> for
+    /// <paramref name="element"/>, by its <paramref name="tag"/>.
     /// </summary>
-    internal void Install(JsValue obj, DomElement element, string tag, bool hasPopover)
+    internal void Install(JsValue obj, DomElement element, string tag)
     {
         var realm = _host.Realm;
 
@@ -85,14 +78,6 @@ internal sealed class DialogBinding(IDialogHost host)
             realm.DefineAccessor(obj, "returnValue",
                 (in _) => JsValue.String(_host.GetReturnValue(element)),
                 (in call) => SetReturnValue(element, in call));
-        }
-
-        // Popover API (HTML §popover) — showPopover()/hidePopover() are exposed on any element
-        // carrying the global `popover` attribute, not tied to a tag.
-        if (hasPopover)
-        {
-            realm.DefineMethod(obj, "showPopover", 0, (in _) => ShowPopover(element));
-            realm.DefineMethod(obj, "hidePopover", 0, (in _) => HidePopover(element));
         }
     }
 
@@ -161,8 +146,9 @@ internal sealed class DialogBinding(IDialogHost host)
 
     /// <summary>
     /// <c>showModal()</c>, as HTML and Chromium have it (measured): an <c>InvalidStateError</c> for a dialog
-    /// open as a non-modal one or out of a document, nothing for one already modal; otherwise a cancelable
-    /// <c>beforetoggle</c>, then the dialog opens in the top layer and its <c>toggle</c> follows as a task.
+    /// open as a non-modal one, showing as a popover or out of a document, nothing for one already modal;
+    /// otherwise a cancelable <c>beforetoggle</c>, then the dialog opens in the top layer, the auto popovers
+    /// it is not in close, focus moves into it and its <c>toggle</c> follows as a task.
     /// </summary>
     private JsValue ShowModal(DomElement element, IJsRealm realm)
     {
@@ -175,6 +161,10 @@ internal sealed class DialogBinding(IDialogHost host)
                 "Failed to execute 'showModal' on 'HTMLDialogElement': The dialog is already open as a non-modal dialog, and therefore cannot be opened as a modal dialog.");
         }
 
+        if (_host.IsPopoverShowing(element))
+            throw realm.DomError("InvalidStateError",
+                "Failed to execute 'showModal' on 'HTMLDialogElement': The dialog is already open as a Popover, and therefore cannot be opened as a modal dialog.");
+
         if (!element.IsConnected)
             throw realm.DomError("InvalidStateError", "Failed to execute 'showModal' on 'HTMLDialogElement': The element is not in a Document.");
 
@@ -183,11 +173,13 @@ internal sealed class DialogBinding(IDialogHost host)
             if (!_host.FireDialogEvent(element, "beforetoggle", cancelable: true, "closed", "open") || _host.HasOpenAttribute(element))
                 return JsValue.Undefined;
 
-            QueueToggleEvent(element, "closed", "open");
+            _host.QueueToggleEvent(element, "closed", "open");
             _host.SetOpenAttribute(element, true);
             _host.SetDialogModal(element, true);
             _host.AssignNextTopLayerOrder(element);
             _host.InvalidateStyleScope(element);
+            _host.HidePopoversForModalDialog(element);
+            _host.RunDialogFocusingSteps(element);
             return JsValue.Undefined;
         });
     }
@@ -213,9 +205,10 @@ internal sealed class DialogBinding(IDialogHost host)
             if (!_host.FireDialogEvent(element, "beforetoggle", cancelable: true, "closed", "open") || _host.HasOpenAttribute(element))
                 return JsValue.Undefined;
 
-            QueueToggleEvent(element, "closed", "open");
+            _host.QueueToggleEvent(element, "closed", "open");
             _host.SetOpenAttribute(element, true);
             _host.InvalidateStyleScope(element);
+            _host.RunDialogFocusingSteps(element);
             return JsValue.Undefined;
         });
     }
@@ -232,52 +225,13 @@ internal sealed class DialogBinding(IDialogHost host)
         CloseDialog(element, returnValue);
     }
 
-    private void QueueToggleEvent(DomElement element, string oldState, string newState)
-    {
-        if (_pendingToggles.TryGetValue(element, out var pending))
-        {
-            _pendingToggles[element] = (pending.OldState, newState);
-            return;
-        }
-
-        _pendingToggles[element] = (oldState, newState);
-        _host.QueueDialogTask(() =>
-        {
-            if (_pendingToggles.Remove(element, out var toggle))
-                _host.FireDialogEvent(element, "toggle", cancelable: false, toggle.OldState, toggle.NewState);
-        });
-    }
-
-    // showPopover() promotes the element to the top layer (so its ::backdrop renders), modeled with
-    // the same runtime flag + top-layer order the modal-dialog path uses.
-    private JsValue ShowPopover(DomElement element)
-    {
-        _host.SetPopoverOpen(element, true);
-        _host.AssignNextTopLayerOrder(element);
-        _host.InvalidateStyleScope(element);
-        return JsValue.Undefined;
-    }
-
-    private JsValue HidePopover(DomElement element)
-    {
-        // CSS Position §overlay: hiding a popover whose `overlay` is transitioned with
-        // `transition-behavior: allow-discrete` keeps it in the top layer for the duration of the
-        // transition. A static render snapshots mid-transition, so the popover (and its ::backdrop)
-        // must stay rendered — leave the flag set. Without such a transition it hides immediately.
-        if (_host.PopoverKeepsOverlayOnHide(element))
-            _host.MarkPopoverOverlayTransitioningOut(element);
-        else
-            _host.SetPopoverOpen(element, false);
-        _host.InvalidateStyleScope(element);
-        return JsValue.Undefined;
-    }
-
     /// <summary>
     /// Closes <paramref name="element"/> with <paramref name="returnValue"/>, as <c>close(returnValue)</c>
     /// does -- what a <c>method="dialog"</c> form's submission does to its dialog; a null result leaves the
     /// <c>returnValue</c> as it was. A closed dialog stays as it is. Otherwise <c>beforetoggle</c> fires
-    /// first, <c>toggle</c> follows as a task and <c>close</c> with the next animation frame, where
-    /// Chromium fires it (measured: a hidden page, which draws no frames, never hears it).
+    /// first, focus goes back to what had it before the dialog opened, <c>toggle</c> follows as a task and
+    /// <c>close</c> with the next animation frame, where Chromium fires it (measured: a hidden page, which
+    /// draws no frames, never hears it).
     /// </summary>
     internal void CloseDialog(DomElement element, string? returnValue)
     {
@@ -288,8 +242,10 @@ internal sealed class DialogBinding(IDialogHost host)
         if (!_host.HasOpenAttribute(element))
             return;
 
-        QueueToggleEvent(element, "open", "closed");
+        var wasModal = _host.IsDialogModal(element);
+        _host.QueueToggleEvent(element, "open", "closed");
         CloseNow(element, returnValue);
+        _host.RestoreFocusAfterDialog(element, wasModal);
         _host.QueueDialogFrameAction(() => _host.FireDialogEvent(element, "close", cancelable: false));
     }
 

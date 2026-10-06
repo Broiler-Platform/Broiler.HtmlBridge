@@ -162,7 +162,10 @@ internal sealed partial class FetchBinding
     /// </summary>
     internal JsValue CreateFormData(IJsRealm realm, IEnumerable<FormEntry> entries, Action<FormDataEdit>? onEdit) =>
         CreateFormDataObject(realm, default,
-            entries.Select(entry => new KeyValuePair<string, JsValue>(entry.Name, entry.IsFile ? _host.EmptyEntryFile(realm) : JsValue.String(entry.Value))),
+            entries.Select(entry => new KeyValuePair<string, JsValue>(entry.Name,
+                !entry.IsFile ? JsValue.String(entry.Value)
+                : entry.FileObject.IsObject ? entry.FileObject
+                : _host.EmptyEntryFile(realm))),
             onEdit);
 
     // A FormData built from a <form> reads that form's entry list through the host, which is what

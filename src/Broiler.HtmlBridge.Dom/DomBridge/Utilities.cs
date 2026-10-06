@@ -125,6 +125,7 @@ public sealed partial class DomBridge
 
         // Per-bridge instance tables — each owns its CopyTo.
         _formState.CopyControlState(source, clone);
+        CopySelectState(source, clone);
         ScrollStateFor(source).CopyTo(ScrollStateFor(clone));
         DialogStateFor(source).CopyTo(DialogStateFor(clone));
         StyleSheetStateFor(source).CopyTo(StyleSheetStateFor(clone));
@@ -277,7 +278,14 @@ public sealed partial class DomBridge
                     continue;
 
                 case "select":
-                    entries.Add(new(name, _select.GetValue(control)));
+                    // Each selected option that is not disabled, in order: one for a select-one, any
+                    // number for a multiple select (measured: m=a&m=c).
+                    foreach (var option in _select.SelectedOptions(control))
+                    {
+                        if (!Broiler.Dom.Html.HtmlFormQueries.IsFormControlDisabled(option))
+                            entries.Add(new(name, _select.OptionValue(option)));
+                    }
+
                     continue;
 
                 case "textarea":
@@ -324,7 +332,11 @@ public sealed partial class DomBridge
                 return;
 
             case "file":
-                entries.Add(new(name, string.Empty, IsFile: true));
+                var chosen = ChosenFilesOf(input);
+                if (chosen.Count == 0)
+                    entries.Add(new(name, string.Empty, IsFile: true));
+                foreach (var (file, fileObject) in chosen)
+                    entries.Add(new(name, file.Name, IsFile: true) { File = file, FileObject = fileObject });
                 return;
 
             case "checkbox" or "radio":
@@ -374,6 +386,12 @@ public sealed partial class DomBridge
     internal void ResetFormControls(DomElement form)
     {
         _formState.ResetForm(form);
+        foreach (var control in CollectFormControlsIncludingCustom(form))
+        {
+            if (control.TagName.Equals("select", StringComparison.OrdinalIgnoreCase))
+                _select.Reset(control);
+        }
+
         InvalidateStyleScope(form);
 
         // Nothing of the form has been interacted with or edited any more (DomBridge/ElementStates.cs).

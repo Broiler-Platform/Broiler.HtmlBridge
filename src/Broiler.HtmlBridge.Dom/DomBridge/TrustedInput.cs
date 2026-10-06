@@ -136,6 +136,10 @@ public sealed partial class DomBridge
             if (allowed && hit.Target.IsConnected)
                 FocusForPress(hit.Target);
 
+            // Then the open auto popovers the press is not in close (light dismiss, DomBridge/Popovers.cs).
+            if (hit.Target.IsConnected)
+                LightDismissPopovers(hit.Target);
+
             return new PointerInputResult(true, !allowed);
         }
 
@@ -184,6 +188,11 @@ public sealed partial class DomBridge
                       ActivateFormButton(button, ReferenceEquals(button, clickTarget)
                           ? ((int)(input.X - clickHit.TargetLeft), (int)(input.Y - clickHit.TargetTop))
                           : default);
+
+        // A button's popovertarget shows or hides its popover once the click is dispatched (measured:
+        // beforetoggle after the click), unless it is a form's submit button (DomBridge/Popovers.cs).
+        if (allowed && ActivationElementOf(clickTarget) is { } invoker && invoker.TagName.ToLowerInvariant() is "button" or "input")
+            ActivatePopoverTarget(invoker, clickTarget);
         if (input.ClickCount == 2)
             FireInputEvent(clickHit, input, "dblclick", 2);
 

@@ -165,6 +165,12 @@ internal static class DomCollectionBinding
                 [NodeList, HTMLCollection, StyleSheetList, NamedNodeMap, FileList].forEach(function (ctor) {
                     define(ctor.prototype, 'item', item);
                     define(ctor.prototype, Symbol.iterator, values);
+                    // Web IDL's class string: Object.prototype.toString.call(select.options) is
+                    // "[object HTMLCollection]" and of input.files "[object FileList]", as in a browser,
+                    // where it was "[object Object]". Not writable, not enumerable, configurable.
+                    Object.defineProperty(ctor.prototype, Symbol.toStringTag, {
+                        value: ctor.name, writable: false, enumerable: false, configurable: true
+                    });
                 });
 
                 // NamedNodeMap's members all come from C# (see NamedNodeMapOperations): even

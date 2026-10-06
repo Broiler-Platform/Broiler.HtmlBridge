@@ -53,9 +53,13 @@ public sealed partial class DomBridge
     /// </summary>
     private List<DomElement> InPaintOrder(DomElement root, List<DomElement> hits)
     {
+        // An inert element is not hit: the point hits what is behind it, as if it had pointer-events: none
+        // (measured: the ancestor it is in, or the element under it).
+        hits = hits.FindAll(hit => ReferenceEquals(hit, root) || !HasInertAttributeAbove(hit));
+
         if (BlockingModalDialog(GetOwningDocument(root)) is { } dialog)
         {
-            hits = hits.FindAll(hit => ReferenceEquals(hit, root) || IsInclusiveAncestorOf(dialog, hit));
+            hits = hits.FindAll(hit => ReferenceEquals(hit, root) || EscapesModalInertness(hit, dialog));
             if (!hits.Contains(dialog))
                 hits.Add(dialog);
         }
@@ -98,21 +102,20 @@ public sealed partial class DomBridge
     }
 
     /// <summary>Whether <paramref name="element"/> is in the top layer: a modal dialog, a showing popover, a fullscreen element.</summary>
-    private bool IsInTopLayer(DomElement element)
-    {
-        var state = DialogStateFor(element);
-        return IsModalDialog(element) ||
-               state.PopoverOpen is { IsSet: true, Value: true } ||
-               state.Fullscreen is { IsSet: true, Value: true };
-    }
+    /// <remarks>Read without minting the element a state of its own: this is asked of every element of a document.</remarks>
+    private bool IsInTopLayer(DomElement element) =>
+        _dialogRuntimeStates.TryGetValue(element, out var state) &&
+        (state.Modal is { IsSet: true, Value: true } && HasAttr(element, "open") ||
+         state.PopoverOpen is { IsSet: true, Value: true } ||
+         state.Fullscreen is { IsSet: true, Value: true });
 
     /// <summary>The modal dialog of <paramref name="document"/> last put in the top layer -- the one that makes the rest of the document inert -- or null.</summary>
     private DomElement? BlockingModalDialog(DomDocument document)
     {
         DomElement? blocking = null;
-        foreach (var element in document.Descendants().OfType<DomElement>())
+        foreach (var element in _modalDialogs)
         {
-            if (IsModalDialog(element) &&
+            if (IsModalDialog(element) && element.IsConnected && ReferenceEquals(GetOwningDocument(element), document) &&
                 (blocking is null || DialogStateFor(element).TopLayerOrder.Value > DialogStateFor(blocking).TopLayerOrder.Value))
             {
                 blocking = element;

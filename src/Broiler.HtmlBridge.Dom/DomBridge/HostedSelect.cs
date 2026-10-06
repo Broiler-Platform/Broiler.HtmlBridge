@@ -11,12 +11,15 @@ namespace Broiler.HtmlBridge;
 /// <para>
 /// <b>The choice stayed the host's.</b> A host that draws its own list for a select records what the user
 /// picks for its submissions, and the page's select kept its old value: no <c>input</c>, no <c>change</c>,
-/// and a script reading <c>select.value</c> read the option the user had moved away from.
+/// and a script reading <c>select.value</c> read the option the user had moved away from. A multiple
+/// select took only the first option the user chose: the bridge held one selected index.
 /// </para>
 /// <para>
-/// Measured in Chromium: a user's change fires <c>input</c> -- a trusted
-/// <c>Event</c>, not an <c>InputEvent</c>, bubbling, not cancelable, the value already the new one -- then
-/// <c>change</c>, and the select matches <c>:user-valid</c> or <c>:user-invalid</c> from the <c>change</c> on.
+/// Measured in Chromium: a user's change fires <c>input</c> --
+/// a trusted <c>Event</c>, not an <c>InputEvent</c>, bubbling, not cancelable, the value already the new
+/// one -- then <c>change</c>, and the select matches <c>:user-valid</c> or <c>:user-invalid</c> from the
+/// <c>change</c> on. In a multiple select's list a click selects one option, Ctrl adds or takes away one,
+/// Shift a range, and each change that leaves the selection different fires the pair once.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -27,7 +30,16 @@ public sealed partial class DomBridge
     /// the selection changed; the option already selected, a disabled select or one that is not there changes
     /// nothing and fires nothing.
     /// </summary>
-    internal bool SelectOptionByUser(int selectIndex, int optionIndex)
+    internal bool SelectOptionByUser(int selectIndex, int optionIndex) =>
+        SelectOptionsByUser(selectIndex, [optionIndex]);
+
+    /// <summary>
+    /// The user chose exactly the options <paramref name="optionIndexes"/> of the page's select
+    /// <paramref name="selectIndex"/> -- a multiple select's whole selection -- in the host's control for it.
+    /// Answers whether the selection changed; a selection that is already the select's, a disabled select or
+    /// one that is not there changes nothing and fires nothing.
+    /// </summary>
+    internal bool SelectOptionsByUser(int selectIndex, IReadOnlyCollection<int> optionIndexes)
     {
         if (_realm is null || selectIndex < 0)
             return false;
@@ -35,10 +47,9 @@ public sealed partial class DomBridge
         var select = _document.Descendants().OfType<DomElement>()
             .Where(static element => element.TagName.Equals("select", StringComparison.OrdinalIgnoreCase))
             .ElementAtOrDefault(selectIndex);
-        if (select is null || IsDisabledFormControl(select) || _select.GetSelectedIndex(select) == optionIndex)
+        if (select is null || IsDisabledFormControl(select) || !_select.ChooseByUser(select, optionIndexes))
             return false;
 
-        _select.SetSelectedIndex(select, optionIndex);
         NoteElementStateChange();
         FireChangeNotification(select, "input", composed: true);
         if (select.IsConnected)

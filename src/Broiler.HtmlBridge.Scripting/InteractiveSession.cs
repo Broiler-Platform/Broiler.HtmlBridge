@@ -295,6 +295,57 @@ public sealed class InteractiveSession : IDisposable
         return changed;
     }
 
+    /// <summary>
+    /// The user chose exactly the options <paramref name="optionIndexes"/> of the page's select
+    /// <paramref name="selectIndex"/> -- a multiple select's whole selection, counted in tree order -- in a
+    /// control the host draws for it: the page's select takes them and hears <c>input</c> and <c>change</c>,
+    /// as a user's. Answers whether the selection changed.
+    /// </summary>
+    public bool SelectOptionsByUser(int selectIndex, IReadOnlyCollection<int> optionIndexes)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(optionIndexes);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var changed = bridge.SelectOptionsByUser(selectIndex, optionIndexes);
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return changed;
+    }
+
+    /// <summary>
+    /// The user chose <paramref name="files"/> in the host's picker for the page's file input
+    /// <paramref name="fileInputIndex"/>, counted in tree order among the page's file inputs: <c>input.files</c>
+    /// lists them, a <c>FormData</c> and the bridge's own submissions carry them, and the input hears
+    /// <c>input</c> and <c>change</c>. Answers whether the choice changed what the input held.
+    /// </summary>
+    public bool SetFilesByUser(int fileInputIndex, IReadOnlyList<ChosenFile> files)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(files);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var changed = bridge.SetFilesByUser(fileInputIndex, files);
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return changed;
+    }
+
+    /// <summary>
+    /// The user closed the host's picker for the page's file input <paramref name="fileInputIndex"/> without
+    /// choosing: the input hears <c>cancel</c>. Answers whether there was such an input to hear it.
+    /// </summary>
+    public bool CancelFilePickByUser(int fileInputIndex)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var heard = bridge.CancelFilePickByUser(fileInputIndex);
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return heard;
+    }
+
     private KeyboardInputResult DispatchToBridge(Func<DomBridge, KeyboardInputResult> dispatch)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

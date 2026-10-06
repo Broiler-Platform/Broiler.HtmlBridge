@@ -33,9 +33,12 @@ public sealed partial class DomBridge
         // HTMLFormElement interface (extracted into the co-located FormBinding module).
         _forms.Install(handle, element, tag);
 
-        // HTMLDetailsElement.open, HTMLDialogElement (showModal/show/close/open/returnValue) and the
-        // popover API (extracted into the co-located DialogBinding feature module).
-        _dialogs.Install(handle, element, tag, HasAttr(element, "popover"));
+        // HTMLDetailsElement.open and HTMLDialogElement (showModal/show/close/open/returnValue), in the
+        // co-located DialogBinding feature module. The popover API is every HTML element's, on
+        // HTMLElement.prototype (DomBridge/Popovers.cs); an invoker's two members are a button's and an input's.
+        _dialogs.Install(handle, element, tag);
+        if (tag is "button" or "input")
+            InstallPopoverInvokerMembers(handle, element);
 
         // HTMLSelectElement / HTMLOptionElement (extracted into the co-located
         // SelectBinding feature module).

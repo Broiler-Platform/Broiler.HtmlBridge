@@ -35,8 +35,26 @@ internal interface IDialogHost : IRealmHost, IStyleInvalidationHost
     /// </summary>
     bool FireDialogEvent(DomElement element, string type, bool cancelable, string? oldState = null, string? newState = null);
 
-    /// <summary>Queues <paramref name="task"/> as a task, to run after the script that is running.</summary>
-    void QueueDialogTask(Action task);
+    /// <summary>
+    /// Queues the element's <c>toggle</c> (HTML's toggle task tracker): one queued already is cancelled, its
+    /// old state kept, and the new one goes to the back of the queue.
+    /// </summary>
+    void QueueToggleEvent(DomElement element, string oldState, string newState);
+
+    /// <summary>Whether <paramref name="element"/> is a popover that is showing.</summary>
+    bool IsPopoverShowing(DomElement element);
+
+    /// <summary>Closes the open auto popovers a modal dialog that is showing is not in, with their events.</summary>
+    void HidePopoversForModalDialog(DomElement dialog);
+
+    /// <summary>
+    /// The dialog focusing steps, as Chromium takes them (measured): focus to an <c>autofocus</c> element in
+    /// the dialog, else its first focusable one, else the dialog; what had focus is remembered.
+    /// </summary>
+    void RunDialogFocusingSteps(DomElement dialog);
+
+    /// <summary>Gives focus back to what had it before the dialog opened, when focus is in it or it was modal.</summary>
+    void RestoreFocusAfterDialog(DomElement dialog, bool wasModal);
 
     /// <summary>Queues <paramref name="action"/> for the next animation frame.</summary>
     void QueueDialogFrameAction(Action action);
@@ -50,9 +68,6 @@ internal interface IDialogHost : IRealmHost, IStyleInvalidationHost
 
     /// <summary>Sets or clears the dialog's modal flag.</summary>
     void SetDialogModal(DomElement element, bool modal);
-
-    /// <summary>Sets or clears the element's popover-open flag.</summary>
-    void SetPopoverOpen(DomElement element, bool open);
 
     /// <summary>
     /// Sets or clears the element's fullscreen flag (Fullscreen §
@@ -77,22 +92,12 @@ internal interface IDialogHost : IRealmHost, IStyleInvalidationHost
     /// <summary>Sets the dialog's <c>returnValue</c>.</summary>
     void SetReturnValue(DomElement element, string value);
 
-    /// <summary>Whether a hiding popover must stay in the top layer (mid-transition overlay per
-    /// CSS Position §overlay) — a renderer decision.</summary>
-    bool PopoverKeepsOverlayOnHide(DomElement element);
-
     /// <summary>Whether a closing dialog must stay in the top layer because its <c>overlay</c> is
-    /// transitioned with <c>allow-discrete</c> — the dialog counterpart of
-    /// <see cref="PopoverKeepsOverlayOnHide"/> (CSS Position §overlay).</summary>
+    /// transitioned with <c>allow-discrete</c>, as a hiding popover does (CSS Position §overlay).</summary>
     bool DialogKeepsOverlayOnClose(DomElement element);
 
     /// <summary>Whether a closing dialog must keep generating a box because its <c>display</c> is
     /// transitioned with <c>allow-discrete</c>, so the UA sheet's
     /// <c>dialog:not([open]) { display: none }</c> must not take effect yet.</summary>
     bool DialogKeepsDisplayOnClose(DomElement element);
-
-    /// <summary>Records that <c>hidePopover()</c> left the element in the top layer because its
-    /// <c>overlay</c> is transitioning out, so the show-time "held out of the top layer while
-    /// <c>overlay</c> transitions in" rule does not misfire on it (CSS Position §overlay).</summary>
-    void MarkPopoverOverlayTransitioningOut(DomElement element);
 }

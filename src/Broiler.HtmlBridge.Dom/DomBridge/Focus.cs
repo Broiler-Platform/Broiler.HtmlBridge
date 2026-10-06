@@ -243,16 +243,22 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Whether <paramref name="element"/> can have focus: it is in a document, rendered, not a
-    /// disabled control, and either focusable by what it is -- a link, a form control, a frame, a
-    /// <c>summary</c>, media with controls, an editing host -- or given a <c>tabindex</c>.
+    /// disabled control, not inert (DomBridge/Inertness.cs), and either focusable by what it is -- a
+    /// link, a form control, a frame, a <c>summary</c>, media with controls, an editing host, an open
+    /// dialog -- or given a <c>tabindex</c>.
     /// </summary>
     private bool IsFocusable(DomElement element)
     {
         if (!element.IsConnected || element.TagName.StartsWith('#') || IsDisabledFormControl(element) ||
-            !IsElementRenderedForHitTesting(element))
+            !IsElementRenderedForHitTesting(element) || IsInert(element))
         {
             return false;
         }
+
+        // An open dialog takes focus from a script and from a press on it, though a Tab passes it: its
+        // tabIndex is -1 (measured).
+        if (element.TagName.Equals("dialog", StringComparison.OrdinalIgnoreCase) && HasAttr(element, "open"))
+            return true;
 
         if (TryGetAttribute(element, "tabindex", out var tabIndex) &&
             int.TryParse(tabIndex.Trim(), System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out _))

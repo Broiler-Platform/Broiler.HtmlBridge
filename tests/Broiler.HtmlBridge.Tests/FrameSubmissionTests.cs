@@ -133,28 +133,75 @@ public class FrameSubmissionTests
         Assert.Null(page.Session.TakePendingNavigation());
     }
 
-    /// <summary>
-    /// A frame's GET form that targets the page is the page's navigation, with its entries in the URL; a POST
-    /// that way is not performed, since the host submits the page's own forms.
-    /// </summary>
+    /// <summary>A frame's GET form that targets the page is the page's navigation, with its entries in the URL.</summary>
     [Fact]
     public void AFramesFormIntoThePageIsThePagesNavigation()
     {
         using var server = new LoopbackCookieServer()
             .Map("/inner/start", new Reply(Body:
-                "<html><body><form id=\"up\" action=\"/top\" target=\"_top\"><input name=\"x\" value=\"1\"></form>" +
-                "<form id=\"posted\" action=\"/top\" method=\"post\" target=\"_top\"><input name=\"x\" value=\"2\"></form></body></html>"));
+                "<html><body><form id=\"up\" action=\"/top\" target=\"_top\"><input name=\"x\" value=\"1\"></form></body></html>"));
 
-        // The GET first and the POST after it: were the POST a navigation, it would supersede the GET's.
         using var page = new Page(server,
             $"<iframe id=\"sink\" src=\"{server.LocalhostUrl("/inner/start")}\"></iframe>",
-            "var inner = document.getElementById('sink').contentWindow.document;" +
-            "inner.getElementById('up').submit(); inner.getElementById('posted').submit();");
+            "document.getElementById('sink').contentWindow.document.getElementById('up').submit();");
         page.Settle();
 
         var pending = page.Session.TakePendingNavigation();
         Assert.Equal(NavigationKind.FormSubmit, pending?.Kind);
         Assert.Equal(server.LocalhostUrl("/top?x=1"), pending!.Url);
         Assert.Equal(-1, pending.FormIndex);
+        Assert.Null(pending.Body);
+    }
+
+    /// <summary>
+    /// A frame's POST form that targets the page is the page's navigation too, to its action, with its entries
+    /// encoded as its body and the frame's document as its initiator. It was dropped: the host submits the
+    /// page's own forms, which it finds by their place in the page's document.
+    /// </summary>
+    [Theory]
+    [InlineData("", "application/x-www-form-urlencoded", "x=2+3")]
+    [InlineData("text/plain", "text/plain", "x=2 3\r\n")]
+    public void AFramesPostIntoThePageCarriesItsBody(string enctype, string contentType, string body)
+    {
+        using var server = new LoopbackCookieServer()
+            .Map("/inner/start", new Reply(Body:
+                $"<html><body><form id=\"posted\" action=\"/top\" method=\"post\" enctype=\"{enctype}\" target=\"_top\"><input name=\"x\" value=\"2 3\"></form></body></html>"));
+
+        using var page = new Page(server,
+            $"<iframe id=\"sink\" src=\"{server.LocalhostUrl("/inner/start")}\"></iframe>",
+            "document.getElementById('sink').contentWindow.document.getElementById('posted').submit();");
+        page.Settle();
+
+        var pending = page.Session.TakePendingNavigation();
+        Assert.Equal(NavigationKind.FormSubmit, pending?.Kind);
+        Assert.Equal(server.LocalhostUrl("/top"), pending!.Url);
+        Assert.Equal(-1, pending.FormIndex);
+        Assert.Equal(contentType, pending.BodyContentType);
+        Assert.Equal(body, System.Text.Encoding.UTF8.GetString(pending.Body!));
+        Assert.Equal(server.LocalhostUrl("/inner/start"), pending.Initiator?.DocumentUrl.ToString());
+    }
+
+    /// <summary>A multipart POST into a frame sends the file the user chose: its name, its type and its bytes.</summary>
+    [Fact]
+    public void AMultipartPostIntoAFrameSendsTheChosenFile()
+    {
+        using var server = Server();
+        using var page = new Page(server,
+            $"<iframe name=\"sink\" id=\"sink\" src=\"{server.LocalhostUrl("/start")}\"></iframe>" +
+            "<form id=\"f\" action=\"/result\" method=\"post\" enctype=\"multipart/form-data\" target=\"sink\"><input name=\"q\" value=\"v\"><input type=\"file\" id=\"up\" name=\"up\"></form>",
+            "document.getElementById('sink').contentWindow;" +
+            "document.getElementById('up').addEventListener('change', function () { document.getElementById('f').submit(); });");
+        page.Settle();
+
+        Assert.True(page.Session.SetFilesByUser(0, [new ChosenFile("a b.txt", "text/plain", DateTimeOffset.FromUnixTimeMilliseconds(1700000000000), "hello"u8.ToArray())]));
+        page.Settle();
+
+        var sent = server.Single("/result");
+        var boundary = sent.Header("Content-Type")!.Split("boundary=")[1];
+        Assert.Equal(
+            $"--{boundary}\r\nContent-Disposition: form-data; name=\"q\"\r\n\r\nv\r\n" +
+            $"--{boundary}\r\nContent-Disposition: form-data; name=\"up\"; filename=\"a b.txt\"\r\nContent-Type: text/plain\r\n\r\nhello\r\n" +
+            $"--{boundary}--\r\n",
+            sent.Body);
     }
 }

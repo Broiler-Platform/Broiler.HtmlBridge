@@ -152,6 +152,21 @@ public sealed record NavigationRequest(string Url, NavigationKind Kind, TimeSpan
     public IReadOnlyList<FormDataEdit> FormDataEdits { get; init; } = [];
 
     /// <summary>
+    /// For a <see cref="NavigationKind.FormSubmit"/> the bridge encoded itself -- a frame's <c>post</c> form
+    /// whose target is the page (<see cref="FormIndex"/> <c>-1</c>) -- the request body to send to
+    /// <see cref="Url"/>, as <see cref="BodyContentType"/>; <see langword="null"/> for a navigation without one.
+    /// </summary>
+    /// <remarks>
+    /// A page's own form is the host's to encode, which it finds by <see cref="FormIndex"/>; a frame's form is
+    /// in another document, which the host does not parse, so the bridge hands over the body it built --
+    /// URL-encoded, multipart with the files the user chose, or plain text, as the form's encoding says.
+    /// </remarks>
+    public byte[]? Body { get; init; }
+
+    /// <summary>The media type of <see cref="Body"/>, with a multipart body's boundary.</summary>
+    public string? BodyContentType { get; init; }
+
+    /// <summary>
     /// The document a <c>javascript:</c> URL's script answered with: a string, which replaces the page's
     /// document at <see cref="Url"/>, the page's own, and leaves its history entry as it is (HTML "navigate
     /// to a javascript: URL"). A host shows it without fetching anything.

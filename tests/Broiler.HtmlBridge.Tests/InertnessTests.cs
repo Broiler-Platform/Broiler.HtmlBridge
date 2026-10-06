@@ -1,0 +1,167 @@
+using Broiler.HtmlBridge;
+using Broiler.HtmlBridge.Dom;
+
+namespace Broiler.HtmlBridge.Tests;
+
+/// <summary>
+/// Inert elements as Chromium has them -- an <c>inert</c> attribute's, and everything behind a modal dialog
+/// -- which are neither focused nor hit; and a dialog's focus, which goes into it as it opens, round it with
+/// Tab, and back as it closes.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Only a press knew.</b> A modal dialog kept the pointer from what was behind it, but <c>focus()</c>,
+/// Tab and a press's focus all reached the page behind; the <c>inert</c> attribute did nothing; and a dialog
+/// that opened left focus where it was.
+/// </para>
+/// <para>Measured in Chromium.</para>
+/// </remarks>
+public class InertnessTests
+{
+    private const string PageUrl = "https://example.test/inert";
+
+    private const string Recorder =
+        "var out = document.getElementById('out'), log = [];" +
+        "function show() { out.textContent = log.join('|'); }" +
+        "function note(entry) { log.push(entry); show(); }" +
+        "function ae() { var a = document.activeElement; return a ? (a.id || a.tagName) : 'none'; }";
+
+    private static InteractiveSession Start(string script, string body, IReadOnlyDictionary<string, System.Drawing.RectangleF>? boxes = null)
+    {
+        var engine = new ScriptEngine(new DomBridgeFactory(new DomBridgeSessionOptions
+        {
+            LayoutViewFactory = boxes is null ? null : () => new DeclaredBoxLayoutView(boxes),
+        }));
+        var session = engine.ExecuteInteractive(
+            [Recorder + script + ";show();"], [], $"<html id=\"root\"><body id=\"body\">{body}<div id=\"out\"></div></body></html>", PageUrl);
+        Assert.NotNull(session);
+        return session!;
+    }
+
+    private static string Settle(string script, string body)
+    {
+        using var session = Start(script, body);
+        return PageProbe.OutOf(session.SettleLoadWindow(), decode: true);
+    }
+
+    /// <summary>
+    /// <c>showModal()</c> focuses the first focusable element in the dialog; <c>focus()</c> behind it does
+    /// nothing while one in it works; <c>close()</c> gives focus back to what had it.
+    /// </summary>
+    [Fact]
+    public void FocusDoesNotReachBehindAModalDialog()
+    {
+        var log = Settle(
+            "document.getElementById('field').focus(); var d = document.getElementById('d');" +
+            "d.showModal(); note('modal ' + ae());" +
+            "document.getElementById('before').focus(); note('behind ' + ae());" +
+            "document.getElementById('field').focus(); note('field ' + ae());" +
+            "document.getElementById('d3').focus(); note('inside ' + ae());" +
+            "d.close(); note('closed ' + ae());",
+            "<button id=\"before\">before</button><input id=\"field\"><dialog id=\"d\"><p>text</p><button id=\"d1\">one</button><input id=\"d2\"><button id=\"d3\">three</button></dialog>");
+
+        Assert.Equal("modal d1|behind d1|field d1|inside d3|closed field", log);
+    }
+
+    /// <summary>
+    /// The dialog focusing steps, as Chromium takes them: an <c>autofocus</c> element first, else the first
+    /// focusable one, else the dialog itself -- whose own <c>autofocus</c> changes nothing; <c>show()</c> too.
+    /// </summary>
+    [Fact]
+    public void ADialogFocusesWhatChromiumFocuses()
+    {
+        var log = Settle(
+            "function open(id, modal) { var x = document.getElementById(id); if (modal) x.showModal(); else x.show(); note(id + ' ' + ae()); x.close(); }" +
+            "open('e', true); open('f', true); open('g', true); open('d', false);" +
+            "var e = document.getElementById('e'); e.show(); e.focus(); note('focus() ' + ae()); e.close();",
+            "<dialog id=\"d\"><button id=\"d1\">one</button></dialog><dialog id=\"e\"><p>nothing to focus</p></dialog>" +
+            "<dialog id=\"f\"><button id=\"f1\">f1</button><input id=\"f2\" autofocus></dialog><dialog id=\"g\" autofocus><button id=\"g1\">g1</button></dialog>");
+
+        Assert.Equal("e e|f f2|g g1|d d1|focus() e", log);
+    }
+
+    /// <summary>Tab in a modal dialog goes round its own elements, and Shift+Tab back (measured: no stop outside it).</summary>
+    [Fact]
+    public void TabGoesRoundAModalDialog()
+    {
+        using var session = Start(
+            "document.getElementById('d').showModal(); note(ae());" +
+            "document.addEventListener('focusin', function (e) { note(e.target.id); });",
+            "<button id=\"before\">before</button><dialog id=\"d\"><button id=\"d1\">one</button><input id=\"d2\"><button id=\"d3\">three</button></dialog><button id=\"after\">after</button>");
+        session.SettleLoadWindow();
+
+        for (var i = 0; i < 4; i++)
+            Key(session, "Tab", shift: false);
+        Key(session, "Tab", shift: true);
+        Key(session, "Tab", shift: true);
+
+        Assert.Equal("d1|d2|d3|d1|d2|d1|d3", PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
+    }
+
+    /// <summary>
+    /// An <c>inert</c> element is neither focused nor hit: <c>focus()</c> does nothing, a Tab passes it, and a
+    /// press on it is a press on what it is in -- which, not being focusable, takes focus from the field.
+    /// </summary>
+    [Fact]
+    public void AnInertElementIsNeitherFocusedNorHit()
+    {
+        using var session = Start(
+            "var ib = document.getElementById('ib'); note(document.getElementById('iner').inert + ' ' + ib.inert);" +
+            "ib.focus(); note('focus ' + ae()); document.getElementById('fld').focus();" +
+            "['pointerdown', 'click', 'focusout'].forEach(function (t) { document.addEventListener(t, function (e) { note(t + ' ' + (e.target.id || e.target.tagName)); }); });",
+            "<div id=\"wrap\"><div id=\"iner\" inert><button id=\"ib\">inert</button></div><input id=\"fld\"></div>",
+            new Dictionary<string, System.Drawing.RectangleF>
+            {
+                ["root"] = new(0, 0, 1024, 768),
+                ["body"] = new(0, 0, 1024, 300),
+                ["wrap"] = new(20, 20, 300, 200),
+                ["iner"] = new(30, 30, 200, 60),
+                ["ib"] = new(30, 30, 100, 30),
+                ["fld"] = new(30, 140, 150, 24),
+            });
+        session.SettleLoadWindow();
+
+        session.DispatchPointer(new PointerInput(PointerInputKind.Down, 50, 40) { Buttons = 1 });
+        session.DispatchPointer(new PointerInput(PointerInputKind.Up, 50, 40));
+        Key(session, "Tab", shift: false);
+
+        Assert.Equal("true false|focus body|pointerdown wrap|focusout fld|click wrap", PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
+        Assert.Equal("fld", Probe(session, "ae()"));
+    }
+
+    /// <summary>A press on an open dialog's content that cannot be focused focuses the dialog (measured).</summary>
+    [Fact]
+    public void APressOnAnOpenDialogFocusesIt()
+    {
+        using var session = Start(
+            "document.getElementById('d').show(); document.getElementById('field').focus();",
+            "<input id=\"field\"><dialog id=\"d\"><p id=\"pp\">text</p><button id=\"d1\">one</button></dialog>",
+            new Dictionary<string, System.Drawing.RectangleF>
+            {
+                ["root"] = new(0, 0, 1024, 768),
+                ["body"] = new(0, 0, 1024, 300),
+                ["field"] = new(10, 500, 150, 24),
+                ["d"] = new(20, 20, 300, 150),
+                ["pp"] = new(40, 40, 260, 18),
+                ["d1"] = new(40, 70, 60, 24),
+            });
+        session.SettleLoadWindow();
+
+        session.DispatchPointer(new PointerInput(PointerInputKind.Down, 100, 45) { Buttons = 1 });
+        session.DispatchPointer(new PointerInput(PointerInputKind.Up, 100, 45));
+
+        Assert.Equal("d", Probe(session, "ae()"));
+    }
+
+    private static string Probe(InteractiveSession session, string expression)
+    {
+        session.RunJavaScriptUrl("javascript:void (log = [], note(" + expression + "))");
+        return PageProbe.OutOf(session.SettleLoadWindow(), decode: true);
+    }
+
+    private static void Key(InteractiveSession session, string key, bool shift)
+    {
+        session.DispatchKey(new KeyboardInput(KeyboardInputKind.Down, key, key) { KeyCode = 9, ShiftKey = shift });
+        session.DispatchKey(new KeyboardInput(KeyboardInputKind.Up, key, key) { KeyCode = 9, ShiftKey = shift });
+    }
+}

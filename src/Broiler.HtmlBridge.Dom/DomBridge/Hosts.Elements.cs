@@ -67,9 +67,8 @@ public sealed partial class DomBridge : Dom.Features.IFormAssociationHost
 // bridge's realm and cached as the JsValue it answers.
 public sealed partial class DomBridge : Dom.Features.IFormControlHost
 {
-    /// <summary>One <c>FileList</c> per file input, cached so <c>input.files === input.files</c>. The
-    /// contents function stays live over an always-empty list rather than being a fixed one, so a file
-    /// selection would need no second shape.</summary>
+    /// <summary>One <c>FileList</c> per file input, cached so <c>input.files === input.files</c>, live over
+    /// the files the user chose for it (DomBridge/FileInputs.cs).</summary>
     private readonly Dictionary<DomElement, JsValue> _fileLists = [];
 
     JsValue Dom.Features.IFormControlHost.GetFileList(DomElement element)
@@ -80,7 +79,7 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
         // DomCollectionBinding.FileList's only overload, which takes the realm and answers a JsValue.
         // A file input never asks the bridge for a script context, so it cannot throw "asked for
         // before the bridge was attached" when there is a realm but no context to hand it.
-        var files = Dom.Features.DomCollectionBinding.FileList(Realm, static () => []);
+        var files = Dom.Features.DomCollectionBinding.FileList(Realm, () => ChosenFilesOf(element).Select(static file => file.Object).ToList());
         _fileLists[element] = files;
         return files;
     }
@@ -110,6 +109,11 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
     }
 
     string Dom.Features.IFormControlHost.GetSelectValue(DomElement element) => _select.GetValue(element);
+
+    string Dom.Features.IFormControlHost.GetFileInputValue(DomElement element) => FileInputValue(element);
+
+    void Dom.Features.IFormControlHost.SetFileInputValue(DomElement element, string value, IJsRealm realm) =>
+        SetFileInputValue(element, value, realm);
 
     void Dom.Features.IFormControlHost.SetSelectValue(DomElement element, string value) =>
         _select.SetValue(element, value);
@@ -258,11 +262,85 @@ public sealed partial class DomBridge : ISelectHost
 
     DomElement? ISelectHost.FindElement(JsValue wrapper) => FindDomElementByJSObject(wrapper);
 
-    bool ISelectHost.TryGetSelectedIndex(DomElement select, out int index) =>
-        _formState.TryGetDirtySelectedIndex(select, out index);
+    // Each option's selectedness and dirtiness, once a script or the user has changed its select, and the
+    // selects that hold them (Features/SelectBinding.cs). Element-keyed, so they go with their elements.
+    private sealed class OptionState(bool selected, bool dirty)
+    {
+        public bool Selected { get; set; } = selected;
 
-    void ISelectHost.SetSelectedIndex(DomElement select, int index) =>
-        _formState.SetDirtySelectedIndex(select, index);
+        public bool Dirty { get; set; } = dirty;
+    }
+
+    private readonly ConditionalWeakTable<DomElement, OptionState> _optionStates = new();
+    private readonly ConditionalWeakTable<DomElement, object> _heldSelects = new();
+    private static readonly object Held = new();
+
+    // One live collection per element and kind -- a select's options and selected options -- so a page's
+    // `select.options === select.options` holds.
+    private readonly ConditionalWeakTable<DomElement, Dictionary<string, JsValue>> _elementCollections = new();
+
+    bool ISelectHost.TryGetOptionState(DomElement option, out bool selected, out bool dirty)
+    {
+        if (_optionStates.TryGetValue(option, out var state))
+        {
+            selected = state.Selected;
+            dirty = state.Dirty;
+            return true;
+        }
+
+        selected = dirty = false;
+        return false;
+    }
+
+    void ISelectHost.SetOptionState(DomElement option, bool selected, bool dirty)
+    {
+        if (_optionStates.TryGetValue(option, out var state))
+        {
+            state.Selected = selected;
+            state.Dirty = dirty;
+            return;
+        }
+
+        _optionStates.AddOrUpdate(option, new OptionState(selected, dirty));
+    }
+
+    bool ISelectHost.IsSelectHeld(DomElement select) => IsSelectHeld(select);
+
+    /// <summary>Whether a script or the user has changed the select, so its options' selectedness is held rather than read from their markup.</summary>
+    private bool IsSelectHeld(DomElement select) => _heldSelects.TryGetValue(select, out _);
+
+    void ISelectHost.HoldSelect(DomElement select) => _heldSelects.AddOrUpdate(select, Held);
+
+    void ISelectHost.NoteSelectionChanged(DomElement select)
+    {
+        BridgeRuntimeStateEpoch.Bump();
+        InvalidateStyleScope(select);
+        NoteElementStateChange();
+    }
+
+    JsValue ISelectHost.LiveCollection(DomElement owner, string kind, Func<List<JsValue>> contents, Action<JsValue>? initialize)
+    {
+        var collections = _elementCollections.GetValue(owner, static _ => new Dictionary<string, JsValue>(StringComparer.Ordinal));
+        if (collections.TryGetValue(kind, out var existing))
+            return existing;
+
+        var collection = LiveCollection(contents);
+        collections[kind] = collection;
+        initialize?.Invoke(collection);
+        return collection;
+    }
+
+    /// <summary>
+    /// Copies an option's selectedness and dirtiness to its clone (HTML's cloning steps for option), and that
+    /// a select holds its options' -- which the clones of its options carry -- to the select's.
+    /// </summary>
+    private void CopySelectState(DomElement source, DomElement clone)
+    {
+        if (_optionStates.TryGetValue(source, out var state))
+            _optionStates.AddOrUpdate(clone, new OptionState(state.Selected, state.Dirty));
+        if (_heldSelects.TryGetValue(source, out _))
+            _heldSelects.AddOrUpdate(clone, Held);
+    }
 
     bool ISelectHost.TryGetOptionValue(DomElement option, out string value)
     {
@@ -274,22 +352,6 @@ public sealed partial class DomBridge : ISelectHost
 
         value = string.Empty;
         return false;
-    }
-
-    // defaultSelected reflects the `selected` CONTENT ATTRIBUTE (HTML §4.10.10), so the runtime slot
-    // is an override of it rather than the whole story.
-    bool ISelectHost.GetOptionDefaultSelected(DomElement option) =>
-        _formState.GetEffectiveOptionSelected(option);
-
-    // Writing the property writes the attribute it reflects, so a later reset — which clears the
-    // slot — restores what was written rather than what the markup happened to say.
-    void ISelectHost.SetOptionDefaultSelected(DomElement option, bool value)
-    {
-        _formState.SetDirtyOptionSelected(option, value);
-        if (value)
-            SetAttr(option, "selected", string.Empty);
-        else
-            RemoveAttr(option, "selected");
     }
 }
 
@@ -341,25 +403,19 @@ public sealed partial class DomBridge : IDialogHost
 
     bool IDialogHost.IsDialogModal(DomElement element) => IsModalDialog(element);
 
-    bool IDialogHost.FireDialogEvent(DomElement element, string type, bool cancelable, string? oldState, string? newState)
-    {
-        var realm = Realm;
-        var evt = NewTrustedEvent(realm, type, bubbles: false, cancelable, composed: false,
-            InterfacePrototype(realm, oldState is null ? "Event" : "ToggleEvent"));
-        if (oldState is not null)
-        {
-            Define(realm, evt, "oldState", JsValue.String(oldState));
-            Define(realm, evt, "newState", JsValue.String(newState ?? string.Empty));
-        }
+    bool IDialogHost.FireDialogEvent(DomElement element, string type, bool cancelable, string? oldState, string? newState) =>
+        FireToggleEvent(element, type, cancelable, oldState, newState);
 
-        return DispatchKeyboardEvent(element, evt);
-    }
+    void IDialogHost.QueueToggleEvent(DomElement element, string oldState, string newState) =>
+        QueueToggleEvent(element, oldState, newState);
 
-    void IDialogHost.QueueDialogTask(Action task) => _eventLoop.QueueTask(() =>
-    {
-        if (_realm is not null)
-            task();
-    });
+    bool IDialogHost.IsPopoverShowing(DomElement element) => IsPopoverShowing(element);
+
+    void IDialogHost.HidePopoversForModalDialog(DomElement dialog) => HidePopoversForModalDialog(dialog);
+
+    void IDialogHost.RunDialogFocusingSteps(DomElement dialog) => RunDialogFocusingSteps(dialog);
+
+    void IDialogHost.RestoreFocusAfterDialog(DomElement dialog, bool wasModal) => RestoreFocusAfterDialog(dialog, wasModal);
 
     void IDialogHost.QueueDialogFrameAction(Action action) => QueueFrameAction(() =>
     {
@@ -379,24 +435,17 @@ public sealed partial class DomBridge : IDialogHost
     void IDialogHost.SetDialogModal(DomElement element, bool modal)
     {
         if (modal)
+        {
             DialogStateFor(element).Modal.Set(true);
+            _modalDialogs.Add(element);
+        }
         else
+        {
             DialogStateFor(element).Modal.Remove();
-    }
+            _modalDialogs.Remove(element);
+        }
 
-    void IDialogHost.SetPopoverOpen(DomElement element, bool open)
-    {
-        if (open)
-        {
-            DialogStateFor(element).PopoverOpen.Set(true);
-            // A fresh show clears any leftover "transitioning out" mark: if the element is now
-            // transitioning `overlay` at all, it is transitioning *in*.
-            DialogStateFor(element).PopoverTransitioningOut.Remove();
-        }
-        else
-        {
-            DialogStateFor(element).PopoverOpen.Remove();
-        }
+        NoteElementStateChange();
     }
 
     void IDialogHost.SetFullscreen(DomElement element, bool fullscreen)
@@ -427,9 +476,6 @@ public sealed partial class DomBridge : IDialogHost
         }
     }
 
-    void IDialogHost.MarkPopoverOverlayTransitioningOut(DomElement element) =>
-        DialogStateFor(element).PopoverTransitioningOut.Set(true);
-
     string IDialogHost.GetReturnValue(DomElement element) =>
         _formState.TryGetReturnValue(element, out var rv) && rv is string s
             ? s
@@ -437,8 +483,6 @@ public sealed partial class DomBridge : IDialogHost
 
     void IDialogHost.SetReturnValue(DomElement element, string value) =>
         _formState.SetReturnValue(element, value);
-
-    bool IDialogHost.PopoverKeepsOverlayOnHide(DomElement element) => PopoverKeepsOverlayOnHide(element);
 
     bool IDialogHost.DialogKeepsOverlayOnClose(DomElement element) => DialogKeepsOverlayOnClose(element);
 

@@ -13,7 +13,7 @@ namespace Broiler.HtmlBridge;
 /// <summary>
 /// A submission into a frame -- a form whose target names one, or a form in a frame's own document -- which
 /// the bridge performs itself, since it loads frames itself; and a frame's form that targets the page, which
-/// the host is handed as the page's navigation.
+/// the host is handed as the page's navigation, with its body for a <c>post</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -26,7 +26,12 @@ namespace Broiler.HtmlBridge;
 /// The entry list is the one the form's <c>formdata</c> listeners saw, with their changes, encoded as the host
 /// encodes a page's: URL-encoded into the query for <c>get</c>, and for <c>post</c> as the <c>enctype</c>
 /// says -- URL-encoded, <c>multipart/form-data</c> or <c>text/plain</c>. A file entry is its name, or in
-/// multipart its (empty) part.
+/// multipart its part: the file the user chose, with its type, or an empty one.
+/// </para>
+/// <para>
+/// <b>A frame's post into the page was dropped</b>: the host submits the page's own forms by their place in
+/// the page's document, which a frame's form has none of. It is the page's navigation now, as a
+/// <c>get</c> into the page was, and it carries its encoded body (<see cref="NavigationRequest.Body"/>).
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -108,21 +113,26 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Submits a frame's <paramref name="form"/> into the page: a <c>get</c> is the page's navigation to the
-    /// URL with the entries in it. A <c>post</c> is not performed: the host submits the page's own forms,
-    /// which this one is not one of.
+    /// Submits a frame's <paramref name="form"/> into the page, as the page's navigation: a <c>get</c> to the
+    /// URL with the entries in it, a <c>post</c> to its action with the entries encoded as its body.
     /// </summary>
     private bool SubmitFromFrameIntoPage(DomElement form, DomElement? submitter, (int X, int Y) imagePoint, IReadOnlyList<FormDataEdit> edits)
     {
+        var entries = ApplyFormDataEdits(BuildFormEntryList(form, submitter, imagePoint), edits);
+        var action = ResolveFormActionOf(form, submitter);
         if (SubmissionMethodOf(form, submitter) == "post")
         {
-            RenderLogger.LogDebug(LogCategory.JavaScript, FormSubmitLogContext,
-                "A frame's form posting into the page is not performed: the host submits the page's own forms");
-            return false;
+            var body = EncodeFormBody(entries, FormEncodingOf(form, submitter));
+            RequestNavigation(new NavigationRequest(action, NavigationKind.FormSubmit)
+            {
+                Initiator = DocumentContextFor(form),
+                Body = body.Content,
+                BodyContentType = body.ContentType,
+            });
+            return true;
         }
 
-        var entries = ApplyFormDataEdits(BuildFormEntryList(form, submitter, imagePoint), edits);
-        RequestNavigation(new NavigationRequest(WithQuery(ResolveFormActionOf(form, submitter), UrlEncodeEntries(entries)), NavigationKind.FormSubmit)
+        RequestNavigation(new NavigationRequest(WithQuery(action, UrlEncodeEntries(entries)), NavigationKind.FormSubmit)
         {
             Initiator = DocumentContextFor(form),
         });
@@ -214,27 +224,43 @@ public sealed partial class DomBridge
                 return new FrameRequestBody(Encoding.UTF8.GetBytes(text.ToString()), "text/plain");
 
             case "multipart/form-data":
+                // Bytes, not text: a file's part is its bytes as they are, which a round trip through a
+                // string would corrupt wherever they are not UTF-8.
                 var boundary = "----BroilerFormBoundary" + Guid.NewGuid().ToString("N");
-                var body = new StringBuilder();
-                foreach (var entry in entries)
+                using (var body = new MemoryStream())
                 {
-                    body.Append("--").Append(boundary).Append("\r\n");
-                    body.Append("Content-Disposition: form-data; name=\"").Append(entry.Name.Replace("\"", "%22", StringComparison.Ordinal)).Append('"');
-                    if (entry.IsFile)
-                        body.Append("; filename=\"").Append(entry.Value.Replace("\"", "%22", StringComparison.Ordinal)).Append("\"\r\nContent-Type: application/octet-stream");
-                    body.Append("\r\n\r\n");
-                    if (!entry.IsFile)
-                        body.Append(entry.Value);
-                    body.Append("\r\n");
-                }
+                    void Write(string text) => body.Write(Encoding.UTF8.GetBytes(text));
 
-                body.Append("--").Append(boundary).Append("--\r\n");
-                return new FrameRequestBody(Encoding.UTF8.GetBytes(body.ToString()), "multipart/form-data; boundary=" + boundary);
+                    foreach (var entry in entries)
+                    {
+                        Write("--" + boundary + "\r\n");
+                        Write("Content-Disposition: form-data; name=\"" + EscapeMultipartName(entry.Name) + "\"");
+                        if (entry.IsFile)
+                        {
+                            var type = entry.File?.Type is { Length: > 0 } fileType ? fileType : "application/octet-stream";
+                            Write("; filename=\"" + EscapeMultipartName(entry.Value) + "\"\r\nContent-Type: " + type);
+                        }
+
+                        Write("\r\n\r\n");
+                        if (!entry.IsFile)
+                            Write(entry.Value);
+                        else if (entry.File is { } file)
+                            body.Write(file.Content);
+                        Write("\r\n");
+                    }
+
+                    Write("--" + boundary + "--\r\n");
+                    return new FrameRequestBody(body.ToArray(), "multipart/form-data; boundary=" + boundary);
+                }
 
             default:
                 return new FrameRequestBody(Encoding.UTF8.GetBytes(UrlEncodeEntries(entries)), "application/x-www-form-urlencoded");
         }
     }
+
+    /// <summary>A name or file name in a multipart part's header, as Chromium escapes it: <c>"</c>, CR and LF percent-encoded.</summary>
+    private static string EscapeMultipartName(string name) =>
+        name.Replace("\"", "%22", StringComparison.Ordinal).Replace("\r", "%0D", StringComparison.Ordinal).Replace("\n", "%0A", StringComparison.Ordinal);
 
     /// <summary>The request a frame's navigation with a body sends: a <c>post</c>.</summary>
     private static HttpRequestMessage PostRequest(string url, FrameRequestBody body)

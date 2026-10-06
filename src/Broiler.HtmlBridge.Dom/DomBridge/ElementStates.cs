@@ -51,6 +51,20 @@ public sealed partial class DomBridge
             state |= CssElementState.UserInteracted;
         if (_userEdited.Contains(element))
             state |= CssElementState.UserEdited;
+
+        // A popover in the top layer is :popover-open, and a dialog open as a modal one, or the fullscreen
+        // element, is :modal (DomBridge/Popovers.cs). Read without minting a state for every element asked.
+        if (_dialogRuntimeStates.TryGetValue(element, out var dialogState))
+        {
+            if (dialogState.PopoverOpen is { IsSet: true, Value: true })
+                state |= CssElementState.PopoverOpen;
+            if (dialogState.Modal is { IsSet: true, Value: true } && HasAttr(element, "open") ||
+                dialogState.Fullscreen is { IsSet: true, Value: true })
+            {
+                state |= CssElementState.Modal;
+            }
+        }
+
         return state;
     }
 
