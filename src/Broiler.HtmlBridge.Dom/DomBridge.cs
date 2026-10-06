@@ -560,6 +560,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
             Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegisterDocument))
             RegisterDocument(context);
         EnforceConfiguredStyleContentSecurityPolicy();
+        InstallWindowReflectingBodyHandlers();
     }
 
     /// <summary>
@@ -599,6 +600,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
             Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegisterDocument))
             RegisterDocument(context);
         EnforceConfiguredStyleContentSecurityPolicy();
+        InstallWindowReflectingBodyHandlers();
     }
 
     /// <summary>

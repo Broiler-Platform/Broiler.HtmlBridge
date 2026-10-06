@@ -72,6 +72,9 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         // readyState: loading while the frame's scripts run, then interactive and complete (DomBridge/FrameLoad.cs).
         realm.DefineAccessor(doc, "readyState", (in _) => JsValue.String(_host.ReadyStateOf(docRoot)), null);
 
+        // onscroll, onclick, onreadystatechange and the rest, as the page's document has them.
+        _host.RegisterDocumentEventHandlers(doc, docRoot);
+
         // referrer: the empty string, as the page's own document has it. No request this bridge sends
         // carries a Referer, the frame's own navigation included, so the frame has no referrer to report;
         // undefined read as a missing property where Chromium reports the URL its request sent.

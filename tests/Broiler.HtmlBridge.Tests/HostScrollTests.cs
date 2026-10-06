@@ -111,14 +111,20 @@ public class HostScrollTests
 
     /// <summary>
     /// Every way a page hears a scroll of its viewport still makes the user's scroll a task, which
-    /// delivers it in the next frame.
+    /// delivers it in the next frame: <c>&lt;body onscroll&gt;</c> and a bubbling listener on the document
+    /// among them, which heard nothing before.
     /// </summary>
     [Theory]
     [InlineData("addEventListener('scroll', hear);", "<body>")]
     [InlineData("addEventListener('scrollend', hear);", "<body>")]
     [InlineData("onscroll = hear;", "<body>")]
     [InlineData("document.addEventListener('scroll', hear, true);", "<body>")]
-    [InlineData("document.documentElement.addEventListener('scroll', hear);", "<body>")]
+    [InlineData("document.addEventListener('scroll', hear);", "<body>")]
+    [InlineData("document.addEventListener('scrollend', hear);", "<body>")]
+    [InlineData("document.onscroll = hear;", "<body>")]
+    [InlineData("document.body.onscroll = hear;", "<body>")]
+    [InlineData("document.body.setAttribute('onscroll', 'hear()');", "<body>")]
+    [InlineData("", "<body onscroll=\"hear()\">")]
     public void AScrollThePageListensForIsHeardInTheNextFrame(string listen, string body)
     {
         var count = new LayoutCount();
@@ -129,5 +135,63 @@ public class HostScrollTests
 
         Assert.True(session.HasWorkDueInLoadWindow);
         Assert.Contains("heard 700", PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
+    }
+
+    /// <summary>
+    /// A scroll of the viewport takes the path Chromium gives it, measured with a wheel: fired at the
+    /// document and bubbling, it reaches the window's capture listeners, the document's listeners and its
+    /// <c>onscroll</c>, then the window's other listeners and its <c>onscroll</c>, which the body's sets --
+    /// and nothing on the root element or the body. <c>scrollend</c> takes the same path.
+    /// </summary>
+    [Fact]
+    public void AViewportScrollIsFiredAtTheDocumentAndBubblesToTheWindow()
+    {
+        using var session = Start(
+            "function rec(label) { return function (e) { log.push(label + ' ' + e.eventPhase + ' ' + e.bubbles + ' ' +" +
+            " (e.target === document) + ' ' + (this === e.currentTarget)); show(); }; }" +
+            "addEventListener('scroll', rec('window-capture'), true);" +
+            "document.addEventListener('scroll', rec('document-capture'), true);" +
+            "document.addEventListener('scroll', rec('document'));" +
+            "document.documentElement.addEventListener('scroll', rec('html'), true);" +
+            "document.documentElement.addEventListener('scroll', rec('html'));" +
+            "document.body.addEventListener('scroll', rec('body'));" +
+            "document.onscroll = rec('document.onscroll');" +
+            "addEventListener('scroll', rec('window'));" +
+            "document.body.onscroll = rec('body.onscroll');" +
+            "document.addEventListener('scrollend', rec('document-scrollend'));" +
+            "addEventListener('scrollend', rec('window-scrollend'));",
+            new LayoutCount());
+        session.SettleLoadWindow();
+
+        session.ScrollViewportTo(0, 700);
+
+        Assert.Equal(
+            "window-capture 1 true true true|document-capture 2 true true true|document 2 true true true|" +
+            "document.onscroll 2 true true true|window 3 true true true|body.onscroll 3 true true true|" +
+            "document-scrollend 2 true true true|window-scrollend 3 true true true",
+            PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
+    }
+
+    /// <summary>
+    /// A body's <c>onscroll</c> is the window's, as Chromium has it: the parsed attribute, the property,
+    /// the attribute set by a script and a body the script created all set <c>window.onscroll</c>, and the
+    /// body reads it back.
+    /// </summary>
+    [Fact]
+    public void ABodysOnscrollIsTheWindows()
+    {
+        using var session = Start(
+            "log.push('parsed ' + (typeof onscroll) + ' ' + (onscroll === document.body.onscroll));" +
+            "var f = function () {}; document.body.onscroll = f;" +
+            "log.push('property ' + (onscroll === f) + ' ' + (document.body.onscroll === f));" +
+            "onscroll = null; log.push('cleared ' + (document.body.onscroll === null));" +
+            "document.body.setAttribute('onscroll', 'at(\"set\")'); log.push('attribute ' + (typeof onscroll));" +
+            "var g = function () {}; document.createElement('body').onscroll = g; log.push('created ' + (onscroll === g));",
+            new LayoutCount(),
+            "<body onscroll=\"at('parsed')\">");
+
+        Assert.Equal(
+            "parsed function true|property true true|cleared true|attribute function|created true",
+            PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
     }
 }

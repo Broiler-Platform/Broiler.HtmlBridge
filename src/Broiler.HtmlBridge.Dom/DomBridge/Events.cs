@@ -174,6 +174,12 @@ public sealed partial class DomBridge
     {
         foreach (var eventName in InlineEventNames)
         {
+            // The window's handler, which the attach compiles once (InstallWindowReflectingBodyHandlers):
+            // the element's map is not where it is kept, so compiling it here would replace whatever the
+            // page has since set on the window.
+            if (IsWindowReflectingBodyHandler(element, eventName))
+                continue;
+
             var attrName = $"on{eventName}";
             if (TryGetAttribute(element, attrName, out var code) &&
                 !string.IsNullOrEmpty(code) &&
@@ -224,9 +230,11 @@ public sealed partial class DomBridge
     {
         if (_realm is not { } realm || string.IsNullOrEmpty(code) || attrName.Length <= 2) return;
         var eventName = attrName[2..].ToLowerInvariant();
+        var windowsHandler = IsWindowReflectingBodyHandler(element, eventName);
         if (Csp != null && !Csp.AllowsInlineEventHandler(code))
         {
-            GetInlineEventHandlers(element).Remove(eventName);
+            if (!windowsHandler)
+                GetInlineEventHandlers(element).Remove(eventName);
             return;
         }
 
@@ -254,13 +262,50 @@ public sealed partial class DomBridge
             // they had to go on.
             var fn = realm.EvaluateClassicScript(
                 $"(function(event) {{ {svgEventAlias}{code} }})", "inline-event-handler");
-            if (fn.IsFunction)
+            if (fn.IsFunction && windowsHandler)
+                SetPageWindowHandler("on" + eventName, fn);
+            else if (fn.IsFunction)
                 GetInlineEventHandlers(element)[eventName] = fn;
         }
         catch (Exception ex)
         {
             RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.CompileInlineEventAttribute",
                 $"Failed to compile on{eventName} handler: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="node"/>'s <c>on<paramref name="eventName"/></c> is the window's: a body
+    /// element of the page's document reflects the window's <c>onscroll</c> (HTML, "determining the target
+    /// of an event handler"), as content attribute and as property.
+    /// </summary>
+    /// <remarks>
+    /// A viewport scroll is fired at the document and bubbles to the window, so it never reaches the body,
+    /// and <c>&lt;body onscroll&gt;</c> compiled as the body's own handler never ran. Measured in Chromium:
+    /// the attribute, <c>document.body.onscroll</c> and the same on a body a script created all set
+    /// <c>window.onscroll</c>, and each reads it back. Only <c>onscroll</c> is taken here, the handler a
+    /// viewport scroll needs; the set's other members stay the body's own, and <c>&lt;body onload&gt;</c>
+    /// has the load sequence's path. A body in another document -- a template's, or a parsed one -- keeps
+    /// its own too.
+    /// </remarks>
+    private bool IsWindowReflectingBodyHandler(DomNode node, string eventName) =>
+        string.Equals(eventName, "scroll", StringComparison.Ordinal) &&
+        node is DomElement element &&
+        string.Equals(element.TagName, "body", StringComparison.OrdinalIgnoreCase) &&
+        IsHtmlNamespace(element) &&
+        ReferenceEquals(element.OwnerDocument, _document);
+
+    /// <summary>
+    /// Compiles the page's <c>&lt;body onscroll&gt;</c> into the window's handler, once, when the page is
+    /// attached (<see cref="IsWindowReflectingBodyHandler"/>).
+    /// </summary>
+    private void InstallWindowReflectingBodyHandlers()
+    {
+        if (_document.Body is { } body &&
+            TryGetAttribute(body, "onscroll", out var code) &&
+            !string.IsNullOrEmpty(code))
+        {
+            CompileInlineEventAttribute(body, "onscroll", code);
         }
     }
 }

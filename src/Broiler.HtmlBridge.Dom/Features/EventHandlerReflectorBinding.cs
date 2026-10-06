@@ -5,10 +5,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The inline <c>on*</c> event-handler IDL reflectors (<c>onclick</c>, <c>onload</c>, … — one property
-/// per <c>InlineEventNames</c> entry), registered on every element wrapper, co-located as an HtmlBridge
-/// feature module. The getter returns the stored handler function or <c>null</c>; the setter
-/// stores a function or, given a non-function, clears the entry — both against the bridge's live
-/// inline-handler store, reached through the <see cref="IEventHandlerReflectorHost"/> contract.
+/// per <c>InlineEventNames</c> entry), registered on every element wrapper and on every document,
+/// co-located as an HtmlBridge feature module. The getter returns the stored handler function or
+/// <c>null</c>; the setter stores a function or, given a non-function, clears the entry — both against
+/// the bridge's live inline-handler store, reached through the <see cref="IEventHandlerReflectorHost"/>
+/// contract.
 /// </summary>
 internal static class EventHandlerReflectorBinding
 {
@@ -16,8 +17,8 @@ internal static class EventHandlerReflectorBinding
     /// The reflector's getter. It reads no argument — an IDL attribute getter is called with none —
     /// and the frame is taken only so the pair reads as a pair at the call site.
     /// </summary>
-    public static JsValue GetOn(IEventHandlerReflectorHost host, DomElement element, string eventName, in JsCall _) =>
-        host.GetInlineEventHandler(element, eventName);
+    public static JsValue GetOn(IEventHandlerReflectorHost host, DomNode node, string eventName, in JsCall _) =>
+        host.GetInlineEventHandler(node, eventName);
 
     /// <summary>
     /// The reflector's setter: a function is installed, and anything else — <c>null</c>,
@@ -29,12 +30,12 @@ internal static class EventHandlerReflectorBinding
     /// all. An absent argument is <see cref="JsValue.Missing"/>, which is not a function, so no
     /// separate arity guard is needed.
     /// </remarks>
-    public static JsValue SetOn(IEventHandlerReflectorHost host, DomElement element, string eventName, in JsCall call)
+    public static JsValue SetOn(IEventHandlerReflectorHost host, DomNode node, string eventName, in JsCall call)
     {
         if (call[0].IsFunction)
-            host.SetInlineEventHandler(element, eventName, call[0]);
+            host.SetInlineEventHandler(node, eventName, call[0]);
         else
-            host.RemoveInlineEventHandler(element, eventName);
+            host.RemoveInlineEventHandler(node, eventName);
 
         return JsValue.Undefined;
     }

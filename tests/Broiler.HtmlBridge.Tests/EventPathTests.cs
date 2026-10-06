@@ -46,6 +46,47 @@ public class EventPathTests
     }
 
     /// <summary>
+    /// The document's <c>on…</c> handlers run, as Chromium's do: <c>onclick</c> after the document's
+    /// listeners, with the document as <c>this</c> and its <c>return false</c> cancelling, and
+    /// <c>onreadystatechange</c> as the document's readyState moves on. Neither was defined, so assigning
+    /// one set a plain property nothing read.
+    /// </summary>
+    [Fact]
+    public void TheDocumentsHandlersRun()
+    {
+        Assert.Equal(
+            "initial null true|non-function null|listener|onclick 3 p true|dispatched false|" +
+            "readystatechange interactive true|readystatechange complete true",
+            Run("<p id=\"p\">p</p>",
+                "var p = document.getElementById('p'); var log = [];" +
+                "function show() { document.getElementById('out').textContent = log.join('|'); }" +
+                "log.push('initial ' + document.onclick + ' ' + ('onscroll' in document));" +
+                "document.addEventListener('click', function () { log.push('listener'); });" +
+                "document.onclick = function (e) {" +
+                " log.push('onclick ' + e.eventPhase + ' ' + e.target.id + ' ' + (this === document)); return false; };" +
+                "document.onkeydown = 'x'; log.push('non-function ' + document.onkeydown);" +
+                "log.push('dispatched ' + p.dispatchEvent(new Event('click', { bubbles: true, cancelable: true })));" +
+                "document.onreadystatechange = function () {" +
+                " log.push('readystatechange ' + document.readyState + ' ' + (this === document)); show(); };" +
+                "show();"));
+    }
+
+    /// <summary>A frame's document has its own <c>on…</c> handlers, which its own events run.</summary>
+    [Fact]
+    public void AFramesDocumentsHandlersRun()
+    {
+        Assert.Equal(
+            "frame-document.onclick true|page null",
+            Run("<iframe id=\"f\" srcdoc=\"<p id=p>p</p>\"></iframe>",
+                "var log = []; var d = document.getElementById('f').contentWindow.document;" +
+                "d.onclick = function () { log.push('frame-document.onclick ' + (this === d)); };" +
+                "document.onclick = function () { log.push('page-document.onclick'); };" +
+                "d.getElementById('p').dispatchEvent(new Event('click', { bubbles: true }));" +
+                "document.onclick = null; log.push('page ' + document.onclick);" +
+                "document.getElementById('out').textContent = log.join('|');"));
+    }
+
+    /// <summary>
     /// <c>DOMContentLoaded</c> fires once at the document and reaches the window once, through the
     /// document's path, with the document as its target. A second dispatch at the window ran the
     /// window's listeners twice once the path reached the window.
@@ -64,9 +105,8 @@ public class EventPathTests
 
     /// <summary>
     /// A viewport scroll reaches each of the window's scroll listeners once, a capture listener
-    /// included: the element dispatch's path reaches the window's capture listeners, and the window
-    /// dispatch that follows runs only the others. The scroll is heard in the next frame, not in the
-    /// call that scrolled.
+    /// included: it is fired at the document, whose path starts and ends at the window. The scroll is
+    /// heard in the next frame, not in the call that scrolled.
     /// </summary>
     [Fact]
     public void AViewportScrollReachesEachWindowListenerOnce()

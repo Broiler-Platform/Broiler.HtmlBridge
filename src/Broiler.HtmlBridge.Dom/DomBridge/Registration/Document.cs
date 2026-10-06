@@ -305,6 +305,31 @@ public sealed partial class DomBridge
         // Visibility API is available at all — answering false sent them to legacy focus/blur polling
         // even though `visibilityState` above answers correctly.
         realm.DefineValue(document, "onvisibilitychange", JsValue.Null);
+
+        RegisterDocumentEventHandlers(document, _document);
+    }
+
+    /// <summary>
+    /// Defines <paramref name="documentNode"/>'s <c>onscroll</c>, <c>onclick</c> and the rest an element
+    /// reflects (<c>InlineEventNames</c>), and the document's own <c>onreadystatechange</c>, on
+    /// <paramref name="document"/>: the page's document and each one <c>SubDocumentBinding</c> builds.
+    /// </summary>
+    /// <remarks>
+    /// None was defined, so assigning one set a plain property that no dispatch reads:
+    /// <c>document.onscroll</c> never heard the viewport's scroll, which is fired at the document, nor
+    /// <c>document.onreadystatechange</c> the document's readyState moving on. They keep the handler in the
+    /// document node's map, which the dispatch at the document reads.
+    /// </remarks>
+    private void RegisterDocumentEventHandlers(JsValue document, DomNode documentNode)
+    {
+        foreach (var name in InlineEventNames.Append("readystatechange"))
+        {
+            // Captured per iteration, as the element's reflectors are (DomBridge/ElementInterface.cs).
+            var eventName = name;
+            Realm.DefineAccessor(document, "on" + eventName,
+                (in call) => Dom.Features.EventHandlerReflectorBinding.GetOn(this, documentNode, eventName, in call),
+                (in call) => Dom.Features.EventHandlerReflectorBinding.SetOn(this, documentNode, eventName, in call));
+        }
     }
 }
 
