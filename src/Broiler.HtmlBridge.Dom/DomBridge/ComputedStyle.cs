@@ -76,6 +76,12 @@ public sealed partial class DomBridge
             return new ComputedStyleEngineScope(new CssStyleScopeBuilder(engine, new BridgeStyleSheetLoader(this, docRoot)), engine);
         });
 
+        var (vpWidth, vpHeight) = GetViewportForDocRoot(docRoot);
+
+        // Nothing the sheets are read from has changed since the last sync: they are the same sheets.
+        if (scope.SyncedSources is { } synced && synced == StyleSourcesStampFor(docRoot, vpWidth, vpHeight))
+            return scope.Engine;
+
         var styleElements = GetScopedStyleElements(docRoot, scope);
 
         // Hand the collected sheets to the canonical scope builder in document order; it
@@ -98,9 +104,29 @@ public sealed partial class DomBridge
 
         AppendOuterPartRules(docRoot, sources);
 
-        var (vpWidth, vpHeight) = GetViewportForDocRoot(docRoot);
-        return scope.ScopeBuilder.Sync(sources, new CssEnvironment(vpWidth, vpHeight));
+        var engine = scope.ScopeBuilder.Sync(sources, new CssEnvironment(vpWidth, vpHeight));
+
+        // Taken after the sync, which can move the epoch itself -- parsing a sheet's rules, storing a
+        // linked sheet's text -- so that the next call finds the state this one left.
+        scope.SyncedSources = StyleSourcesStampFor(docRoot, vpWidth, vpHeight);
+        return engine;
     }
+
+    /// <summary>
+    /// What the sheets of the scope rooted at <paramref name="docRoot"/> are read from (see
+    /// <see cref="StyleSourcesStamp"/>), or <c>null</c> when it cannot be told without reading them: a
+    /// shadow tree's scope, which also takes the enclosing tree's <c>::part()</c> rules, or a tree that is
+    /// not a document's.
+    /// </summary>
+    private StyleSourcesStamp? StyleSourcesStampFor(DomElement docRoot, int viewportWidth, int viewportHeight) =>
+        docRoot.ParentNode is DomDocument document
+            ? new StyleSourcesStamp(
+                document.Version,
+                BridgeRuntimeStateEpoch.Current,
+                _styleSheetRuleEdits,
+                viewportWidth,
+                viewportHeight)
+            : null;
 
     /// <summary>
     /// The scope's contributing <c>&lt;style&gt;</c>/<c>&lt;link&gt;</c> elements, in document

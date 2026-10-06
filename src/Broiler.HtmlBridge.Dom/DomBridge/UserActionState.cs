@@ -1,3 +1,4 @@
+using Broiler.CSS;
 using Broiler.CSS.Dom;
 using Broiler.Dom;
 using static Broiler.HtmlBridge.DomBridgeUtils;
@@ -39,10 +40,12 @@ public sealed partial class DomBridge
     // The element a press of the main pointer button is held on, which with its ancestors is :active.
     private DomElement? _activeTarget;
 
-    // Whether the page's style sheets mention :hover and :active, as of the versions of its documents
-    // and CSSOM edits they were read at: a move that changes only what is hovered then matters only if
-    // they do.
-    private (long Version, bool Hover, bool Active)? _userActionRulesInUse;
+    // Whether the page's style sheets mention :hover and :active, and whether a rule that does can move a
+    // box, as of the versions of its documents and CSSOM edits they were read at: a move that changes
+    // only what is hovered then matters only if they do, and lays the page out again only if one can.
+    private UserActionRules? _userActionRules;
+
+    private sealed record UserActionRules(long Version, bool Hover, bool Active, bool MovesBoxes);
 
     // CSSOM edits of the page's sheets, which change what they say without changing a document.
     private long _styleSheetRuleEdits;
@@ -140,21 +143,35 @@ public sealed partial class DomBridge
     /// element when the page's style sheets mention <c>:hover</c> or <c>:active</c>.
     /// </summary>
     /// <param name="hoverOrActive">Whether what changed is hover or the active element, rather than focus.</param>
+    /// <remarks>
+    /// A hover or a press that the page's sheets only paint -- a colour, a background, an underline, an
+    /// outline -- moves no box, so the page is not laid out again for it: a retained geometry snapshot
+    /// still holds. Over html5test.com, whose rows are styled <c>tr:hover</c>, that layout was most of
+    /// the move after each change of row. Focus always may move one, as before.
+    /// </remarks>
     private void NoteUserActionStateChange(bool hoverOrActive = false)
     {
-        if (_realm is null || hoverOrActive && !UserActionRulesInUse())
+        if (_realm is null)
+            return;
+
+        var rules = hoverOrActive ? ReadUserActionRules() : null;
+        if (rules is { Hover: false, Active: false })
             return;
 
         ClearComputedPropsCache();
-        NoteRenderStateChange();
+        NoteRenderStateChange(affectsLayout: rules is null || rules.MovesBoxes);
     }
 
-    /// <summary>Whether any style sheet of the page or of its frames mentions <c>:hover</c> or <c>:active</c>.</summary>
+    /// <summary>
+    /// Whether any style sheet of the page or of its frames mentions <c>:hover</c> or <c>:active</c>, and
+    /// whether a rule that does can move a box.
+    /// </summary>
     /// <remarks>
-    /// Read off the sheets' text, which over-counts -- a comment that mentions <c>:hover</c> counts --
-    /// and costs one read of the page's sheets per change of what it renders.
+    /// Whether they are mentioned is read off the sheets' text, which over-counts -- a comment that
+    /// mentions <c>:hover</c> counts -- and costs one read of the page's sheets per change of what it
+    /// renders. Whether a box can move is read off their rules (<see cref="MovesBoxes"/>).
     /// </remarks>
-    private bool UserActionRulesInUse()
+    private UserActionRules ReadUserActionRules()
     {
         long version;
         unchecked
@@ -164,10 +181,10 @@ public sealed partial class DomBridge
                 version = version * 31 + (long)frameDocument.Version + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(frameDocument);
         }
 
-        if (_userActionRulesInUse is { } known && known.Version == version)
-            return known.Hover || known.Active;
+        if (_userActionRules is { } known && known.Version == version)
+            return known;
 
-        bool hover = false, active = false;
+        bool hover = false, active = false, movesBoxes = false;
         var documents = new List<DomElement>();
         if (GetDocumentElement(_document) is { } root)
             documents.Add(root);
@@ -182,14 +199,85 @@ public sealed partial class DomBridge
             foreach (var sheet in CollectStyleSheetCandidatesInTree(documentRoot))
             {
                 var text = GetStyleElementCssText(sheet);
-                hover |= text.Contains(":hover", StringComparison.OrdinalIgnoreCase);
-                active |= text.Contains(":active", StringComparison.OrdinalIgnoreCase);
+                var mentionsHover = text.Contains(":hover", StringComparison.OrdinalIgnoreCase);
+                var mentionsActive = text.Contains(":active", StringComparison.OrdinalIgnoreCase);
+                hover |= mentionsHover;
+                active |= mentionsActive;
+
+                // What a sheet imports is not read here, so a sheet that imports can move anything.
+                if ((mentionsHover || mentionsActive) && !movesBoxes)
+                    movesBoxes = text.Contains("@import", StringComparison.OrdinalIgnoreCase) ||
+                                 MovesBoxes(EnsureStyleSheetRulesCurrent(sheet));
             }
         }
 
-        _userActionRulesInUse = (version, hover, active);
-        return hover || active;
+        var rules = new UserActionRules(version, hover, active, movesBoxes);
+        _userActionRules = rules;
+        return rules;
     }
+
+    /// <summary>
+    /// Whether a style rule in <paramref name="rules"/> whose selector mentions <c>:hover</c> or
+    /// <c>:active</c> declares anything that can move a box: anything but the properties that only paint
+    /// (<see cref="PaintOnlyProperties"/>). A custom property counts, since it can feed any other.
+    /// </summary>
+    private static bool MovesBoxes(IReadOnlyList<CssRule> rules)
+    {
+        foreach (var rule in rules)
+        {
+            switch (rule)
+            {
+                case CssStyleRule styleRule when MentionsUserAction(styleRule):
+                    foreach (var declaration in styleRule.Declarations.Declarations)
+                    {
+                        if (!PaintOnlyProperties.Contains(declaration.Name))
+                            return true;
+                    }
+                    break;
+
+                case CssAtRule { Rules.Count: > 0 } atRule when MovesBoxes(atRule.Rules):
+                    return true;
+            }
+        }
+
+        return false;
+
+        static bool MentionsUserAction(CssStyleRule rule)
+        {
+            foreach (var selector in rule.Selectors.Selectors)
+            {
+                if (selector.Text.Contains(":hover", StringComparison.OrdinalIgnoreCase) ||
+                    selector.Text.Contains(":active", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Properties that change how a box is painted and never where it is or how big: colours,
+    /// backgrounds, borders' colours, outlines, decorations, shadows, opacity and the cursor.
+    /// </summary>
+    private static readonly HashSet<string> PaintOnlyProperties = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "color", "opacity", "cursor",
+        "background", "background-color", "background-image", "background-position", "background-position-x",
+        "background-position-y", "background-size", "background-repeat", "background-attachment",
+        "background-clip", "background-origin", "background-blend-mode",
+        "border-color", "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
+        "border-block-color", "border-block-start-color", "border-block-end-color",
+        "border-inline-color", "border-inline-start-color", "border-inline-end-color",
+        "outline", "outline-color", "outline-style", "outline-width", "outline-offset",
+        "text-decoration", "text-decoration-color", "text-decoration-line", "text-decoration-style",
+        "text-decoration-thickness", "text-underline-offset", "text-emphasis-color",
+        "text-shadow", "box-shadow",
+        "fill", "fill-opacity", "stroke", "stroke-opacity",
+        "caret-color", "accent-color", "column-rule-color",
+        "-webkit-text-fill-color", "-webkit-text-stroke-color", "-webkit-tap-highlight-color",
+    };
 
     /// <summary>
     /// Writes each projected element's user-action state, and its element state (DomBridge/ElementStates.cs),

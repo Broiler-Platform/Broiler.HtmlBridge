@@ -255,10 +255,19 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
     private int _renderProjectionDepth;
 
     /// <summary>Counts a change to what the page renders that its DOM does not record, unless it is a projection's copy.</summary>
-    private void NoteRenderStateChange()
+    /// <param name="affectsLayout">
+    /// Whether the change can move a box. It then moves the epoch a retained geometry snapshot is keyed
+    /// on too, since what the page renders is what the snapshot lays out. Building the render projection
+    /// that followed every such change used to move the epoch for it.
+    /// </param>
+    private void NoteRenderStateChange(bool affectsLayout = true)
     {
-        if (_renderProjectionDepth == 0)
-            _renderStateChanges++;
+        if (_renderProjectionDepth != 0)
+            return;
+
+        _renderStateChanges++;
+        if (affectsLayout)
+            BridgeRuntimeStateEpoch.Bump();
     }
 
     /// <summary>
