@@ -6,8 +6,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The HTMLSelectElement / HTMLOptionElement feature binding — <c>select.options</c>,
-/// <c>selectedOptions</c>, <c>selectedIndex</c>, <c>type</c>, <c>multiple</c>, <c>add</c>, <c>item</c>,
-/// <c>namedItem</c> and <c>size</c>, and <c>option.selected</c>, <c>index</c>, <c>defaultSelected</c> and
+/// <c>selectedOptions</c>, <c>selectedIndex</c>, <c>type</c>, <c>multiple</c>, <c>add</c>, <c>remove</c>,
+/// <c>length</c>, <c>item</c>, <c>namedItem</c> and <c>size</c>, the options' own <c>add</c>, <c>remove</c>,
+/// <c>length</c> and <c>selectedIndex</c>, and <c>option.selected</c>, <c>index</c>, <c>defaultSelected</c> and
 /// <c>text</c> -- with HTML's selectedness: each option is selected or not, a select-one keeps one of them,
 /// a multiple select any number. The option-collection and selectedness algorithms live here; the
 /// per-option state they keep is reached through the narrow <see cref="ISelectHost"/> contract.
@@ -29,6 +30,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>multiple</c> keeps the first selected option, as Chromium does; HTML says nothing of it.
 /// </para>
 /// <para>
+/// <b>Nothing took an option out or put empty ones in.</b> <c>select.remove(1)</c> was the
+/// <c>ChildNode.remove()</c> every element has, so it removed the select itself; <c>options.remove()</c>
+/// did not exist, nor did <c>select.length</c>; and <c>options.length = 0</c> made an own property of the
+/// collection that read 0 from then on, the options all still there. As Chromium has them (measured): an index is a WebIDL <c>long</c>, nothing happens out of range, and a
+/// length past 100,000 is refused.
+/// </para>
+/// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): every member is minted by the
 /// realm and every body runs on a <see cref="JsCall"/>, so no part of this file names an engine
 /// type.
@@ -47,6 +55,31 @@ internal sealed class SelectBinding(ISelectHost host)
         if (tag == "select")
         {
             realm.DefineMethod(obj, "add", 2, (in call) => Add(element, in call));
+
+            // remove() is ChildNode's and takes the select out; remove(index) takes an option out.
+            realm.DefineMethod(obj, "remove", 0, (in call) =>
+            {
+                if (call.Length == 0)
+                {
+                    var parent = element.ParentElement;
+                    element.Remove();
+                    if (parent is not null)
+                        _host.InvalidateStyleScope(parent);
+                }
+                else
+                {
+                    RemoveOptionAt(element, ToWebIdlLong(call.Realm, call[0]));
+                }
+
+                return JsValue.Undefined;
+            });
+            realm.DefineAccessor(obj, "length",
+                (in _) => JsValue.Number(OptionsOf(element).Count),
+                (in call) =>
+                {
+                    SetLength(element, call.Realm, call.Length > 0 ? call[0] : JsValue.Undefined);
+                    return JsValue.Undefined;
+                });
             realm.DefineAccessor(obj, "options",
                 (in _) => OptionsCollection(element), null);
             realm.DefineAccessor(obj, "selectedOptions",
@@ -126,10 +159,91 @@ internal sealed class SelectBinding(ISelectHost host)
         {
             var realm = _host.Realm;
             realm.DefineMethod(collection, "add", 2, (in call) => Add(select, in call));
+            realm.DefineMethod(collection, "remove", 1, (in call) =>
+            {
+                if (call.Length == 0)
+                    throw call.Realm.Error(JsErrorKind.TypeError,
+                        "Failed to execute 'remove' on 'HTMLOptionsCollection': 1 argument required, but only 0 present.");
+
+                RemoveOptionAt(select, ToWebIdlLong(call.Realm, call[0]));
+                return JsValue.Undefined;
+            });
             realm.DefineAccessor(collection, "selectedIndex",
                 (in _) => JsValue.Number(GetSelectedIndex(select)),
                 (in call) => SetSelectedIndexCallback(select, in call));
+        },
+        // options.length = n: the collection answers length itself, so the assignment comes here.
+        (name, value) =>
+        {
+            if (name != "length")
+                return false;
+
+            SetLength(select, _host.Realm, value);
+            return true;
         });
+
+    /// <summary><c>remove(index)</c>: the option at <paramref name="index"/> taken out of its parent; nothing out of range.</summary>
+    private void RemoveOptionAt(DomElement select, int index)
+    {
+        var options = OptionsOf(select);
+        if (index < 0 || index >= options.Count)
+            return;
+
+        options[index].Remove();
+        _host.InvalidateStyleScope(select);
+    }
+
+    // HTML's limit, and Chromium's: past it the length setter does nothing (measured).
+    private const uint MaxOptionsLength = 100_000;
+
+    /// <summary>
+    /// <c>options.length = value</c> and <c>select.length = value</c>: as many options as <paramref name="value"/>
+    /// says, a WebIDL <c>unsigned long</c> -- the last ones taken out of their parents, or new empty
+    /// <c>option</c> elements appended to the select in one insertion; nothing past 100,000.
+    /// </summary>
+    private void SetLength(DomElement select, IJsRealm realm, JsValue value)
+    {
+        var length = ToWebIdlUnsignedLong(realm, value);
+        if (length > MaxOptionsLength)
+            return;
+
+        var options = OptionsOf(select);
+        if (length < options.Count)
+        {
+            for (var i = options.Count - 1; i >= (int)length; i--)
+                options[i].Remove();
+        }
+        else if (length > options.Count)
+        {
+            var document = select.OwnerDocument;
+            var fragment = document.CreateDocumentFragment();
+            for (var i = options.Count; i < (int)length; i++)
+                fragment.AppendChild(document.CreateElement("option"));
+            select.AppendChild(fragment);
+        }
+        else
+        {
+            return;
+        }
+
+        _host.InvalidateStyleScope(select);
+    }
+
+    /// <summary>WebIDL's conversion to <c>long</c>: NaN and the infinities 0, the rest truncated and wrapped to 32 bits.</summary>
+    private static int ToWebIdlLong(IJsRealm realm, JsValue value) => unchecked((int)ToWebIdlUnsignedLong(realm, value));
+
+    /// <summary>WebIDL's conversion to <c>unsigned long</c>: NaN and the infinities 0, the rest truncated modulo 2^32.</summary>
+    private static uint ToWebIdlUnsignedLong(IJsRealm realm, JsValue value)
+    {
+        var number = realm.ToNumber(value);
+        if (double.IsNaN(number) || double.IsInfinity(number))
+            return 0;
+
+        var wrapped = Math.Truncate(number) % 4294967296.0;
+        if (wrapped < 0)
+            wrapped += 4294967296.0;
+        return (uint)wrapped;
+    }
 
     private JsValue Item(DomElement select, in JsCall call)
     {

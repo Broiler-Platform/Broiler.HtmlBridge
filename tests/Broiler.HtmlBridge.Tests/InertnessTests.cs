@@ -153,6 +153,78 @@ public class InertnessTests
         Assert.Equal("d", Probe(session, "ae()"));
     }
 
+    /// <summary>
+    /// A modal dialog taken out of its document is still open but modal no more: the page behind it takes focus
+    /// again, it is not <c>:modal</c> once it is back, <c>showModal()</c> throws as for any non-modal dialog, and
+    /// one moved within the document is the same (measured). It stayed modal, and
+    /// blocked the page again once it was put back.
+    /// </summary>
+    [Fact]
+    public void AModalDialogTakenOutOfItsDocumentIsModalNoMore()
+    {
+        var log = Settle(
+            "var d = document.getElementById('d'), holder = document.getElementById('holder');" +
+            "document.getElementById('before').focus(); d.showModal(); note('modal ' + d.matches(':modal') + ' ' + ae());" +
+            "d.remove(); note('removed open=' + d.open + ' modal=' + d.matches(':modal') + ' ' + ae());" +
+            "document.getElementById('after').focus(); note('behind ' + ae());" +
+            "holder.appendChild(d); note('back modal=' + d.matches(':modal'));" +
+            "try { d.showModal(); note('showModal ok'); } catch (e) { note(e.name + ': ' + e.message); }" +
+            "d.close(); note('closed ' + d.open + ' ' + ae());" +
+            "d.showModal(); document.body.appendChild(d); note('moved modal=' + d.matches(':modal') + ' open=' + d.open);",
+            "<button id=\"before\">before</button><div id=\"holder\"><dialog id=\"d\"><button id=\"inside\">inside</button></dialog></div>" +
+            "<button id=\"after\">after</button>");
+
+        Assert.Equal(
+            "modal true inside|removed open=true modal=false body|behind after|back modal=false|" +
+            "InvalidStateError: Failed to execute 'showModal' on 'HTMLDialogElement': The dialog is already open as a non-modal dialog, " +
+            "and therefore cannot be opened as a modal dialog.|closed false after|moved modal=false open=true", log);
+    }
+
+    /// <summary>
+    /// A focused field made inert keeps focus through the task, its microtasks and a timer set then, and loses it
+    /// at the next frame's style update, in a task: a trusted <c>blur</c> and <c>focusout</c> with no
+    /// <c>relatedTarget</c>, the body already active (measured). It kept focus.
+    /// </summary>
+    [Fact]
+    public void AFocusedElementMadeInertLosesFocus()
+    {
+        var log = Settle(
+            "var i = document.getElementById('i'), wrap = document.getElementById('wrap');" +
+            "['blur', 'focusout'].forEach(function (t) { i.addEventListener(t, function (e) {" +
+            "  note(t + ' ae=' + ae() + ' trusted=' + e.isTrusted + ' related=' + e.relatedTarget); }); });" +
+            "i.focus(); wrap.inert = true; note('sync ' + ae());" +
+            "Promise.resolve().then(function () { note('micro ' + ae()); });" +
+            "setTimeout(function () { note('t0 ' + ae()); }, 0);" +
+            "setTimeout(function () { note('later ' + ae()); }, 50);",
+            "<div id=\"wrap\"><input id=\"i\"></div>");
+
+        Assert.Equal(
+            "sync i|micro i|t0 i|blur ae=body trusted=true related=null|focusout ae=body trusted=true related=null|later body", log);
+    }
+
+    /// <summary>
+    /// What else takes focus away the same way -- a field disabled, not displayed, or hidden -- and what does not:
+    /// a read-only field keeps it, and so does one made inert and then not again before the frame (measured).
+    /// </summary>
+    [Theory]
+    [InlineData("i.disabled = true", true)]
+    [InlineData("i.style.display = 'none'", true)]
+    [InlineData("wrap.hidden = true", true)]
+    [InlineData("i.style.visibility = 'hidden'", true)]
+    [InlineData("i.readOnly = true", false)]
+    [InlineData("wrap.inert = true; wrap.inert = false", false)]
+    public void WhatTakesFocusAway(string change, bool loses)
+    {
+        var log = Settle(
+            "var i = document.getElementById('i'), wrap = document.getElementById('wrap');" +
+            "i.addEventListener('blur', function () { note('blur'); });" +
+            "i.focus(); " + change + ";" +
+            "setTimeout(function () { note('later ' + ae()); }, 50);",
+            "<div id=\"wrap\"><input id=\"i\"></div>");
+
+        Assert.Equal(loses ? "blur|later body" : "later i", log);
+    }
+
     private static string Probe(InteractiveSession session, string expression)
     {
         session.RunJavaScriptUrl("javascript:void (log = [], note(" + expression + "))");

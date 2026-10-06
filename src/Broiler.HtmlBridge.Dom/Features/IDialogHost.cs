@@ -44,8 +44,8 @@ internal interface IDialogHost : IRealmHost, IStyleInvalidationHost
     /// <summary>Whether <paramref name="element"/> is a popover that is showing.</summary>
     bool IsPopoverShowing(DomElement element);
 
-    /// <summary>Closes the open auto popovers a modal dialog that is showing is not in, with their events.</summary>
-    void HidePopoversForModalDialog(DomElement dialog);
+    /// <summary>Closes the open auto and hint popovers a dialog that is showing is not in, with their events.</summary>
+    void HidePopoversForDialog(DomElement dialog);
 
     /// <summary>
     /// The dialog focusing steps, as Chromium takes them (measured): focus to an <c>autofocus</c> element in

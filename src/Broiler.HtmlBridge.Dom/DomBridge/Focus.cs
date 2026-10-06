@@ -136,12 +136,46 @@ public sealed partial class DomBridge
         MoveFocus(GetOwningDocument(target), focusable, FocusOrigin.Pointer);
     }
 
-    /// <summary>What moved focus: a script, a press of a pointer, or a key -- Tab.</summary>
+    /// <summary>What moved focus: a script, a press of a pointer, a key -- Tab -- or the focus fixup.</summary>
     private enum FocusOrigin
     {
         Script,
         Pointer,
         Keyboard,
+        Fixup,
+    }
+
+    // Whether a check that the focused element can still have focus waits for the next frame.
+    private bool _focusFixupQueued;
+
+    /// <summary>
+    /// HTML's focus fixup, as Chromium runs it (measured): a focused element that
+    /// can no longer have focus -- made inert, disabled, or not rendered -- keeps it until the next style
+    /// update, which queues a task; that task, if the element still cannot have it, takes focus away with a
+    /// trusted <c>blur</c> and <c>focusout</c> and no <c>relatedTarget</c>, the body already active. The
+    /// frame stands for the style update here. Asked for on every change to a document's tree or attributes
+    /// while an element has focus; a change undone before the frame does nothing.
+    /// </summary>
+    /// <remarks>It kept focus: a key went on to a field behind an inert overlay, or one a script had disabled.</remarks>
+    private void QueueFocusFixup()
+    {
+        if (_focusFixupQueued || _focusedElement is null || _realm is null)
+            return;
+
+        _focusFixupQueued = true;
+        QueueFrameAction(() =>
+        {
+            _focusFixupQueued = false;
+            var document = FocusedDocument;
+            if (_realm is null || FocusedElementIn(document) is not { } focused || IsFocusable(focused))
+                return;
+
+            _eventLoop.QueueTask(() =>
+            {
+                if (_realm is not null && ReferenceEquals(FocusedElementIn(document), focused) && !IsFocusable(focused))
+                    MoveFocus(document, null, FocusOrigin.Fixup);
+            });
+        });
     }
 
     /// <summary>
@@ -375,5 +409,6 @@ public sealed partial class DomBridge
         _changeField = null;
         _changeBaseline = null;
         _fieldEditedByUser = false;
+        _focusFixupQueued = false;
     }
 }

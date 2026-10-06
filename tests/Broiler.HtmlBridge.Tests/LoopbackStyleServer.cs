@@ -38,8 +38,7 @@ internal sealed class LoopbackStyleServer : IDisposable
     public LoopbackStyleServer(IReadOnlyDictionary<string, string> bodies)
     {
         _bodies = new Dictionary<string, string>(bodies, StringComparer.Ordinal);
-        _listener = new TcpListener(IPAddress.Loopback, 0);
-        _listener.Start();
+        _listener = LoopbackPorts.Start(IPAddress.Loopback);
         Origin = $"http://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}";
         _ = Task.Run(AcceptAsync);
     }

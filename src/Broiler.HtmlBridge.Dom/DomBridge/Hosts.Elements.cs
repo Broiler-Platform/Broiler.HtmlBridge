@@ -318,13 +318,16 @@ public sealed partial class DomBridge : ISelectHost
         NoteElementStateChange();
     }
 
-    JsValue ISelectHost.LiveCollection(DomElement owner, string kind, Func<List<JsValue>> contents, Action<JsValue>? initialize)
+    JsValue ISelectHost.LiveCollection(DomElement owner, string kind, Func<List<JsValue>> contents, Action<JsValue>? initialize,
+        Func<string, JsValue, bool>? namedSetter)
     {
         var collections = _elementCollections.GetValue(owner, static _ => new Dictionary<string, JsValue>(StringComparer.Ordinal));
         if (collections.TryGetValue(kind, out var existing))
             return existing;
 
-        var collection = LiveCollection(contents);
+        var collection = namedSetter is null
+            ? LiveCollection(contents)
+            : Dom.Features.DomCollectionBinding.HtmlCollection(Realm, contents, name => NamedItem(Realm, contents, name), namedSetter);
         collections[kind] = collection;
         initialize?.Invoke(collection);
         return collection;
@@ -411,7 +414,7 @@ public sealed partial class DomBridge : IDialogHost
 
     bool IDialogHost.IsPopoverShowing(DomElement element) => IsPopoverShowing(element);
 
-    void IDialogHost.HidePopoversForModalDialog(DomElement dialog) => HidePopoversForModalDialog(dialog);
+    void IDialogHost.HidePopoversForDialog(DomElement dialog) => HidePopoversForDialog(dialog);
 
     void IDialogHost.RunDialogFocusingSteps(DomElement dialog) => RunDialogFocusingSteps(dialog);
 

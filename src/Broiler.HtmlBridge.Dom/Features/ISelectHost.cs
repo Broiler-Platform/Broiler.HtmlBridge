@@ -16,7 +16,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// type. The rename is contract-side only: the bridge member behind <see cref="FindElement"/> is
 /// still spelled <c>FindDomElementByJSObject</c>, and takes what it takes here.
 /// </remarks>
-internal interface ISelectHost : INodeWrapperHost, IRealmHost
+internal interface ISelectHost : INodeWrapperHost, IRealmHost, IStyleInvalidationHost
 {
     /// <summary>Resolves the canonical element behind a JS wrapper, or null.</summary>
     DomElement? FindElement(JsValue wrapper);
@@ -42,7 +42,9 @@ internal interface ISelectHost : INodeWrapperHost, IRealmHost
     /// <summary>
     /// One live <c>HTMLCollection</c> per <paramref name="owner"/> and <paramref name="kind"/>, over
     /// <paramref name="contents"/>: the same object on every read. <paramref name="initialize"/> runs
-    /// once, on the collection it makes.
+    /// once, on the collection it makes; <paramref name="namedSetter"/> takes the assignments to a name it
+    /// answers true for.
     /// </summary>
-    JsValue LiveCollection(DomElement owner, string kind, Func<List<JsValue>> contents, Action<JsValue>? initialize = null);
+    JsValue LiveCollection(DomElement owner, string kind, Func<List<JsValue>> contents, Action<JsValue>? initialize = null,
+        Func<string, JsValue, bool>? namedSetter = null);
 }

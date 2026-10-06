@@ -7,8 +7,8 @@ namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// The popover API as HTML and Chromium have it: <c>showPopover()</c>, <c>hidePopover()</c> and
-/// <c>togglePopover()</c> on every HTML element, the <c>popover</c> attribute's states, the auto popovers
-/// that close one another, an invoker's <c>popovertarget</c>, light dismiss and Escape -- with the
+/// <c>togglePopover()</c> on every HTML element, the <c>popover</c> attribute's states, the auto and hint
+/// popovers that close one another, an invoker's <c>popovertarget</c>, light dismiss and Escape -- with the
 /// <c>beforetoggle</c> and <c>toggle</c> events of each change.
 /// </summary>
 /// <remarks>
@@ -19,18 +19,21 @@ namespace Broiler.HtmlBridge;
 /// light dismiss, and a closed popover was drawn in the flow, since no rule hid it.
 /// </para>
 /// <para>
-/// <b>As Chromium does it, measured</b>. A show fires a cancelable
-/// <c>beforetoggle</c> first, then closes the auto popovers that are not its ancestors -- the innermost
-/// first, each with its own <c>beforetoggle</c> -- and opens; a hide closes the auto popovers above it, then
-/// fires a <c>beforetoggle</c> that cannot be cancelled and closes. <c>toggle</c> follows as a task, one per
-/// popover for every change since its last: a second change cancels the queued task and queues a new one
-/// with the first old state, so the toggle goes behind whatever was queued in between. A press outside the
-/// open auto popovers closes them after its <c>mousedown</c>; Escape closes the topmost one after its
-/// <c>keydown</c>.
+/// <b>As Chromium does it, measured</b>. A show fires a
+/// cancelable <c>beforetoggle</c> first, then closes the popovers that are not its ancestors -- the topmost
+/// first, each with its own <c>beforetoggle</c> -- and opens; a hide closes the popovers above it, then fires
+/// a <c>beforetoggle</c> that cannot be cancelled and closes. <c>toggle</c> follows as a task, one per popover
+/// for every change since its last: a second change cancels the queued task and queues a new one with the
+/// first old state, so the toggle goes behind whatever was queued in between. A press outside the open
+/// popovers closes them after its <c>mousedown</c>; Escape closes the topmost one after its <c>keydown</c>.
+/// No popover of a document may show while another of it shows or hides: Chromium throws.
 /// </para>
 /// <para>
-/// A <c>hint</c> popover is an auto one here: Chromium keeps a stack of its own for them, which no page
-/// this bridge has met needs.
+/// <b>Hint popovers are a stack of their own</b>, above the auto one (HTML's showing auto and hint popover
+/// lists): showing one closes only the hint popovers it is not in, while an auto popover closes both stacks
+/// -- unless it is shown in a hint popover, which makes it a hint one. The auto popover the first hint one
+/// was shown in is the hint stack's parent: hiding it hides every hint popover. A press in a hint popover
+/// that has no such parent closes the auto popovers.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -43,20 +46,32 @@ public sealed partial class DomBridge
         Hint,
     }
 
-    // HTML's popover visibility state "showing", the auto popovers among them in the order they showed, and
-    // for each the element that invoked it and the one that had focus before it showed.
+    // HTML's popover visibility state "showing"; the showing auto and hint popover lists -- the popovers whose
+    // "opened in popover mode" is auto or hint, in the order they went into the top layer; and for each showing
+    // popover the element that invoked it and, for the first of a stack, the one that had focus before it.
     private readonly HashSet<DomElement> _showingPopovers = new(ReferenceEqualityComparer.Instance);
     private readonly List<DomElement> _autoPopovers = [];
+    private readonly List<DomElement> _hintPopovers = [];
     private readonly Dictionary<DomElement, (DomElement? Invoker, DomElement? PreviouslyFocused)> _popoverShowings = new(ReferenceEqualityComparer.Instance);
 
-    // The popovers whose beforetoggle is being fired: a show or a hide a listener asks for meanwhile does nothing.
-    private readonly HashSet<DomElement> _popoversChanging = new(ReferenceEqualityComparer.Instance);
+    // Each document's hint stack parent: the auto popover its first hint popover was shown in.
+    private readonly Dictionary<DomDocument, DomElement> _hintStackParents = new(ReferenceEqualityComparer.Instance);
+
+    // HTML's "showing popover" of a document, and its "hiding popover nesting count": while either is set, no
+    // popover of the document may show. And each element's "popover hiding": a hide asked for while its own is
+    // under way finishes it at once, with no events.
+    private readonly HashSet<DomDocument> _documentsShowingPopover = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<DomDocument, int> _popoverHideNesting = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<DomElement> _popoversHiding = new(ReferenceEqualityComparer.Instance);
 
     // The element a script gave an invoker's popoverTargetElement, which wins over its popovertarget id.
     private readonly ConditionalWeakTable<DomElement, DomElement> _explicitPopoverTargets = new();
 
     // The toggle event each element has queued and not fired yet (HTML's toggle task tracker), for dialogs and popovers.
     private readonly Dictionary<DomElement, ToggleTask> _pendingToggles = new(ReferenceEqualityComparer.Instance);
+
+    private const string BeforeToggleChangedIt =
+        " This might have been the result of the \"beforetoggle\" event handler changing the state of this popover.";
 
     private sealed class ToggleTask(string oldState, string newState)
     {
@@ -77,10 +92,15 @@ public sealed partial class DomBridge
                 _ => PopoverState.Manual,
             };
 
-    private static bool IsAutoPopover(DomElement element) => PopoverStateOf(element) is PopoverState.Auto or PopoverState.Hint;
-
     /// <summary>Whether <paramref name="element"/> is a popover that is showing (<c>:popover-open</c>).</summary>
     internal bool IsPopoverShowing(DomElement element) => _showingPopovers.Contains(element);
+
+    /// <summary>Whether <paramref name="element"/> is showing as an auto or a hint popover -- one that light dismiss and Escape close.</summary>
+    private bool IsOpenAutoOrHintPopover(DomElement element) => _autoPopovers.Contains(element) || _hintPopovers.Contains(element);
+
+    /// <summary>The showing hint popover list of <paramref name="document"/> when <paramref name="hint"/>, else its showing auto popover list.</summary>
+    private List<DomElement> PopoverList(DomDocument document, bool hint) =>
+        (hint ? _hintPopovers : _autoPopovers).FindAll(popover => ReferenceEquals(GetOwningDocument(popover), document));
 
     /// <summary>
     /// Queues <paramref name="element"/>'s <c>toggle</c> (HTML "queue a popover toggle event task", and the
@@ -287,10 +307,12 @@ public sealed partial class DomBridge
     /// <summary>
     /// HTML "check popover validity": whether <paramref name="element"/> may go to the state it is not in --
     /// false, silently, when it is already there; for a script's call (<paramref name="realm"/> given) the
-    /// exceptions Chromium throws for an element that is no popover, is not in a document, or is open as a
-    /// modal dialog.
+    /// exceptions Chromium throws for an element that is no popover, is not in a document or no longer in
+    /// <paramref name="expectedDocument"/>, or is open as a modal dialog. After a <c>beforetoggle</c>
+    /// (<paramref name="afterEvent"/>) the message says the event may have done it, as Chromium's does.
     /// </summary>
-    private bool CheckPopoverValidity(DomElement element, bool expectedToBeShowing, IJsRealm? realm, string method)
+    private bool CheckPopoverValidity(DomElement element, bool expectedToBeShowing, IJsRealm? realm, string method,
+        DomDocument? expectedDocument = null, bool afterEvent = false)
     {
         if (PopoverStateOf(element) == PopoverState.None)
         {
@@ -299,60 +321,99 @@ public sealed partial class DomBridge
 
             throw realm.DomError("NotSupportedError",
                 $"Failed to execute '{method}' on 'HTMLElement': Not supported on elements that are not popovers." +
-                (method == "hidePopover" ? " This might have been the result of the \"beforetoggle\" event handler changing the state of this popover." : string.Empty));
+                (afterEvent || method == "hidePopover" ? BeforeToggleChangedIt : string.Empty));
         }
 
         if (IsPopoverShowing(element) != expectedToBeShowing)
             return false;
 
+        string? problem = null;
         if (!element.IsConnected)
-        {
-            if (realm is null)
-                return false;
+            problem = "Invalid on disconnected popover elements.";
+        else if (expectedDocument is not null && !ReferenceEquals(GetOwningDocument(element), expectedDocument))
+            problem = "Invalid when the document changes while showing or hiding a popover element.";
+        else if (!expectedToBeShowing && IsModalDialog(element))
+            problem = "The dialog is already open as a dialog, and therefore cannot be opened as a popover.";
 
-            throw realm.DomError("InvalidStateError", $"Failed to execute '{method}' on 'HTMLElement': Invalid on disconnected popover elements.");
-        }
+        if (problem is null)
+            return true;
 
-        if (IsModalDialog(element))
-        {
-            if (realm is null)
-                return false;
+        if (realm is null)
+            return false;
 
-            throw realm.DomError("InvalidStateError",
-                $"Failed to execute '{method}' on 'HTMLElement': The dialog is already open as a dialog, and therefore cannot be opened as a popover.");
-        }
-
-        return true;
+        throw realm.DomError("InvalidStateError",
+            $"Failed to execute '{method}' on 'HTMLElement': {problem}" + (afterEvent ? BeforeToggleChangedIt : string.Empty));
     }
 
-    /// <summary>HTML "show popover": <c>beforetoggle</c>, the other auto popovers closed, then it opens and its <c>toggle</c> is queued.</summary>
+    /// <summary>
+    /// HTML "show popover": <c>beforetoggle</c>, the popovers it is not in closed, then it opens and its
+    /// <c>toggle</c> is queued. Refused while another popover of its document shows or hides.
+    /// </summary>
     private void ShowPopover(DomElement element, IJsRealm? realm, DomElement? invoker, string method = "showPopover")
     {
-        if (!CheckPopoverValidity(element, expectedToBeShowing: false, realm, method) || !_popoversChanging.Add(element))
+        var document = GetOwningDocument(element);
+        if (_documentsShowingPopover.Contains(document) || _popoverHideNesting.ContainsKey(document))
+        {
+            if (realm is null)
+                return;
+
+            throw realm.DomError("InvalidStateError",
+                $"Failed to execute '{method}' on 'HTMLElement': Invalid to show a popover during another show operation");
+        }
+
+        if (!CheckPopoverValidity(element, expectedToBeShowing: false, realm, method))
             return;
 
+        _documentsShowingPopover.Add(document);
         try
         {
             if (!FireToggleEvent(element, "beforetoggle", cancelable: true, "closed", "open") ||
-                !CheckPopoverValidity(element, expectedToBeShowing: false, realm, method))
+                !CheckPopoverValidity(element, expectedToBeShowing: false, realm, method, document, afterEvent: true))
             {
                 return;
             }
 
-            var document = GetOwningDocument(element);
+            var shouldRestoreFocus = false;
             var originalState = PopoverStateOf(element);
-            if (IsAutoPopover(element))
+            var mode = PopoverState.Manual;
+            DomElement? ancestor = null;
+            if (originalState is PopoverState.Auto or PopoverState.Hint)
             {
-                HideAllPopoversUntil(TopmostPopoverAncestor(element, invoker), document, focusPreviousElement: false, fireEvents: true);
-                if (PopoverStateOf(element) != originalState || !CheckPopoverValidity(element, expectedToBeShowing: false, realm, method))
+                // An auto popover shown in a hint one is a hint one: the auto stack is below the hint stack.
+                mode = originalState;
+                ancestor = TopmostPopoverAncestor(element, invoker);
+                if (ancestor is not null && _hintPopovers.Contains(ancestor))
+                    mode = PopoverState.Hint;
+
+                HidePopoverStackUntil(document, ancestor, hint: true, focusPreviousElement: false, fireEvents: true);
+                if (mode == PopoverState.Auto)
+                    HidePopoverStackUntil(document, ancestor, hint: false, focusPreviousElement: false, fireEvents: true);
+
+                if (PopoverStateOf(element) != originalState)
+                {
+                    if (realm is null)
+                        return;
+
+                    throw realm.DomError("InvalidStateError",
+                        $"Failed to execute '{method}' on 'HTMLElement': The popover attribute changed while hiding other popovers.");
+                }
+
+                if (!CheckPopoverValidity(element, expectedToBeShowing: false, realm, method, document, afterEvent: true))
                     return;
+
+                // Focus goes back on hide only for the first popover of a stack.
+                shouldRestoreFocus = TopmostAutoOrHintPopover(document) is null;
             }
 
-            var previouslyFocused = FocusedElementIn(document);
+            var originallyFocused = FocusedElementIn(document);
             _showingPopovers.Add(element);
-            if (IsAutoPopover(element))
+            if (mode == PopoverState.Auto)
                 _autoPopovers.Add(element);
-            _popoverShowings[element] = (invoker, previouslyFocused);
+            else if (mode == PopoverState.Hint)
+                _hintPopovers.Add(element);
+            if (mode == PopoverState.Hint && ancestor is not null && _autoPopovers.Contains(ancestor))
+                _hintStackParents[document] = ancestor;
+            _popoverShowings[element] = (invoker, null);
 
             var state = DialogStateFor(element);
             state.PopoverOpen.Set(true);
@@ -365,45 +426,71 @@ public sealed partial class DomBridge
             if (AutofocusDelegateOf(element) is { } control)
                 FocusElement(control);
 
+            if (shouldRestoreFocus && PopoverStateOf(element) != PopoverState.None)
+                _popoverShowings[element] = (invoker, originallyFocused);
+
             QueueToggleEvent(element, "closed", "open");
         }
         finally
         {
-            _popoversChanging.Remove(element);
+            _documentsShowingPopover.Remove(document);
         }
     }
 
     /// <summary>
-    /// HTML "hide popover algorithm": the auto popovers above it closed first, then -- with
+    /// HTML "hide popover algorithm": the popovers above it closed first, then -- with
     /// <paramref name="fireEvents"/> -- a <c>beforetoggle</c> that cannot be cancelled, it closes and its
-    /// <c>toggle</c> is queued; focus goes back to what had it before it showed when it is inside.
+    /// <c>toggle</c> is queued; focus goes back to what had it before its stack showed when it is inside.
     /// </summary>
     private void HidePopover(DomElement element, bool focusPreviousElement, bool fireEvents, IJsRealm? realm, string method = "hidePopover")
     {
         if (!CheckPopoverValidity(element, expectedToBeShowing: true, realm, method))
             return;
 
-        ClosePopover(element, focusPreviousElement, fireEvents,
-            () => CheckPopoverValidity(element, expectedToBeShowing: true, realm, method));
+        var document = GetOwningDocument(element);
+        HidePopoverCore(element, document, focusPreviousElement, fireEvents,
+            () => CheckPopoverValidity(element, expectedToBeShowing: true, realm, method, document, afterEvent: true));
     }
 
     /// <summary>
-    /// The hide itself, for a popover that is showing: what <see cref="HidePopover"/> does once the popover is
-    /// found valid, and what a popover taken out of its document or given another <c>popover</c> state
-    /// undergoes without that check, which it could no longer pass. <paramref name="stillValid"/> asks again
-    /// after each event a listener can act in.
+    /// The hide for a popover that is showing but could no longer pass the validity check: one taken out of its
+    /// document, which closes with no events, or whose <c>popover</c> attribute changed its state, which closes
+    /// with them (both measured).
     /// </summary>
-    private void ClosePopover(DomElement element, bool focusPreviousElement, bool fireEvents, Func<bool> stillValid)
+    private void ClosePopover(DomElement element, bool focusPreviousElement, bool fireEvents)
     {
-        if (!IsPopoverShowing(element) || !_popoversChanging.Add(element))
-            return;
+        if (IsPopoverShowing(element))
+            HidePopoverCore(element, GetOwningDocument(element), focusPreviousElement, fireEvents, () => IsPopoverShowing(element));
+    }
 
+    /// <summary>
+    /// The hide popover algorithm from its first step on, for <paramref name="element"/> of
+    /// <paramref name="document"/>: <paramref name="stillValid"/> asks again after each step a listener can
+    /// act in. A hide asked for while this one is under way finishes it with no events.
+    /// </summary>
+    private void HidePopoverCore(DomElement element, DomDocument document, bool focusPreviousElement, bool fireEvents, Func<bool> stillValid)
+    {
+        var nestedHide = !_popoversHiding.Add(element);
+        if (nestedHide)
+            fireEvents = false;
+
+        _popoverHideNesting[document] = _popoverHideNesting.GetValueOrDefault(document) + 1;
         try
         {
-            var document = GetOwningDocument(element);
-            if (_autoPopovers.Contains(element))
+            var inAutoList = _autoPopovers.Contains(element);
+            var inHintList = _hintPopovers.Contains(element);
+            if (inAutoList || inHintList)
             {
-                HideAllPopoversUntil(element, document, focusPreviousElement, fireEvents);
+                if (inHintList)
+                    HidePopoverStackUntil(document, element, hint: true, focusPreviousElement, fireEvents);
+
+                // The hint stack's parent going takes every hint popover with it.
+                if (_hintStackParents.TryGetValue(document, out var parent) && ReferenceEquals(parent, element))
+                    HidePopoverStackUntil(document, endpoint: null, hint: true, focusPreviousElement, fireEvents);
+
+                if (inAutoList)
+                    HidePopoverStackUntil(document, element, hint: false, focusPreviousElement, fireEvents);
+
                 if (!stillValid())
                     return;
             }
@@ -411,25 +498,31 @@ public sealed partial class DomBridge
             if (fireEvents)
             {
                 FireToggleEvent(element, "beforetoggle", cancelable: false, "open", "closed");
-                if (_autoPopovers.Contains(element) && !ReferenceEquals(_autoPopovers[^1], element))
-                    HideAllPopoversUntil(element, document, focusPreviousElement, fireEvents: false);
                 if (!stillValid())
                     return;
             }
 
             _showingPopovers.Remove(element);
             _autoPopovers.Remove(element);
+            _hintPopovers.Remove(element);
             _popoverShowings.Remove(element, out var showing);
 
             // CSS Position §overlay: a popover whose `overlay` is transitioned with allow-discrete stays in the
-            // top layer while it animates out, which a still render catches mid-transition.
+            // top layer while it animates out, which a still render catches mid-transition -- unless it is
+            // removed at once, which a hide without events does.
             var state = DialogStateFor(element);
-            if (element.IsConnected && PopoverKeepsOverlayOnHide(element))
+            if (fireEvents && element.IsConnected && PopoverKeepsOverlayOnHide(element))
                 state.PopoverTransitioningOut.Set(true);
             else
                 state.PopoverOpen.Remove();
             InvalidateStyleScope(element);
             NoteElementStateChange();
+
+            if (_hintStackParents.TryGetValue(document, out var stackParent) &&
+                (ReferenceEquals(stackParent, element) || PopoverList(document, hint: true).Count == 0))
+            {
+                _hintStackParents.Remove(document);
+            }
 
             if (fireEvents)
                 QueueToggleEvent(element, "open", "closed");
@@ -442,7 +535,17 @@ public sealed partial class DomBridge
         }
         finally
         {
-            _popoversChanging.Remove(element);
+            if (!nestedHide)
+                _popoversHiding.Remove(element);
+
+            // A listener that ended the document (ResetPopovers) has taken the count with it.
+            if (_popoverHideNesting.TryGetValue(document, out var nesting))
+            {
+                if (nesting <= 1)
+                    _popoverHideNesting.Remove(document);
+                else
+                    _popoverHideNesting[document] = nesting - 1;
+            }
         }
     }
 
@@ -460,102 +563,141 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// HTML "hide all popovers until": every auto popover of <paramref name="document"/> above
-    /// <paramref name="endpoint"/> -- all of them for none -- closed, the topmost first.
+    /// HTML "hide popovers until": the hint popovers above <paramref name="endpoint"/>, then the auto ones above
+    /// it -- or, for a hint endpoint, above the hint stack's parent; for no endpoint, every one of
+    /// <paramref name="document"/>.
     /// </summary>
-    private void HideAllPopoversUntil(DomElement? endpoint, DomDocument document, bool focusPreviousElement, bool fireEvents)
+    private void HidePopoversUntil(DomDocument document, DomElement? endpoint, bool focusPreviousElement, bool fireEvents)
     {
-        if (endpoint is not null && !IsPopoverShowing(endpoint))
-            return;
+        var endpointIsHint = endpoint is not null && PopoverList(document, hint: true).Contains(endpoint);
+        HidePopoverStackUntil(document, endpoint, hint: true, focusPreviousElement, fireEvents);
 
-        // A listener can show another popover while these close, so the stack is read again each time; one
-        // that does not close -- it is changing already -- ends the walk rather than holding it.
-        for (var guard = 0; guard < 256; guard++)
-        {
-            var stack = _autoPopovers.Where(popover => ReferenceEquals(GetOwningDocument(popover), document)).ToList();
-            var kept = endpoint is null ? 0 : stack.IndexOf(endpoint) + 1;
-            if (kept >= stack.Count)
-                return;
-
-            var topmost = stack[^1];
-            if (topmost.IsConnected)
-                HidePopover(topmost, focusPreviousElement, fireEvents, realm: null);
-            else
-                ClosePopover(topmost, focusPreviousElement: false, fireEvents: false, () => IsPopoverShowing(topmost));
-            if (_autoPopovers.Contains(topmost))
-                return;
-        }
+        var autoEndpoint = endpointIsHint ? _hintStackParents.GetValueOrDefault(document) : endpoint;
+        HidePopoverStackUntil(document, autoEndpoint, hint: false, focusPreviousElement, fireEvents);
     }
 
     /// <summary>
-    /// HTML "topmost popover ancestor": of the open auto popovers <paramref name="popover"/> is in, through its
-    /// parent, or <paramref name="invoker"/> is in, the one highest in the stack; null for none.
+    /// HTML "hide popover stack until": the popovers of <paramref name="document"/>'s hint (or auto) list above
+    /// <paramref name="endpoint"/> -- all of them when it is not in the list -- hidden, the topmost first; and
+    /// then any that showed meanwhile, without events.
     /// </summary>
-    private DomElement? TopmostPopoverAncestor(DomElement popover, DomElement? invoker)
+    private void HidePopoverStackUntil(DomDocument document, DomElement? endpoint, bool hint, bool focusPreviousElement, bool fireEvents)
     {
-        DomElement? topmost = null;
-        void Check(DomElement? candidate)
+        var list = PopoverList(document, hint);
+        var lastHideIndex = endpoint is null ? 0 : list.IndexOf(endpoint) + 1;
+        var toRemain = list.GetRange(0, lastHideIndex);
+        for (var i = list.Count - 1; i >= lastHideIndex; i--)
+            HideListedPopover(list[i], focusPreviousElement, fireEvents);
+
+        var now = PopoverList(document, hint);
+        for (var i = now.Count - 1; i >= 0; i--)
         {
-            if (candidate is null || NearestInclusiveOpenPopover(candidate) is not { } ancestor ||
-                ReferenceEquals(ancestor, popover))
-            {
-                return;
-            }
-
-            if (topmost is null || _autoPopovers.IndexOf(topmost) < _autoPopovers.IndexOf(ancestor))
-                topmost = ancestor;
+            if (!toRemain.Contains(now[i]))
+                HideListedPopover(now[i], focusPreviousElement, fireEvents: false);
         }
-
-        Check(ParentEl(popover));
-        Check(invoker);
-        return topmost;
     }
 
-    /// <summary>The nearest inclusive ancestor of <paramref name="node"/> that is an open auto popover.</summary>
+    /// <summary>Hides a popover of a stack; one that left its document unnoticed closes as a removed one does.</summary>
+    private void HideListedPopover(DomElement popover, bool focusPreviousElement, bool fireEvents)
+    {
+        if (popover.IsConnected)
+            HidePopover(popover, focusPreviousElement, fireEvents, realm: null);
+        else
+            ClosePopover(popover, focusPreviousElement: false, fireEvents: false);
+    }
+
+    /// <summary>
+    /// HTML "topmost popover ancestor": of the showing auto and hint popovers -- the auto list, then the hint
+    /// list -- the last that <paramref name="element"/> or <paramref name="source"/> is in; null for none.
+    /// </summary>
+    private DomElement? TopmostPopoverAncestor(DomElement element, DomElement? source)
+    {
+        var document = GetOwningDocument(element);
+        var combined = PopoverList(document, hint: false);
+        combined.AddRange(PopoverList(document, hint: true));
+
+        int LastContaining(DomElement node)
+        {
+            for (var i = combined.Count - 1; i >= 0; i--)
+            {
+                if (!ReferenceEquals(combined[i], node) && IsInclusiveAncestor(combined[i], node))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        var index = Math.Max(LastContaining(element), source is null ? -1 : LastContaining(source));
+        return index < 0 ? null : combined[index];
+    }
+
+    /// <summary>The nearest inclusive ancestor of <paramref name="node"/> that is showing as an auto or a hint popover.</summary>
     private DomElement? NearestInclusiveOpenPopover(DomElement node)
     {
         for (var current = node; current is not null; current = ParentEl(current))
         {
-            if (_autoPopovers.Contains(current))
+            if (IsOpenAutoOrHintPopover(current))
                 return current;
         }
 
         return null;
     }
 
-    /// <summary>The open auto popover an invoker at or above <paramref name="node"/> targets, the nearest first.</summary>
-    private DomElement? NearestInclusiveTargetPopoverForInvoker(DomElement node)
+    /// <summary>The showing auto or hint popover an invoker at or above <paramref name="node"/> targets, the nearest first.</summary>
+    private DomElement? NearestInclusiveTargetPopover(DomElement node)
     {
         for (var current = node; current is not null; current = ParentEl(current))
         {
-            if (PopoverTargetElementOf(current) is { } popover && _autoPopovers.Contains(popover))
+            if (PopoverTargetElementOf(current) is { } popover && PopoverStateOf(popover) is PopoverState.Auto or PopoverState.Hint &&
+                IsPopoverShowing(popover))
+            {
                 return popover;
+            }
         }
 
         return null;
     }
 
+    /// <summary>HTML "popover stack position": where <paramref name="popover"/> is in its document's auto list, then its hint list, counted from 1; 0 for neither.</summary>
+    private int PopoverStackPosition(DomElement? popover)
+    {
+        if (popover is null)
+            return 0;
+
+        var document = GetOwningDocument(popover);
+        var autoList = PopoverList(document, hint: false);
+        var hintIndex = PopoverList(document, hint: true).IndexOf(popover);
+        if (hintIndex >= 0)
+            return hintIndex + autoList.Count + 1;
+
+        var autoIndex = autoList.IndexOf(popover);
+        return autoIndex >= 0 ? autoIndex + 1 : 0;
+    }
+
     /// <summary>
-    /// What a press at <paramref name="target"/> does to the open auto popovers (HTML "light dismiss open
-    /// popovers", where Chromium does it: after the press's <c>mousedown</c>): those the press is not in, or
-    /// not on an invoker of, close.
+    /// What a press at <paramref name="target"/> does to the open auto and hint popovers (HTML "light dismiss open
+    /// popovers", where Chromium does it: after the press's <c>mousedown</c>): those above the topmost one it is
+    /// in, or on an invoker of, close.
     /// </summary>
     private void LightDismissPopovers(DomElement target)
     {
         var document = GetOwningDocument(target);
-        if (!_autoPopovers.Any(popover => ReferenceEquals(GetOwningDocument(popover), document)))
+        if (TopmostAutoOrHintPopover(document) is null)
             return;
 
+        // HTML "topmost clicked popover": the popover the press is in, or the one its invoker targets, whichever is higher.
         var clicked = NearestInclusiveOpenPopover(target);
-        var invoked = NearestInclusiveTargetPopoverForInvoker(target);
-        var ancestor = clicked is null ? invoked
-            : invoked is null ? clicked
-            : _autoPopovers.IndexOf(clicked) > _autoPopovers.IndexOf(invoked) ? clicked : invoked;
-        HideAllPopoversUntil(ancestor, document, focusPreviousElement: false, fireEvents: true);
+        var invoked = NearestInclusiveTargetPopover(target);
+        var ancestor = PopoverStackPosition(clicked) > PopoverStackPosition(invoked) ? clicked : invoked;
+        HidePopoversUntil(document, ancestor, focusPreviousElement: false, fireEvents: true);
     }
 
-    /// <summary>The topmost open auto popover of <paramref name="document"/>, which Escape closes, and its place in the top layer.</summary>
-    private DomElement? TopmostAutoPopover(DomDocument document) =>
+    /// <summary>
+    /// HTML "topmost auto or hint popover" of <paramref name="document"/>: the last hint popover, else the last
+    /// auto one -- what Escape closes, unless a modal dialog went into the top layer after it.
+    /// </summary>
+    private DomElement? TopmostAutoOrHintPopover(DomDocument document) =>
+        _hintPopovers.LastOrDefault(popover => ReferenceEquals(GetOwningDocument(popover), document)) ??
         _autoPopovers.LastOrDefault(popover => ReferenceEquals(GetOwningDocument(popover), document));
 
     /// <summary>
@@ -582,14 +724,11 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// What showing a modal dialog does to the open popovers (HTML <c>showModal()</c>): the auto ones the
-    /// dialog is not in close, with their events (measured; a manual one stays).
+    /// What showing a dialog does to the open popovers (HTML <c>show()</c> and <c>showModal()</c>): those above
+    /// the topmost one the dialog is in close, with their events (measured: auto and hint ones, not a manual one).
     /// </summary>
-    internal void HidePopoversForModalDialog(DomElement dialog)
-    {
-        var document = GetOwningDocument(dialog);
-        HideAllPopoversUntil(NearestInclusiveOpenPopover(dialog), document, focusPreviousElement: false, fireEvents: true);
-    }
+    internal void HidePopoversForDialog(DomElement dialog) =>
+        HidePopoversUntil(GetOwningDocument(dialog), TopmostPopoverAncestor(dialog, source: null), focusPreviousElement: false, fireEvents: true);
 
     /// <summary>A showing popover taken out of its document: it closes, with no events (HTML "removing steps", measured).</summary>
     private void HideRemovedPopovers(DomNode removed)
@@ -600,7 +739,7 @@ public sealed partial class DomBridge
         foreach (var popover in _showingPopovers.ToList())
         {
             if (!popover.IsConnected && (ReferenceEquals(popover, removed) || removed is DomElement root && IsInclusiveAncestor(root, popover)))
-                ClosePopover(popover, focusPreviousElement: false, fireEvents: false, () => IsPopoverShowing(popover));
+                ClosePopover(popover, focusPreviousElement: false, fireEvents: false);
         }
     }
 
@@ -622,7 +761,7 @@ public sealed partial class DomBridge
             return;
 
         // Hidden as the popover it was shown as: the validity check asks for one, which a removed attribute no longer makes it.
-        ClosePopover(element, focusPreviousElement: true, fireEvents: true, () => IsPopoverShowing(element));
+        ClosePopover(element, focusPreviousElement: true, fireEvents: true);
     }
 
     /// <summary>
@@ -647,8 +786,12 @@ public sealed partial class DomBridge
     {
         _showingPopovers.Clear();
         _autoPopovers.Clear();
+        _hintPopovers.Clear();
         _popoverShowings.Clear();
-        _popoversChanging.Clear();
+        _hintStackParents.Clear();
+        _documentsShowingPopover.Clear();
+        _popoverHideNesting.Clear();
+        _popoversHiding.Clear();
         foreach (var pending in _pendingToggles.Values)
             pending.Cancelled = true;
         _pendingToggles.Clear();

@@ -220,6 +220,15 @@ internal static class DomCollectionBinding
         Create(realm, "HTMLCollection", contents, namedLookup);
 
     /// <summary>
+    /// An <c>HTMLCollection</c> whose assignments to a name <paramref name="namedSetter"/> may take -- a
+    /// select's <c>options</c>, whose <c>length</c> can be set (HTML §2.6.3 <c>HTMLOptionsCollection</c>).
+    /// The setter answers whether it took the assignment; one it declines is an ordinary one.
+    /// </summary>
+    public static JsValue HtmlCollection(
+        IJsRealm realm, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup, Func<string, JsValue, bool> namedSetter) =>
+        Create(realm, "HTMLCollection", contents, namedLookup, namedSetter);
+
+    /// <summary>
     /// A <c>StyleSheetList</c> over <paramref name="contents"/> (CSSOM §6.1) — <c>document.styleSheets</c>
     /// and nothing else. Live, and with no named getter: CSSOM declares neither <c>namedItem</c> nor
     /// supported property names on it.
@@ -240,9 +249,10 @@ internal static class DomCollectionBinding
         Create(realm, "FileList", contents, namedLookup: null);
 
     private static JsValue Create(
-        IJsRealm realm, string interfaceName, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup)
+        IJsRealm realm, string interfaceName, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup,
+        Func<string, JsValue, bool>? namedSetter = null)
     {
-        var collection = realm.NewExotic(new DomCollection(contents, namedLookup));
+        var collection = realm.NewExotic(new DomCollection(contents, namedLookup, namedSetter));
 
         // A realm that does not yet hold the interface constructors leaves the collection
         // prototype-less rather than failing: it still answers length, the indices and the named
@@ -278,7 +288,8 @@ internal static class DomCollectionBinding
     /// <c>length</c> cannot displace the count.
     /// </para>
     /// </remarks>
-    private sealed class DomCollection(Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup) : IJsExotic
+    private sealed class DomCollection(
+        Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup, Func<string, JsValue, bool>? namedSetter = null) : IJsExotic
     {
         /// <summary>
         /// The contents as of the last <see cref="IndexedLength"/> ask.
@@ -341,10 +352,10 @@ internal static class DomCollectionBinding
         }
 
         /// <summary>
-        /// Never: a collection has no named setter, so an assignment is an ordinary one exactly as it
-        /// was — the subclass overrode no write path.
+        /// Only what <c>namedSetter</c> takes -- a select's <c>options.length</c>: a collection has no
+        /// named setter, so any other assignment is an ordinary one exactly as it was.
         /// </summary>
-        public bool TrySetNamed(string name, JsValue value) => false;
+        public bool TrySetNamed(string name, JsValue value) => namedSetter?.Invoke(name, value) ?? false;
 
         /// <summary>
         /// None. A collection's names were never enumerable — the subclass supplied no keys of its

@@ -132,13 +132,13 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// What a close request in <paramref name="document"/> closes: of its topmost auto popover and the modal
+    /// What a close request in <paramref name="document"/> closes: of its topmost auto or hint popover and the modal
     /// dialog that blocks it, the one that went into the top layer last; null for neither.
     /// </summary>
     private DomElement? CloseRequestTarget(DomDocument document)
     {
         var dialog = BlockingModalDialog(document);
-        var popover = TopmostAutoPopover(document);
+        var popover = TopmostAutoOrHintPopover(document);
         if (dialog is null || popover is null)
             return popover ?? dialog;
 

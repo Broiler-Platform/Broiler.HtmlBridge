@@ -43,6 +43,22 @@ public class LoopbackCookieServerTests
         }
     }
 
+    /// <summary>
+    /// The test servers' ports skip exactly the bad ports Broiler.Net refuses that an ephemeral port can be --
+    /// those from 1024 up -- so no test lands on one: four failed with "Port 6667 is blocked" on a machine whose
+    /// dynamic range starts at 1024, and passed when run again.
+    /// </summary>
+    [Fact]
+    public void TheServersSkipThePortsBroilerNetRefuses()
+    {
+        var field = typeof(Broiler.Net.Http.BrowserNetworkSession).GetField(
+            "BadPorts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        var refused = Assert.IsAssignableFrom<IEnumerable<int>>(field?.GetValue(null));
+
+        var ephemeral = Enumerable.Range(1024, 65536 - 1024).ToList();
+        Assert.Equal(ephemeral.Where(refused.Contains), ephemeral.Where(LoopbackPorts.IsBad));
+    }
+
     [Fact]
     public async Task BothSitesReachTheServer()
     {

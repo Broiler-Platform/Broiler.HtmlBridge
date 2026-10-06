@@ -147,8 +147,8 @@ internal sealed class DialogBinding(IDialogHost host)
     /// <summary>
     /// <c>showModal()</c>, as HTML and Chromium have it (measured): an <c>InvalidStateError</c> for a dialog
     /// open as a non-modal one, showing as a popover or out of a document, nothing for one already modal;
-    /// otherwise a cancelable <c>beforetoggle</c>, then the dialog opens in the top layer, the auto popovers
-    /// it is not in close, focus moves into it and its <c>toggle</c> follows as a task.
+    /// otherwise a cancelable <c>beforetoggle</c>, then the dialog opens in the top layer, the auto and hint
+    /// popovers it is not in close, focus moves into it and its <c>toggle</c> follows as a task.
     /// </summary>
     private JsValue ShowModal(DomElement element, IJsRealm realm)
     {
@@ -178,7 +178,7 @@ internal sealed class DialogBinding(IDialogHost host)
             _host.SetDialogModal(element, true);
             _host.AssignNextTopLayerOrder(element);
             _host.InvalidateStyleScope(element);
-            _host.HidePopoversForModalDialog(element);
+            _host.HidePopoversForDialog(element);
             _host.RunDialogFocusingSteps(element);
             return JsValue.Undefined;
         });
@@ -186,8 +186,9 @@ internal sealed class DialogBinding(IDialogHost host)
 
     /// <summary>
     /// <c>show()</c>: an <c>InvalidStateError</c> for a dialog open as a modal one, nothing for one already
-    /// open; otherwise a cancelable <c>beforetoggle</c>, then the dialog opens and its <c>toggle</c> follows.
-    /// A dialog out of a document opens too (measured).
+    /// open; otherwise a cancelable <c>beforetoggle</c>, then the dialog opens, the auto and hint popovers it is
+    /// not in close, as for <c>showModal()</c>, and its <c>toggle</c> follows. A dialog out of a document opens too
+    /// (measured).
     /// </summary>
     private JsValue Show(DomElement element, IJsRealm realm)
     {
@@ -208,6 +209,7 @@ internal sealed class DialogBinding(IDialogHost host)
             _host.QueueToggleEvent(element, "closed", "open");
             _host.SetOpenAttribute(element, true);
             _host.InvalidateStyleScope(element);
+            _host.HidePopoversForDialog(element);
             _host.RunDialogFocusingSteps(element);
             return JsValue.Undefined;
         });

@@ -217,6 +217,9 @@ public sealed partial class DomBridge
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegSecurityPolyfills))
             RegisterSecurityAndConstructorPolyfills(window);
 
+        // new Option(...): after the interface constructors above, whose HTMLOptionElement.prototype it shares.
+        RegisterOptionConstructor(window);
+
         // Interface prototypes, which have to be applied *here* rather than where each object is
         // built: the constructors they point at are registered by the polyfill pass immediately
         // above, so an earlier link finds nothing and silently leaves Object.prototype behind. That

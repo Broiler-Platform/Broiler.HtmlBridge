@@ -117,6 +117,29 @@ public sealed partial class DomBridge
             FocusElement(previous);
     }
 
+    /// <summary>
+    /// A modal dialog taken out of its document, or moved within it: HTML's dialog removing steps take it out of
+    /// the top layer and it is modal no more -- still open, as a non-modal dialog, so that <c>showModal()</c>
+    /// throws once it is back -- and the document is no longer blocked (measured).
+    /// It stayed modal, and blocked the page again as soon as it was put back.
+    /// </summary>
+    private void UnblockRemovedModalDialogs(DomNode removed)
+    {
+        if (_modalDialogs.Count == 0)
+            return;
+
+        foreach (var dialog in _modalDialogs.ToList())
+        {
+            if (!ReferenceEquals(dialog, removed) && !(removed is DomElement root && IsInclusiveAncestor(root, dialog)))
+                continue;
+
+            _modalDialogs.Remove(dialog);
+            DialogStateFor(dialog).Modal.Remove();
+            InvalidateStyleScope(dialog);
+            NoteElementStateChange();
+        }
+    }
+
     /// <summary>Forgets the modal dialogs and the focus they remember, with the document they were in.</summary>
     private void ResetInertness()
     {

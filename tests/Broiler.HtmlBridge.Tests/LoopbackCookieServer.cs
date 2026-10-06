@@ -68,8 +68,18 @@ internal sealed class LoopbackCookieServer : IDisposable
     /// </summary>
     internal static bool TryBindLoopbackPair(int ipv4Port, List<TcpListener> listeners, out int port)
     {
-        var ipv4 = new TcpListener(IPAddress.Loopback, ipv4Port);
-        ipv4.Start();
+        // An ephemeral port is one Broiler.Net will connect to (LoopbackPorts).
+        TcpListener ipv4;
+        if (ipv4Port == 0)
+        {
+            ipv4 = LoopbackPorts.Start(IPAddress.Loopback);
+        }
+        else
+        {
+            ipv4 = new TcpListener(IPAddress.Loopback, ipv4Port);
+            ipv4.Start();
+        }
+
         port = ((IPEndPoint)ipv4.LocalEndpoint).Port;
 
         if (!Socket.OSSupportsIPv6)
