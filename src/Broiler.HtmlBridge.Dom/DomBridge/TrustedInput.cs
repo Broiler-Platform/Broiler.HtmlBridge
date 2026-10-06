@@ -567,9 +567,47 @@ public sealed partial class DomBridge
         return false;
     }
 
-    private static bool IsDisabledFormControl(DomElement element) =>
-        HasAttr(element, "disabled") &&
-        element.TagName.ToLowerInvariant() is "button" or "input" or "select" or "textarea" or "optgroup" or "option" or "fieldset";
+    /// <summary>
+    /// Whether <paramref name="element"/> is a disabled form control: by its own <c>disabled</c>, or by a
+    /// disabled fieldset it is in -- unless it is in that fieldset's first legend (HTML §4.10.18.5).
+    /// </summary>
+    /// <remarks>
+    /// Only the control's own attribute counted, so a button in a <c>&lt;fieldset disabled&gt;</c> was
+    /// clicked, focused and submitted its form like any other, where Chromium does none of the three.
+    /// </remarks>
+    private static bool IsDisabledFormControl(DomElement element)
+    {
+        var tag = element.TagName.ToLowerInvariant();
+        if (tag is not ("button" or "input" or "select" or "textarea" or "optgroup" or "option" or "fieldset"))
+            return false;
+        if (HasAttr(element, "disabled"))
+            return true;
+        if (tag is "optgroup" or "option")
+            return false;
+
+        for (DomElement? child = element, ancestor = ParentEl(element); ancestor != null; child = ancestor, ancestor = ParentEl(ancestor))
+        {
+            if (ancestor.TagName.Equals("fieldset", StringComparison.OrdinalIgnoreCase) && HasAttr(ancestor, "disabled") &&
+                !ReferenceEquals(child, FirstLegendOf(ancestor)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The first <c>legend</c> child of <paramref name="fieldset"/>, whose controls its <c>disabled</c> leaves alone.</summary>
+    private static DomElement? FirstLegendOf(DomElement fieldset)
+    {
+        foreach (var child in fieldset.ChildNodes)
+        {
+            if (child is DomElement element && element.TagName.Equals("legend", StringComparison.OrdinalIgnoreCase))
+                return element;
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Dispatches a trusted pointer or mouse event of <paramref name="type"/> at <paramref name="hit"/>'s
@@ -660,7 +698,7 @@ public sealed partial class DomBridge
     private void FireInputNotification(InputHit hit, string type, bool composed)
     {
         var realm = Realm;
-        DispatchTrusted(hit, NewTrustedEvent(realm, type, bubbles: true, cancelable: false, composed, JsValue.Missing));
+        DispatchTrusted(hit, NewTrustedEvent(realm, type, bubbles: true, cancelable: false, composed, InterfacePrototype(realm, "Event")));
     }
 
     private bool DispatchTrusted(InputHit hit, JsValue evt)
@@ -682,7 +720,8 @@ public sealed partial class DomBridge
                 $"Dispatching a trusted event failed: {ex.Message}", ex);
         }
 
-        TaskCheckpointCallback?.Invoke();
+        if (EndsTaskWithCheckpoint)
+            TaskCheckpointCallback?.Invoke();
         return allowed;
     }
 
@@ -690,7 +729,15 @@ public sealed partial class DomBridge
     /// A new event object as the user agent makes one: <c>isTrusted</c> is true, and cannot be made
     /// otherwise -- a getter, not a property a script could write over.
     /// </summary>
-    private static JsValue NewTrustedEvent(IJsRealm realm, string type, bool bubbles, bool cancelable, bool composed, JsValue prototype)
+    private static JsValue NewTrustedEvent(IJsRealm realm, string type, bool bubbles, bool cancelable, bool composed, JsValue prototype) =>
+        NewEvent(realm, type, bubbles, cancelable, composed, prototype, trusted: true);
+
+    /// <summary>
+    /// A new event object as the user agent makes one, its <c>isTrusted</c> a getter answering
+    /// <paramref name="trusted"/>: false for the click a script's <c>click()</c> fires, which the user
+    /// agent makes but the user did not.
+    /// </summary>
+    private static JsValue NewEvent(IJsRealm realm, string type, bool bubbles, bool cancelable, bool composed, JsValue prototype, bool trusted)
     {
         var evt = realm.NewObject();
         if (prototype.IsObject)
@@ -706,7 +753,7 @@ public sealed partial class DomBridge
         Define(realm, evt, "srcElement", JsValue.Null);
         Define(realm, evt, "eventPhase", JsValue.Number(0));
         Define(realm, evt, "timeStamp", JsValue.Number(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
-        realm.DefineAccessor(evt, "isTrusted", static (in _) => JsValue.True, null, JsPropertyFlags.Enumerable);
+        realm.DefineAccessor(evt, "isTrusted", trusted ? static (in _) => JsValue.True : static (in _) => JsValue.False, null, JsPropertyFlags.Enumerable);
         return evt;
     }
 

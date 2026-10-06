@@ -90,17 +90,18 @@ public class LocationBindingTests
     [Fact]
     public void AFragmentNavigationFiresHashChangeWithBothUrls()
     {
+        // In a later task: the script that navigated has finished when it fires.
         var script = """
             (function () {
-              var seen = [];
-              window.addEventListener('hashchange', function (e) { seen.push(e.oldURL + ' to ' + e.newURL); });
+              var out = document.getElementById('out');
+              window.addEventListener('hashchange', function (e) { out.textContent += ', then ' + e.oldURL + ' to ' + e.newURL; });
               location.hash = '#second';
-              return seen.join('|');
+              return 'nothing yet';
             })()
             """;
 
         Assert.Equal(
-            "https://example.test/page#first to https://example.test/page#second",
+            "nothing yet, then https://example.test/page#first to https://example.test/page#second",
             Run(script, PageUrl + "#first"));
     }
 
@@ -108,17 +109,19 @@ public class LocationBindingTests
     public void NavigatingToTheFragmentAlreadyInHandFiresNothing()
     {
         // Still a same-document navigation, still not a load — but HTML §7.4.5 fires hashchange
-        // only when the fragment actually changed.
+        // only when the fragment actually changed, and Chromium no popstate either.
         var script = """
             (function () {
-              var fired = 0;
-              window.addEventListener('hashchange', function () { fired++; });
+              var out = document.getElementById('out'), fired = 0;
+              ['hashchange', 'popstate'].forEach(function (type) {
+                window.addEventListener(type, function () { out.textContent = 'fired ' + ++fired; });
+              });
               location.hash = '#first';
-              return fired;
+              return 'fired ' + fired;
             })()
             """;
 
-        Assert.Equal("0", Run(script, PageUrl + "#first"));
+        Assert.Equal("fired 0", Run(script, PageUrl + "#first"));
     }
 
     [Fact]
@@ -126,14 +129,16 @@ public class LocationBindingTests
     {
         var script = """
             (function () {
-              var fired = 0;
-              window.addEventListener('hashchange', function () { fired++; });
+              var out = document.getElementById('out'), fired = 0;
+              ['hashchange', 'popstate'].forEach(function (type) {
+                window.addEventListener(type, function () { out.textContent = 'fired ' + ++fired; });
+              });
               location.replace('https://other.test/elsewhere');
-              return fired;
+              return 'fired ' + fired;
             })()
             """;
 
-        Assert.Equal("0", Run(script));
+        Assert.Equal("fired 0", Run(script));
     }
 
     [Fact]

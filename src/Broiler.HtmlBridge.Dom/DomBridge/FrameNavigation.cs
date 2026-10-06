@@ -94,15 +94,11 @@ public sealed partial class DomBridge
         _frameSelfReloads.Clear();
     }
 
-    /// <summary>The host a frame's Location hands its navigations and its <c>hashchange</c> to.</summary>
+    /// <summary>The host a frame's Location hands its navigations and its fragment's changes to.</summary>
     internal Dom.Features.ILocationHost FrameLocationHost(DomElement container) => new FrameLocationHostImpl(this, container);
 
     private sealed class FrameLocationHostImpl(DomBridge bridge, DomElement container) : Dom.Features.ILocationHost
     {
-        public IJsRealm Realm => bridge.Realm;
-
-        public void DispatchWindowEvent(JsValue evt) => bridge.DispatchFrameWindowEvent(container, evt);
-
         public void RequestNavigation(NavigationRequest request) => bridge.RequestFrameNavigation(container, request);
 
         public void NavigatedToFragment(string fragment)
@@ -110,15 +106,8 @@ public sealed partial class DomBridge
             if (bridge.GetContentDocument(container) is { } document)
                 bridge.SetTargetFromFragment(document, fragment);
         }
-    }
 
-    /// <summary>A frame's <c>hashchange</c>, at the frame's window, as the frame's script.</summary>
-    private void DispatchFrameWindowEvent(DomElement container, JsValue evt)
-    {
-        if (!_browsingContexts.TryGetSubWindow(container, out var window) || !window.IsObject)
-            return;
-
-        RunWithWindowContext(window, () => _eventDispatch.DispatchEventOnWindow(window, evt));
+        public void FragmentChanged(string oldUrl, string newUrl) => bridge.FrameFragmentChanged(container, oldUrl, newUrl);
     }
 
     /// <summary>Queues the navigation of <paramref name="container"/>'s frame to what <paramref name="request"/> names.</summary>

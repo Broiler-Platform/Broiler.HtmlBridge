@@ -35,8 +35,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// <b>A fragment navigation is the exception, because it is not a load.</b> When the target
 /// resolves to this document's URL differing only after the <c>#</c>, HTML §7.4.5 calls for
-/// "navigate to a fragment": nothing is fetched, the document's URL takes the new fragment and
-/// <c>hashchange</c> fires. That much a binding can do, so it does, and all four spellings —
+/// "navigate to a fragment": nothing is fetched, the document's URL takes the new fragment, and the
+/// window hears <c>popstate</c> at once and <c>hashchange</c> in a later task — which the host fires,
+/// since only it can queue a task. That much a binding can do, so it does, and all four spellings —
 /// <c>location.hash = x</c>, <c>location.href = "#x"</c>, <c>assign("#x")</c> and
 /// <c>replace("#x")</c> — take the one path, with <c>href</c> and <c>hash</c> answering the new
 /// fragment afterwards. <c>hash</c> was a plain data property before this, which is how the four
@@ -50,12 +51,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// value of the log.
 /// </para>
 /// <para>
-/// Two parts of the fragment case are still missing. The document is not scrolled to the named
-/// anchor. And <c>window.onhashchange</c> is not invoked — only listeners added with
-/// <c>addEventListener("hashchange", …)</c> run, because this engine has no general
-/// event-handler-IDL-attribute path (<c>window.onload</c> is special-cased in
-/// <c>DomBridge.WindowLoad</c>), and a null-valued <c>onhashchange</c> slot that never fired would
-/// answer <c>'onhashchange' in window</c> with a promise it does not keep.
+/// One part of the fragment case is still missing: a script's fragment navigation does not scroll the
+/// document to the named anchor.
 /// </para>
 /// <para>
 /// The other URL components are deliberately NOT updated to the target. On anything but a fragment
@@ -111,8 +108,8 @@ internal static class LocationBinding
     /// <param name="realm">The realm the Location is built in.</param>
     /// <param name="href">The URL of the frame's document.</param>
     /// <param name="host">
-    /// The frame's own: a navigation loads another document into the frame, and <c>hashchange</c>
-    /// fires at the frame's window.
+    /// The frame's own: a navigation loads another document into the frame, and <c>popstate</c> and
+    /// <c>hashchange</c> fire at the frame's window.
     /// </param>
     internal static JsValue Build(IJsRealm realm, string href, ILocationHost? host = null)
     {
@@ -148,8 +145,8 @@ internal static class LocationBinding
     /// <summary>
     /// Adds <c>href</c>, <c>hash</c>, <c>assign</c>, <c>replace</c>, <c>reload</c> and
     /// <c>toString</c> to a Location whose remaining components a caller has already defined itself.
-    /// <paramref name="host"/> takes the cross-document navigations and receives <c>hashchange</c>
-    /// on a fragment one; a caller with no host passes none, and both are logged and dropped.
+    /// <paramref name="host"/> takes the cross-document navigations and announces a fragment one; a
+    /// caller with no host passes none, and both are logged and dropped.
     /// </summary>
     /// <remarks>
     /// The two argument reads coerce with the realm's <c>ToJsString</c> — the observable ECMAScript
@@ -223,9 +220,10 @@ internal static class LocationBinding
             if (IsFragmentNavigation(baseUri, resolved, requested))
             {
                 var from = url.Href;
-                // hashchange fires only when the fragment actually changed (HTML §7.4.5). A
-                // navigation to the fragment already in hand is still same-document, and still not
-                // a load, so it moves nothing and announces nothing.
+                // popstate and hashchange fire only when the fragment actually changed (HTML §7.4.5;
+                // Chromium fires neither for the fragment already in hand). A navigation to the
+                // fragment already in hand is still same-document, and still not a load, so it moves
+                // nothing and announces nothing.
                 var changed = !string.Equals(url.Fragment, resolved.Fragment, StringComparison.Ordinal);
                 url.MoveToFragment(resolved);
 
@@ -234,7 +232,7 @@ internal static class LocationBinding
                 host?.NavigatedToFragment(url.Fragment);
 
                 if (changed)
-                    FireHashChange(host, from, url.Href);
+                    host?.FragmentChanged(from, url.Href);
 
                 RenderLogger.LogDebug(LogCategory.JavaScript, LogContext,
                     $"{Spell(method, target)} is a fragment navigation; the document is unchanged and location.hash is now \"{url.Fragment}\"");
@@ -303,35 +301,6 @@ internal static class LocationBinding
                 UriComponents.SchemeAndServer | UriComponents.PathAndQuery,
                 UriFormat.UriEscaped,
                 StringComparison.Ordinal) == 0;
-
-    /// <summary>
-    /// Fires <c>hashchange</c> at the window. A listener that throws is logged and swallowed: in a
-    /// browser the exception belongs to the listener, not to the <c>location.hash = x</c> that
-    /// caused the dispatch, and letting it out here would abort the assigning script instead.
-    /// </summary>
-    private static void FireHashChange(ILocationHost? host, string oldUrl, string newUrl)
-    {
-        if (host == null)
-            return;
-
-        var realm = host.Realm;
-        var evt = realm.NewObject();
-        realm.DefineValue(evt, "type", JsValue.String("hashchange"));
-        realm.DefineValue(evt, "bubbles", JsValue.False);
-        realm.DefineValue(evt, "cancelable", JsValue.False);
-        realm.DefineValue(evt, "oldURL", JsValue.String(oldUrl));
-        realm.DefineValue(evt, "newURL", JsValue.String(newUrl));
-
-        try
-        {
-            host.DispatchWindowEvent(evt);
-        }
-        catch (Exception ex)
-        {
-            RenderLogger.LogError(LogCategory.JavaScript, LogContext,
-                $"Error firing window hashchange listeners: {ex.Message}", ex);
-        }
-    }
 
     // Named as the page spelled it — `location.href = x`, `location.hash = x` and
     // `location.assign(x)` are the same operation, and which one a page used is the first thing a

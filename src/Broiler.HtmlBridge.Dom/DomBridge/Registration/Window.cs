@@ -328,6 +328,8 @@ public sealed partial class DomBridge
         realm.DefineValue(history, "forward", UndefinedMember("forward", 0));
         realm.DefineValue(history, "go", UndefinedMember("go", 1));
 
+        // A fragment navigation clears its state (DomBridge/FragmentNavigation.cs).
+        _historyObject = history;
         DefineWindowGlobal(window, "history", history);
     }
 

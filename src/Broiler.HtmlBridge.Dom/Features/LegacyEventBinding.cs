@@ -25,14 +25,54 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// calling <c>initMouseEvent('click', true, true, window, 1, '10', '20', …)</c> is common enough that
 /// answering <c>NaN</c> for those would be a silent behaviour change rather than a tightening.
 /// </para>
+/// <para>
+/// <b>The object is an instance of the interface it was asked for.</b> It inherited from nothing but
+/// <c>Object.prototype</c>, and the event constructors are built on this factory, so
+/// <c>new MouseEvent('click') instanceof MouseEvent</c> was <see langword="false"/> -- and a dispatch
+/// could not tell a <c>MouseEvent</c> click, which activates the element it reaches, from an
+/// <c>Event</c> named <c>click</c>, which does not. Its members stay its own, so nothing a page reads
+/// from it changes but <c>instanceof</c> and <c>constructor</c>.
+/// </para>
 /// </remarks>
 internal static class LegacyEventBinding
 {
+    /// <summary>
+    /// The interface <c>createEvent</c> makes an instance of, by the name it is given (DOM §4.5,
+    /// ASCII case-insensitive): the names the event constructors pass and the legacy aliases.
+    /// </summary>
+    private static readonly Dictionary<string, string> InterfaceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Event"] = "Event",
+        ["Events"] = "Event",
+        ["HTMLEvents"] = "Event",
+        ["SVGEvents"] = "Event",
+        ["CustomEvent"] = "CustomEvent",
+        ["UIEvent"] = "UIEvent",
+        ["UIEvents"] = "UIEvent",
+        ["MouseEvent"] = "MouseEvent",
+        ["MouseEvents"] = "MouseEvent",
+        ["FocusEvent"] = "FocusEvent",
+        ["FocusEvents"] = "FocusEvent",
+        ["KeyboardEvent"] = "KeyboardEvent",
+        ["KeyboardEvents"] = "KeyboardEvent",
+        ["WheelEvent"] = "WheelEvent",
+        ["WheelEvents"] = "WheelEvent",
+        ["InputEvent"] = "InputEvent",
+    };
+
     public static JsValue Create(in JsCall call)
     {
         var realm = call.Realm;
         var evt = realm.NewObject();
         var legacyCancelBubble = false;
+
+        // The window's constructor of that name, as the page has it; nothing for a name it has none of.
+        if (call.Length > 0 && call[0].IsString && InterfaceNames.TryGetValue(call[0].AsString!, out var interfaceName) &&
+            realm.GetProperty(realm.Global, interfaceName) is { IsObject: true } constructor &&
+            realm.GetProperty(constructor, "prototype") is { IsObject: true } prototype)
+        {
+            realm.SetPrototype(evt, prototype);
+        }
 
         realm.DefineValue(evt, "type", JsValue.String(string.Empty));
         realm.DefineValue(evt, "bubbles", JsValue.False);

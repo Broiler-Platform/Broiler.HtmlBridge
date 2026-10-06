@@ -184,7 +184,8 @@ public sealed class InteractiveSession : IDisposable
     /// <summary>
     /// Moves the page to a fragment of itself, as following a link into the page does: the page's
     /// <c>location</c> moves to <paramref name="url"/>, the element its fragment names becomes the page's
-    /// <c>:target</c>, and <c>hashchange</c> fires when the fragment changed. A host calls it for a link
+    /// <c>:target</c>, and when the fragment changed <c>popstate</c> fires at once and <c>hashchange</c> as
+    /// a task the host's next steps run. A host calls it for a link
     /// into the page the user followed, and for going back or forward between two such places. Answers
     /// <see langword="false"/>, doing nothing, for a URL that is not the page's own with a fragment.
     /// </summary>

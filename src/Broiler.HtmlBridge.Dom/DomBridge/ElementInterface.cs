@@ -470,7 +470,8 @@ public sealed partial class DomBridge
             (in call) => DatasetFor(element(in call, "dataset")), null);
 
         // click/focus/blur are EventTargetBinding's, and they are installed the way attachInternals
-        // is below -- same object, same position, same element source.
+        // is below -- same object, same position, same element source. What a click activates is the
+        // bridge's (DomBridge/ScriptActivation.cs).
         Realm.DefineMethod(target, "click", 0,
             (in call) => Dom.Features.EventTargetBinding.Click(this, element(in call, "click"), in call));
         Realm.DefineMethod(target, "focus", 0,

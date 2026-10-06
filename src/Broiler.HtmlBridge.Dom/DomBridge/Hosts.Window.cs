@@ -32,14 +32,14 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
         return pending;
     }
 
-    void Dom.Features.ILocationHost.DispatchWindowEvent(JsValue evt)
-        => DispatchWindowEvent(evt);
-
     void Dom.Features.ILocationHost.RequestNavigation(NavigationRequest request)
         => RequestNavigation(request);
 
     void Dom.Features.ILocationHost.NavigatedToFragment(string fragment)
         => SetTargetFromFragment(_document, fragment);
+
+    void Dom.Features.ILocationHost.FragmentChanged(string oldUrl, string newUrl)
+        => PageFragmentChanged(oldUrl, newUrl);
 
     /// <summary>
     /// Records where the page asked to go. Nothing is loaded here — see
@@ -857,21 +857,18 @@ public sealed partial class DomBridge : Dom.Features.IEventTargetHost
     Dictionary<string, List<EventListenerRegistration>> Dom.Features.IEventTargetHost.GetEventListeners(DomNode element)
         => GetEventListeners(element);
 
-    // Answers the "not cancelled" boolean the DOM says dispatchEvent returns.
+    // Answers the "not cancelled" boolean the DOM says dispatchEvent returns; a click that is a
+    // MouseEvent activates what it is dispatched at (DomBridge/ScriptActivation.cs).
     JsValue Dom.Features.IEventTargetHost.DispatchEvent(DomNode element, JsValue evt)
-        => JsValue.Boolean(_eventDispatch.DispatchEventOnElement(element, evt).AsBoolean);
+        => JsValue.Boolean(DispatchEventByScript(element, evt));
+
+    void Dom.Features.IEventTargetHost.Click(DomElement element) => ClickByScript(element);
 
     JsValue Dom.Features.IEventTargetHost.WindowWrapper => WindowHandle;
 
     void Dom.Features.IEventTargetHost.FocusElement(DomElement element) => FocusElement(element);
 
     void Dom.Features.IEventTargetHost.BlurElement(DomElement element) => BlurElement(element);
-
-    bool Dom.Features.IEventTargetHost.TryGetFormControlChecked(DomElement element, out bool value)
-        => _formState.TryGetDirtyChecked(element, out value);
-
-    void Dom.Features.IEventTargetHost.SetFormControlChecked(DomElement element, bool value)
-        => _formState.SetDirtyChecked(element, value);
 }
 
 // Explicit IEventHandlerReflectorHost implementation for the EventHandlerReflectorBinding feature module:

@@ -228,8 +228,8 @@ public sealed partial class DomBridge
 
         // checkValidity() and reportValidity() -- constraint validation on the live value, with the
         // invalid events a browser fires (DomBridge/FormSubmission.cs).
-        Realm.DefineMethod(handle, "checkValidity", (in _) => JsValue.Boolean(CheckValidity(element)));
-        Realm.DefineMethod(handle, "reportValidity", (in _) => JsValue.Boolean(ReportValidity(element)));
+        Realm.DefineMethod(handle, "checkValidity", (in _) => JsValue.Boolean(RunAsScriptCall(() => CheckValidity(element))));
+        Realm.DefineMethod(handle, "reportValidity", (in _) => JsValue.Boolean(RunAsScriptCall(() => ReportValidity(element))));
 
         // selectionStart, setSelectionRange(), select(), setRangeText() -- an input's or a text area's
         // selection (DomBridge/FieldSelection.cs).
@@ -243,11 +243,9 @@ public sealed partial class DomBridge
             Realm.DefineMethod(handle, "requestSubmit", 0, (in call) => RequestSubmit(element, in call));
 
         // submit() — for form elements (the co-located FormSubmitBinding feature module, reached
-        // through IFormSubmitHost; DomBridge/Hosts.Elements.cs). The method is minted by the realm —
-        // which is what gives its body a call frame to build the synthetic event in — and it is handed
-        // this wrapper's handle, which becomes the event's target.
+        // through IFormSubmitHost; DomBridge/Hosts.Elements.cs): the submission, with no submit event.
         Realm.DefineMethod(handle, "submit",
-            (in call) => Dom.Features.FormSubmitBinding.Submit(this, element, handle, in call));
+            (in _) => Dom.Features.FormSubmitBinding.Submit(this, element));
 
         // getContext(contextType) — for <canvas> elements, in the co-located CanvasBinding feature
         // module. The realm mints the canvas members and everything the 2D context builds, and the

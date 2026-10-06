@@ -271,9 +271,9 @@ public static partial class DomBridgeUtils
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>The listener is a handle and the call goes through the realm.</b> Five call sites over four
-    /// firing paths reach this: element and document dispatch (<c>Features/EventDispatchBinding.cs</c>),
-    /// window dispatch (<c>DomBridge/Lifecycle.cs</c>), form submit (<c>Features/FormSubmitBinding.cs</c>)
+    /// <b>The listener is a handle and the call goes through the realm.</b> Five call sites over three
+    /// firing paths reach this: element and document dispatch, with the window at the end of its path
+    /// (<c>Features/EventDispatchBinding.cs</c>, twice), window dispatch (<c>DomBridge/Lifecycle.cs</c>)
     /// and messaging (<c>Features/MessagingBinding.EventTarget.cs</c>, once for a registration and once for an
     /// <c>on…</c> handler). Four hand over an <c>EventListenerRegistration</c>'s listener field, which
     /// holds a <see cref="JsValue"/> now, and the fifth reads its handler through the realm. Nothing on

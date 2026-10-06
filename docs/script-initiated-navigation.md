@@ -50,7 +50,8 @@ So the work is split, and the split is the design:
   policy differs: an interactive browser navigates, a capture pinned to one document may not.
 
 A **fragment** navigation never reaches the host. It is same-document — no fetch, just a moved
-`location.hash` and a `hashchange` — so the binding performs it outright.
+`location.hash`, a `popstate` at once and a `hashchange` in a later task — so the binding performs it
+outright.
 
 ## Reading it at the right moment
 
@@ -162,9 +163,11 @@ Two guards needed adjusting for it. A form with no `action` submits to its own p
 made, since a GET carries a new query and a POST a body. The same reasoning applies to the
 post-load check below, which refuses a repeat only when the request is repeatable.
 
-`preventDefault()` on the `submit` listener now means something. The default action used to be
-nothing at all, so cancelling it cancelled a no-op; it is the difference between the form going and
-staying.
+`form.submit()` fires no `submit` event, so no listener stops it: that is what a browser does, and
+why a page that cancelled its form's `submit` to check it first calls `submit()` to send it after
+all. It used to fire one of its own, and the cancelling listener then held such a form back for
+good. The submissions that do fire `submit` — `requestSubmit()`, a submit button the user or a
+script clicks, Enter in a field — are validated first, and a listener that cancels one stops it.
 
 ## After the page has loaded
 
@@ -228,7 +231,7 @@ Two things are specific to it:
 **Frames navigate in the bridge, not through the host.** A frame's Location has a host of its own
 (`DomBridge.FrameLocationHost`): a navigation loads the frame's next document in a later task, in
 place of its `src` or `srcdoc`, and fires the frame element's `load`; a fragment navigation fires
-`hashchange` at the frame's window. A frame that asks for the URL it shows more than three times in a
+`popstate` and, in a later task, `hashchange` at the frame's window. A frame that asks for the URL it shows more than three times in a
 row is left alone. The frame keeps its window: the old document's members, expandos and listeners are
 taken off it and the new document is built into it, so a `contentWindow` the page kept is still the
 frame's, as a browsing context keeps its WindowProxy.
@@ -245,7 +248,8 @@ names that view as its `source`, so `e.source === parent` holds in the frame.
 
 **A link into the page the host followed.** The host scrolls to the fragment; the page hears it as
 its own fragment navigation (`InteractiveSession.NavigateToFragment`): `location.hash` moves,
-`hashchange` fires, and the element the fragment names is the document's `:target`. A host that
+`popstate` fires and `hashchange` follows as a task, and the element the fragment names is the
+document's `:target`. A host that
 scrolled without telling the page left its `location.hash` at the one it loaded with.
 
 **`location = url`.** The global's `location` is an accessor now, answering the Location of the

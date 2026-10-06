@@ -161,7 +161,7 @@ public class ElementStateTests
         Assert.Equal("ui=- uv=cb t=- ae=cb | change:cb", Ask(session));
 
         Run(session, "reset, a script's click, a synthetic change, checkValidity");
-        Assert.StartsWith("ui=- uv=- t=- ae=cb |", Ask(session));
+        Assert.Equal("ui=- uv=- t=- ae=cb | reset:f;change:cb;change:em;invalid:em", Ask(session));
     }
 
     /// <summary>
@@ -309,6 +309,7 @@ public class ElementStateTests
         using var session = Start("window.addEventListener('hashchange', function () { log.push('hash ' + location.hash); });");
 
         Assert.True(session.NavigateToFragment(PageUrl + "#sec"));
+        session.SettleLoadWindow();
         Assert.Equal("ui=- uv=- t=sec ae=body | hash #sec", Ask(session));
 
         Assert.False(session.NavigateToFragment("https://other.test/states#sec"));

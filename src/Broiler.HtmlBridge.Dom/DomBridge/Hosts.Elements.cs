@@ -24,7 +24,7 @@ namespace Broiler.HtmlBridge;
 /// </remarks>
 public sealed partial class DomBridge : IFormHost
 {
-    void IFormHost.ResetForm(DomElement form) => ResetFormControls(form);
+    void IFormHost.ResetForm(DomElement form) => RunAsScriptCall(() => ResetForm(form));
 
     IReadOnlyList<DomElement> IFormHost.CollectFormControls(DomElement form) =>
         CollectFormControlsIncludingCustom(form);
@@ -121,14 +121,10 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
         _formState.SetDirtyChecked(element, value);
 }
 
-// Explicit IFormSubmitHost implementation for the FormSubmitBinding feature module: the bridge
-// exposes read access to the live per-node listener store via an explicit interface member, so the
-// submit action never reaches an arbitrary bridge private field and the public surface is unchanged.
+// Explicit IFormSubmitHost implementation for the FormSubmitBinding feature module: the submission
+// handover is an explicit interface member, so the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
 {
-    Dictionary<string, List<EventListenerRegistration>> Dom.Features.IFormSubmitHost.GetEventListeners(DomNode node)
-        => GetEventListeners(node);
-
     void Dom.Features.IFormSubmitHost.RequestFormSubmission(DomElement form)
     {
         var index = IndexOfForm(form);

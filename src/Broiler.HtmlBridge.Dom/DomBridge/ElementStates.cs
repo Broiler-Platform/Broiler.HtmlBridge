@@ -102,7 +102,8 @@ public sealed partial class DomBridge
     /// <summary>
     /// The host moved the page to a fragment of itself -- a link into the page the user followed, or back
     /// or forward between two -- which the page hears as a fragment navigation of its own Location:
-    /// <c>location.hash</c>, <c>hashchange</c> and <c>:target</c> follow. Answers whether it was one.
+    /// <c>location.hash</c>, <c>:target</c> and <c>popstate</c> follow at once, and <c>hashchange</c> in a
+    /// later task (DomBridge/FragmentNavigation.cs). Answers whether it was one.
     /// </summary>
     /// <remarks>
     /// The window scrolled to the fragment and told the page nothing, so the page's <c>location.hash</c>

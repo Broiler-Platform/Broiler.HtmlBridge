@@ -8,8 +8,8 @@ namespace Broiler.HtmlBridge;
 
 /// <summary>
 /// A form's submission as HTML's "submit" algorithm runs it for every way but <c>form.submit()</c> --
-/// a submit button the user clicked or pressed, Enter in a field, <c>form.requestSubmit()</c> -- and
-/// the constraint validation it starts.
+/// a submit button the user or a script clicked or the user pressed, Enter in a field,
+/// <c>form.requestSubmit()</c> -- the constraint validation it starts, and a form's reset.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -24,7 +24,14 @@ namespace Broiler.HtmlBridge;
 /// <c>novalidate</c> or the submitter <c>formnovalidate</c>, each invalid control in tree order gets a
 /// cancelable <c>invalid</c>, and the first whose <c>invalid</c> was not cancelled is focused; the form
 /// is not submitted. Otherwise the form gets a trusted <c>submit</c> naming its submitter, and unless
-/// that is cancelled the host is asked to submit it. <c>form.submit()</c> skips all of it.
+/// that is cancelled the host is asked to submit it. <c>form.submit()</c> skips all of it
+/// (Features/FormSubmitBinding.cs). A submission asked for while the form's own <c>submit</c> -- or its
+/// validation -- is being fired is ignored, as is a reset asked for while its <c>reset</c> is.
+/// </para>
+/// <para>
+/// <b>A reset had two spellings that disagreed.</b> A reset button fired the form's <c>reset</c> and reset
+/// it unless that was cancelled; <c>form.reset()</c> reset it without the event, so a page listening for
+/// it, or cancelling it, heard nothing. Both are <see cref="ResetForm"/> now.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
@@ -36,23 +43,57 @@ public sealed partial class DomBridge
     /// </summary>
     private bool SubmitForm(DomElement form, DomElement? submitter)
     {
-        if (!form.IsConnected)
+        // HTML "submit", "firing submission events": a requestSubmit() or a submit button's click from a
+        // listener of this form's invalid or submit is ignored (Chromium, measured).
+        if (!form.IsConnected || !_formsFiringSubmissionEvents.Add(form))
             return false;
 
-        MarkFormInteracted(form);
+        bool allowed;
+        try
+        {
+            MarkFormInteracted(form);
 
-        var validates = !HasAttr(form, "novalidate") && !(submitter is not null && HasAttr(submitter, "formnovalidate"));
-        if (validates && !ValidateInteractively(form))
-            return false;
+            var validates = !HasAttr(form, "novalidate") && !(submitter is not null && HasAttr(submitter, "formnovalidate"));
+            if (validates && !ValidateInteractively(form))
+                return false;
 
-        var realm = Realm;
-        var evt = NewTrustedEvent(realm, "submit", bubbles: true, cancelable: true, composed: false, InterfacePrototype(realm, "SubmitEvent"));
-        Define(realm, evt, "submitter", submitter is null ? JsValue.Null : WrapNode(submitter));
-        if (!DispatchKeyboardEvent(form, evt) || !form.IsConnected)
+            var realm = Realm;
+            var evt = NewTrustedEvent(realm, "submit", bubbles: true, cancelable: true, composed: false, InterfacePrototype(realm, "SubmitEvent"));
+            Define(realm, evt, "submitter", submitter is null ? JsValue.Null : WrapNode(submitter));
+            allowed = DispatchKeyboardEvent(form, evt);
+        }
+        finally
+        {
+            _formsFiringSubmissionEvents.Remove(form);
+        }
+
+        if (!allowed || !form.IsConnected)
             return false;
 
         ((Dom.Features.IFormSubmitHost)this).RequestFormSubmission(form);
         return true;
+    }
+
+    /// <summary>
+    /// HTML's "reset" of a form, whoever asks -- a reset button the user or a script clicked, or
+    /// <c>form.reset()</c>: a trusted, cancelable <c>reset</c> at it, and unless that is cancelled its
+    /// controls reset. A reset asked for while its <c>reset</c> is being fired is ignored ("locked for reset").
+    /// </summary>
+    private void ResetForm(DomElement form)
+    {
+        if (!_formsResetting.Add(form))
+            return;
+
+        try
+        {
+            var realm = Realm;
+            if (DispatchKeyboardEvent(form, NewTrustedEvent(realm, "reset", bubbles: true, cancelable: true, composed: false, InterfacePrototype(realm, "Event"))))
+                ResetFormControls(form);
+        }
+        finally
+        {
+            _formsResetting.Remove(form);
+        }
     }
 
     /// <summary>
@@ -124,7 +165,7 @@ public sealed partial class DomBridge
             submitter = button;
         }
 
-        SubmitForm(form, submitter);
+        RunAsScriptCall(() => SubmitForm(form, submitter));
         return JsValue.Undefined;
     }
 
@@ -159,7 +200,7 @@ public sealed partial class DomBridge
         if (IsSubmitButton(button))
             SubmitForm(form, button);
         else
-            ResetFormByUser(form);
+            ResetForm(form);
         return true;
     }
 
@@ -187,4 +228,15 @@ public sealed partial class DomBridge
 
     private static bool IsFormElement(DomElement element) =>
         element.TagName.Equals("form", StringComparison.OrdinalIgnoreCase);
+
+    // The forms whose submit event, or the validation before it, is being fired, and those whose reset
+    // event is: a submission or a reset of one of them asked for meanwhile is ignored.
+    private readonly HashSet<DomElement> _formsFiringSubmissionEvents = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<DomElement> _formsResetting = new(ReferenceEqualityComparer.Instance);
+
+    private void ResetFormSubmissionState()
+    {
+        _formsFiringSubmissionEvents.Clear();
+        _formsResetting.Clear();
+    }
 }

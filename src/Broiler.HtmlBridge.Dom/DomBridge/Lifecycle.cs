@@ -106,6 +106,8 @@ public sealed partial class DomBridge : IDisposable
         ResetElementStates();
         ResetFieldSelections();
         _composition = null;
+        ResetScriptActivation();
+        ResetFormSubmissionState();
 
         _messaging.ClearPorts();
 

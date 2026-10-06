@@ -350,15 +350,7 @@ public sealed partial class DomBridge
         else if (IsSubmitButton(element) && FormOwnerOf(element) is { } form)
             SubmitForm(form, element);
         else if (IsResetButton(element) && FormOwnerOf(element) is { } resetForm)
-            ResetFormByUser(resetForm);
-    }
-
-    /// <summary>A reset button's activation: the form's <c>reset</c> event, and unless that is cancelled its controls reset.</summary>
-    private void ResetFormByUser(DomElement form)
-    {
-        var realm = Realm;
-        if (DispatchKeyboardEvent(form, NewTrustedEvent(realm, "reset", bubbles: true, cancelable: true, composed: false, JsValue.Missing)))
-            ResetFormControls(form);
+            ResetForm(resetForm);
     }
 
     /// <summary>
@@ -370,6 +362,14 @@ public sealed partial class DomBridge
     {
         if (!TryGetAttribute(link, "href", out var href))
             return;
+
+        // A javascript: URL runs script rather than loading a document; it is not run here, and handing
+        // it to the host as a navigation would take the page away for a link that only meant to run code.
+        if (href.TrimStart().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
+        {
+            RenderLogger.LogDebug(LogCategory.JavaScript, "DomBridge.keyboard", $"A link to a javascript: URL is not followed: {href}");
+            return;
+        }
 
         var realm = Realm;
         var document = GetOwningDocument(link);
@@ -569,7 +569,8 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Dispatches <paramref name="evt"/> at <paramref name="target"/> as its window's script, as the end of
-    /// a task: the microtask checkpoint follows. Answers whether it was not cancelled.
+    /// a task: the microtask checkpoint follows, unless a script's call fired it (DomBridge/ScriptActivation.cs).
+    /// Answers whether it was not cancelled.
     /// </summary>
     private bool DispatchKeyboardEvent(DomElement target, JsValue evt)
     {
@@ -590,7 +591,8 @@ public sealed partial class DomBridge
                 $"Dispatching a trusted event failed: {ex.Message}", ex);
         }
 
-        TaskCheckpointCallback?.Invoke();
+        if (EndsTaskWithCheckpoint)
+            TaskCheckpointCallback?.Invoke();
         return allowed;
     }
 
