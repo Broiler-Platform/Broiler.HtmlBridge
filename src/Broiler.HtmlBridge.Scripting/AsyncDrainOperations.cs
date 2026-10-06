@@ -13,8 +13,12 @@ internal enum AsyncDrainStatus
 
 internal static class AsyncDrainOperations
 {
-    /// <summary>How long one round of a drain waits for a worker to answer before it moves on.</summary>
-    private static readonly TimeSpan WorkInFlightWait = TimeSpan.FromSeconds(5);
+    /// <summary>
+    /// How long one round of a drain waits for a worker to answer before it moves on: the whole of
+    /// the worker's allowance, so the clock waits here as long as a window's step waits for it. A
+    /// shorter round moved the clock on while the worker was still within its allowance.
+    /// </summary>
+    private static readonly TimeSpan WorkInFlightWait = Dom.Features.WorkerBinding.InFlightAllowance;
 
     /// <summary>
     /// Drains queued microtasks and timer tasks in bounded iterations until the

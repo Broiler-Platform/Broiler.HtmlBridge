@@ -236,6 +236,25 @@ public partial class VmScriptEngineTests
     }
 
     /// <summary>
+    /// What a host says of the next document -- the navigation's start and the fetches made for it --
+    /// is the document engine's to take, since that engine runs the document.
+    /// </summary>
+    [Fact]
+    public void TheDocumentsTimingsGoToTheDocumentEngine()
+    {
+        var engine = Engine(out var document);
+        var fetchTiming = Broiler.HtmlBridge.Net.DocumentFetchTiming.StartNavigation();
+        IReadOnlyList<ResourceTimingRecord> records = [];
+
+        engine.DocumentFetchTiming = fetchTiming;
+        engine.DocumentResourceTimings = records;
+
+        Assert.Same(fetchTiming, document.DocumentFetchTiming);
+        Assert.Same(records, document.DocumentResourceTimings);
+        Assert.Same(fetchTiming, engine.DocumentFetchTiming);
+    }
+
+    /// <summary>
     /// A page that states no policy is not a page that forbids evaluation. Defaulting to refusal
     /// would make this engine quietly stricter than the Broiler.JS one on the very same document.
     /// </summary>
@@ -460,6 +479,10 @@ public partial class VmScriptEngineTests
         public bool StrictModeEnabled { get; set; }
 
         public ContentSecurityPolicy? Csp { get; set; }
+
+        public Broiler.HtmlBridge.Net.DocumentFetchTiming? DocumentFetchTiming { get; set; }
+
+        public IReadOnlyList<ResourceTimingRecord> DocumentResourceTimings { get; set; } = [];
 
         public ScriptProfilingHook? Profiler { get; set; }
 

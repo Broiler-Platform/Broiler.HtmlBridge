@@ -88,12 +88,13 @@ public sealed partial class DomBridge
         realm.DefineValue(document, "location", location);
 
         // window timers / animation frames — thin adapters over the BrowserEventLoop, co-located
-        // in the TimerBinding feature module. The realm mints all six with the names and
-        // arities they had, and the binding reads its arguments off the call frame. The event loop
+        // in the TimerBinding feature module. The realm mints all six with their WebIDL arities --
+        // setTimeout and setInterval take one required argument, the handler, as everything after
+        // it is optional -- and the binding reads its arguments off the call frame. The event loop
         // they queue into holds the handles the realm minted.
-        realm.DefineMethod(window, "setTimeout", 2, (in a) => Dom.Features.TimerBinding.SetTimeout(_eventLoop, _windowContext, in a));
+        realm.DefineMethod(window, "setTimeout", 1, (in a) => Dom.Features.TimerBinding.SetTimeout(_eventLoop, _windowContext, in a));
         realm.DefineMethod(window, "clearTimeout", 1, (in a) => Dom.Features.TimerBinding.ClearTimeout(_eventLoop, in a));
-        realm.DefineMethod(window, "setInterval", 2, (in a) => Dom.Features.TimerBinding.SetInterval(_eventLoop, _windowContext, in a));
+        realm.DefineMethod(window, "setInterval", 1, (in a) => Dom.Features.TimerBinding.SetInterval(_eventLoop, _windowContext, in a));
         realm.DefineMethod(window, "clearInterval", 1, (in a) => Dom.Features.TimerBinding.ClearInterval(_eventLoop, in a));
         realm.DefineMethod(window, "requestAnimationFrame", 1, (in a) => Dom.Features.TimerBinding.RequestAnimationFrame(_eventLoop, _windowContext, in a));
         realm.DefineMethod(window, "cancelAnimationFrame", 1, (in a) => Dom.Features.TimerBinding.CancelAnimationFrame(_eventLoop, in a));
@@ -164,6 +165,11 @@ public sealed partial class DomBridge
 
         // window.self — refers to this window
         realm.DefineValue(window, "self", window);
+
+        // window.opener -- null: no window here was opened by another's window.open. It is an accessor
+        // an assignment replaces with what was assigned, as on a browser's window. It read undefined,
+        // which a script comparing it with null tells apart.
+        DefineOpener(realm, window);
 
         // window.top — the topmost browsing context. This document is the top-level one, so
         // `top`, `parent` and `self` are all this window; a sub-document's window instead gets
@@ -241,48 +247,27 @@ public sealed partial class DomBridge
         var fetchTiming = DocumentFetchTiming;
         var performanceTimeOrigin = fetchTiming?.UnixTimeOriginMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var performanceMonotonicOrigin = fetchTiming?.MonotonicOrigin ?? System.Diagnostics.Stopwatch.GetTimestamp();
-        var performanceObj = realm.NewObject();
+
+        // Performance is an EventTarget: resourcetimingbufferfull is fired at it, and a page listens with
+        // addEventListener as often as with the handler (DomBridge/ResourceTimings.cs).
+        var eventTarget = realm.GetProperty(realm.Global, "EventTarget");
+        var performanceObj = eventTarget.IsFunction ? realm.Construct(eventTarget) : realm.NewObject();
         realm.DefineValue(performanceObj, "timeOrigin", JsValue.Number(performanceTimeOrigin));
         realm.DefineMethod(performanceObj, "now", 0, (in c) => Dom.Features.WindowDocumentMiscBinding.PerformanceNow(performanceMonotonicOrigin, in c));
 
-        // The Performance Timeline getters (Performance Timeline §3), all three of which answer from
-        // the one entry a document that has navigated once and loaded no instrumented resources has:
-        // its own PerformanceNavigationTiming. Everything else a browser would have recorded — paint
-        // timings, resource entries, marks — a capture does not, so those searches still come back
-        // with an empty list, which is a buffer holding nothing rather than a missing method. See
-        // NavigationTimingBinding for what the navigation entry does and does not carry.
-        //
-        // getEntriesByName was the one of the three missing, and a page does not reach it behind a
-        // feature test: performance and PerformanceObserver both existing is the guard it writes, and
-        // this call comes after it. duckduckgo.com's first-contentful-paint pixel opens with
-        // `performance.getEntriesByName('first-contentful-paint')` on exactly that guard, which threw
-        // "undefined is not a function" — taking the PerformanceObserver fallback in the same try
-        // block with it, so the page never observed the paint it was asking about either. That name
-        // is not the document's, so the pixel still finds nothing and still installs its observer.
-        // The navigation entry's document-lifecycle marks are stamped by the load sequence, which
-        // runs after this, so the entry reads them through this holder rather than holding values.
-        // It shares the monotonic origin with performance.now() above, so a mark and a now() reading
-        // are two points on one timeline.
+        // The document's PerformanceNavigationTiming entry. Its document-lifecycle marks are stamped by
+        // the load sequence, which runs after this, so the entry reads them through this holder rather
+        // than holding values. It shares the monotonic origin with performance.now() above, so a mark
+        // and a now() reading are two points on one timeline. See NavigationTimingBinding for what the
+        // entry does and does not carry.
         _navigationTiming = new Dom.Features.NavigationTimingState(performanceMonotonicOrigin);
-        Dom.Features.NavigationTimingBinding.Install(
-            realm, performanceObj, _pageUrl, _pageProtocol, _navigationTiming, fetchTiming);
+        var navigationEntry = Dom.Features.NavigationTimingBinding.BuildEntry(
+            realm, _pageUrl, _pageProtocol, _navigationTiming, fetchTiming);
 
         // performance.memory — the same MemoryInfo console.memory reports (built with the console in
         // RegisterWindowBasics, which runs first).
         if (!_memoryInfo.IsMissing)
             realm.DefineValue(performanceObj, "memory", _memoryInfo);
-
-        // performance.mark() / performance.measure() — no-op stubs
-        realm.DefineValue(performanceObj, "mark", UndefinedMember("mark", 1));
-        realm.DefineValue(performanceObj, "measure", UndefinedMember("measure", 3));
-
-        // The clear/resize counterparts to mark, measure and the resource buffer. Nothing is recorded
-        // for them to clear, but a page that marks commonly clears in the same breath, and the throw
-        // would land on the clear rather than on the mark it pairs with.
-        realm.DefineValue(performanceObj, "clearMarks", UndefinedMember("clearMarks", 1));
-        realm.DefineValue(performanceObj, "clearMeasures", UndefinedMember("clearMeasures", 1));
-        realm.DefineValue(performanceObj, "clearResourceTimings", UndefinedMember("clearResourceTimings", 0));
-        realm.DefineValue(performanceObj, "setResourceTimingBufferSize", UndefinedMember("setResourceTimingBufferSize", 1));
 
         // toJSON is how the interface serialises, and telemetry that ships timings reaches it through
         // JSON.stringify(performance) as often as by name.
@@ -298,6 +283,18 @@ public sealed partial class DomBridge
             });
 
         DefineWindowGlobal(window, "performance", performanceObj);
+
+        // The Performance Timeline over this document's navigation entry and the fetches it makes:
+        // performance.mark, measure, clearMarks, clearMeasures, the three entry getters, the resource
+        // buffer's clearResourceTimings and setResourceTimingBufferSize, PerformanceObserver, and the
+        // entry interfaces (DomBridge/PerformanceTimeline.cs, DomBridge/ResourceTimings.cs).
+        //
+        // getEntriesByName is one a page does not reach behind a feature test: performance and
+        // PerformanceObserver both existing is the guard it writes. duckduckgo.com's
+        // first-contentful-paint pixel opens with `performance.getEntriesByName('first-contentful-paint')`
+        // on exactly that guard; no entry has that name here, so it still finds nothing and installs
+        // its observer.
+        InstallPerformanceTimeline(performanceObj, navigationEntry, performanceMonotonicOrigin);
     }
 
     /// <summary>
@@ -326,52 +323,19 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// <c>PerformanceObserver</c> (Performance Timeline §2) and <c>requestIdleCallback</c>
-    /// (Background Tasks §2), as the shapes a page needs them to have rather than as working
-    /// instrumentation: a headless capture produces no performance entries to deliver, and its
-    /// event loop has no idle period to wait for.
+    /// <c>requestIdleCallback</c> (Background Tasks §2), as the shape a page needs it to have rather
+    /// than as a real idle period, which a headless event loop does not have to wait for.
     /// </summary>
     /// <remarks>
-    /// A missing constructor is worse than an inert one here. Telemetry bundles construct one at
-    /// module scope, so <c>new PerformanceObserver(…)</c> threw a ReferenceError that rejected the
-    /// promise the module was resolving, and every module waiting on that one stayed unresolved —
-    /// which is how a page can lose behaviour that has nothing to do with performance timing.
     /// <c>requestIdleCallback</c> runs its callback on a timer instead of dropping it, because
     /// what pages defer to idle is often the work that produces visible content — and it hands that
     /// callback a real <c>IdleDeadline</c> (see <c>TimerBinding.RequestIdleCallback</c>), because a
     /// callback that receives no deadline throws on the first thing it does with the parameter.
+    /// <c>PerformanceObserver</c> is the Performance Timeline's (<see cref="InstallPerformanceTimeline"/>).
     /// </remarks>
     private void RegisterObservationStubs(JsValue window)
     {
         var realm = Realm;
-
-        if (!realm.GetProperty(window, "PerformanceObserver").IsUndefined)
-            return;
-
-        var observerPrototype = realm.NewObject();
-        realm.DefineValue(observerPrototype, "observe", UndefinedMember("observe", 1));
-        realm.DefineValue(observerPrototype, "disconnect", UndefinedMember("disconnect", 0));
-        realm.DefineMethod(observerPrototype, "takeRecords", 0, (in _) => realm.NewArray());
-
-        var performanceObserver = realm.NewConstructor("PerformanceObserver", (in _) =>
-        {
-            var instance = realm.NewObject();
-            realm.DefineValue(instance, "observe", UndefinedMember("observe", 1));
-            realm.DefineValue(instance, "disconnect", UndefinedMember("disconnect", 0));
-            realm.DefineMethod(instance, "takeRecords", 0, (in _) => realm.NewArray());
-            return instance;
-        }, 1);
-
-        // A constructor's own `prototype` is writable but not configurable, so it is assigned rather
-        // than redefined: a define asking for configurable is refused, and JSeal 0.1.0-preview.2
-        // reports that refusal where preview.1 silently kept the engine's default prototype.
-        realm.SetProperty(performanceObserver, "prototype", observerPrototype);
-
-        // Feature detection reads this before observing, and an observer that claims to support
-        // nothing is the honest answer for a capture that reports no entries.
-        realm.DefineValue(performanceObserver, "supportedEntryTypes", realm.NewArray());
-
-        DefineWindowGlobal(window, "PerformanceObserver", performanceObserver);
 
         if (realm.GetProperty(window, "requestIdleCallback").IsUndefined)
         {
@@ -425,6 +389,9 @@ public sealed partial class DomBridge
         // userAgentData (derived from the same user-agent string above). connection, mediaDevices
         // and mediaCapabilities stay absent — see NavigatorSurfacesBinding for each decision.
         Dom.Features.NavigatorSurfacesBinding.Install(realm, navigatorObj, global::Broiler.Net.Http.BroilerUserAgent.Value);
+
+        // navigator.userActivation, for the document whose script reads it (DomBridge/UserActivation.cs).
+        InstallUserActivation(navigatorObj);
 
         DefineWindowGlobal(window, "navigator", navigatorObj);
         realm.SetProperty(realm.Global, "postMessage", realm.GetProperty(window, "postMessage"));

@@ -44,6 +44,16 @@ internal sealed class WindowContextManager(
     private readonly BrowsingContextManager _browsingContexts = browsingContexts;
     private readonly EventTargetRegistry _eventTargets = eventTargets;
 
+    /// <summary>
+    /// Called each time a window's context is entered, once the switch has made it the current one,
+    /// and <see cref="WindowExited"/> when it is left: how the long-task monitor learns which
+    /// document's work is running.
+    /// </summary>
+    public Action? WindowEntered { get; set; }
+
+    /// <inheritdoc cref="WindowEntered"/>
+    public Action? WindowExited { get; set; }
+
     public JsValue ResolveCurrentWindow()
     {
         var candidate = _browsingContexts.CurrentWindowOverride;
@@ -266,7 +276,15 @@ internal sealed class WindowContextManager(
             if (engineJobs is not null)
                 SynchronizationContext.SetSynchronizationContext(engineJobs);
 
-            callback();
+            WindowEntered?.Invoke();
+            try
+            {
+                callback();
+            }
+            finally
+            {
+                WindowExited?.Invoke();
+            }
         }
         finally
         {

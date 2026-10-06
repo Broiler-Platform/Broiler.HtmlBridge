@@ -56,7 +56,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
 
     private delegate (int status, string statusText, string url, string type, bool redirected, Dictionary<string, string> headers) ResponseInitParser(JsValue initValue);
 
-    private delegate JsValue ResponseFactory(string body, int statusCode, string statusText,
+    private delegate JsValue ResponseFactory(byte[] body, int statusCode, string statusText,
         string responseUrl, string type, bool redirected, Dictionary<string, string> headers);
 
     /// <summary>Installs <c>fetch</c>/<c>Headers</c>/<c>Request</c>/<c>Response</c>/<c>FormData</c> and
@@ -68,6 +68,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         _jsonParse = realm.GetProperty(json, "parse");
         _jsonStringify = realm.GetProperty(json, "stringify");
         _typeError = realm.GetProperty(realm.Global, "TypeError");
+        _isArrayBufferView = BufferSources.IsViewFunction(realm);
 
         // What makes each FormData iterable: its entries() as its Symbol.iterator, which only script can name.
         _formDataIterable = realm.EvaluateHostScript(
@@ -97,7 +98,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
             responseCtor,
             "error",
             0,
-            (in _) => CreateResponse(realm, string.Empty, 0, string.Empty, string.Empty, "error", false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)));
+            (in _) => CreateResponse(realm, [], 0, string.Empty, string.Empty, "error", false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)));
         realm.DefineMethod(responseCtor, "redirect", 2, (in call) => JsRegistrationRedirect116Core(url => ResolveResponseRedirectUrl(realm, url), createResponse, in call));
         realm.DefineValue(window, "FormData", formDataCtor);
         realm.DefineValue(window, "Headers", headersCtor);
@@ -108,19 +109,22 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         realm.SetProperty(realm.Global, "Request", requestCtor);
         realm.SetProperty(realm.Global, "Response", responseCtor);
         // fetch(url, options) — polyfill backed by the injected ResourceLoader
-        var fetchFn = realm.NewMethod(
+        JsValue NativeFetch(string initiatorType) => realm.NewMethod(
             "fetch",
             (in call) => JsRegistrationFetch120Core(
                 (obj, names) => TryGetJsPropertyString(realm, obj, names),
                 obj => EnumerateObjectStringEntries(realm, obj),
                 signal => CreateAbortErrorValue(realm, signal),
                 createResponse,
+                initiatorType,
                 in call),
             1);
+        var fetchFn = NativeFetch("fetch");
         realm.DefineValue(window, "fetch", fetchFn);
-        // XMLHttpRequest — basic polyfill over this fetch function, captured here so a page that
-        // replaces window.fetch cannot see or redirect what XHR sends.
-        RegisterXMLHttpRequest(realm, window, fetchFn);
+        // XMLHttpRequest — basic polyfill over a fetch function of its own, captured here so a page that
+        // replaces window.fetch cannot see or redirect what XHR sends, and whose sends Resource Timing
+        // records as XMLHttpRequest's.
+        RegisterXMLHttpRequest(realm, window, NativeFetch("xmlhttprequest"), realm.NewMethod("decodeText", DecodeXhrText, 2));
         return fetchFn;
     }
 

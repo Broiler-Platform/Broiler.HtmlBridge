@@ -98,8 +98,19 @@ public sealed class InteractiveSession : IDisposable
         if (_bridge is not DomBridge bridge)
             return default;
 
-        var result = bridge.DispatchPointerInput(input);
-        _microTasks.Drain();
+        // The input and the checkpoint after it are one of the page's tasks.
+        PointerInputResult result;
+        ScriptEngine.StartTask(bridge);
+        try
+        {
+            result = bridge.DispatchPointerInput(input);
+            _microTasks.Drain();
+        }
+        finally
+        {
+            ScriptEngine.EndTask(bridge);
+        }
+
         _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
         return result;
     }
@@ -352,8 +363,18 @@ public sealed class InteractiveSession : IDisposable
         if (_bridge is not DomBridge bridge)
             return default;
 
-        var result = dispatch(bridge);
-        _microTasks.Drain();
+        KeyboardInputResult result;
+        ScriptEngine.StartTask(bridge);
+        try
+        {
+            result = dispatch(bridge);
+            _microTasks.Drain();
+        }
+        finally
+        {
+            ScriptEngine.EndTask(bridge);
+        }
+
         _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
         return result;
     }

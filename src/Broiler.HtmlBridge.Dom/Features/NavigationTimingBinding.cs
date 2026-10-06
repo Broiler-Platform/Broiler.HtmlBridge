@@ -4,11 +4,10 @@ using Broiler.HtmlBridge.Net;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The document's <c>PerformanceNavigationTiming</c> entry and the three <c>performance</c>
-/// accessors that hand it out — <c>getEntries</c>, <c>getEntriesByType</c> and
-/// <c>getEntriesByName</c> (Navigation Timing Level 2 §4, Performance Timeline §3). Pure static:
-/// the entry is built from the page URL the bridge already knows and the protocol its loader
-/// negotiates, and nothing here touches bridge state afterwards.
+/// A document's <c>PerformanceNavigationTiming</c> entry (Navigation Timing Level 2 §4), which the
+/// Performance Timeline's getters and observers hand out (<c>DomBridge.InstallPerformanceTimeline</c>).
+/// Pure static: the entry is built from the page URL the bridge already knows and the protocol its
+/// loader negotiates, and nothing here touches bridge state afterwards.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -33,24 +32,22 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <para>
 /// <b>What this entry deliberately does not carry.</b> <c>startTime</c> is fixed at 0 rather than
 /// measured, by definition — the time origin <em>is</em> this navigation's start, which is also what
-/// makes <c>duration</c> equal to <c>loadEventEnd</c> outright. Paint timings, resource entries and
-/// user marks belong to buffers a capture does not keep, so the entry-list getters answer with an
-/// empty list for them rather than inventing one.
+/// makes <c>duration</c> equal to <c>loadEventEnd</c> outright. Paint timings and resource entries
+/// belong to buffers a capture does not keep, so the entry-list getters answer with none of them
+/// rather than inventing them.
 /// </para>
 /// <para>
-/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the realm mints the entry, the
-/// three accessors and every array they answer with, so nothing here names an engine type. The
-/// entry object itself is captured by the accessors exactly as before — one entry per document,
-/// handed out by reference, so a page that compares two results gets the same object.
+/// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the realm mints the entry, so
+/// nothing here names an engine type. One entry per document, handed out by reference, so a page that
+/// compares two results gets the same object.
 /// </para>
 /// </remarks>
 internal static class NavigationTimingBinding
 {
     /// <summary>
-    /// Installs the entry-list accessors on <paramref name="performance"/>.
+    /// Builds a document's navigation entry.
     /// </summary>
-    /// <param name="realm">The realm the entry, the accessors and their arrays belong to.</param>
-    /// <param name="performance">The <c>performance</c> object being built.</param>
+    /// <param name="realm">The realm the entry belongs to.</param>
     /// <param name="pageUrl">The document's URL, or the empty string when it has none.</param>
     /// <param name="pageProtocol">
     /// The document URL's scheme with its colon (<c>"https:"</c>), as <c>location.protocol</c>
@@ -66,23 +63,13 @@ internal static class NavigationTimingBinding
     /// conformance runner, a test). Absent, the network phases keep reporting the specification's
     /// "not observed" <c>0</c>.
     /// </param>
-    public static void Install(
+    public static JsValue BuildEntry(
         IJsRealm realm,
-        JsValue performance,
         string pageUrl,
         string pageProtocol,
         NavigationTimingState timing,
-        DocumentFetchTiming? fetchTiming)
-    {
-        var navigation = BuildNavigationEntry(realm, pageUrl, pageProtocol, timing, fetchTiming);
-
-        realm.DefineMethod(performance, "getEntries", 0, (in call) => call.Realm.NewArray([navigation]));
-
-        realm.DefineMethod(performance, "getEntriesByType", 1, (in call) => EntriesByType(navigation, in call));
-
-        realm.DefineMethod(performance, "getEntriesByName", 1,
-            (in call) => EntriesByName(navigation, pageUrl, in call));
-    }
+        DocumentFetchTiming? fetchTiming) =>
+        BuildNavigationEntry(realm, pageUrl, pageProtocol, timing, fetchTiming);
 
     /// <summary>
     /// The ALPN token for the hop that fetched this document, or the empty string when there was no
@@ -195,32 +182,6 @@ internal static class NavigationTimingBinding
         realm.DefineMethod(entry, "toJSON", 0, (in _) => entry);
 
         return entry;
-    }
-
-    private static JsValue EntriesByType(JsValue navigation, in JsCall call)
-    {
-        // ToJsString rather than the handle's rendering: getEntriesByType(obj) coerces its argument,
-        // and an object's own toString is what decides which type was asked for.
-        string type = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
-        return string.Equals(type, "navigation", StringComparison.Ordinal)
-            ? call.Realm.NewArray([navigation])
-            : call.Realm.NewArray();
-    }
-
-    private static JsValue EntriesByName(JsValue navigation, string pageUrl, in JsCall call)
-    {
-        if (call.Length == 0)
-            return call.Realm.NewArray();
-
-        // The second argument narrows by entry type; a caller that passes one that is not
-        // "navigation" is asking for entries this timeline has none of.
-        if (call.Length > 1 && !call[1].IsUndefined &&
-            !string.Equals(call.Realm.ToJsString(call[1]), "navigation", StringComparison.Ordinal))
-            return call.Realm.NewArray();
-
-        return string.Equals(call.Realm.ToJsString(call[0]), pageUrl, StringComparison.Ordinal)
-            ? call.Realm.NewArray([navigation])
-            : call.Realm.NewArray();
     }
 
     /// <summary>A live timing mark: an accessor so the entry reports the value at read time.</summary>

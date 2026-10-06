@@ -219,4 +219,50 @@ public class WorkerNetworkTests
                 "setTimeout(function () { if (!settled) { settled = true; out.textContent = 'gave up'; } }, 5000);" +
                 "worker.postMessage('hi');"));
     }
+
+    /// <summary>
+    /// The page waits for its worker as long as the worker takes here to do what a browser does at once:
+    /// longer than five seconds when it has a large script to compile first, as reCAPTCHA's worker does.
+    /// So a page that gives up on it after five seconds still hears it first, whether its load window is
+    /// settled in one go or stepped, as a window steps it. Here the worker's start takes six seconds; the
+    /// page used to stop waiting after five and give up.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void APageWaitsForAWorkerSlowerThanItsTimeout(bool settle)
+    {
+        const string worker =
+            "var until = Date.now() + 6000; while (Date.now() < until) { }" +
+            "onmessage = function (e) { postMessage('answered ' + e.data); };";
+        using var session = new ScriptEngine().ExecuteInteractive(
+            ["var out = document.getElementById('out'), settled = false;" +
+             $"var worker = new Worker('data:text/javascript,' + encodeURIComponent({System.Text.Json.JsonSerializer.Serialize(worker)}));" +
+             "worker.onmessage = function (e) { if (!settled) { settled = true; out.textContent = e.data; } };" +
+             "setTimeout(function () { if (!settled) { settled = true; out.textContent = 'gave up'; } }, 5000);" +
+             "worker.postMessage('hi');"],
+            [],
+            "<html><head></head><body><div id=\"out\">waiting</div></body></html>",
+            "https://example.test/page");
+        Assert.NotNull(session);
+
+        string html;
+        if (settle)
+        {
+            html = session!.SettleLoadWindow();
+        }
+        else
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (session!.HasWorkDueInLoadWindow && clock.Elapsed < TimeSpan.FromMinutes(1))
+            {
+                if (session.Step() is null)
+                    Thread.Sleep(10);
+            }
+
+            html = session.CurrentHtml();
+        }
+
+        Assert.Equal("answered hi", PageProbe.OutOf(html, decode: true));
+    }
 }

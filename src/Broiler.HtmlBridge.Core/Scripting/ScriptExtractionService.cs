@@ -273,7 +273,8 @@ public static partial class ScriptExtractionService
                 : ScriptSourceKind.External;
             var url = kind == ScriptSourceKind.Inline ? null : src;
             var request = kind == ScriptSourceKind.External
-                ? ScriptRequestFor(fetch, isModule, crossOrigin, csp, pageUrl, nonce)
+                ? ScriptRequestFor(fetch, isModule, crossOrigin, csp, pageUrl, nonce,
+                    IsRenderBlocking(html, src!, isModule, isAsync, isDefer))
                 : null;
 
             // Record every recognised module in the module map so it is not silently dropped, and
@@ -339,7 +340,10 @@ public static partial class ScriptExtractionService
         // The authorised top-level module roots are the sole module-execution input. A consumer drives
         // the JS engine's own module machinery (BridgeModuleContext) to run each root; the engine
         // resolves+fetches its transitive imports itself (CSP-gated).
-        return new ScriptExtractionResult(scripts, deferredScripts, asyncScripts, descriptors, moduleMap, moduleRoots);
+        return new ScriptExtractionResult(scripts, deferredScripts, asyncScripts, descriptors, moduleMap, moduleRoots)
+        {
+            ResourceTimings = fetch?.ResourceTimings is ResourceTimingLog log ? log.Records : [],
+        };
     }
 
     /// <summary>
@@ -446,10 +450,11 @@ public static partial class ScriptExtractionService
             // one, which sends and stores its cookies per hop, otherwise through the cookie-less
             // fallback client. ConfigureAwait(false) prevents deadlocks when the caller is on a UI
             // dispatcher; the transport's synchronous Send never captures a context either.
+            using var waiting = TaskClock.Waiting();
             var content = request is { } scriptRequest
                 ? BridgeTransport.GetText(
                     scriptRequest.Fetch.Transport, uri, scriptRequest.Context, ScriptFetchTimeout,
-                    scriptRequest.Fetch.CancellationToken)
+                    scriptRequest.Fetch.CancellationToken, timing: scriptRequest.Timing)
                 : SharedHttpClient.GetStringAsync(resolvedUrl)
                     .ConfigureAwait(false)
                     .GetAwaiter()
@@ -512,8 +517,12 @@ public static partial class ScriptExtractionService
                 continue;
 
             if (UrlResolver.Resolve(src, pageUrl) is { } resolved && seen.Add(resolved.AbsoluteUri))
+            {
+                var isModule = IsModule(tag.Attributes);
                 requests.Add((resolved.AbsoluteUri,
-                    ScriptRequestFor(fetch, IsModule(tag.Attributes), GetCrossOrigin(tag.Attributes), csp, pageUrl, nonce)));
+                    ScriptRequestFor(fetch, isModule, GetCrossOrigin(tag.Attributes), csp, pageUrl, nonce,
+                        IsRenderBlocking(html, src, isModule, tag.Attributes.ContainsKey("async"), tag.Attributes.ContainsKey("defer")))));
+            }
         }
 
         if (requests.Count < 2)
@@ -531,8 +540,16 @@ public static partial class ScriptExtractionService
     /// passed before the fetch, applied again to every URL a redirect leads to.
     /// </summary>
     private static ScriptRequest? ScriptRequestFor(
-        ScriptFetchContext? fetch, bool isModule, string? crossOrigin, ContentSecurityPolicySet csp, string? pageUrl, string? nonce) =>
-        fetch?.ForScript(isModule, crossOrigin, (url, _) => csp.AllowsExternalScript(url.AbsoluteUri, pageUrl, nonce));
+        ScriptFetchContext? fetch, bool isModule, string? crossOrigin, ContentSecurityPolicySet csp, string? pageUrl, string? nonce,
+        bool renderBlocking) =>
+        fetch?.ForScript(isModule, crossOrigin, (url, _) => csp.AllowsExternalScript(url.AbsoluteUri, pageUrl, nonce), renderBlocking);
+
+    /// <summary>
+    /// Whether a parser-inserted script holds up the document's rendering (Resource Timing's
+    /// <c>renderBlockingStatus</c>): a classic script in the head that is neither async nor deferred.
+    /// </summary>
+    private static bool IsRenderBlocking(string html, string src, bool isModule, bool isAsync, bool isDefer) =>
+        !isModule && !isAsync && !isDefer && ResourceTimingRequest.IsInHead(html, src);
 
     /// <summary>The <c>crossorigin</c> attribute's value, or <see langword="null"/> when absent.</summary>
     private static string? GetCrossOrigin(IReadOnlyDictionary<string, string> attrs) =>

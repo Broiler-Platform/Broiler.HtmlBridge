@@ -23,6 +23,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>frames === frames</c> holds at least, which the array did not.
 /// </para>
 /// <para>
+/// <b>What is not a frame is the window's.</b> Every other member is read from, and written to, the
+/// window the list belongs to, so <c>frames.performance</c>, <c>frames.document</c> and
+/// <c>frames.foo = 1</c> act on the window as they do where the two are one object. They were
+/// <c>undefined</c>: reCAPTCHA's checkbox frame reads its own resource timings as
+/// <c>frames.performance.getEntries()</c>, which threw.
+/// </para>
+/// <para>
 /// <b>Every child frame is listed, whatever its origin.</b> A browser counts a cross-origin frame and
 /// answers it as a window that can only be posted to; the array left it out. Which window a script
 /// gets is decided when it asks (<see cref="SubWindowBinding.WindowAsSeen"/>).
@@ -31,7 +38,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal sealed class WindowFrames(
     Func<IReadOnlyList<DomElement>> containers,
     Func<DomElement, JsValue> windowOf,
-    Func<DomElement, string> nameOf) : IJsExotic
+    Func<DomElement, string> nameOf,
+    IJsRealm realm,
+    Func<JsValue> window) : IJsExotic
 {
     /// <summary>The frames as of the last <see cref="IndexedLength"/> ask, which the indices are read out of.</summary>
     /// <remarks>See <c>DomCollection</c>'s field of the same purpose: the provider asks for the length
@@ -85,12 +94,31 @@ internal sealed class WindowFrames(
             }
         }
 
+        // Any other member is the window's.
+        var target = window();
+        if (target.IsObject && realm.HasProperty(target, name))
+        {
+            value = realm.GetProperty(target, name);
+            return true;
+        }
+
         value = JsValue.Undefined;
         return false;
     }
 
-    /// <summary>Never: a window has no named setter, so an assignment is an ordinary one.</summary>
-    public bool TrySetNamed(string name, JsValue value) => false;
+    /// <summary>
+    /// An assignment is the window's: a window has no named setter, so it is an ordinary one, to the
+    /// object <c>frames</c> is in a browser.
+    /// </summary>
+    public bool TrySetNamed(string name, JsValue value)
+    {
+        var target = window();
+        if (!target.IsObject)
+            return false;
+
+        realm.SetProperty(target, name, value);
+        return true;
+    }
 
     /// <summary>
     /// None: a window's named properties are not enumerated (<c>[LegacyUnenumerableNamedProperties]</c>),

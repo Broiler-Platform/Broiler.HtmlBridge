@@ -1,6 +1,4 @@
 using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
 
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Internal.Scripting;
@@ -25,9 +23,10 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <b>The Beacon request.</b> A <c>POST</c> with credentials <c>include</c>, for the calling document
 /// (the frame whose script is running, when the bridge can tell). Its mode follows the body: a body
 /// whose <c>Content-Type</c> is not CORS-safelisted (a <c>Blob</c> typed <c>application/json</c>, say)
-/// is a <c>cors</c> request and preflighted; a string, a <c>URLSearchParams</c>, an untyped
-/// <c>Blob</c> or no body at all is <c>no-cors</c>. A URL that does not parse, or is not HTTP(S), is
-/// a <c>TypeError</c>.
+/// is a <c>cors</c> request and preflighted; a string, a <c>URLSearchParams</c>, an <c>ArrayBuffer</c>
+/// or a view of one, an untyped <c>Blob</c> or no body at all is <c>no-cors</c>. A URL that does not
+/// parse, or is not HTTP(S), is a <c>TypeError</c>. The body is Fetch's "extract a body"
+/// (<see cref="ExtractBody"/>).
 /// </para>
 /// <para>
 /// <b>Sent synchronously</b>, as it always has been here: the call returns once the request has
@@ -38,9 +37,6 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </remarks>
 internal sealed partial class FetchBinding
 {
-    private const string TextPlain = "text/plain;charset=UTF-8";
-    private const string FormUrlEncoded = "application/x-www-form-urlencoded;charset=UTF-8";
-
     /// <summary>The <c>sendBeacon</c> method's body; see the type remarks.</summary>
     internal JsValue SendBeacon(in JsCall call)
     {
@@ -58,7 +54,7 @@ internal sealed partial class FetchBinding
         try
         {
             if (call.Length > 1 && !call[1].IsNullish)
-                (body, contentType) = ExtractBeaconBody(realm, call[1]);
+                (body, contentType) = ExtractBody(realm, call[1]);
         }
         catch (Exception ex)
         {
@@ -82,8 +78,10 @@ internal sealed partial class FetchBinding
                     message.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
             }
 
+            var client = _host.FetchClient;
             using var response = SendAuthorRequest(
-                message, RequestContext.Fetch(_host.FetchClient, mode, CredentialsMode.Include));
+                message, RequestContext.Fetch(client, mode, CredentialsMode.Include),
+                new ResourceTimingRequest("beacon", client, _host.ResourceTimings));
             attempt.Completed(null, response.StatusCode, response.Message.Content.Headers.ContentType?.MediaType, "POST");
         }
         catch (Exception ex)
@@ -93,31 +91,5 @@ internal sealed partial class FetchBinding
         }
 
         return JsValue.True;
-    }
-
-    /// <summary>
-    /// Fetch's "extract a body" for what a beacon carries: a <c>Blob</c>'s bytes and type, a
-    /// <c>URLSearchParams</c>' serialization as form data, and anything else as the string the realm
-    /// converts it to, which is UTF-8 plain text.
-    /// </summary>
-    private (byte[] Body, string? ContentType) ExtractBeaconBody(IJsRealm realm, JsValue data)
-    {
-        if (data.IsObject && _host.BlobContentOf(data) is { } blob)
-            return (blob.Bytes, blob.Type.Length > 0 ? blob.Type : null);
-
-        // ToJsString, not the handle's rendering: the body argument is commonly an object (a
-        // URLSearchParams, a page's own payload wrapper) whose own `toString` decides the bytes sent.
-        // That coercion is observable, so it stays the realm's.
-        var text = Encoding.UTF8.GetBytes(realm.ToJsString(data));
-        return (text, IsUrlSearchParams(realm, data) ? FormUrlEncoded : TextPlain);
-
-        static bool IsUrlSearchParams(IJsRealm realm, JsValue candidate)
-        {
-            if (!candidate.IsObject)
-                return false;
-
-            var constructor = realm.GetProperty(realm.Global, "URLSearchParams");
-            return constructor.IsFunction && realm.GetProperty(candidate, "constructor") == constructor;
-        }
     }
 }
