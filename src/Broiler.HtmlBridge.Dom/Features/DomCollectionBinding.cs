@@ -420,7 +420,8 @@ internal static class DomCollectionBinding
 
     /// <summary>
     /// Installs <c>HTMLOptionsCollection</c>'s members on its prototype: <c>length</c> and
-    /// <c>selectedIndex</c>, accessors, and <c>add</c> and <c>remove</c>, as Chromium has them (measured -- enumerable and configurable, <c>length</c> settable). Called once per
+    /// <c>selectedIndex</c>, accessors, and <c>add</c> and <c>remove</c>, as Chromium has them (measured --
+    /// enumerable and configurable, <c>length</c> settable). Called once per
     /// realm, after <see cref="RegisterInterfaces"/>.
     /// </summary>
     public static void RegisterOptionsCollectionOperations(IJsRealm realm)

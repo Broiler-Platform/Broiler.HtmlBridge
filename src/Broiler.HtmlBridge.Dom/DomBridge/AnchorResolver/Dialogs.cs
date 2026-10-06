@@ -245,7 +245,8 @@ public sealed partial class DomBridge
     /// dialog, and nothing behind a popover.
     /// </summary>
     /// <remarks>
-    /// The scrim is HTML's and Chromium's <c>rgba(0, 0, 0, 0.1)</c> (measured). It was that colour composited over white, <c>rgb(229, 229, 229)</c>, which is right for a
+    /// The scrim is HTML's and Chromium's <c>rgba(0, 0, 0, 0.1)</c> (measured). It was that colour composited
+    /// over white, <c>rgb(229, 229, 229)</c>, which is right for a
     /// white WPT reference page and nothing else: in the window it covered the page behind a modal
     /// dialog with grey, where Chromium dims it.
     /// </remarks>

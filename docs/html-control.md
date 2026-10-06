@@ -108,6 +108,43 @@ is the thing WebView2 gave up and the thing this component already has.
 | Documents of other origins | ✔ | ✔ Judged from the documents' request contexts, never from `location` or an attribute: a cross-origin frame — any frame with an opaque origin (sandboxed, `file:`) included — is withheld from `contentDocument` (an unsandboxed `data:` frame's DOM is still judged by its creator's origin, kept from earlier releases; HTML makes it cross-origin), and `contentWindow`, `window.frames` and `MessageEvent.source` give a script its cross-origin window: one object per frame, which answers only `window`, `self`, `frames`, `parent`, `top`, `opener`, `length`, `closed`, `close`, `focus`, `blur`, `postMessage`, its child frames by index and by name and a `location` it can only navigate, and throws `SecurityError` for everything else; a cross-origin window reached another way throws `SecurityError` on `document`; `MessageEvent.origin` is the sender's real origin; a linked sheet another origin served without CORS applies, but its `cssRules`, `insertRule` and `deleteRule` throw `SecurityError`; `document.cookie` throws `SecurityError` for a script of another origin. A frame's jobs (microtasks, reactions, `await`s, timers, module scripts) run as the frame and are dropped once it has navigated away. A web document never has a local file read for it — scripts, modules, stylesheets, frames and workers alike. |
 | Download interception, new-window policy | ✔ | ✖ |
 
+## Known gaps
+
+Found while the window was brought level with Chromium, and not fixed yet. Each says what is wrong
+and where the fix would go.
+
+- **Anchored boxes the layout engine does not place.** A box in the subset Broiler.Layout's anchor
+  placement takes (`IsMvpNativeAnchorBox`) is placed by the renderer, for what is drawn and for what a
+  script measures. Any other is baked by `ResolveTopLayerAndAnchorsForRender`, and only into a page that
+  is drawn: a geometry snapshot's projection has no bakes, so a script measures such a box where it
+  would stand with no anchor. The bake of an auto-sized `position-area` box also still stretches it over
+  its area, where Chromium gives it its content's size unless it stretches. Widening the engine's subset
+  closes both; baking into geometry snapshots would close the first only.
+- **Anchors in frames.** A frame's top layer is stamped into the markup the frame is rendered from, but
+  nothing in a frame's document resolves `anchor()`, `position-area` or a popover's implicit anchor.
+- **Indexed option entries.** `delete options[i]` and `delete select[i]` answer `true` and take nothing
+  away, and their entries are described read-only; Chromium answers `false` (a `TypeError` in strict
+  code) and describes them `writable: true`. Both come from JSEAL's exotic contract, which describes
+  every handler entry read-only and gives an indexed deletion the ordinary path (Broiler.JSeal
+  `docs/jseal.md`).
+- **A select-one with nothing selected.** A script's `selectedIndex = -1` leaves no option selected,
+  and the markup a host renders then marks none -- which is also what a select with nothing marked looks
+  like, whose first option is selected. A host that draws its own drop-down shows the first option;
+  Chromium draws the select blank. The markup needs a way to say "none".
+- **One policy at run time.** `ScriptEngine` runs a document under its own `<meta>` policy when it
+  declares one, otherwise under the one the host set (`Csp`): a policy the host delivered -- a header,
+  or a `javascript:` document's inherited one -- is dropped when the document declares its own, where
+  CSP enforces every policy. Frames already keep a set (`ContentSecurityPolicySet`); the page should too.
+- **Removing a frame that holds focus.** The pre-removal hook blurs a focused element taken out of its
+  document, but `DomRemoval.Removes` does not look into a frame's document, so removing an `iframe`
+  whose document holds focus moves no focus and fires nothing. Not measured in Chromium yet.
+- **`eval` refused by a policy throws `Error`.** The engine's eval stub (`ScriptEngine.cs`) throws a
+  plain `Error`, on every page, where Chromium throws `EvalError`; `new Function` gets the realm's
+  `SyntaxError`. Its comment says what retiring the stub would take.
+- **A flaky worker test.** `WorkerPortTests.AWorkersOwnChannelCopiesItsMessages` failed once, as
+  `waiting`, in a full Release-VM run on a busy machine, and passed in two more full runs and five on
+  its own: the worker's answer can miss the load window when the machine is loaded.
+
 ## What "finished" would mean
 
 A single `HtmlControl` type a host constructs, gives a surface to draw on and an

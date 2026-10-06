@@ -33,7 +33,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <b>Nothing took an option out or put empty ones in.</b> <c>select.remove(1)</c> was the
 /// <c>ChildNode.remove()</c> every element has, so it removed the select itself; <c>options.remove()</c>
 /// did not exist, nor did <c>select.length</c>; and <c>options.length = 0</c> made an own property of the
-/// collection that read 0 from then on, the options all still there. As Chromium has them (measured): an index is a WebIDL <c>long</c>, nothing happens out of range, and a
+/// collection that read 0 from then on, the options all still there. As Chromium has them (measured): an index is a
+/// WebIDL <c>long</c>, nothing happens out of range, and a
 /// length past 100,000 is refused.
 /// </para>
 /// <para>

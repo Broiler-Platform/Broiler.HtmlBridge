@@ -147,7 +147,8 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// What Chromium does before it removes a focused element, or anything holding one (measured): focus goes to the document there and then, and the element gets a trusted
+    /// What Chromium does before it removes a focused element, or anything holding one (measured): focus goes to the
+    /// document there and then, and the element gets a trusted
     /// <c>blur</c> and <c>focusout</c> with no <c>relatedTarget</c> while it is still connected and still
     /// where it was -- a <c>blur</c> handler finds its parent, and <c>document.activeElement</c> already the
     /// body. Raised by Broiler.DOM before the nodes go (<see cref="DomDocument.Removing"/>).

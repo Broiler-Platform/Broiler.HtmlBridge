@@ -15,7 +15,8 @@ namespace Broiler.HtmlBridge.Tests;
 /// in-flow content, and nothing behind an open modal dialog was out of reach.
 /// </para>
 /// <para>
-/// Every expected order here is Chromium's, measured on the same arrangement. The layout is declared (<see cref="DeclaredBoxLayoutView"/>); the painting order is the
+/// Every expected order here is Chromium's, measured on the same arrangement. The layout is declared (<see
+/// cref="DeclaredBoxLayoutView"/>); the painting order is the
 /// bridge's own.
 /// </para>
 /// </remarks>

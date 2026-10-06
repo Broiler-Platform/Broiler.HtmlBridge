@@ -4,7 +4,8 @@ using Broiler.HtmlBridge.Dom;
 namespace Broiler.HtmlBridge.Tests;
 
 /// <summary>
-/// The stacks the open popovers form, as HTML has them now and Chromium does (measured): a hint popover closes only the hint popovers it is not in, an auto popover both stacks, and
+/// The stacks the open popovers form, as HTML has them now and Chromium does (measured): a hint popover closes only
+/// the hint popovers it is not in, an auto popover both stacks, and
 /// one shown in a hint popover is a hint one; no popover shows while another of its document shows or hides;
 /// a dialog's <c>show()</c> closes the popovers it is not in; and a press or Escape acts on its own document.
 /// </summary>
