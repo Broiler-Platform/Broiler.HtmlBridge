@@ -1,4 +1,5 @@
 using System.Net;
+using Broiler.Dom.Html;
 using Broiler.HtmlBridge;
 
 namespace Broiler.HtmlBridge.Tests;
@@ -255,6 +256,37 @@ public partial class ParsedMarkupCanonicalTests
         // page's own serialization already applied (DomBridge/Serialization.cs, SelectsStandardsMode). The
         // hand scanner only looked for the `<!doctype` prefix.
         Assert.StartsWith("<html", StampedFrameDocument("<!DOCTYPE foo><p id='x'>a</p>"));
+    }
+
+    [Theory]
+    [InlineData("<!DOCTYPE HTML PUBLIC '-//W3C//DTD HTML 4.0 Transitional//EN'><p id='x'>a</p>")]
+    [InlineData("<!DOCTYPE html SYSTEM 'http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd'><p id='x'>a</p>")]
+    [InlineData("<!DOCTYPE HTML PUBLIC '-//W3C//DTD HTML 4.01 Transitional//EN'><p id='x'>a</p>")]
+    public void AScriptedFramesLegacyDoctypeKeepsQuirksMode(string frameMarkup)
+    {
+        // CHANGED. These DOCTYPEs are named html and select quirks mode by their identifiers
+        // (§13.2.6.4.1): a legacy public identifier, the one listed system identifier, and HTML 4.01
+        // Transitional without a system identifier. The renderer reads the unscripted frame in quirks mode,
+        // so the stamp has to carry it. The stamp tested the name alone and gave each <!DOCTYPE html>,
+        // which put the frame in standards mode as soon as a script touched it.
+        var stamped = StampedFrameDocument(frameMarkup);
+
+        Assert.StartsWith("<html", stamped);
+        Assert.True(HtmlDocumentQueries.IsQuirksMode(stamped));
+    }
+
+    [Theory]
+    [InlineData("<!DOCTYPE HTML PUBLIC '-//W3C//DTD HTML 4.01 Transitional//EN' 'http://www.w3.org/TR/html4/loose.dtd'><p id='x'>a</p>")]
+    [InlineData("<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Transitional//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd'><p id='x'>a</p>")]
+    public void AScriptedFramesLimitedQuirksDoctypeKeepsStandardsMode(string frameMarkup)
+    {
+        // Limited-quirks mode is not quirks mode, and the renderer models full quirks only, so these
+        // render as standards unscripted and are stamped as standards. Reading the identifiers must not
+        // move them. Unchanged by the fix.
+        var stamped = StampedFrameDocument(frameMarkup);
+
+        Assert.StartsWith("<!DOCTYPE html>", stamped);
+        Assert.False(HtmlDocumentQueries.IsQuirksMode(stamped));
     }
 
     [Theory]

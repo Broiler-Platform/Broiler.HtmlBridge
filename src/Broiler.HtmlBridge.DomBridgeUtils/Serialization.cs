@@ -238,31 +238,4 @@ public static partial class DomBridgeUtils
     /// <summary>The URL the frame's document was loaded from, so relative references inside it
     /// resolve against the resource rather than against the containing page.</summary>
     internal const string FrameDocumentBaseAttr = "data-broiler-frame-base";
-
-    /// <summary>Whether the resource's markup selects standards mode: its first token that is neither a
-    /// comment nor ASCII whitespace is a DOCTYPE named <c>html</c>.</summary>
-    /// <remarks>
-    /// <para>
-    /// That is HTML §13.2.6.4.1's "initial" insertion mode: comments and ASCII whitespace may come
-    /// before the DOCTYPE, any other token ends the mode in quirks, and a DOCTYPE after that is a parse
-    /// error that changes nothing. A DOCTYPE with any other name is quirks too, which is the rule the
-    /// page's own serialization applies (<c>DomBridge.SelectsStandardsMode</c>). A <c>&lt;?xml?&gt;</c>
-    /// prolog or a <c>&lt;!x&gt;</c> is a bogus comment and does not end the mode.
-    /// </para>
-    /// <para>
-    /// It reads tokens rather than the parsed tree because the tree cannot answer it: the shared parser
-    /// inserts the first DOCTYPE token before <c>&lt;html&gt;</c> wherever the token appears, and has no
-    /// document-mode output. The tokenizer is lazy, so this stops at the first token that decides.
-    /// </para>
-    /// <para>
-    /// A frame nobody scripted is not stamped, and its mode comes from the renderer's
-    /// <c>HtmlDocumentQueries.IsQuirksMode</c> instead. That applies the same initial-insertion-mode rule,
-    /// so the two agree about content before the DOCTYPE, and it also reads the legacy identifiers, which
-    /// this does not. So they disagree about a legacy DOCTYPE still named <c>html</c>, such as
-    /// <c>&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"&gt;</c>: that frame renders in
-    /// quirks mode until a script touches it, and in standards mode after.
-    /// </para>
-    /// </remarks>
-    internal static bool HasHtmlDoctype(string html) =>
-        HtmlDocumentQueries.HasHtmlDoctype(html);
 }
