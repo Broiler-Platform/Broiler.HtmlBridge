@@ -192,6 +192,10 @@ public sealed partial class DomBridge
         // ReferenceError ("Object reference not set to an instance of an object"), and a page with
         // nothing on it.
         realm.DeleteProperty(global, "setImmediate");
+
+        // onload, onmessage and the rest answer for the window whose script is running
+        // (DomBridge/WindowEventHandlers.cs).
+        RegisterWindowEventHandlers(window);
     }
 
     /// <summary>
@@ -491,10 +495,17 @@ public sealed partial class DomBridge
         // the idiomatic unqualified `addEventListener("load", …)` registers a window listener,
         // as it does in a browser — through MirrorWindowMembersOntoGlobal, which shares the
         // identical function objects so the two spellings address one listener store. It holds
-        // handles, and the host contract converts nothing.
-        realm.DefineMethod(window, "addEventListener", 3, (in c) => Dom.Features.WindowEventTargetBinding.AddEventListener(this, in c));
-        realm.DefineMethod(window, "removeEventListener", 3, (in c) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c));
-        realm.DefineMethod(window, "dispatchEvent", 1, (in c) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c));
+        // handles, and the host contract converts nothing. Called bare in a frame's script, they are
+        // the frame window's (TryGetFrameWindowForGlobalCall).
+        realm.DefineMethod(window, "addEventListener", 3, (in c) => TryGetFrameWindowForGlobalCall(in c, out var frame)
+            ? CallOnFrameWindow(frame, "addEventListener", in c)
+            : Dom.Features.WindowEventTargetBinding.AddEventListener(this, in c));
+        realm.DefineMethod(window, "removeEventListener", 3, (in c) => TryGetFrameWindowForGlobalCall(in c, out var frame)
+            ? CallOnFrameWindow(frame, "removeEventListener", in c)
+            : Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c));
+        realm.DefineMethod(window, "dispatchEvent", 1, (in c) => TryGetFrameWindowForGlobalCall(in c, out var frame)
+            ? CallOnFrameWindow(frame, "dispatchEvent", in c)
+            : Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c));
 
         _messaging.RegisterWindowMessaging(window);
 

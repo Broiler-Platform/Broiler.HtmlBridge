@@ -259,6 +259,8 @@ public sealed partial class DomBridge
 
         _formState.SetDirtyValue(field, value);
         _fieldEditedByUser = true;
+        MarkUserEdited(field);
+        PlaceCaretAfterUserEdit(field);
         FireEditEvent(field, "input", inputType, data);
     }
 
@@ -268,6 +270,8 @@ public sealed partial class DomBridge
     /// </summary>
     internal void NoteScriptSetFieldValue(DomElement field, string value)
     {
+        // Not the user's edit: minlength and maxlength judge it no more (DomBridge/ElementStates.cs).
+        ForgetUserEdit(field);
         if (!ReferenceEquals(_changeField, field))
             return;
 
@@ -290,6 +294,8 @@ public sealed partial class DomBridge
             return;
 
         _changeBaseline = value;
+        // The user committed the change: the field is :user-valid or :user-invalid from now on.
+        MarkUserInteracted(field);
         var realm = Realm;
         DispatchKeyboardEvent(field, NewTrustedEvent(realm, "change", bubbles: true, cancelable: false, composed: false, JsValue.Missing));
     }
@@ -345,22 +351,6 @@ public sealed partial class DomBridge
             SubmitForm(form, element);
         else if (IsResetButton(element) && FormOwnerOf(element) is { } resetForm)
             ResetFormByUser(resetForm);
-    }
-
-    /// <summary>
-    /// Submits <paramref name="form"/> as the user asked: its <c>submit</c> event, and unless that is
-    /// cancelled the submission, which the host builds and follows (<see cref="NavigationKind.FormSubmit"/>).
-    /// </summary>
-    private void SubmitForm(DomElement form, DomElement? submitter)
-    {
-        if (!form.IsConnected)
-            return;
-
-        var realm = Realm;
-        var evt = NewTrustedEvent(realm, "submit", bubbles: true, cancelable: true, composed: false, InterfacePrototype(realm, "SubmitEvent"));
-        Define(realm, evt, "submitter", submitter is null ? JsValue.Null : WrapNode(submitter));
-        if (DispatchKeyboardEvent(form, evt) && form.IsConnected)
-            ((Dom.Features.IFormSubmitHost)this).RequestFormSubmission(form);
     }
 
     /// <summary>A reset button's activation: the form's <c>reset</c> event, and unless that is cancelled its controls reset.</summary>
@@ -446,6 +436,7 @@ public sealed partial class DomBridge
         }
 
         MoveFocus(GetOwningDocument(next), next, FocusOrigin.Keyboard);
+        SelectOnKeyboardFocus(next);
     }
 
     /// <summary>
@@ -538,7 +529,7 @@ public sealed partial class DomBridge
         Define(realm, evt, "which", JsValue.Number(keyCode));
         Define(realm, evt, "location", JsValue.Number(input.Location));
         Define(realm, evt, "repeat", JsValue.Boolean(input.Repeat));
-        Define(realm, evt, "isComposing", JsValue.False);
+        Define(realm, evt, "isComposing", JsValue.Boolean(_composition is not null));
         Define(realm, evt, "ctrlKey", JsValue.Boolean(input.CtrlKey));
         Define(realm, evt, "shiftKey", JsValue.Boolean(input.ShiftKey));
         Define(realm, evt, "altKey", JsValue.Boolean(input.AltKey));
@@ -563,13 +554,15 @@ public sealed partial class DomBridge
     private bool FireEditEvent(DomElement field, string type, string inputType, string? data)
     {
         var realm = Realm;
-        var evt = NewTrustedEvent(realm, type, bubbles: true, cancelable: type == "beforeinput", composed: true, InterfacePrototype(realm, "InputEvent"));
+        // A composition's beforeinput cannot be cancelled (Input Events §4.1); every other one can.
+        var cancelable = type == "beforeinput" && inputType != "insertCompositionText";
+        var evt = NewTrustedEvent(realm, type, bubbles: true, cancelable, composed: true, InterfacePrototype(realm, "InputEvent"));
         var window = WindowOfDocument(GetOwningDocument(field));
         Define(realm, evt, "view", window.IsObject ? window : JsValue.Null);
         Define(realm, evt, "detail", JsValue.Number(0));
         Define(realm, evt, "inputType", JsValue.String(inputType));
         Define(realm, evt, "data", data is null ? JsValue.Null : JsValue.String(data));
-        Define(realm, evt, "isComposing", JsValue.False);
+        Define(realm, evt, "isComposing", JsValue.Boolean(_composition is not null));
         Define(realm, evt, "dataTransfer", JsValue.Null);
         return DispatchKeyboardEvent(field, evt);
     }
@@ -625,12 +618,16 @@ public sealed partial class DomBridge
             : TryGetAttribute(field, "type", out var declared) && declared.Trim().Length > 0 ? declared.Trim().ToLowerInvariant() : "text";
         var (left, top, width, height) = WithLayoutGeometryCache(() => GetBoundingClientRectForDomElement(field, isRoot: false));
         var inFrame = GetFrameForContentDocument(GetOwningDocument(field)) is not null;
+        var selection = SelectionOf(field);
         return new FocusedTextField(type, _formState.GetEffectiveValue(field), inFrame)
         {
             X = left,
             Y = top,
             Width = width,
             Height = height,
+            SelectionStart = selection.Start,
+            SelectionEnd = selection.End,
+            SelectionBackward = selection.Direction == "backward",
         };
     }
 

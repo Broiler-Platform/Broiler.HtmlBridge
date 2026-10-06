@@ -45,6 +45,9 @@ internal interface ISubDocumentHost : IJsObjectHost, INameValidationHost, INodeI
     /// </summary>
     JsValue MainWindow { get; }
 
+    /// <summary><c>document.readyState</c> of a frame's document: <c>loading</c> while its scripts run, then <c>interactive</c> and <c>complete</c>.</summary>
+    string ReadyStateOf(DomNode docRoot);
+
     /// <summary>Points a wrapper at a named interface's prototype. A sub-document object is built
     /// rather than minted as a node wrapper, so it does not pass the choke point that links every
     /// other one.</summary>

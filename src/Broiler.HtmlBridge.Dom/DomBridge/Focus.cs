@@ -172,6 +172,10 @@ public sealed partial class DomBridge
             _focusedElement = null;
             _focusVisible = false;
             NoteUserActionStateChange();
+            // A composition does not outlive its field's focus: what it holds is committed.
+            if (_composition is { } composition && ReferenceEquals(composition.Field, oldElement))
+                EndComposition(composition, composition.Text);
+
             FireChangeIfEdited(oldElement);
             if (generation != _focusGeneration)
                 return;

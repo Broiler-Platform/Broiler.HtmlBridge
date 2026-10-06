@@ -226,11 +226,21 @@ public sealed partial class DomBridge
         // HTMLElement's, hidden and tabIndex, are on its prototype.
         _formControl.Install(handle, element);
 
-        // checkValidity() — form validation; FormBinding owns the validity check.
-        Realm.DefineMethod(handle, "checkValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element)));
+        // checkValidity() and reportValidity() -- constraint validation on the live value, with the
+        // invalid events a browser fires (DomBridge/FormSubmission.cs).
+        Realm.DefineMethod(handle, "checkValidity", (in _) => JsValue.Boolean(CheckValidity(element)));
+        Realm.DefineMethod(handle, "reportValidity", (in _) => JsValue.Boolean(ReportValidity(element)));
 
-        // reportValidity() — form validation
-        Realm.DefineMethod(handle, "reportValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element)));
+        // selectionStart, setSelectionRange(), select(), setRangeText() -- an input's or a text area's
+        // selection (DomBridge/FieldSelection.cs).
+        if (element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase) ||
+            element.TagName.Equals("textarea", StringComparison.OrdinalIgnoreCase))
+            InstallFieldSelection(handle, element);
+
+        // requestSubmit(submitter) -- a form's submission as a submit button would ask for it: validated,
+        // with its submit event (DomBridge/FormSubmission.cs).
+        if (element.TagName.Equals("form", StringComparison.OrdinalIgnoreCase))
+            Realm.DefineMethod(handle, "requestSubmit", 0, (in call) => RequestSubmit(element, in call));
 
         // submit() — for form elements (the co-located FormSubmitBinding feature module, reached
         // through IFormSubmitHost; DomBridge/Hosts.Elements.cs). The method is minted by the realm —

@@ -345,6 +345,9 @@ public sealed partial class DomBridge
         _formState.ResetForm(form);
         InvalidateStyleScope(form);
 
+        // Nothing of the form has been interacted with or edited any more (DomBridge/ElementStates.cs).
+        ForgetUserValidity(form);
+
         // A form-associated custom element has no dirty flags to clear — its value is whatever it
         // chose to submit — so a reset reaches it as a reaction instead, which is where a component
         // restores its own default.

@@ -69,6 +69,9 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
         realm.DefineAccessor(doc, "activeElement", (in _) => _host.ActiveElementOf(docRoot), null);
         realm.DefineMethod(doc, "hasFocus", 0, (in _) => JsValue.Boolean(_host.HasFocusIn(docRoot)));
 
+        // readyState: loading while the frame's scripts run, then interactive and complete (DomBridge/FrameLoad.cs).
+        realm.DefineAccessor(doc, "readyState", (in _) => JsValue.String(_host.ReadyStateOf(docRoot)), null);
+
         // title (dynamic getter from <title> element in <head>)
         realm.DefineAccessor(doc, "title",
             (in _) => GetTitle(docRoot),

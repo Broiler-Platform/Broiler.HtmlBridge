@@ -23,4 +23,10 @@ internal interface ILocationHost : IRealmHost
     void DispatchWindowEvent(JsValue evt);
 
     void RequestNavigation(NavigationRequest request);
+
+    /// <summary>
+    /// The document moved to <paramref name="fragment"/> (<c>#section</c>, or empty), before its
+    /// <c>hashchange</c>: the element it names is the document's <c>:target</c> now.
+    /// </summary>
+    void NavigatedToFragment(string fragment);
 }

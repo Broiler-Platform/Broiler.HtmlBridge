@@ -1,0 +1,190 @@
+using System.Collections.Generic;
+using System.Linq;
+using Broiler.Dom;
+using Broiler.JSeal;
+using static Broiler.HtmlBridge.DomBridgeUtils;
+
+namespace Broiler.HtmlBridge;
+
+/// <summary>
+/// A form's submission as HTML's "submit" algorithm runs it for every way but <c>form.submit()</c> --
+/// a submit button the user clicked or pressed, Enter in a field, <c>form.requestSubmit()</c> -- and
+/// the constraint validation it starts.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Nothing validated a form.</b> A form with an empty required field was submitted like any other,
+/// and <c>checkValidity()</c> asked only whether a <c>required</c> control's <c>value</c> attribute was
+/// empty, whatever the user had typed. The answer is now the one <c>:invalid</c> gives, judged on the
+/// live value by the selector matcher, so a page's own check, its styles and its submission agree.
+/// </para>
+/// <para>
+/// <b>As Chromium submits, measured.</b> A submission marks every control of the form as interacted with
+/// (<c>:user-valid</c>, <c>:user-invalid</c>), whether or not the form is valid. Unless the form has
+/// <c>novalidate</c> or the submitter <c>formnovalidate</c>, each invalid control in tree order gets a
+/// cancelable <c>invalid</c>, and the first whose <c>invalid</c> was not cancelled is focused; the form
+/// is not submitted. Otherwise the form gets a trusted <c>submit</c> naming its submitter, and unless
+/// that is cancelled the host is asked to submit it. <c>form.submit()</c> skips all of it.
+/// </para>
+/// </remarks>
+public sealed partial class DomBridge
+{
+    /// <summary>
+    /// Submits <paramref name="form"/> as <paramref name="submitter"/>, or the form itself, asks: marks
+    /// its controls interacted with, validates it, fires its <c>submit</c>, and unless any of that stops
+    /// it asks the host to submit it (<see cref="NavigationKind.FormSubmit"/>). Answers whether it did.
+    /// </summary>
+    private bool SubmitForm(DomElement form, DomElement? submitter)
+    {
+        if (!form.IsConnected)
+            return false;
+
+        MarkFormInteracted(form);
+
+        var validates = !HasAttr(form, "novalidate") && !(submitter is not null && HasAttr(submitter, "formnovalidate"));
+        if (validates && !ValidateInteractively(form))
+            return false;
+
+        var realm = Realm;
+        var evt = NewTrustedEvent(realm, "submit", bubbles: true, cancelable: true, composed: false, InterfacePrototype(realm, "SubmitEvent"));
+        Define(realm, evt, "submitter", submitter is null ? JsValue.Null : WrapNode(submitter));
+        if (!DispatchKeyboardEvent(form, evt) || !form.IsConnected)
+            return false;
+
+        ((Dom.Features.IFormSubmitHost)this).RequestFormSubmission(form);
+        return true;
+    }
+
+    /// <summary>
+    /// HTML's "interactively validate the constraints": <c>invalid</c> at each invalid control of
+    /// <paramref name="form"/>, and the first whose <c>invalid</c> nobody cancelled focused. Answers
+    /// whether the form is valid.
+    /// </summary>
+    private bool ValidateInteractively(DomElement form)
+    {
+        var invalid = InvalidControlsOf(form);
+        if (invalid.Count == 0)
+            return true;
+
+        DomElement? report = null;
+        foreach (var control in invalid)
+        {
+            if (FireInvalid(control) && report is null)
+                report = control;
+        }
+
+        if (report is { IsConnected: true })
+            MoveFocus(GetOwningDocument(report), report, FocusOrigin.Script);
+
+        return false;
+    }
+
+    /// <summary>
+    /// <c>checkValidity()</c>: for a control, whether it satisfies its constraints, with an
+    /// <c>invalid</c> at it when it does not; for a form, whether all of its controls do, with an
+    /// <c>invalid</c> at each that does not.
+    /// </summary>
+    private bool CheckValidity(DomElement element)
+    {
+        var invalid = IsFormElement(element) ? InvalidControlsOf(element) : IsInvalidControl(element) ? [element] : [];
+        foreach (var control in invalid)
+            FireInvalid(control);
+        return invalid.Count == 0;
+    }
+
+    /// <summary><c>reportValidity()</c>: <see cref="CheckValidity"/>, then focus on the first invalid control whose <c>invalid</c> nobody cancelled.</summary>
+    private bool ReportValidity(DomElement element)
+    {
+        var invalid = IsFormElement(element) ? InvalidControlsOf(element) : IsInvalidControl(element) ? [element] : [];
+        DomElement? report = null;
+        foreach (var control in invalid)
+        {
+            if (FireInvalid(control) && report is null)
+                report = control;
+        }
+
+        if (report is { IsConnected: true })
+            MoveFocus(GetOwningDocument(report), report, FocusOrigin.Script);
+        return invalid.Count == 0;
+    }
+
+    /// <summary>
+    /// <c>form.requestSubmit(submitter)</c>: a submission as <paramref name="submitter"/> -- one of the
+    /// form's submit buttons -- or the form asks, validated, with its <c>submit</c>.
+    /// </summary>
+    private JsValue RequestSubmit(DomElement form, in JsCall call)
+    {
+        DomElement? submitter = null;
+        if (call.Length > 0 && !call[0].IsNullish)
+        {
+            if (!_jsObjects.TryGetNode(call[0], out var node) || node is not DomElement button || !IsSubmitButton(button))
+                throw Realm.Error(JsErrorKind.TypeError, "Failed to execute 'requestSubmit' on 'HTMLFormElement': The specified element is not a submit button.");
+            if (!ReferenceEquals(FormOwnerOf(button), form))
+                throw Realm.DomError("NotFoundError", "Failed to execute 'requestSubmit' on 'HTMLFormElement': The specified element is not owned by this form element.");
+            submitter = button;
+        }
+
+        SubmitForm(form, submitter);
+        return JsValue.Undefined;
+    }
+
+    /// <summary>
+    /// The submit or reset button a user's click at <paramref name="target"/> activates -- the target,
+    /// the button it is inside, or the button the label it is inside labels -- or null.
+    /// </summary>
+    private DomElement? FormButtonClickedAt(DomElement target)
+    {
+        for (var current = target; current != null; current = ParentEl(current))
+        {
+            if (current.TagName.Equals("a", StringComparison.OrdinalIgnoreCase) && HasAttr(current, "href"))
+                return null;
+            if (current.TagName.ToLowerInvariant() is "button" or "input")
+                return IsSubmitButton(current) || IsResetButton(current) ? current : null;
+            if (current.TagName.Equals("label", StringComparison.OrdinalIgnoreCase))
+                return LabeledControlOf(current) is { } control && (IsSubmitButton(control) || IsResetButton(control)) ? control : null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The activation of a submit or reset button a user's click reached: the form submitted or reset.
+    /// Answers whether there was one.
+    /// </summary>
+    private bool ActivateFormButton(DomElement button)
+    {
+        if (IsDisabledFormControl(button) || FormOwnerOf(button) is not { } form)
+            return false;
+
+        if (IsSubmitButton(button))
+            SubmitForm(form, button);
+        else
+            ResetFormByUser(form);
+        return true;
+    }
+
+    /// <summary>The controls of <paramref name="form"/> that do not satisfy their constraints, in tree order.</summary>
+    private List<DomElement> InvalidControlsOf(DomElement form) =>
+        CollectFormControlsIncludingCustom(form).Where(IsInvalidControl).ToList();
+
+    /// <summary>
+    /// Whether <paramref name="element"/> is a candidate for constraint validation that does not satisfy
+    /// its constraints: what <c>:invalid</c> says of it, judged on its live value, or for a
+    /// form-associated custom element what it set through its internals.
+    /// </summary>
+    private bool IsInvalidControl(DomElement element) =>
+        CustomElements.IsFormAssociated(element)
+            ? !ElementInternals.IsValid(element)
+            : element.TagName.ToLowerInvariant() is "input" or "select" or "textarea" && _selectorMatcher.Matches(element, ":invalid");
+
+    /// <summary>A cancelable <c>invalid</c> at <paramref name="control"/>; answers whether nobody cancelled it.</summary>
+    private bool FireInvalid(DomElement control)
+    {
+        var realm = Realm;
+        return DispatchKeyboardEvent(control,
+            NewTrustedEvent(realm, "invalid", bubbles: false, cancelable: true, composed: false, InterfacePrototype(realm, "Event")));
+    }
+
+    private static bool IsFormElement(DomElement element) =>
+        element.TagName.Equals("form", StringComparison.OrdinalIgnoreCase);
+}

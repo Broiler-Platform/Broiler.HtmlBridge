@@ -38,6 +38,9 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
     void Dom.Features.ILocationHost.RequestNavigation(NavigationRequest request)
         => RequestNavigation(request);
 
+    void Dom.Features.ILocationHost.NavigatedToFragment(string fragment)
+        => SetTargetFromFragment(_document, fragment);
+
     /// <summary>
     /// Records where the page asked to go. Nothing is loaded here — see
     /// <see cref="NavigationRequest"/> for why the decision belongs to the host.
@@ -838,6 +841,9 @@ public sealed partial class DomBridge : IEventDispatchHost
             ? frame
             : null;
     }
+
+    JsValue IEventDispatchHost.WindowEventHandler(JsValue window, string attribute) =>
+        window == WindowHandle ? PageWindowHandler(attribute) : Realm.GetProperty(window, attribute);
 }
 
 // Explicit IEventTargetHost implementation for the EventTargetBinding feature module: the bridge

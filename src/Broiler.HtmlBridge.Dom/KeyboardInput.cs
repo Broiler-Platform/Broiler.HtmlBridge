@@ -88,6 +88,52 @@ public readonly record struct FieldEdit(string InputType, string? Value)
     public string? Data { get; init; }
 }
 
+/// <summary>What an input method did: began composing, changed what it composes, committed it, or gave it up.</summary>
+public enum CompositionInputKind
+{
+    /// <summary>A composition began.</summary>
+    Start,
+
+    /// <summary>The text being composed changed (<see cref="CompositionInput.Text"/>).</summary>
+    Update,
+
+    /// <summary>The composition was committed: <see cref="CompositionInput.Text"/> is what the field keeps.</summary>
+    Commit,
+
+    /// <summary>The composition was given up, and the field keeps what it had before it began.</summary>
+    Cancel,
+}
+
+/// <summary>
+/// A step of an input method's composition in the focused text field (<c>InteractiveSession.DispatchComposition</c>):
+/// the page hears <c>compositionstart</c>, <c>compositionupdate</c> and <c>compositionend</c>, and the field
+/// holds the text being composed, through <c>beforeinput</c> and <c>input</c> of type
+/// <c>insertCompositionText</c>. The composition replaces the field's selection as it was when it began.
+/// </summary>
+/// <param name="Kind">What the input method did.</param>
+/// <param name="Text">The text being composed, or committed; empty for a start or a cancel.</param>
+public readonly record struct CompositionInput(CompositionInputKind Kind, string Text)
+{
+    /// <summary>
+    /// The field's value once the host's own editor took the text in, when it has one over the field;
+    /// <see langword="null"/> to have the page put the text in place of what the composition replaces.
+    /// </summary>
+    public string? EditedValue { get; init; }
+}
+
+/// <summary>
+/// The selection the host's editor holds in the focused text field after the user changed it -- a drag,
+/// Shift and an arrow, a click that placed the caret -- delivered so the page's <c>selectionStart</c> and
+/// <c>selectionEnd</c> follow it (<c>InteractiveSession.DispatchSelection</c>).
+/// </summary>
+/// <param name="Start">Where the selection starts, in UTF-16 code units of the field's value.</param>
+/// <param name="End">Where it ends; equal to <paramref name="Start"/> for a caret.</param>
+public readonly record struct FieldSelectionInput(int Start, int End)
+{
+    /// <summary>Whether the user selected backwards, so the caret is at <see cref="Start"/>: <c>selectionDirection</c> is <c>backward</c>.</summary>
+    public bool Backward { get; init; }
+}
+
 /// <summary>What a <see cref="KeyboardInput"/>, a <see cref="TextInput"/> or a <see cref="FieldEdit"/> did on the page.</summary>
 /// <param name="Delivered">Whether the page's scripts were given it at all.</param>
 /// <param name="DefaultPrevented">
@@ -124,4 +170,13 @@ public sealed record FocusedTextField(string InputType, string Value, bool InFra
 
     /// <summary>How tall it is.</summary>
     public double Height { get; init; }
+
+    /// <summary>Where the page's selection in the field starts: what a script set, or the user selected.</summary>
+    public int SelectionStart { get; init; }
+
+    /// <summary>Where it ends.</summary>
+    public int SelectionEnd { get; init; }
+
+    /// <summary>Whether it is backwards: the caret at <see cref="SelectionStart"/>.</summary>
+    public bool SelectionBackward { get; init; }
 }

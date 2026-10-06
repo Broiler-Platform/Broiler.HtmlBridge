@@ -6,12 +6,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The HTMLFormElement feature binding —
 /// <c>form.elements</c> (an <c>HTMLFormControlsCollection</c> with numeric and named access),
-/// <c>form.length</c>, <c>form.action</c>, and the constraint-validation checks
-/// (<c>checkValidity</c>/<c>reportValidity</c>) that the bridge exposes on form-associated elements.
-/// Control collection and validity are pure tree/attribute work over the assembly's static
-/// <c>DomBridge</c> helpers (<c>CollectFormControls</c>, <c>HasAttr</c>/<c>TryGetAttribute</c>,
-/// <c>ChildElements</c>/<c>IsText</c>); the only bridge coupling — the realm, and wrapping a control
-/// as a JS object — goes through the narrow <see cref="IFormHost"/> contract.
+/// <c>form.length</c> and <c>form.action</c>. Control collection is pure tree/attribute work over the
+/// assembly's static <c>DomBridge</c> helpers (<c>CollectFormControls</c>, <c>HasAttr</c>/<c>TryGetAttribute</c>);
+/// the only bridge coupling — the realm, and wrapping a control as a JS object — goes through the
+/// narrow <see cref="IFormHost"/> contract. Constraint validation (<c>checkValidity</c>,
+/// <c>reportValidity</c>, <c>requestSubmit</c>) is the bridge's, in <c>DomBridge/FormSubmission.cs</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -105,49 +104,6 @@ internal sealed class FormBinding(IFormHost host)
         // toString, which is the coercion a page observes in the attribute afterwards.
         DomBridgeUtils.SetAttr(element, "action", call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
         return JsValue.Undefined;
-    }
-
-    // -------- Constraint validation --------
-
-    /// <summary>Whether <paramref name="element"/> satisfies constraint validation — a form is valid
-    /// when all its controls are; a required input/textarea/select needs a non-empty value.</summary>
-    internal bool IsElementValid(DomElement element)
-    {
-        if (string.Equals(element.TagName, "form", StringComparison.OrdinalIgnoreCase))
-            return AreFormChildrenValid(element);
-
-        // A form-associated custom element's validity is whatever it set through its internals; no
-        // amount of reading its markup can answer for it.
-        if (!_host.IsCustomElementValid(element))
-            return false;
-
-        // Individual element validation
-        if (!DomBridgeUtils.HasAttr(element, "required"))
-            return true;
-
-        var tag = element.TagName;
-        if (string.Equals(tag, "input", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(tag, "textarea", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(tag, "select", StringComparison.OrdinalIgnoreCase))
-        {
-            DomBridgeUtils.TryGetAttribute(element, "value", out var val);
-            return !string.IsNullOrEmpty(val);
-        }
-
-        return true;
-    }
-
-    private bool AreFormChildrenValid(DomElement form)
-    {
-        foreach (var child in DomBridgeUtils.ChildElements(form))
-        {
-            if (!DomBridgeUtils.IsText(child) && !IsElementValid(child))
-                return false;
-            if (!AreFormChildrenValid(child))
-                return false;
-        }
-
-        return true;
     }
 
     /// <summary>

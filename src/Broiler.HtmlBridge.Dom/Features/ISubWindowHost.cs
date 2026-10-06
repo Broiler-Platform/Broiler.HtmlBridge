@@ -66,6 +66,12 @@ internal interface ISubWindowHost : IRealmHost, ISubDocumentFactoryHost
     /// <summary>The window of the frame whose script is running, or <see langword="null"/> for the top document's.</summary>
     JsValue? CurrentSubWindow { get; }
 
+    /// <summary>The page's window event handler named <paramref name="attribute"/> (<c>onmessage</c>), or <c>null</c>.</summary>
+    JsValue PageWindowHandler(string attribute);
+
+    /// <summary>Sets the page's window event handler named <paramref name="attribute"/>; anything but an object clears it.</summary>
+    void SetPageWindowHandler(string attribute, JsValue value);
+
     /// <summary>The severed content document of a nested-browsing-context container, or <c>null</c>.</summary>
     DomDocument? GetContentDocument(DomElement container);
 

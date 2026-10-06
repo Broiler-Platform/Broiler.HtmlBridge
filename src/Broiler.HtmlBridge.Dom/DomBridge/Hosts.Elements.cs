@@ -28,9 +28,6 @@ public sealed partial class DomBridge : IFormHost
 
     IReadOnlyList<DomElement> IFormHost.CollectFormControls(DomElement form) =>
         CollectFormControlsIncludingCustom(form);
-
-    bool IFormHost.IsCustomElementValid(DomElement element) =>
-        !CustomElements.IsFormAssociated(element) || ElementInternals.IsValid(element);
 }
 
 // Explicit IFormAssociationHost implementation for the FormAssociationBinding feature module: the
@@ -102,8 +99,14 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
 
     void Dom.Features.IFormControlHost.SetFormControlValue(DomElement element, string value)
     {
+        var previous = _formState.GetEffectiveValue(element);
         _formState.SetDirtyValue(element, value);
         NoteScriptSetFieldValue(element, value);
+        if (!string.Equals(previous, value, StringComparison.Ordinal))
+        {
+            FieldVersion++;
+            MoveCaretToEndAfterScriptValue(element, previous, value);
+        }
     }
 
     string Dom.Features.IFormControlHost.GetSelectValue(DomElement element) => _select.GetValue(element);

@@ -243,6 +243,11 @@ and only within five seconds of the user pressing something in it (`DomBridge.Ha
 as Chromium allows; otherwise the request is logged and dropped. A message the page posts to a frame
 names that view as its `source`, so `e.source === parent` holds in the frame.
 
+**A link into the page the host followed.** The host scrolls to the fragment; the page hears it as
+its own fragment navigation (`InteractiveSession.NavigateToFragment`): `location.hash` moves,
+`hashchange` fires, and the element the fragment names is the document's `:target`. A host that
+scrolled without telling the page left its `location.hash` at the one it loaded with.
+
 **`location = url`.** The global's `location` is an accessor now, answering the Location of the
 document whose script is running and forwarding an assignment to its `href`, as a frame's window's
 and document's do (`[PutForwards=href]`). Assigning it replaced the Location with a string before,

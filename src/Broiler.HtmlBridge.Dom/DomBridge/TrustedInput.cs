@@ -156,10 +156,15 @@ public sealed partial class DomBridge
             return new PointerInputResult(true, false);
 
         allowed = FireClick(clickHit, input, input.ClickCount, labelDepth: 0);
+
+        // A submit or reset button's activation is the page's: the form is validated, gets its submit
+        // event and is submitted, or is reset (DomBridge/FormSubmission.cs). The host performs none of
+        // its own for the click.
+        var handled = allowed && FormButtonClickedAt(clickTarget) is { } button && ActivateFormButton(button);
         if (input.ClickCount == 2)
             FireInputEvent(clickHit, input, "dblclick", 2);
 
-        return new PointerInputResult(true, !allowed);
+        return new PointerInputResult(true, !allowed) { Handled = handled };
     }
 
     /// <summary>The element under the pointer, and how the coordinates of its events are measured.</summary>
@@ -405,6 +410,8 @@ public sealed partial class DomBridge
 
         if (changed)
         {
+            // The user changed the control: it is :user-valid or :user-invalid from now on (DomBridge/ElementStates.cs).
+            MarkUserInteracted(activation);
             FireInputNotification(hit with { Target = activation }, "input", composed: true);
             FireInputNotification(hit with { Target = activation }, "change", composed: false);
         }

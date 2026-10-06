@@ -586,7 +586,9 @@ public sealed partial class DomBridge
             if (scriptSetSelected is not null && name.Equals("selected", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (_stampUserActionInMarkup && name.Equals(CssUserActionStateMarkup.AttributeName, StringComparison.OrdinalIgnoreCase))
+            if (_stampUserActionInMarkup &&
+                (name.Equals(CssUserActionStateMarkup.AttributeName, StringComparison.OrdinalIgnoreCase) ||
+                 name.Equals(CssElementStateMarkup.AttributeName, StringComparison.OrdinalIgnoreCase)))
                 continue;
 
             yield return new(
@@ -603,6 +605,8 @@ public sealed partial class DomBridge
         // elements as the page's projection does (StampUserActionState); a script's outerHTML does not.
         if (_stampUserActionInMarkup && CssUserActionStateMarkup.Format(UserActionStateOf(element)) is { } userAction)
             yield return new(CssUserActionStateMarkup.AttributeName, userAction);
+        if (_stampUserActionInMarkup && CssElementStateMarkup.Format(ElementStateOf(element)) is { } elementState)
+            yield return new(CssElementStateMarkup.AttributeName, elementState);
 
         if (scriptSetSelected is true)
             yield return new("selected", string.Empty);

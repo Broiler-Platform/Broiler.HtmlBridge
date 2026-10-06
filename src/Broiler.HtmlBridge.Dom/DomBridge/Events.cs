@@ -128,9 +128,20 @@ public sealed partial class DomBridge
             // reference the handle carries. The receiver and the window root come out of the same
             // provider wrapping the same engine object, so their kinds cannot differ, and this asks
             // exactly what comparing the two underlying references asks.
+            // The global object -- the receiver of a bare `addEventListener(…)`, or none at all in strict
+            // code -- answers for the window whose script is running: a frame's script listens to its own
+            // window, whose method keeps the frame's listeners, and not to the page's.
+            if (call.This == WindowHandle || call.This.IsNullish)
+            {
+                return TryGetFrameWindowForGlobalCall(in call, out var frameWindow)
+                    ? CallOnFrameWindow(frameWindow, name, in call)
+                    : onWindow(in call);
+            }
+
             if (call.This.IsObject)
             {
-                if (call.This == WindowHandle)
+                // A frame's `parent` or `top` is the page's window, whichever script calls through it.
+                if (_subWindows.IsTopView(call.This))
                     return onWindow(in call);
 
                 if (_jsObjects.TryGetNode(call.This, out var node))
@@ -152,8 +163,7 @@ public sealed partial class DomBridge
     // duplicate-registration check and match-by-listener+capture removal) live in the
     // EventListenerBinding feature module (Broiler.HtmlBridge.Dom.Features).
 
-    // Constraint validation (checkValidity/reportValidity) moved to the FormBinding feature
-    // module (Broiler.HtmlBridge.Dom.Features).
+    // Constraint validation (checkValidity/reportValidity) is DomBridge/FormSubmission.cs's.
 
     /// <summary>
     /// Compiles all <c>on*</c> HTML attributes (e.g. <c>onclick="code"</c>) on the given

@@ -104,6 +104,12 @@ public sealed partial class DomBridge
         public void DispatchWindowEvent(JsValue evt) => bridge.DispatchFrameWindowEvent(container, evt);
 
         public void RequestNavigation(NavigationRequest request) => bridge.RequestFrameNavigation(container, request);
+
+        public void NavigatedToFragment(string fragment)
+        {
+            if (bridge.GetContentDocument(container) is { } document)
+                bridge.SetTargetFromFragment(document, fragment);
+        }
     }
 
     /// <summary>A frame's <c>hashchange</c>, at the frame's window, as the frame's script.</summary>

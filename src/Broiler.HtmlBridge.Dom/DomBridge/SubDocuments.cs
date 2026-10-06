@@ -111,6 +111,9 @@ public sealed partial class DomBridge
             RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.FireSubDocumentOnload",
                 $"onload handler error for <{tag}>: {ex.Message}", ex);
         }
+
+        // The frame's window gets its pageshow after the element's load, as in Chromium.
+        FireFramePageShow(element);
     }
 
     /// <summary>
@@ -291,6 +294,12 @@ public sealed partial class DomBridge
         if (frameContext is not null || !_frameDocumentContexts.ContainsKey(docRoot))
             SetFrameDocumentContext(docRoot, frameContext ?? CreateFrameDocumentContext(containerElement, documentUrl: null));
 
+        // Its scripts run with the document loading, and it loads once they have (DomBridge/FrameLoad.cs);
+        // the element its URL names is its :target from the start (DomBridge/ElementStates.cs).
+        BeginFrameDocumentLoad(docRoot);
+        if (_browsingContexts.TryGetLocation(containerElement, out var frameLocation))
+            SetTargetFromFragment(docRoot, FragmentOf(frameLocation));
+
         var doc = _subDocuments.Build(docRoot);
         // The frame document's own document.cookie, for its own context: a cross-site frame reads
         // the cookies a third-party context may, and a sandboxed one gets a SecurityError. Looked up
@@ -299,6 +308,8 @@ public sealed partial class DomBridge
         _browsingContexts.SetSubDocument(containerElement, doc);
         if (executeHtmlScripts && !string.IsNullOrEmpty(htmlToExecute))
             ExecuteSubDocumentScripts(containerElement, htmlToExecute, deliveredPolicy);
+
+        CompleteFrameDocumentLoad(containerElement, docRoot);
         return doc;
     }
 

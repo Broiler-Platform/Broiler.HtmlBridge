@@ -221,6 +221,8 @@ public sealed partial class DomBridge : ISubDocumentHost
     // (DomBridge.cs) as it stands.
     JsValue ISubDocumentHost.MainWindow => WindowHandle;
 
+    string ISubDocumentHost.ReadyStateOf(DomNode docRoot) => docRoot is DomDocument document ? ReadyStateOf(document) : "complete";
+
     JsValue ISubDocumentHost.ActiveElementOf(DomNode docRoot) =>
         docRoot is DomDocument document && ActiveElementOf(document) is { } active ? WrapNode(active) : JsValue.Null;
 
@@ -407,6 +409,10 @@ public sealed partial class DomBridge : ISubWindowHost
     Dom.Features.ILocationHost ISubWindowHost.FrameLocationHost(DomElement container) => FrameLocationHost(container);
 
     JsValue? ISubWindowHost.CurrentSubWindow => _windowContext.ResolveCurrentSubWindow();
+
+    JsValue ISubWindowHost.PageWindowHandler(string attribute) => PageWindowHandler(attribute);
+
+    void ISubWindowHost.SetPageWindowHandler(string attribute, JsValue value) => SetPageWindowHandler(attribute, value);
 
     DomDocument? ISubWindowHost.GetContentDocument(DomElement container) => GetContentDocument(container);
 

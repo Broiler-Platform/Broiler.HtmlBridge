@@ -72,4 +72,11 @@ public readonly record struct PointerInput(PointerInputKind Kind, double X, doub
 /// so a host performs none of its own default actions for it: no text selection for a press or a drag,
 /// no link followed for a click.
 /// </param>
-public readonly record struct PointerInputResult(bool Delivered, bool DefaultPrevented);
+public readonly record struct PointerInputResult(bool Delivered, bool DefaultPrevented)
+{
+    /// <summary>
+    /// Whether the page acted on the click itself -- a submit button's form was validated and submitted
+    /// or held back, a reset button's form reset -- so the host performs no activation of its own for it.
+    /// </summary>
+    public bool Handled { get; init; }
+}

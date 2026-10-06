@@ -36,7 +36,7 @@
     <PackageReference Include="Broiler.Dom.Html" Version="0.1.0-preview.11" />
     <PackageReference Include="Broiler.JavaScript.Engine" Version="0.1.0-preview.5" />
     <PackageReference Include="Broiler.Layout" Version="0.1.0-preview.13" />
-    <PackageReference Include="Broiler.CSS.Dom" Version="0.1.0-preview.9" />
+    <PackageReference Include="Broiler.CSS.Dom" Version="0.1.0-preview.10" />
     <!-- The profile's network session: the transport every bridge loader sends through (cookies,
          redirects, CORS and tainting), the document request contexts and document.cookie access. -->
     <PackageReference Include="Broiler.Net" Version="0.1.0-preview.2" />

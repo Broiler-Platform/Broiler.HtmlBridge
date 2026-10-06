@@ -229,6 +229,10 @@ internal static class LocationBinding
                 var changed = !string.Equals(url.Fragment, resolved.Fragment, StringComparison.Ordinal);
                 url.MoveToFragment(resolved);
 
+                // Every fragment navigation looks for its target again, changed or not: an element
+                // that has since been given the name is found the second time (HTML §7.4.6.3).
+                host?.NavigatedToFragment(url.Fragment);
+
                 if (changed)
                     FireHashChange(host, from, url.Href);
 

@@ -725,6 +725,8 @@ internal sealed class SubWindowBinding(
             "name" => JsValue.String(_browsingContexts.TopName),
             "postMessage" => _host.TopPostMessage,
             "frameElement" => JsValue.Null,
+            // The page's onload, onmessage, …: the global's answer for the frame's script is the frame's.
+            var handler when DomBridge.IsWindowEventHandlerName(handler) => _host.PageWindowHandler(handler),
             _ => view,
         }, 1);
 
@@ -739,6 +741,9 @@ internal sealed class SubWindowBinding(
                 case "name":
                     _browsingContexts.TopName = call.Realm.ToJsString(call[1]);
                     break;
+                case var handler when DomBridge.IsWindowEventHandlerName(handler):
+                    _host.SetPageWindowHandler(handler, call[1]);
+                    break;
             }
 
             // The others are the window itself, its document and its postMessage, which an
@@ -746,9 +751,11 @@ internal sealed class SubWindowBinding(
             return JsValue.Undefined;
         }, 2);
 
-        var names = new JsValue[TopWindowOwnMembers.Length];
-        for (var i = 0; i < names.Length; i++)
+        var names = new JsValue[TopWindowOwnMembers.Length + DomBridge.WindowEventHandlerNames.Length];
+        for (var i = 0; i < TopWindowOwnMembers.Length; i++)
             names[i] = JsValue.String(TopWindowOwnMembers[i]);
+        for (var i = 0; i < DomBridge.WindowEventHandlerNames.Length; i++)
+            names[TopWindowOwnMembers.Length + i] = JsValue.String(DomBridge.WindowEventHandlerNames[i]);
 
         view = TopWindowView.Build(realm, _host.MainWindow, realm.NewArray(names), lookup, assign);
         _sameOriginTopView = view;

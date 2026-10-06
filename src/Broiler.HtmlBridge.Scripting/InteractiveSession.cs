@@ -157,6 +157,49 @@ public sealed class InteractiveSession : IDisposable
     /// </summary>
     public long FocusVersion => _disposed || _bridge is not DomBridge bridge ? 0 : bridge.FocusVersion;
 
+    /// <summary>
+    /// Delivers the selection the host's editor holds in the focused text field after the user changed
+    /// it: the page's <c>selectionStart</c>, <c>selectionEnd</c> and <c>selectionDirection</c> follow, a
+    /// trusted <c>select</c> fires when it selects something new, and a <c>selectionchange</c> follows.
+    /// </summary>
+    public KeyboardInputResult DispatchSelection(FieldSelectionInput input) =>
+        DispatchToBridge(bridge => bridge.DispatchFieldSelection(input));
+
+    /// <summary>
+    /// Delivers a step of an input method's composition in the focused text field: <c>compositionstart</c>,
+    /// <c>compositionupdate</c> and <c>compositionend</c>, with the field holding the text being composed
+    /// through <c>beforeinput</c> and <c>input</c> of type <c>insertCompositionText</c>. Keys pressed while
+    /// composing have <c>isComposing</c>.
+    /// </summary>
+    public KeyboardInputResult DispatchComposition(CompositionInput input) =>
+        DispatchToBridge(bridge => bridge.DispatchComposition(input));
+
+    /// <summary>
+    /// A number that changes whenever a script changes a text field's value or selection, so that a host
+    /// editing the focused field with an editor of its own reads <see cref="FocusedTextField"/> again and
+    /// follows what the page did to it -- a mask that reformatted the value, a caret put back.
+    /// </summary>
+    public long FieldVersion => _disposed || _bridge is not DomBridge bridge ? 0 : bridge.FieldVersion;
+
+    /// <summary>
+    /// Moves the page to a fragment of itself, as following a link into the page does: the page's
+    /// <c>location</c> moves to <paramref name="url"/>, the element its fragment names becomes the page's
+    /// <c>:target</c>, and <c>hashchange</c> fires when the fragment changed. A host calls it for a link
+    /// into the page the user followed, and for going back or forward between two such places. Answers
+    /// <see langword="false"/>, doing nothing, for a URL that is not the page's own with a fragment.
+    /// </summary>
+    public bool NavigateToFragment(string url)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var moved = bridge.NavigateToFragment(url);
+        _microTasks.Drain();
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return moved;
+    }
+
     private KeyboardInputResult DispatchToBridge(Func<DomBridge, KeyboardInputResult> dispatch)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
