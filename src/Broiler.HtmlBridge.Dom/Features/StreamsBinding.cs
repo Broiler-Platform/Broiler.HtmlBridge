@@ -147,11 +147,11 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
         StreamOverBytes(Encoding.UTF8.GetBytes(text));
 
     /// <summary>
-    /// A <c>ReadableStream</c> over a text body that calls <paramref name="onDisturbed"/> the first
+    /// A <c>ReadableStream</c> over a body's bytes that calls <paramref name="onDisturbed"/> the first
     /// time it is read or cancelled — the Body mixin's <c>bodyUsed</c>, which is what makes
     /// <c>text()</c>, <c>json()</c> and <c>clone()</c> refuse a body something has already consumed.
     /// </summary>
-    internal JsValue StreamOverTextObserved(string text, Action onDisturbed)
+    internal JsValue StreamOverBytesObserved(byte[] bytes, Action onDisturbed)
     {
         if (!_streamOverObservedBytes.IsObject)
             return JsValue.Null;
@@ -173,7 +173,7 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
         return realm.Invoke(
             _streamOverObservedBytes,
             JsValue.Undefined,
-            [realm.NewArrayBuffer(Encoding.UTF8.GetBytes(text)), report]);
+            [realm.NewArrayBuffer(bytes), report]);
     }
 
     /// <summary>Whether a reader holds <paramref name="stream"/>. <see langword="false"/> for

@@ -1,4 +1,6 @@
-﻿using Broiler.HtmlBridge.Core.Diagnostics;
+﻿using System.Text;
+
+using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
@@ -16,9 +18,13 @@ internal sealed partial class FetchBinding
 {
     private JsValue JsRegistrationResponse113Core(ResponseInitParser parseResponseInit, ResponseFactory createResponse, in JsCall call)
     {
-        var body = call.Length > 0 && !call[0].IsNullish ? call.Realm.ToJsString(call[0]) : string.Empty;
+        // Fetch's "extract a body"; its type is the Content-Type unless the init named one (measured:
+        // new Response('x') is text/plain;charset=UTF-8, new Response(bytes) has none).
+        var body = call.Length > 0 && !call[0].IsNullish ? ExtractBody(call.Realm, call[0]) : new BodyWithType([], null);
         var (status, statusText, url, type, redirected, headers) = parseResponseInit(call[1]);
-        return createResponse(body, status, statusText, url, type, redirected, headers);
+        if (body.ContentType is { } contentType && !headers.ContainsKey("Content-Type"))
+            headers["Content-Type"] = contentType;
+        return createResponse(body.Bytes, status, statusText, url, type, redirected, headers);
     }
 
 
@@ -28,7 +34,7 @@ internal sealed partial class FetchBinding
         var (status, statusText, url, type, redirected, headers) = parseResponseInit(call[1]);
         if (!headers.ContainsKey("Content-Type"))
             headers["Content-Type"] = "application/json";
-        return createResponse(jsonBody, status, statusText, url, type, redirected, headers);
+        return createResponse(Encoding.UTF8.GetBytes(jsonBody), status, statusText, url, type, redirected, headers);
     }
 
 
@@ -46,7 +52,7 @@ internal sealed partial class FetchBinding
         {
             ["Location"] = resolvedUrl
         };
-        return createResponse(string.Empty, status, string.Empty, string.Empty, "basic", false, headers);
+        return createResponse([], status, string.Empty, string.Empty, "basic", false, headers);
     }
 
 
@@ -64,7 +70,7 @@ internal sealed partial class FetchBinding
         // "new Request" rules to the merged values, so a Request object and an init object are held
         // to the same ones.
         string? method = null;
-        string? requestBody = null;
+        BodyWithType? requestBody = null;
         string? inputMode = null, inputCredentials = null, inputRedirect = null;
         string? initMode = null, initCredentials = null, initRedirect = null;
         var requestHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -73,7 +79,9 @@ internal sealed partial class FetchBinding
         {
             requestedUrl = tryGetJsPropertyString(input, "url", "href") ?? requestedUrl;
             method = tryGetJsPropertyString(input, "method");
-            requestBody = tryGetJsPropertyString(input, "_bodyInit", "body");
+            // A Request's body is the one it was made with; its headers already carry its type.
+            if (RequestBodyOf(input) is { } stored)
+                requestBody = new BodyWithType(stored.Bytes, null);
             inputMode = tryGetJsPropertyString(input, "mode");
             inputCredentials = tryGetJsPropertyString(input, "credentials");
             inputRedirect = tryGetJsPropertyString(input, "redirect");
@@ -92,7 +100,9 @@ internal sealed partial class FetchBinding
         {
             var opts = call[1];
             method = tryGetJsPropertyString(opts, "method") ?? method;
-            requestBody = tryGetJsPropertyString(opts, "body") ?? requestBody;
+            var initBody = realm.GetProperty(opts, "body");
+            if (!initBody.IsNullish)
+                requestBody = ExtractBody(realm, initBody);
             initMode = tryGetJsPropertyString(opts, "mode");
             initCredentials = tryGetJsPropertyString(opts, "credentials");
             initRedirect = tryGetJsPropertyString(opts, "redirect");
@@ -106,6 +116,10 @@ internal sealed partial class FetchBinding
                     requestHeaders[key] = value;
             }
         }
+
+        // The body's own type when the page set none (Fetch's "new Request" steps).
+        if (requestBody?.ContentType is { } bodyType && !requestHeaders.ContainsKey("Content-Type"))
+            requestHeaders["Content-Type"] = bodyType;
 
         // The outcome is settled before this returns — the send is synchronous — so the page gets a
         // real, already-settled Promise.
@@ -148,7 +162,7 @@ internal sealed partial class FetchBinding
                 _host.FetchBaseUrl,
                 method,
                 requestHeaders,
-                requestBody,
+                requestBody?.Bytes,
                 ModeOf(inputMode, initMode),
                 CredentialsOf(inputCredentials, initCredentials),
                 RedirectOf(inputRedirect, initRedirect));

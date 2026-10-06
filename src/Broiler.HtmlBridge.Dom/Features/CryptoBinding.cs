@@ -4,11 +4,11 @@ using Broiler.JSeal;
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// The Web Crypto <c>crypto</c> object — the <c>getRandomValues</c> and <c>randomUUID</c> subset —
-/// co-located as an HtmlBridge feature module. It fills a caller-supplied typed array
-/// with random bytes and mints v4-style UUIDs, touching no bridge instance state, so — like
-/// <c>ConsoleBinding</c> / <c>ClassListBinding</c> — it is a pure static class with no host
-/// contract.
+/// The Web Crypto <c>crypto</c> object — <c>getRandomValues</c>, <c>randomUUID</c> and, in a secure
+/// context, <c>subtle</c> (<see cref="SubtleCryptoBinding"/>) — co-located as an HtmlBridge feature
+/// module. It fills a caller-supplied typed array with random bytes and mints v4-style UUIDs, touching
+/// no bridge instance state, so — like <c>ConsoleBinding</c> / <c>ClassListBinding</c> — it is a pure
+/// static class with no host contract.
 /// </summary>
 /// <remarks>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): the caller's array is reached
@@ -17,15 +17,24 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </remarks>
 internal static class CryptoBinding
 {
-    /// <summary>Builds a <c>crypto</c> object exposing <c>getRandomValues</c> and
-    /// <c>randomUUID</c>. The same object is shared between <c>window.crypto</c> and the global
+    /// <summary>Builds a <c>crypto</c> object exposing <c>getRandomValues</c>, <c>randomUUID</c> and
+    /// <c>subtle</c>. The same object is shared between <c>window.crypto</c> and the global
     /// <c>crypto</c>.</summary>
-    public static JsValue Build(IJsRealm realm)
+    /// <param name="realm">The realm to build it in.</param>
+    /// <param name="isSecureContext">
+    /// Whether the script reading <c>crypto.subtle</c> runs in a secure context. Chromium has no
+    /// <c>subtle</c> elsewhere; here it reads <see langword="undefined"/> there. Asked at each read,
+    /// because a page and its frames share this one object.
+    /// </param>
+    public static JsValue Build(IJsRealm realm, Func<bool> isSecureContext)
     {
         var crypto = realm.NewObject();
 
         realm.DefineMethod(crypto, "getRandomValues", 1, GetRandomValues);
         realm.DefineMethod(crypto, "randomUUID", 0, RandomUuid);
+
+        var subtle = SubtleCryptoBinding.Build(realm);
+        realm.DefineAccessor(crypto, "subtle", (in _) => isSecureContext() ? subtle : JsValue.Undefined, null);
 
         return crypto;
     }

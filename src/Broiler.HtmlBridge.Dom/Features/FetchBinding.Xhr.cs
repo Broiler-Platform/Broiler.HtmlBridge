@@ -13,6 +13,7 @@ internal sealed partial class FetchBinding
     /// <param name="realm">The realm the constructor is installed into.</param>
     /// <param name="window">The window it is published on.</param>
     /// <param name="nativeFetch">This binding's own <c>fetch</c> function, which every send goes through.</param>
+    /// <param name="decodeText">Decodes a response this binding made as <c>responseText</c> (<see cref="DecodeXhrText"/>).</param>
     /// <remarks>
     /// <para>
     /// The source is this repository's own, not the page's, so it goes through
@@ -35,12 +36,22 @@ internal sealed partial class FetchBinding
     /// fetch response's, which are already Fetch's filtered set — no Set-Cookie — and
     /// <c>responseURL</c> is the final URL.
     /// </para>
+    /// <para>
+    /// <b>The body is fetch's.</b> <c>send(body)</c> hands the page's value to the native fetch as it
+    /// is, so a typed array, a <c>Blob</c>, a <c>FormData</c> or a <c>URLSearchParams</c> is sent as
+    /// fetch sends it (<see cref="ExtractBody"/>); it used to be converted to a string first. What XHR
+    /// adds, measured in Chromium: a document is sent as its markup, <c>text/html;charset=UTF-8</c>;
+    /// for a string, a <c>URLSearchParams</c> or a document, a <c>charset</c> in the page's
+    /// <c>Content-Type</c> becomes <c>UTF-8</c>, the encoding the body is sent in; a <c>GET</c> or
+    /// <c>HEAD</c> sends no body. <c>responseText</c> is decoded by the response's charset (or the
+    /// override MIME type's), where fetch's <c>text()</c> is always UTF-8.
+    /// </para>
     /// </remarks>
-    private static void RegisterXMLHttpRequest(IJsRealm realm, JsValue window, JsValue nativeFetch)
+    private static void RegisterXMLHttpRequest(IJsRealm realm, JsValue window, JsValue nativeFetch, JsValue decodeText)
     {
         var factory = realm.EvaluateHostScript(XMLHttpRequestFactorySource, "polyfill:xmlhttprequest");
         var checkRequestHeader = realm.NewMethod("setRequestHeader", (in call) => CheckXhrRequestHeader(in call), 2);
-        var constructor = realm.Invoke(factory, JsValue.Undefined, [nativeFetch, checkRequestHeader]);
+        var constructor = realm.Invoke(factory, JsValue.Undefined, [nativeFetch, checkRequestHeader, decodeText]);
         realm.DefineValue(window, "XMLHttpRequest", constructor);
         realm.SetProperty(realm.Global, "XMLHttpRequest", constructor);
     }
@@ -69,7 +80,7 @@ internal sealed partial class FetchBinding
     /// <c>XMLHttpRequest</c> constructor.
     /// </summary>
     private const string XMLHttpRequestFactorySource = @"
-            (function (nativeFetch, checkRequestHeader) {
+            (function (nativeFetch, checkRequestHeader, decodeText) {
                 function XMLHttpRequest() {
                     this.readyState = 0;
                     this.status = 0;
@@ -267,6 +278,35 @@ internal sealed partial class FetchBinding
                     }
                     return { loaded: 0, total: 0, lengthComputable: false };
                 };
+                // XHR's send() steps on top of fetch's body extraction: a document goes as its markup,
+                // and a string's, a URLSearchParams' or a document's Content-Type charset is the UTF-8
+                // it is sent in. Answers the body to fetch with and the headers to send.
+                function xhrRequestBody(xhr, body) {
+                    var headers = {};
+                    var contentTypeName = null;
+                    for (var name in xhr._headers) {
+                        headers[name] = xhr._headers[name];
+                        if (name.toLowerCase() === 'content-type') contentTypeName = name;
+                    }
+                    var isDocument = typeof Document === 'function' && body instanceof Document;
+                    if (isDocument) {
+                        var doctype = body.doctype ? '<!DOCTYPE ' + body.doctype.name + '>' : '';
+                        var root = body.documentElement;
+                        var isHtml = !body.contentType || body.contentType === 'text/html';
+                        if (contentTypeName === null) {
+                            contentTypeName = 'Content-Type';
+                            headers[contentTypeName] = isHtml ? 'text/html;charset=UTF-8' : 'application/xml;charset=UTF-8';
+                        }
+                        body = doctype + (root ? root.outerHTML : '');
+                    }
+                    var isText = typeof body === 'string' || isDocument ||
+                        (typeof URLSearchParams === 'function' && body instanceof URLSearchParams);
+                    if (isText && contentTypeName !== null) {
+                        headers[contentTypeName] = ('' + headers[contentTypeName])
+                            .replace(/(;\s*charset\s*=\s*)(""[^""]*""|[^;\s]*)/i, '$1UTF-8');
+                    }
+                    return { body: body, headers: headers };
+                }
                 XMLHttpRequest.prototype.dispatchEvent = xhrDispatchEvent;
                 XMLHttpRequest.prototype._dispatchReadyStateChange = function() {
                     this.dispatchEvent(this._createEvent('readystatechange'));
@@ -372,15 +412,18 @@ internal sealed partial class FetchBinding
                             credentials: self.withCredentials ? 'include' : 'same-origin'
                         };
                         var requestBody;
+                        var requestHeaders = self._headers;
                         if (body !== undefined && body !== null &&
                             self._method !== 'GET' && self._method !== 'HEAD') {
-                            requestBody = '' + body;
+                            var prepared = xhrRequestBody(self, body);
+                            requestBody = prepared.body;
+                            requestHeaders = prepared.headers;
                             opts.body = requestBody;
                         }
                         var hasHeaders = false;
-                        for (var k in self._headers) { hasHeaders = true; break; }
+                        for (var k in requestHeaders) { hasHeaders = true; break; }
                         if (hasHeaders) {
-                            opts.headers = self._headers;
+                            opts.headers = requestHeaders;
                         }
                         if (self.timeout > 0) {
                             self._timeoutTimerId = setTimeout(function() {
@@ -432,7 +475,8 @@ internal sealed partial class FetchBinding
                                 typeof response.text === 'function') {
                                 bodyPromise = response.text();
                             } else {
-                                bodyPromise = response.text();
+                                // By the response's charset, not text()'s UTF-8.
+                                bodyPromise = Promise.resolve(decodeText(response, self._mimeOverride));
                             }
                             bodyPromise.then(function(bodyValue) {
                                 if (self._aborted || self._timedOut) return;

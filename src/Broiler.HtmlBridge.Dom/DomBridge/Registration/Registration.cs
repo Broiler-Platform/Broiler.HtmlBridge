@@ -631,6 +631,10 @@ public sealed partial class DomBridge
         // reason a realm built without GuestEval still runs it.
         Realm.EvaluateHostScript(PolyfillAssets.ContentRendering, "polyfill:content-rendering");
 
+        // A URLSearchParams body is sent as form data; the fetch binding recognises one by the
+        // prototype the polyfill just defined, before a page's script could replace the global.
+        _fetch.AdoptUrlSearchParams(Realm);
+
         // document.cookie — the top document's view of the profile's cookies (or of this bridge's
         // private store without a profile), as the non-HTTP API: see DefineDocumentCookie. Host-driven
         // (not pure JS), so it stays here rather than in the JS asset. Order-independent of the
@@ -643,8 +647,10 @@ public sealed partial class DomBridge
     {
         var realm = Realm;
 
-        // window.crypto — the getRandomValues/randomUUID subset — co-located CryptoBinding module
-        var cryptoObj = Dom.Features.CryptoBinding.Build(realm);
+        // window.crypto — getRandomValues, randomUUID and, for a secure context, subtle — co-located
+        // CryptoBinding module. Secure is the running script's document's, as it is for fetch().
+        var cryptoObj = Dom.Features.CryptoBinding.Build(realm,
+            () => Dom.Features.SecureContexts.IsSecure(CurrentScriptDocumentContext()));
         realm.DefineValue(window, "crypto", cryptoObj);
         realm.SetProperty(realm.Global, "crypto", cryptoObj);
 
