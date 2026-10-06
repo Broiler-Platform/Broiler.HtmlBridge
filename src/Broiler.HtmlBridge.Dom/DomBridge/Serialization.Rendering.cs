@@ -217,12 +217,32 @@ public sealed partial class DomBridge
     }
 
     /// <summary>Records how <paramref name="document"/> looked as parsed from
-    /// <paramref name="html"/>, before any script ran against it.</summary>
+    /// <paramref name="html"/>, before any script ran against it, and the doctype that keeps its
+    /// rendering mode once it is stamped.</summary>
+    /// <remarks>
+    /// <para>
+    /// The mode is the one the renderer gives the resource itself. An unscripted frame is rendered
+    /// straight from its file, and Broiler.HTML's <c>SetHtmlWithStyleSet</c> classifies that markup
+    /// with <see cref="HtmlDocumentQueries.IsQuirksMode"/>. Before it moved there, Layout's copy did,
+    /// with the same answers. A stamp is re-read the same way, and serialization
+    /// emits the document element alone, so standards mode is carried as a bare
+    /// <c>&lt;!DOCTYPE html&gt;</c> and quirks mode as no doctype, as the page's own serialization
+    /// carries it (<see cref="SelectsStandardsMode"/>).
+    /// </para>
+    /// <para>
+    /// This used to ask <c>HtmlDocumentQueries.HasHtmlDoctype</c>, which tests the doctype's name
+    /// alone. <c>&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"&gt;</c> is named
+    /// <c>html</c> and selects quirks mode, so such a frame rendered in quirks mode until a script
+    /// touched it, and was then stamped into standards mode. A limited-quirks doctype (XHTML 1.0
+    /// Transitional, HTML 4.01 Transitional with a system identifier) still stamps standards mode,
+    /// because the renderer models full quirks mode only, and it is what the unscripted frame gets.
+    /// </para>
+    /// </remarks>
     private void RecordSubDocumentSourceMarkup(DomDocument document, string html)
     {
         if (SerializeSubDocumentChildren(document) is { } markup)
             _subDocumentSourceMarkup[document] = markup;
-        _subDocumentDoctype[document] = HasHtmlDoctype(html) ? "<!DOCTYPE html>" : string.Empty;
+        _subDocumentDoctype[document] = HtmlDocumentQueries.IsQuirksMode(html) ? string.Empty : "<!DOCTYPE html>";
     }
 
     /// <summary>
