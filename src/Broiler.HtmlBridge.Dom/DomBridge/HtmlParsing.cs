@@ -49,9 +49,11 @@ public sealed partial class DomBridge
         // thread. Layout (which on the HTML-string path holds no back-reference to
         // the document) reads it while sizing the root/body boxes for the
         // quirks-mode fill-viewport behaviour. Every WPT render runs through this
-        // parse before laying out, so the flag is set for the render that matters.
+        // parse before laying out, so the flag is set for the render that matters. The mode is
+        // the one the parse below gives the document: Broiler.Dom.Html reads it with the same
+        // tokenizer and initial-insertion-mode rule as its tree builder.
         Layout.DocumentModeContext.CurrentQuirksMode =
-            Layout.DocumentModeContext.IsQuirksHtml(html);
+            HtmlDocumentQueries.IsQuirksMode(html);
 
         // The shared WHATWG-aligned tokenizer and tree builder parse into a document of their own. Its
         // <!DOCTYPE> node (name plus PUBLIC/SYSTEM identifiers) is moved across from there, and its <html>
@@ -203,7 +205,7 @@ public sealed partial class DomBridge
         var document = TopDocumentContext;
         // The mode the parse below gives the document, from the same markup: a prefetch is checked
         // against it as the link's own load will be.
-        var quirksMode = Layout.DocumentModeContext.IsQuirksHtml(html);
+        var quirksMode = HtmlDocumentQueries.IsQuirksMode(html);
         _preloadScan = SpeculativePreloadScan.Start(
             html,
             _pageUrl,

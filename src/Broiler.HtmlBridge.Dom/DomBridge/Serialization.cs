@@ -49,7 +49,7 @@ public sealed partial class DomBridge
     /// <para>
     /// This used to be an unconditional <c>true</c>, and that silently destroyed quirks mode for
     /// every consumer of the serialised page. The renderer re-derives the mode from the string it
-    /// is handed (<c>DocumentModeContext.IsQuirksHtml</c>, via
+    /// is handed (<c>HtmlDocumentQueries.IsQuirksMode</c>, via
     /// <c>HtmlContainerInt.SetHtmlWithStyleSet</c>), so a doctype-less document came back out with
     /// a doctype and rendered as standards — no quirk could ever fire on the WPT path, whose whole
     /// `quirks/` directory is doctype-less by construction.
@@ -64,15 +64,16 @@ public sealed partial class DomBridge
     /// kind that came back out in standards mode.
     /// </para>
     /// <para>
-    /// <c>IsQuirksDoctype</c> is the same predicate <c>IsQuirksHtml</c> applies to the raw markup
-    /// on the way in, so the parse and the serialisation cannot disagree about a document. A
+    /// <c>HtmlDocumentQueries.IsQuirksDoctype</c> is the predicate <c>IsQuirksMode</c> applies to
+    /// the raw markup on the way in, so the parse and the serialisation cannot disagree about a
+    /// document. A
     /// limited-quirks doctype (the XHTML 1.0 Transitional the CSS2.1 <c>.xht</c> tests carry) still
     /// serialises as standards, because full quirks is what it does not select.
     /// </para>
     /// </remarks>
     private bool SelectsStandardsMode() =>
         _document.DocumentType is { } doctype
-        && !Layout.DocumentModeContext.IsQuirksDoctype(doctype.Name, doctype.PublicId, doctype.SystemId);
+        && !HtmlDocumentQueries.IsQuirksDoctype(doctype.Name, doctype.PublicId, doctype.SystemId);
 
     /// <summary>
     /// The document's current element child — what the canvas actually renders — or
