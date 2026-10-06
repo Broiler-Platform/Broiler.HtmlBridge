@@ -220,19 +220,23 @@ public sealed class InteractiveSession : IDisposable
     public (double X, double Y) ViewportScroll => _disposed || _bridge is not DomBridge bridge ? (0, 0) : bridge.ViewportScroll;
 
     /// <summary>
-    /// The user scrolled the host's view of the page: the page's viewport moves with it, clamped to what the
-    /// page can scroll, and the page hears <c>scroll</c> as a task the host's next steps run -- nothing of the
-    /// page's runs in the call, so a host may make it as it draws. Read <see cref="ViewportScroll"/> back for
-    /// where it went.
+    /// The user scrolled the host's view of the page: the page's viewport goes where the host shows it, and
+    /// the page hears <c>scroll</c> as a task the host's next steps run -- nothing of the page's runs in the
+    /// call, so a host may make it as it draws. Read <see cref="ViewportScroll"/> back for where it went.
     /// </summary>
+    /// <remarks>
+    /// The host keeps its view inside what the page can scroll: the position is not clamped again, which
+    /// took a layout of the page. A page that listens for neither <c>scroll</c> nor <c>scrollend</c> is given
+    /// no task, and so no step: <see cref="HasWorkDueInLoadWindow"/> stays as it was.
+    /// </remarks>
     public void ScrollViewportTo(double x, double y)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_bridge is not DomBridge bridge)
             return;
 
-        bridge.ScrollViewportTo(x, y);
-        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        if (bridge.ScrollViewportTo(x, y))
+            _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
     }
 
     /// <summary>

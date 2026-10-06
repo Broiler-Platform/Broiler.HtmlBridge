@@ -235,25 +235,75 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// The user scrolled the host's view of the page to (<paramref name="x"/>, <paramref name="y"/>): the
-    /// page's viewport follows, clamped to what it can scroll, and the page hears <c>scroll</c> and
-    /// <c>scrollend</c> in the next frame -- one pair however many moves come before it, as a browser fires
-    /// a user's scroll. Nothing of the page's runs in the call, which a host makes as it draws.
+    /// page's viewport goes where the host shows it, and the page hears <c>scroll</c> and <c>scrollend</c>
+    /// in the next frame -- one pair however many moves come before it, as a browser fires a user's scroll.
+    /// Nothing of the page's runs in the call, which a host makes as it draws. Answers whether the page
+    /// will hear it: nothing is queued for a page that does not listen.
     /// </summary>
-    internal void ScrollViewportTo(double x, double y)
+    /// <remarks>
+    /// <para>
+    /// <b>The host's position is taken as it is.</b> The host lays the page out to show it and keeps its
+    /// view inside what the page can scroll; the page's own <c>overflow</c> on the root still decides
+    /// whether its viewport scrolls at all. The position used to be clamped here again, and the clamp read
+    /// the page's scroll extents: a layout of the whole document whenever anything had changed since the
+    /// last one, which a serialization always has. On a large page (html5test.com) that was seconds a
+    /// wheel notch, on the thread the host draws on, to arrive where the host already was.
+    /// </para>
+    /// <para>
+    /// <b>A scroll nobody listens to is no event.</b> Its frame was a step of the page, and a step ends
+    /// in a serialization of the whole document -- on the same page, another second a notch, for events
+    /// nothing heard.
+    /// </para>
+    /// </remarks>
+    internal bool ScrollViewportTo(double x, double y)
     {
         if (_realm is null || DocumentElement is not { } root)
-            return;
+            return false;
 
         CancelSmoothScroll(root);
-        var (left, top) = ResolveElementScrollOffsets(root, x, y, relative: false, clamp: true);
+        var left = CanProgrammaticallyScroll(root, vertical: false) ? x : 0;
+        var top = CanProgrammaticallyScroll(root, vertical: true) ? y : 0;
         if (AreClose(left, GetElementScrollOffset(root, vertical: false)) && AreClose(top, GetElementScrollOffset(root, vertical: true)))
-            return;
+            return false;
 
         ScrollStateFor(root).Left.Set(left);
         ScrollStateFor(root).Top.Set(top);
+        if (!ViewportScrollIsHeard(root))
+            return false;
+
         PendScrollEvent(_pendingScrollTargets, root);
         PendScrollEvent(_pendingScrollEndTargets, root);
+        return true;
     }
+
+    // What a scroll of the viewport fires in its frame (RunScrollSteps).
+    private static readonly string[] ViewportScrollEventTypes = ["scroll", "scrollend"];
+
+    /// <summary>
+    /// Whether anything hears a scroll of the viewport: a <c>scroll</c> or <c>scrollend</c> listener or
+    /// <c>on…</c> handler on the window, the document or <paramref name="root"/>, the targets
+    /// <see cref="RunScrollSteps"/> reaches. All the document's listeners count, though only its capture
+    /// listeners run: answering yes for nothing costs a step, answering no for a listener loses its event.
+    /// </summary>
+    private bool ViewportScrollIsHeard(DomElement root)
+    {
+        foreach (var type in ViewportScrollEventTypes)
+        {
+            if (_eventTargets.TryGetWindowListeners(type, out var listeners) && listeners.Count > 0 ||
+                PageWindowHandler("on" + type).IsObject ||
+                HasListenerOrHandler(_document, type) ||
+                HasListenerOrHandler(root, type))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool HasListenerOrHandler(DomNode node, string type) =>
+        GetEventListeners(node).TryGetValue(type, out var listeners) && listeners.Count > 0 ||
+        GetInlineEventHandlers(node).TryGetValue(type, out var handler) && handler.IsFunction;
 
     // The elements whose scroll position changed, and those whose scrolling ended, since the last frame, each
     // once and in the order it first did: HTML's "pending scroll event targets" and CSSOM View's scrollend
