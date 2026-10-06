@@ -385,6 +385,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         _document.Mutated += OnStyleSheetSourceMutation;
         // A popover removed, or its attribute changed, and a select's options moved (DomBridge/ElementStateMutations.cs).
         _document.Mutated += OnElementStateMutation;
+        // A focused element about to leave the document is blurred first (DomBridge/Focus.cs).
+        _document.Removing += OnRemoving;
         DocumentElement = CreateBridgeElement("html");
         // The canonical DomDocument is the document root — the JS `document` object maps to it and
         // <html>/doctype are its direct children (no #document wrapper element).
@@ -482,6 +484,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         // Its sheets resolve through the same computed-style memo as the page's.
         document.Mutated += OnStyleSheetSourceMutation;
         document.Mutated += OnElementStateMutation;
+        document.Removing += OnRemoving;
         // Custom element reactions are dispatched off each document's mutation stream, and adoption
         // publishes on the document a node moves *to* — so a document that can receive one has to be
         // listened to as well as the page's own.

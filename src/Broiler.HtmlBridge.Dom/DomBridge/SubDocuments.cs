@@ -196,6 +196,9 @@ public sealed partial class DomBridge
         // it did -- never instead of one.
         ContentSecurityPolicy? deliveredPolicy = null;
 
+        // A javascript: URL's document has neither: it is bound by every policy of the document it replaced.
+        ContentSecurityPolicySet? inheritedPolicies = null;
+
         // The frame document's request context (Network.cs): from the container document's, the URL
         // the document actually came from, and the container's sandbox attribute. Recorded against the
         // new document before its scripts run, so they, and the frames it embeds, are attributed to it.
@@ -210,11 +213,13 @@ public sealed partial class DomBridge
             if (navigated && FrameNavigationDocument(containerElement) is { } replacement)
             {
                 // A javascript: URL's string (DomBridge/JavaScriptUrl.cs): a document at the URL the frame
-                // shows, of the origin it had. Its policy is what its scheme would give its own load -- the
-                // page's for a local one -- rather than a clone of the replaced document's; the script that
-                // made it ran in that document, so this widens nothing the frame could not already do.
+                // shows, of the origin it had, bound by the policies of the document it replaced -- HTML
+                // clones that document's policy container (Chromium, measured).
+                // It used to get what its scheme would give its own load: the page's for a local one, and
+                // none for a network one, which let a frame's javascript: URL shed the policy its document
+                // had been delivered.
                 var shown = IsHttpUrl(navigatedUrl);
-                deliveredPolicy = shown ? null : Csp;
+                inheritedPolicies = FrameNavigationPolicies(containerElement) ?? new ContentSecurityPolicySet(Csp);
                 _browsingContexts.SetLocation(containerElement, navigatedUrl);
                 _browsingContexts.SetBaseUrl(containerElement, shown ? navigatedUrl : GetInheritedSubDocumentBaseUrl(containerElement));
                 docRoot = BuildSubDocumentFromHtml(replacement, containerElement);
@@ -324,7 +329,7 @@ public sealed partial class DomBridge
         DefineDocumentCookie(doc, () => _frameDocumentContexts.TryGetValue(docRoot, out var context) ? context : null);
         _browsingContexts.SetSubDocument(containerElement, doc);
         if (executeHtmlScripts && !string.IsNullOrEmpty(htmlToExecute))
-            ExecuteSubDocumentScripts(containerElement, htmlToExecute, deliveredPolicy);
+            ExecuteSubDocumentScripts(containerElement, htmlToExecute, deliveredPolicy, inheritedPolicies);
 
         CompleteFrameDocumentLoad(containerElement, docRoot);
         return doc;
@@ -368,10 +373,15 @@ public sealed partial class DomBridge
     /// header carried. It is enforced ALONGSIDE any policy the frame's markup declares, so a
     /// permissive <c>&lt;meta&gt;</c> inside a <c>srcdoc</c> cannot widen what the page allowed.
     /// </param>
+    /// <param name="inheritedPolicies">
+    /// For a <c>javascript:</c> URL's document, the policies of the document it replaced, which it is bound
+    /// by in place of a delivered one, besides any its markup declares.
+    /// </param>
     private void ExecuteSubDocumentScripts(
         DomElement containerElement,
         string html,
-        ContentSecurityPolicy? deliveredPolicy = null)
+        ContentSecurityPolicy? deliveredPolicy = null,
+        ContentSecurityPolicySet? inheritedPolicies = null)
     {
         if (_realm is null || string.IsNullOrWhiteSpace(html))
             return;
@@ -388,13 +398,18 @@ public sealed partial class DomBridge
         // The frame's scripts are fetched as the frame document's, through the profile transport when
         // the bridge has one.
         var frameContext = FrameDocumentContext(containerElement);
-        var extraction = ScriptExtractionService.ExtractAll(
-            html, GetSubDocumentBaseUrl(containerElement), deliveredPolicy, ScriptFetchFor(frameContext));
+        var extraction = inheritedPolicies is { } inherited
+            ? ScriptExtractionService.ExtractAll(html, GetSubDocumentBaseUrl(containerElement), inherited, ScriptFetchFor(frameContext))
+            : ScriptExtractionService.ExtractAll(html, GetSubDocumentBaseUrl(containerElement), deliveredPolicy, ScriptFetchFor(frameContext));
 
         // The same policy set ExtractAll checked the frame's scripts against, kept for the modules the
         // frame asks for once they run: its module roots' imports and its classic scripts' import().
         if (GetContentDocument(containerElement) is { } frameDocument)
-            SetFrameScriptPolicies(frameDocument, new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(html)));
+        {
+            SetFrameScriptPolicies(frameDocument, inheritedPolicies is { } kept
+                ? ContentSecurityPolicySet.Inheriting(kept, ContentSecurityPolicy.FromHtml(html))
+                : new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(html)));
+        }
         if (extraction.Scripts.Count == 0 &&
             extraction.AsyncScripts.Count == 0 &&
             extraction.DeferredScripts.Count == 0 &&

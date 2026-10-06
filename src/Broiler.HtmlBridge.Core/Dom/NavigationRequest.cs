@@ -101,8 +101,34 @@ public sealed record FormDataEdit(FormDataEditKind Kind, string Name, string Val
 /// a redirect, a long one is a notice meant to be read, and only the host knows whether it can
 /// honour either.
 /// </param>
+/// <summary>What a form submission sends: <paramref name="Url"/>, and for a <c>post</c> its <paramref name="Body"/> of <paramref name="BodyContentType"/>.</summary>
+public sealed record FormSubmissionRequest(string Url, byte[]? Body = null, string? BodyContentType = null);
+
 public sealed record NavigationRequest(string Url, NavigationKind Kind, TimeSpan Delay = default)
 {
+    /// <summary>
+    /// For a <see cref="Document"/> a <c>javascript:</c> URL answered: the Content-Security-Policy of the
+    /// document it replaces, which the new one is bound by besides any its markup declares. HTML gives
+    /// that document a clone of the replaced one's policy container; Chromium, measured, refuses in it what
+    /// the replaced page's <c>&lt;meta&gt;</c> policy refused. A host loads the document with this as the
+    /// policy it was delivered.
+    /// </summary>
+    public Scripting.ContentSecurityPolicy? InheritedPolicy { get; init; }
+
+    /// <summary>
+    /// For the page's own <see cref="NavigationKind.FormSubmit"/>: the request the submission makes, encoded from
+    /// the page's form data set -- what its file inputs hold, what its selects have selected, its checkboxes'
+    /// checkedness, and what its <c>formdata</c> listeners did -- a <c>get</c>'s URL with the entries in its query,
+    /// or a <c>post</c>'s action with them as its body. A host sends it as it is.
+    /// </summary>
+    /// <remarks>
+    /// A host that built the data set again from the page's markup and its own record of the user's choices sent a
+    /// file input's files read from disk where the user had picked them, and a select's option as the user had
+    /// chosen it, whatever the page had done to either since: a script that cleared the input or changed the
+    /// select changed nothing that was sent. <see cref="FormIndex"/> and the rest still say which form it was.
+    /// </remarks>
+    public FormSubmissionRequest? Submission { get; init; }
+
     /// <summary>
     /// For <see cref="NavigationKind.FormSubmit"/>, which of the document's forms to submit,
     /// counted in document order. <c>-1</c> for every other kind.

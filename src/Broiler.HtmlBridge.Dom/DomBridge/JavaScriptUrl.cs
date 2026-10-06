@@ -106,16 +106,30 @@ public sealed partial class DomBridge
     /// Replaces the document a <c>javascript:</c> URL ran in with <paramref name="html"/>, what its script
     /// answered: the page's through the host, a frame's here; at the URL each shows, as Chromium does (measured).
     /// </summary>
+    /// <remarks>
+    /// The new document is bound by the policies of the one it replaces -- HTML clones that document's policy
+    /// container, and Chromium (measured) refuses in it what the replaced page's
+    /// <c>&lt;meta&gt;</c> policy refused. It used to get what its scheme gives a load: nothing for the page's,
+    /// the embedder's for a local frame, and nothing for a frame showing a network URL.
+    /// </remarks>
     private void ReplaceDocumentWith(DomElement? frame, string html)
     {
         if (frame is null)
         {
-            RequestNavigation(new NavigationRequest(CurrentPageUrl, NavigationKind.Replace) { Document = html, Initiator = TopDocumentContext });
+            RequestNavigation(new NavigationRequest(CurrentPageUrl, NavigationKind.Replace)
+            {
+                Document = html,
+                Initiator = TopDocumentContext,
+                InheritedPolicy = Csp,
+            });
             return;
         }
 
         var url = _browsingContexts.TryGetLocation(frame, out var location) ? location : "about:blank";
-        RequestFrameNavigation(frame, new NavigationRequest(url, NavigationKind.Replace), html: html);
+        var policies = GetContentDocument(frame) is { } replaced && _frameScriptPolicies.TryGetValue(replaced, out var recorded)
+            ? recorded
+            : new Scripting.ContentSecurityPolicySet(Csp);
+        RequestFrameNavigation(frame, new NavigationRequest(url, NavigationKind.Replace), html: html, policies: policies);
     }
 
     private static string ScriptOf(string url)

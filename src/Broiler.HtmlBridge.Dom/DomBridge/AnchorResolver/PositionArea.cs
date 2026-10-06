@@ -430,6 +430,7 @@ public sealed partial class DomBridge
     private bool IsMvpNativeAnchorBox(
         DomElement element, string positionAnchor, Dictionary<string, string> cssProps)
     {
+
         // An intervening scroll container (the anchor's scroll container is this box's
         // containing block) is IN the MVP subset. The bridge's ApplyScrollSimulation
         // pre-pass hands the scroll container's offset to the engine (data-broiler-scroll-*)

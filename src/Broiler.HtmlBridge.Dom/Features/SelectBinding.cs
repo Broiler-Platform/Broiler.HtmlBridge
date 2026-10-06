@@ -7,8 +7,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <summary>
 /// The HTMLSelectElement / HTMLOptionElement feature binding — <c>select.options</c>,
 /// <c>selectedOptions</c>, <c>selectedIndex</c>, <c>type</c>, <c>multiple</c>, <c>add</c>, <c>remove</c>,
-/// <c>length</c>, <c>item</c>, <c>namedItem</c> and <c>size</c>, the options' own <c>add</c>, <c>remove</c>,
-/// <c>length</c> and <c>selectedIndex</c>, and <c>option.selected</c>, <c>index</c>, <c>defaultSelected</c> and
+/// <c>length</c>, <c>item</c>, <c>namedItem</c>, <c>size</c> and <c>select[i]</c>, the options' <c>add</c>,
+/// <c>remove</c>, <c>length</c>, <c>selectedIndex</c> and <c>options[i]</c>, and <c>option.selected</c>, <c>index</c>, <c>defaultSelected</c> and
 /// <c>text</c> -- with HTML's selectedness: each option is selected or not, a select-one keeps one of them,
 /// a multiple select any number. The option-collection and selectedness algorithms live here; the
 /// per-option state they keep is reached through the narrow <see cref="ISelectHost"/> contract.
@@ -35,6 +35,13 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// did not exist, nor did <c>select.length</c>; and <c>options.length = 0</c> made an own property of the
 /// collection that read 0 from then on, the options all still there. As Chromium has them (measured): an index is a WebIDL <c>long</c>, nothing happens out of range, and a
 /// length past 100,000 is refused.
+/// </para>
+/// <para>
+/// <b>Nor could an option be put at an index.</b> <c>options[i] = option</c>, the oldest way a page fills a
+/// select, made an ordinary property of the collection and changed nothing; <c>select[i]</c> did not read,
+/// and <c>select.options</c> was an <c>HTMLCollection</c>. Now the options are an
+/// <c>HTMLOptionsCollection</c>, whose members are on its prototype, and both it and the select take an
+/// indexed write as Chromium does (<see cref="SetOptionAt"/>; measured).
 /// </para>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>): every member is minted by the
@@ -151,36 +158,144 @@ internal sealed class SelectBinding(ISelectHost host)
     }
 
     /// <summary>
-    /// <c>select.options</c>: one live <c>HTMLOptionsCollection</c> per select -- its options, with
-    /// <c>add()</c> and <c>selectedIndex</c> of its own -- so <c>select.options === select.options</c>.
+    /// <c>select.options</c>: one live <c>HTMLOptionsCollection</c> per select -- its options, which its
+    /// interface's members act on -- so <c>select.options === select.options</c>.
     /// </summary>
     private JsValue OptionsCollection(DomElement select) =>
-        _host.LiveCollection(select, "options", () => OptionsOf(select).Select(_host.WrapNode).ToList(), collection =>
-        {
-            var realm = _host.Realm;
-            realm.DefineMethod(collection, "add", 2, (in call) => Add(select, in call));
-            realm.DefineMethod(collection, "remove", 1, (in call) =>
+        _host.LiveCollection(select, "options", () => OptionsOf(select).Select(_host.WrapNode).ToList(),
+            options: new DomCollectionBinding.OptionsCollectionOperations
             {
-                if (call.Length == 0)
-                    throw call.Realm.Error(JsErrorKind.TypeError,
-                        "Failed to execute 'remove' on 'HTMLOptionsCollection': 1 argument required, but only 0 present.");
+                GetLength = (in _) => JsValue.Number(OptionsOf(select).Count),
+                SetLength = (in call) =>
+                {
+                    SetLength(select, call.Realm, call.Length > 0 ? call[0] : JsValue.Undefined);
+                    return JsValue.Undefined;
+                },
+                GetSelectedIndex = (in _) => JsValue.Number(GetSelectedIndex(select)),
+                SetSelectedIndex = (in call) => SetSelectedIndexCallback(select, in call),
+                Add = (in call) => Add(select, in call),
+                Remove = (in call) =>
+                {
+                    if (call.Length == 0)
+                        throw call.Realm.Error(JsErrorKind.TypeError,
+                            "Failed to execute 'remove' on 'HTMLOptionsCollection': 1 argument required, but only 0 present.");
 
-                RemoveOptionAt(select, ToWebIdlLong(call.Realm, call[0]));
-                return JsValue.Undefined;
+                    RemoveOptionAt(select, ToWebIdlLong(call.Realm, call[0]));
+                    return JsValue.Undefined;
+                },
+                SetIndex = (index, value) => SetOptionAt(select, index, value, "HTMLOptionsCollection"),
             });
-            realm.DefineAccessor(collection, "selectedIndex",
-                (in _) => JsValue.Number(GetSelectedIndex(select)),
-                (in call) => SetSelectedIndexCallback(select, in call));
-        },
-        // options.length = n: the collection answers length itself, so the assignment comes here.
-        (name, value) =>
-        {
-            if (name != "length")
-                return false;
 
-            SetLength(select, _host.Realm, value);
+    /// <summary>
+    /// The indexed setter <c>HTMLOptionsCollection</c> and <c>HTMLSelectElement</c> share (HTML §2.6.3), as
+    /// Chromium runs it (measured): <c>null</c> -- or
+    /// <c>undefined</c>, which converts to it -- takes out the option at <paramref name="index"/>, if there is
+    /// one; an option is appended when the index is the end, after empty options up to it when it is past
+    /// the end, and otherwise replaces the option there; anything else is a <c>TypeError</c>, in sloppy code
+    /// as in strict. Past 100,000 nothing happens, as for the length setter.
+    /// </summary>
+    /// <remarks>
+    /// Chromium replaces by taking the old option out and inserting the new one into the select itself,
+    /// before the option that followed the old one; when that one is in an <c>optgroup</c>, the insertion
+    /// fails, with the old option already gone. So does this.
+    /// </remarks>
+    internal bool SetOptionAt(DomElement select, uint index, JsValue value, string interfaceName)
+    {
+        var realm = _host.Realm;
+        if (value.IsNullish)
+        {
+            if (index <= int.MaxValue)
+                RemoveOptionAt(select, (int)index);
             return true;
-        });
+        }
+
+        var option = value.IsObject ? _host.FindElement(value) : null;
+        if (option is null || !IsHtmlOption(option))
+        {
+            throw realm.Error(JsErrorKind.TypeError,
+                $"Failed to set an indexed property [{index}] on '{interfaceName}': parameter 2 is not of type 'HTMLOptionElement'.");
+        }
+
+        var options = OptionsOf(select);
+        if (index >= (uint)options.Count)
+        {
+            if (index >= MaxOptionsLength)
+                return true;
+
+            if (index > (uint)options.Count)
+                SetLength(select, realm, JsValue.Number(index));
+            select.AppendChild(option);
+        }
+        else
+        {
+            var before = index + 1 < (uint)options.Count ? options[(int)index + 1] : null;
+            options[(int)index].Remove();
+            if (before is not null && !ReferenceEquals(before.ParentNode, select))
+            {
+                throw realm.DomError("NotFoundError",
+                    $"Failed to set an indexed property [{index}] on '{interfaceName}': The node before which the new node is to be inserted is not a child of this node.");
+            }
+
+            select.InsertBefore(option, before);
+        }
+
+        _host.InvalidateStyleScope(select);
+        return true;
+    }
+
+    /// <summary>
+    /// What the select's own object answers its indices with, and takes indexed writes through:
+    /// <c>select[i]</c> is <c>select.options[i]</c>, and <c>select[i] = option</c> its indexed setter
+    /// (<see cref="SetOptionAt"/>). The object is minted with it (<c>DomBridge.WrapNode</c>), as a form's is
+    /// with its named controls.
+    /// </summary>
+    internal IJsExotic Indices(DomElement select) => new SelectIndices(this, select);
+
+    /// <summary>Whether <paramref name="element"/> is an HTMLSelectElement, whose object answers indices.</summary>
+    internal static bool IsHtmlSelect(DomElement element) =>
+        string.Equals(element.LocalName, "select", StringComparison.Ordinal) && element.NamespaceUri == DomNamespaces.Html;
+
+    private sealed class SelectIndices(SelectBinding binding, DomElement select) : IJsExotic, IJsExoticIndexedSet
+    {
+        // The options as of the last IndexedLength ask, which a provider makes before it reads the indices
+        // (see DomCollectionBinding's collection, which does the same).
+        private List<DomElement>? _options;
+
+        public uint IndexedLength
+        {
+            get
+            {
+                _options = OptionsOf(select);
+                return (uint)_options.Count;
+            }
+        }
+
+        public bool TryGetIndex(uint index, out JsValue value)
+        {
+            var options = _options ??= OptionsOf(select);
+            if (index < (uint)options.Count)
+            {
+                value = binding._host.WrapNode(options[(int)index]);
+                return true;
+            }
+
+            value = JsValue.Undefined;
+            return false;
+        }
+
+        // A select has no named getter: its names are its ordinary properties.
+        public bool TryGetNamed(string name, out JsValue value)
+        {
+            value = JsValue.Undefined;
+            return false;
+        }
+
+        public bool TrySetNamed(string name, JsValue value) => false;
+
+        public IReadOnlyList<string> SupportedNames => [];
+
+        public bool TrySetIndex(uint index, JsValue value) => binding.SetOptionAt(select, index, value, "HTMLSelectElement");
+    }
 
     /// <summary><c>remove(index)</c>: the option at <paramref name="index"/> taken out of its parent; nothing out of range.</summary>
     private void RemoveOptionAt(DomElement select, int index)

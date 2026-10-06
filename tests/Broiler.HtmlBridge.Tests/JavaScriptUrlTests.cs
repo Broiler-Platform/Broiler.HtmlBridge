@@ -200,6 +200,56 @@ public class JavaScriptUrlTests
         Assert.Equal("<h1>page</h1>", pending.Document);
     }
 
+    /// <summary>
+    /// The document a <c>javascript:</c> URL's string makes in a frame is bound by the policies of the document it
+    /// replaced (Chromium, measured): a <c>data:</c> script that the replaced
+    /// document's <c>script-src 'unsafe-inline'</c> refuses does not run in it, and runs when that document had no
+    /// policy. It got the policy its scheme gives a load -- here the page's, none.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "data=false")]
+    [InlineData(false, "data=true")]
+    public void AFramesJavaScriptUrlDocumentKeepsThePolicyOfTheOneItReplaced(bool policy, string expected)
+    {
+        var meta = policy
+            ? "&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;script-src 'unsafe-inline'&quot;&gt;"
+            : string.Empty;
+        using var session = Start(
+            "var f = document.getElementById('f');" +
+            "f.addEventListener('load', function () { if (f.contentDocument.querySelector('p').textContent === 'first')" +
+            "  f.contentWindow.location.href = \"javascript:'<p>new</p><script src=\\\"data:text/javascript,parent.dataRan=1\\\"></script>" +
+            "<script>parent.note(\\\"data=\\\" + !!parent.dataRan)</script>'\"; });",
+            body: $"<iframe id=\"f\" srcdoc=\"{meta}&lt;p&gt;first&lt;/p&gt;\"></iframe>");
+
+        Assert.Equal(expected, PageProbe.OutOf(session.SettleLoadWindow(), decode: true));
+    }
+
+    /// <summary>
+    /// The page's: the host, which loads the document, is handed the page's policy with it -- and none when the page
+    /// had none.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ThePagesJavaScriptUrlDocumentIsHandedThePagesPolicy(bool policy)
+    {
+        var (_, pending) = Settle(
+            "location.href = \"javascript:'<p>new</p>'\"",
+            head: policy ? "<meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'unsafe-inline'\">" : string.Empty);
+
+        Assert.Equal("<p>new</p>", pending?.Document);
+        if (policy)
+        {
+            Assert.NotNull(pending!.InheritedPolicy);
+            Assert.False(pending.InheritedPolicy!.AllowsExternalScript("data:text/javascript,1", PageUrl));
+            Assert.True(pending.InheritedPolicy.AllowsInlineScript());
+        }
+        else
+        {
+            Assert.Null(pending!.InheritedPolicy);
+        }
+    }
+
     /// <summary>A Content-Security-Policy that does not allow inline script refuses a <c>javascript:</c> URL.</summary>
     [Fact]
     public void APolicyWithoutUnsafeInlineRefusesIt()

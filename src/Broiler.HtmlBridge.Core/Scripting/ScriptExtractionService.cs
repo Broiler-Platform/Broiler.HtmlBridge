@@ -14,7 +14,7 @@ namespace Broiler.HtmlBridge;
 /// <summary>
 /// Extracts the contents of <c>&lt;script&gt;</c> tags from HTML using the shared
 /// <c>Broiler.Dom.Html</c> tokenizer.  Inline scripts and <c>data:</c> URI scripts are
-/// returned; external <c>src</c> references (http/https/file) are skipped by <see cref="Extract"/> but
+/// returned; external <c>src</c> references (http/https/file) are skipped by <see cref="Extract(string)"/> but
 /// resolved and fetched by <see cref="ExtractAll(string, string?, ContentSecurityPolicy?, ScriptFetchContext?)"/>.
 /// </summary>
 /// <remarks>
@@ -216,6 +216,26 @@ public static partial class ScriptExtractionService
         string html,
         string? pageUrl,
         ContentSecurityPolicy? deliveredPolicy,
+        ScriptFetchContext? fetch) =>
+        Extract(html, pageUrl, new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(html)), fetch);
+
+    /// <summary>
+    /// As <see cref="ExtractAll(string, string?, ContentSecurityPolicy?, ScriptFetchContext?)"/>, for a
+    /// <c>javascript:</c> URL's document: bound by every policy of the document it replaced,
+    /// <paramref name="inherited"/>, and by the one its own markup declares
+    /// (<see cref="ContentSecurityPolicySet.Inheriting"/>).
+    /// </summary>
+    public static ScriptExtractionResult ExtractAll(
+        string html,
+        string? pageUrl,
+        ContentSecurityPolicySet inherited,
+        ScriptFetchContext? fetch) =>
+        Extract(html, pageUrl, ContentSecurityPolicySet.Inheriting(inherited, ContentSecurityPolicy.FromHtml(html)), fetch);
+
+    private static ScriptExtractionResult Extract(
+        string html,
+        string? pageUrl,
+        ContentSecurityPolicySet csp,
         ScriptFetchContext? fetch)
     {
         var scripts = new List<string>();
@@ -225,7 +245,6 @@ public static partial class ScriptExtractionService
         var moduleMap = new ModuleMap();
         var moduleRoots = new List<ModuleRoot>();
         var moduleEntryKeys = new HashSet<string>(StringComparer.Ordinal);
-        var csp = new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(html));
 
         // Prefetch pass: every external script this document will fetch is requested now,
         // concurrently and bounded per host. The walk below resolves each script in document order

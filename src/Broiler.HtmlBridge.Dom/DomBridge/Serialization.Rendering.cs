@@ -26,6 +26,9 @@ public sealed partial class DomBridge
     // view-transition identity while projection transforms execute.
     private IReadOnlyDictionary<DomElement, DomElement>? _renderProjectionSources;
 
+    // And the other way, for a pass on the projection that starts from page state: a popover's invoker.
+    private IReadOnlyDictionary<DomElement, DomElement>? _renderProjectionTargets;
+
     private DomDocument NodeFactoryDocument => _renderProjectionDocument ?? _document;
 
     private DomElement ResolveRenderSource(DomElement element) =>
@@ -78,11 +81,18 @@ public sealed partial class DomBridge
 
         var previousDocument = _renderProjectionDocument;
         var previousSources = _renderProjectionSources;
+        var previousTargets = _renderProjectionTargets;
         _renderProjectionDocument = projectedDocument;
         _renderProjectionSources = projectedToSource;
+        _renderProjectionTargets = sourceToProjected;
         _zoomSpecifiedStyleCache.Clear();
         try
         {
+            // The top layer and anchor positioning, which the window gets from nowhere else; first, as
+            // ResolveAnchorPositions ran before the serialization transforms. See AnchorResolver.cs.
+            using (SuppressMutationDelivery())
+                ResolveTopLayerAndAnchorsForRender(projectedRoot);
+
             if (ZoomBakeActive)
                 ApplyZoomSerializationStyles(projectedRoot, 1.0);
             ApplySerializationTransforms(projectedRoot);
@@ -94,6 +104,7 @@ public sealed partial class DomBridge
             _zoomSpecifiedStyleCache.Clear();
             ClearComputedPropsCache();
             _renderProjectionSources = previousSources;
+            _renderProjectionTargets = previousTargets;
             _renderProjectionDocument = previousDocument;
         }
 

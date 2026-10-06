@@ -178,9 +178,10 @@ public sealed partial class DomBridge
         {
             var popover = element(in call, "showPopover");
             var realm = call.Realm;
+            var source = PopoverSourceOption(realm, call.Length > 0 ? call[0] : JsValue.Undefined);
             return RunAsScriptCall(() =>
             {
-                ShowPopover(popover, realm, invoker: null);
+                ShowPopover(popover, realm, invoker: source);
                 return JsValue.Undefined;
             });
         });
@@ -201,6 +202,7 @@ public sealed partial class DomBridge
             var popover = element(in call, "togglePopover");
             var realm = call.Realm;
             bool? force = null;
+            DomElement? source = null;
             if (call.Length > 0 && !call[0].IsUndefined)
             {
                 var options = call[0];
@@ -209,6 +211,7 @@ public sealed partial class DomBridge
                     var forced = realm.GetProperty(options, "force");
                     if (!forced.IsUndefined)
                         force = realm.ToBoolean(forced);
+                    source = PopoverSourceOption(realm, options);
                 }
                 else
                 {
@@ -216,7 +219,7 @@ public sealed partial class DomBridge
                 }
             }
 
-            return RunAsScriptCall(() => JsValue.Boolean(TogglePopover(popover, force, realm)));
+            return RunAsScriptCall(() => JsValue.Boolean(TogglePopover(popover, force, realm, source)));
         });
 
         // inert reflects its attribute; an inert element and what is in it cannot be focused or hit (DomBridge/Inertness.cs).
@@ -549,13 +552,22 @@ public sealed partial class DomBridge
         }
     }
 
+    /// <summary>
+    /// The <c>source</c> member of <c>showPopover()</c>'s and <c>togglePopover()</c>'s options: the element that
+    /// shows the popover as an invoker would -- its implicit anchor, and its place in the stacks -- or null.
+    /// </summary>
+    /// <remarks>Chromium (measured): <c>showPopover({source: button})</c> puts a
+    /// popover with <c>position-area: bottom</c> under the button, as a click on its <c>popovertarget</c> does.</remarks>
+    private DomElement? PopoverSourceOption(IJsRealm realm, JsValue options) =>
+        options.IsObject && realm.GetProperty(options, "source") is { IsObject: true } source ? FindDomElementByJSObject(source) : null;
+
     /// <summary><c>togglePopover(force)</c>: hides a showing popover, shows a hidden one, as <paramref name="force"/> allows; answers whether it is showing.</summary>
-    private bool TogglePopover(DomElement element, bool? force, IJsRealm realm)
+    private bool TogglePopover(DomElement element, bool? force, IJsRealm realm, DomElement? source = null)
     {
         if (IsPopoverShowing(element) && force is null or false)
             HidePopover(element, focusPreviousElement: true, fireEvents: true, realm, "togglePopover");
         else if (!IsPopoverShowing(element) && force is null or true)
-            ShowPopover(element, realm, invoker: null, "togglePopover");
+            ShowPopover(element, realm, invoker: source, "togglePopover");
         else
             CheckPopoverValidity(element, expectedToBeShowing: IsPopoverShowing(element), realm, "togglePopover");
 

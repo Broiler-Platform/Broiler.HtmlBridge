@@ -19,7 +19,7 @@ public sealed partial class DomBridge
     private void BuildAnchorRegistry(Dictionary<string, AnchorInfo> registry)
     {
         var layoutAnchors = new Broiler.Layout.AnchorRegistry();
-        foreach (var el in Elements)
+        foreach (var el in AnchorPassElements)
         {
             if (IsText(el))
                 continue;
@@ -384,7 +384,7 @@ public sealed partial class DomBridge
     private Dictionary<string, IReadOnlyDictionary<string, string>> ParsePositionTryRules()
     {
         var result = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
-        CollectPositionTryRulesFromTree(DocumentElement, result);
+        CollectPositionTryRulesFromTree(AnchorPassRoot, result);
         return result;
     }
 

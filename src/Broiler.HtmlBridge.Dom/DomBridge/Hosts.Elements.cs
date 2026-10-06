@@ -150,7 +150,21 @@ public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
 
         var action = ResolveFormAction(form, submitter);
         RenderLogger.LogDebug(LogCategory.JavaScript, FormSubmitLogContext,
-            $"A submission of form {index} to {action}; the host builds the data set and decides whether to follow it");
+            $"A submission of form {index} to {action}; the host decides whether to follow it");
+
+        // What the submission sends, from the page's own form data set (see NavigationRequest.Submission): the
+        // same encoding a frame's submission into the page gets (DomBridge/FrameSubmission.cs).
+        var entries = ApplyFormDataEdits(BuildFormEntryList(form, submitter, imagePoint), edits);
+        FormSubmissionRequest submission;
+        if (SubmissionMethodOf(form, submitter) == "post")
+        {
+            var body = EncodeFormBody(entries, FormEncodingOf(form, submitter));
+            submission = new FormSubmissionRequest(action, body.Content, body.ContentType);
+        }
+        else
+        {
+            submission = new FormSubmissionRequest(WithQuery(action, UrlEncodeEntries(entries)));
+        }
 
         // The form's own document starts a form submission (HTML "submit": the form's node document
         // is the source document), whoever called submit().
@@ -162,6 +176,7 @@ public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
             SubmitterY = imagePoint.Y,
             FormDataEdits = edits,
             Initiator = DocumentContextFor(form),
+            Submission = submission,
         });
     }
 
@@ -319,15 +334,15 @@ public sealed partial class DomBridge : ISelectHost
     }
 
     JsValue ISelectHost.LiveCollection(DomElement owner, string kind, Func<List<JsValue>> contents, Action<JsValue>? initialize,
-        Func<string, JsValue, bool>? namedSetter)
+        Dom.Features.DomCollectionBinding.OptionsCollectionOperations? options)
     {
         var collections = _elementCollections.GetValue(owner, static _ => new Dictionary<string, JsValue>(StringComparer.Ordinal));
         if (collections.TryGetValue(kind, out var existing))
             return existing;
 
-        var collection = namedSetter is null
+        var collection = options is null
             ? LiveCollection(contents)
-            : Dom.Features.DomCollectionBinding.HtmlCollection(Realm, contents, name => NamedItem(Realm, contents, name), namedSetter);
+            : Dom.Features.DomCollectionBinding.HtmlOptionsCollection(Realm, contents, name => NamedItem(Realm, contents, name), options);
         collections[kind] = collection;
         initialize?.Invoke(collection);
         return collection;

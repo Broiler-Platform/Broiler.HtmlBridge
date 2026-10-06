@@ -74,7 +74,7 @@ public sealed partial class DomBridge
             double scrollAdjY = 0, scrollAdjX = 0;
             if (targetIsFixed)
             {
-                var docEl = DocumentElement;
+                var docEl = AnchorPassRoot;
                 if (ScrollStateFor(docEl).Top.TryGet(out var stv) && stv is double scrollTop)
                     scrollAdjY = scrollTop;
                 if (ScrollStateFor(docEl).Left.TryGet(out var slv) && slv is double scrollLeft)

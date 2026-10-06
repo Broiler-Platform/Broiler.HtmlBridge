@@ -136,13 +136,45 @@ public sealed partial class DomBridge
         MoveFocus(GetOwningDocument(target), focusable, FocusOrigin.Pointer);
     }
 
-    /// <summary>What moved focus: a script, a press of a pointer, a key -- Tab -- or the focus fixup.</summary>
+    /// <summary>What moved focus: a script, a press of a pointer, a key -- Tab -- the focus fixup, or a removal.</summary>
     private enum FocusOrigin
     {
         Script,
         Pointer,
         Keyboard,
         Fixup,
+        Removal,
+    }
+
+    /// <summary>
+    /// What Chromium does before it removes a focused element, or anything holding one (measured): focus goes to the document there and then, and the element gets a trusted
+    /// <c>blur</c> and <c>focusout</c> with no <c>relatedTarget</c> while it is still connected and still
+    /// where it was -- a <c>blur</c> handler finds its parent, and <c>document.activeElement</c> already the
+    /// body. Raised by Broiler.DOM before the nodes go (<see cref="DomDocument.Removing"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only the focus fixup took focus away, at the next frame and in a task of its own, by when the element
+    /// was gone: a page that saves a field on <c>blur</c>, or shuts a menu when it loses focus, did it after
+    /// the field or the menu had left the document.
+    /// </para>
+    /// <para>
+    /// Not while the bridge rearranges a tree for rendering (<see cref="SuppressMutationDelivery"/>): that
+    /// is no removal a page made. A <c>blur</c> handler that moves the element makes the removal throw, as
+    /// Chromium's does; see <c>DomNode.RemoveChild</c>.
+    /// </para>
+    /// </remarks>
+    private void OnRemoving(DomRemoval removal)
+    {
+        if (_realm is null || _mutationDeliverySuppressionDepth > 0 ||
+            _focusedElement is not { } focused || !removal.Removes(focused))
+        {
+            return;
+        }
+
+        var document = FocusedDocument;
+        if (ReferenceEquals(FocusedElementIn(document), focused))
+            MoveFocus(document, null, FocusOrigin.Removal);
     }
 
     // Whether a check that the focused element can still have focus waits for the next frame.
@@ -184,8 +216,9 @@ public sealed partial class DomBridge
     /// </summary>
     /// <param name="origin">
     /// What moved it. When the user did, each event ends a task, and the microtask checkpoint follows
-    /// it; a script's <c>focus()</c> runs its events inside the script's own task. And it decides
-    /// whether the element shows its focus (<see cref="ShowsFocus"/>).
+    /// it; a script's <c>focus()</c> runs its events inside the script's own task, and so does a
+    /// removal, which happens in whatever removed the node. And it decides whether the element shows
+    /// its focus (<see cref="ShowsFocus"/>).
     /// </param>
     /// <remarks>
     /// A text field the user edited fires <c>change</c> as it loses focus, before <c>blur</c>, with
@@ -193,7 +226,7 @@ public sealed partial class DomBridge
     /// </remarks>
     private void MoveFocus(DomDocument document, DomElement? element, FocusOrigin origin)
     {
-        var byUser = origin != FocusOrigin.Script;
+        var byUser = origin is not (FocusOrigin.Script or FocusOrigin.Removal);
         var oldDocument = FocusedDocument;
         var oldElement = FocusedElementIn(oldDocument);
         var sameDocument = ReferenceEquals(oldDocument, document);

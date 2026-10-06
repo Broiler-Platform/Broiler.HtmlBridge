@@ -244,10 +244,15 @@ public sealed partial class DomBridge
     /// (Fullscreen §user-agent level style sheet defaults), the dimming scrim behind a modal
     /// dialog, and nothing behind a popover.
     /// </summary>
+    /// <remarks>
+    /// The scrim is HTML's and Chromium's <c>rgba(0, 0, 0, 0.1)</c> (measured). It was that colour composited over white, <c>rgb(229, 229, 229)</c>, which is right for a
+    /// white WPT reference page and nothing else: in the window it covered the page behind a modal
+    /// dialog with grey, where Chromium dims it.
+    /// </remarks>
     private string DefaultBackdropBackground(DomElement element, bool isPopover) =>
         DialogStateFor(element).Fullscreen.TryGet(out var fs) && fs is true
             ? "black"
-            : isPopover ? "transparent" : "rgb(229, 229, 229)";
+            : isPopover ? "transparent" : "rgba(0, 0, 0, 0.1)";
 
     private void InsertDialogBackdrops(
         DomElement root, int vpW, int vpH,
@@ -397,11 +402,10 @@ public sealed partial class DomBridge
         return merged;
     }
 
-    private string GetBackdropBackground(DomElement dialog, string defaultBg = "rgb(229, 229, 229)")
+    private string GetBackdropBackground(DomElement dialog, string defaultBg = "rgba(0, 0, 0, 0.1)")
     {
-        // Default modal-dialog backdrop color: pre-composited rgba(0,0,0,0.1) over
-        // white (255*(1-0.1) + 0*0.1 = 229.5 ≈ 229). Callers pass "transparent"
-        // for popovers, whose ::backdrop has no UA scrim.
+        // Default modal-dialog backdrop color: the UA scrim (DefaultBackdropBackground). Callers pass
+        // "transparent" for popovers, whose ::backdrop has no UA scrim.
 
         var declarations = BackdropDeclarationsFor(dialog);
 

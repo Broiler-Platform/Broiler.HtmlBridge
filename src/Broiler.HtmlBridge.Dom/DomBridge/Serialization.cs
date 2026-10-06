@@ -609,8 +609,41 @@ public sealed partial class DomBridge
         if (_stampUserActionInMarkup && CssElementStateMarkup.Format(ElementStateOf(element)) is { } elementState)
             yield return new(CssElementStateMarkup.AttributeName, elementState);
 
+        // A frame's top layer: what the page's projection gets from ResolveTopLayerAndAnchorsForRender, the
+        // markup a frame is rendered from carries too -- an open modal dialog or a showing popover there is a
+        // top-layer box of the frame's own, over its backdrop. Anchors in a frame are not resolved.
+        if (_stampUserActionInMarkup && FrameTopLayerStamps(element) is { } topLayer)
+        {
+            yield return new(TopLayerOrderAttr, topLayer.Order);
+            if (topLayer.Backdrop is { } backdrop)
+                yield return new(BackdropBgAttr, backdrop);
+        }
+
         if (scriptSetSelected is true)
             yield return new("selected", string.Empty);
+    }
+
+    /// <summary>
+    /// The top-layer marker and <c>::backdrop</c> background a frame's element is rendered with, as
+    /// <c>InsertDialogBackdrops</c> stamps a page's: for an open modal dialog, a showing popover or a fullscreen
+    /// element; <c>null</c> for anything else.
+    /// </summary>
+    private (string Order, string? Backdrop)? FrameTopLayerStamps(DomElement element)
+    {
+        if (!_dialogRuntimeStates.TryGetValue(element, out var state))
+            return null;
+
+        var modal = state.Modal.TryGet(out var m) && m is true && HasAttr(element, "open");
+        var popover = state.PopoverOpen.TryGet(out var p) && p is true && !PopoverHeldOutOfTopLayerForPaint(element);
+        var fullscreen = state.Fullscreen.TryGet(out var f) && f is true;
+        if (!modal && !popover && !fullscreen)
+            return null;
+
+        var order = TopLayerOrderOf(element).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var declarations = BackdropDeclarationsFor(element);
+        var hidden = declarations.TryGetValue("display", out var display) &&
+                     display.Trim().Equals("none", StringComparison.OrdinalIgnoreCase);
+        return (order, hidden ? null : GetBackdropBackground(element, DefaultBackdropBackground(element, isPopover: popover && !modal)));
     }
 
     /// <summary>

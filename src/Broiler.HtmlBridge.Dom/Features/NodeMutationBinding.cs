@@ -68,8 +68,13 @@ internal static class NodeMutationBinding
                     "The node to be removed is not a child of this node.");
             }
 
-            DomBridgeUtils.RemoveNthChild(doc, idx);
-            DomBridgeUtils.SetParent(childEl, null);
+            // A removal runs the page's blur handler first (DomDocument.Removing), and one that moved the
+            // node makes Broiler.DOM refuse the removal: the page sees a DOMException.
+            DomExceptionTranslation.Run(call.Realm, "removeChild", "Node", () =>
+            {
+                DomBridgeUtils.RemoveNthChild(doc, idx);
+                DomBridgeUtils.SetParent(childEl, null);
+            });
         }
 
         return call[0];
@@ -82,17 +87,20 @@ internal static class NodeMutationBinding
         var childEl = host.FindDomNode(call[0]);
         if (childEl != null)
         {
-            if (DomBridgeUtils.ParentEl(childEl) != null)
-            {
-                var oldParent = DomBridgeUtils.ParentEl(childEl);
-                var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, childEl);
-                if (oldIndex >= 0)
-                    DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
-            }
-
             var doc = host.DocumentNode;
-            // One canonical append; the move-block above already detached childEl.
-            doc.AppendChild(childEl);
+            DomExceptionTranslation.Run(call.Realm, "appendChild", "Node", () =>
+            {
+                if (DomBridgeUtils.ParentEl(childEl) != null)
+                {
+                    var oldParent = DomBridgeUtils.ParentEl(childEl);
+                    var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, childEl);
+                    if (oldIndex >= 0)
+                        DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
+                }
+
+                // One canonical append; the move-block above already detached childEl.
+                doc.AppendChild(childEl);
+            });
         }
 
         return call[0];
@@ -235,7 +243,7 @@ internal static class NodeMutationBinding
             var oldParent = DomBridgeUtils.ParentEl(newEl);
             var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, newEl);
             if (oldIndex >= 0)
-                DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
+                DomExceptionTranslation.Run(call.Realm, "insertBefore", "Node", () => DomBridgeUtils.RemoveNthChild(oldParent, oldIndex));
         }
 
         var doc = host.DocumentNode;

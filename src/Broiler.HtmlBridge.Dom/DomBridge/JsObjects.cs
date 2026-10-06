@@ -64,10 +64,15 @@ public sealed partial class DomBridge
         // on this same object. The lookup itself is FormNamedControls, an IJsExotic the realm consults
         // after ordinary properties — the same handler form.elements uses, so the two cannot answer a
         // name differently.
+        //
+        // A <select> gets one that answers its indices -- `select[i]` is its i-th option, and
+        // `select[i] = option` HTMLSelectElement's indexed setter (SelectBinding.Indices).
         var handle = node is DomElement formElement &&
                      string.Equals(formElement.TagName, "form", StringComparison.OrdinalIgnoreCase)
             ? Realm.NewExotic(new Dom.Features.FormNamedControls(formElement, this, missingIsNull: false))
-            : Realm.NewObject();
+            : node is DomElement selectElement && Dom.Features.SelectBinding.IsHtmlSelect(selectElement)
+                ? Realm.NewExotic(_select.Indices(selectElement))
+                : Realm.NewObject();
 
         _jsObjects.Set(node, handle);
 

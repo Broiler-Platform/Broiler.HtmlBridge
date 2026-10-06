@@ -98,6 +98,11 @@ internal static class DomCollectionBinding
             // rather than with Blob and File: it is an indexed collection, and this is where the
             // indexed-collection machinery lives.
             function FileList() { throw new TypeError('Illegal constructor'); }
+            // HTML §2.6.3. A select's `options`: an HTMLCollection that can also change the select -- a
+            // settable length, selectedIndex, add(), remove() and an indexed setter. Its members are host
+            // functions on this prototype (RegisterOptionsCollectionOperations), which inherits
+            // HTMLCollection's. Chromium's message, measured.
+            function HTMLOptionsCollection() { throw new TypeError("Failed to construct 'HTMLOptionsCollection': Illegal constructor"); }
 
             (function () {
                 // Every method here is written against `this.length` and `this[i]` only. The host
@@ -173,6 +178,13 @@ internal static class DomCollectionBinding
                     });
                 });
 
+                // An HTMLOptionsCollection is an HTMLCollection: item, namedItem and the iterator come
+                // from there; its class string is its own.
+                Object.setPrototypeOf(HTMLOptionsCollection.prototype, HTMLCollection.prototype);
+                Object.defineProperty(HTMLOptionsCollection.prototype, Symbol.toStringTag, {
+                    value: 'HTMLOptionsCollection', writable: false, enumerable: false, configurable: true
+                });
+
                 // NamedNodeMap's members all come from C# (see NamedNodeMapOperations): even
                 // getNamedItem cannot be written as `this[name]` the way HTMLCollection's namedItem
                 // is, because an interface member wins the property lookup over a named one — an
@@ -220,13 +232,23 @@ internal static class DomCollectionBinding
         Create(realm, "HTMLCollection", contents, namedLookup);
 
     /// <summary>
-    /// An <c>HTMLCollection</c> whose assignments to a name <paramref name="namedSetter"/> may take -- a
-    /// select's <c>options</c>, whose <c>length</c> can be set (HTML §2.6.3 <c>HTMLOptionsCollection</c>).
-    /// The setter answers whether it took the assignment; one it declines is an ordinary one.
+    /// A select's <c>options</c> (HTML §2.6.3): an <c>HTMLOptionsCollection</c>, live over
+    /// <paramref name="contents"/>, whose prototype's <c>length</c>, <c>selectedIndex</c>, <c>add</c> and
+    /// <c>remove</c> act on the select through <paramref name="operations"/>, as its indexed setter does.
     /// </summary>
-    public static JsValue HtmlCollection(
-        IJsRealm realm, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup, Func<string, JsValue, bool> namedSetter) =>
-        Create(realm, "HTMLCollection", contents, namedLookup, namedSetter);
+    /// <remarks>
+    /// It was an <c>HTMLCollection</c> with a named setter for <c>options.length = n</c>, and with
+    /// <c>add</c>, <c>remove</c> and <c>selectedIndex</c> as own properties. With the members on the
+    /// prototype an assignment to <c>length</c> reaches its setter by the ordinary lookup, and the own
+    /// property names are the indices alone, as in Chromium.
+    /// </remarks>
+    public static JsValue HtmlOptionsCollection(
+        IJsRealm realm, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup, OptionsCollectionOperations operations)
+    {
+        var collection = Create(realm, "HTMLOptionsCollection", new IndexedSettableCollection(contents, namedLookup, operations.SetIndex));
+        OptionsByCollection.Add(IdentityOf(collection), operations);
+        return collection;
+    }
 
     /// <summary>
     /// A <c>StyleSheetList</c> over <paramref name="contents"/> (CSSOM §6.1) — <c>document.styleSheets</c>
@@ -249,10 +271,12 @@ internal static class DomCollectionBinding
         Create(realm, "FileList", contents, namedLookup: null);
 
     private static JsValue Create(
-        IJsRealm realm, string interfaceName, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup,
-        Func<string, JsValue, bool>? namedSetter = null)
+        IJsRealm realm, string interfaceName, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup) =>
+        Create(realm, interfaceName, new DomCollection(contents, namedLookup));
+
+    private static JsValue Create(IJsRealm realm, string interfaceName, DomCollection handler)
     {
-        var collection = realm.NewExotic(new DomCollection(contents, namedLookup, namedSetter));
+        var collection = realm.NewExotic(handler);
 
         // A realm that does not yet hold the interface constructors leaves the collection
         // prototype-less rather than failing: it still answers length, the indices and the named
@@ -288,8 +312,7 @@ internal static class DomCollectionBinding
     /// <c>length</c> cannot displace the count.
     /// </para>
     /// </remarks>
-    private sealed class DomCollection(
-        Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup, Func<string, JsValue, bool>? namedSetter = null) : IJsExotic
+    private class DomCollection(Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup) : IJsExotic
     {
         /// <summary>
         /// The contents as of the last <see cref="IndexedLength"/> ask.
@@ -351,11 +374,8 @@ internal static class DomCollectionBinding
             return false;
         }
 
-        /// <summary>
-        /// Only what <c>namedSetter</c> takes -- a select's <c>options.length</c>: a collection has no
-        /// named setter, so any other assignment is an ordinary one exactly as it was.
-        /// </summary>
-        public bool TrySetNamed(string name, JsValue value) => namedSetter?.Invoke(name, value) ?? false;
+        /// <summary>None: a collection has no named setter, so an assignment to a name is an ordinary one.</summary>
+        public bool TrySetNamed(string name, JsValue value) => false;
 
         /// <summary>
         /// None. A collection's names were never enumerable — the subclass supplied no keys of its
@@ -364,6 +384,75 @@ internal static class DomCollectionBinding
         /// refactor.
         /// </summary>
         public IReadOnlyList<string> SupportedNames => [];
+    }
+
+    /// <summary>
+    /// A collection with WebIDL's indexed setter -- an <c>HTMLOptionsCollection</c>, where
+    /// <c>options[i] = option</c> replaces, appends or (with <c>null</c>) removes an option. Declaring
+    /// <see cref="IJsExoticIndexedSet"/> is what has a provider mint it able to take the write.
+    /// </summary>
+    private sealed class IndexedSettableCollection(
+        Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup, Func<uint, JsValue, bool> setIndex)
+        : DomCollection(contents, namedLookup), IJsExoticIndexedSet
+    {
+        public bool TrySetIndex(uint index, JsValue value) => setIndex(index, value);
+    }
+
+    /// <summary>
+    /// What a select's <c>options</c> does to its select: the members of <c>HTMLOptionsCollection</c>'s
+    /// prototype, found from their receiver, and the collection's indexed setter.
+    /// </summary>
+    internal sealed class OptionsCollectionOperations
+    {
+        public required JsNativeFunction GetLength { get; init; }
+        public required JsNativeFunction SetLength { get; init; }
+        public required JsNativeFunction GetSelectedIndex { get; init; }
+        public required JsNativeFunction SetSelectedIndex { get; init; }
+        public required JsNativeFunction Add { get; init; }
+        public required JsNativeFunction Remove { get; init; }
+
+        /// <summary>The indexed setter: <c>options[index] = value</c>. Answers whether it took the write.</summary>
+        public required Func<uint, JsValue, bool> SetIndex { get; init; }
+    }
+
+    /// <summary>Which select each live <c>options</c> belongs to, for its prototype's members; weak, as <see cref="OperationsByMap"/> is.</summary>
+    private static readonly ConditionalWeakTable<object, OptionsCollectionOperations> OptionsByCollection = new();
+
+    /// <summary>
+    /// Installs <c>HTMLOptionsCollection</c>'s members on its prototype: <c>length</c> and
+    /// <c>selectedIndex</c>, accessors, and <c>add</c> and <c>remove</c>, as Chromium has them (measured -- enumerable and configurable, <c>length</c> settable). Called once per
+    /// realm, after <see cref="RegisterInterfaces"/>.
+    /// </summary>
+    public static void RegisterOptionsCollectionOperations(IJsRealm realm)
+    {
+        var constructor = realm.GetProperty(realm.Global, "HTMLOptionsCollection");
+        if (!constructor.IsObject)
+            return;
+
+        var prototype = realm.GetProperty(constructor, "prototype");
+        if (!prototype.IsObject)
+            return;
+
+        realm.DefineAccessor(prototype, "length",
+            Member("length", static operations => operations.GetLength),
+            Member("length", static operations => operations.SetLength));
+        realm.DefineAccessor(prototype, "selectedIndex",
+            Member("selectedIndex", static operations => operations.GetSelectedIndex),
+            Member("selectedIndex", static operations => operations.SetSelectedIndex));
+        realm.DefineValue(prototype, "add", realm.NewMethod("add", Member("add", static operations => operations.Add), 1));
+        realm.DefineValue(prototype, "remove", realm.NewMethod("remove", Member("remove", static operations => operations.Remove), 1));
+
+        static JsNativeFunction Member(string name, Func<OptionsCollectionOperations, JsNativeFunction> pick) =>
+            (in JsCall call) =>
+            {
+                if (!call.This.IsObject || !OptionsByCollection.TryGetValue(IdentityOf(call.This), out var operations))
+                {
+                    throw call.Realm.Error(
+                        JsErrorKind.TypeError, $"Failed to execute '{name}' on 'HTMLOptionsCollection': Illegal invocation.");
+                }
+
+                return pick(operations)(in call);
+            };
     }
 
     /// <summary>

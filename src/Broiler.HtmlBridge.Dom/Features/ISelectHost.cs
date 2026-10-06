@@ -42,9 +42,9 @@ internal interface ISelectHost : INodeWrapperHost, IRealmHost, IStyleInvalidatio
     /// <summary>
     /// One live <c>HTMLCollection</c> per <paramref name="owner"/> and <paramref name="kind"/>, over
     /// <paramref name="contents"/>: the same object on every read. <paramref name="initialize"/> runs
-    /// once, on the collection it makes; <paramref name="namedSetter"/> takes the assignments to a name it
-    /// answers true for.
+    /// once, on the collection it makes. With <paramref name="options"/>, it is a select's
+    /// <c>HTMLOptionsCollection</c>, whose members act through them.
     /// </summary>
     JsValue LiveCollection(DomElement owner, string kind, Func<List<JsValue>> contents, Action<JsValue>? initialize = null,
-        Func<string, JsValue, bool>? namedSetter = null);
+        DomCollectionBinding.OptionsCollectionOperations? options = null);
 }

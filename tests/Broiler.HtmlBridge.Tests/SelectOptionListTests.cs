@@ -105,6 +105,91 @@ public class SelectOptionListTests
             PageProbe.OutOf(session!.SettleLoadWindow(), decode: true).Split(" ## "));
     }
 
+    /// <summary>
+    /// An option put at an index, through the options or the select itself, as Chromium's <c>SetOption</c> does
+    /// it (measured): appended at the end, after empty options up to
+    /// an index past it, replacing one inside -- the new one inserted into the select before the option that
+    /// followed the old, a <c>NotFoundError</c> when that one is in an optgroup -- and <c>null</c> or
+    /// <c>undefined</c> taking one out; anything else a <c>TypeError</c>, sloppy or strict. It made an ordinary
+    /// property of the collection and changed nothing, and <c>select[i]</c> did not read.
+    /// </summary>
+    [Fact]
+    public void OptionsTakeIndexedWritesAsInChromium()
+    {
+        var engine = new ScriptEngine(new DomBridgeFactory(new DomBridgeSessionOptions()));
+        using var session = engine.ExecuteInteractive(
+            ["var out = document.getElementById('out'), s = document.getElementById('s'), res = [];" +
+             "function st() { return Array.from(s.options).map(function (o) { return (o.selected ? '*' : '') + o.value + (o.parentNode.tagName === 'OPTGROUP' ? '@g' : ''); }).join(',') +" +
+             "  ' si=' + s.selectedIndex + ' len=' + s.length; }" +
+             "function run(name, f) { var r; try { r = f(); res.push(name + ': ' + st() + (r === undefined ? '' : ' ret=' + r)); }" +
+             "  catch (e) { res.push(name + ': ERR ' + e.name + ': ' + e.message + ' :: ' + st()); } }" +
+             "function reset() { s.innerHTML = '" + Options + "'; }" +
+             "function e() { return new Option('E', 'e'); }" +
+             "run('reads', function () { return [s[0].value, s[3].value, String(s[4]), String(s[-1]), '0' in s, '3' in s, '4' in s, s.options[1].value].join(','); });" +
+             "run('options[len]=e', function () { s.options[s.options.length] = e(); }); reset();" +
+             "run('options[len+2]=e', function () { s.options[6] = e(); }); reset();" +
+             "run('options[3]=e', function () { s.options[3] = e(); }); reset();" +
+             "run('options[2]=e', function () { s.options[2] = e(); }); reset();" +
+             "run('options[1]=e', function () { s.options[1] = e(); }); reset();" +
+             "run('options[0]=e', function () { s.options[0] = e(); }); reset();" +
+             "run('options[1]=options[0]', function () { s.options[1] = s.options[0]; }); reset();" +
+             "run('options[1]=null', function () { s.options[1] = null; }); reset();" +
+             "run('options[0]=undefined', function () { s.options[0] = undefined; }); reset();" +
+             "run('options[10]=null', function () { s.options[10] = null; }); reset();" +
+             "run('options[100000]=e', function () { s.options[100000] = e(); }); reset();" +
+             "run(\"options['3']=e\", function () { s.options['3'] = e(); }); reset();" +
+             "run('select[3]=e', function () { s[3] = e(); }); reset();" +
+             "run('select[1]=null', function () { s[1] = null; }); reset();" +
+             "run(\"options[0]='x' strict\", function () { 'use strict'; s.options[0] = 'x'; }); reset();" +
+             "run('select[0]=5', function () { s[0] = 5; }); reset();" +
+             "run('options[0]=div', function () { s.options[0] = document.createElement('div'); }); reset();" +
+             "run('interface', function () { return [Object.prototype.toString.call(s.options)," +
+             "  Object.getPrototypeOf(s.options) === HTMLOptionsCollection.prototype, Object.getPrototypeOf(HTMLOptionsCollection.prototype) === HTMLCollection.prototype," +
+             "  s.options instanceof HTMLCollection, typeof HTMLOptionsCollection, Object.getOwnPropertyNames(HTMLOptionsCollection.prototype).sort().join('/')].join(','); });" +
+             "run('length descriptor', function () { var d = Object.getOwnPropertyDescriptor(HTMLOptionsCollection.prototype, 'length');" +
+             "  return [typeof d.get, typeof d.set, d.enumerable, d.configurable, Object.keys(s.options).join('/'), s.options.namedItem('x') === null].join(','); });" +
+             "run('constructor', function () { new HTMLOptionsCollection(); });" +
+             "run('illegal invocation', function () { HTMLOptionsCollection.prototype.add.call({}, e()); });" +
+             "run('expando', function () { s.options.foo = 1; return s.options.foo; });" +
+             "out.textContent = res.join(' ## ');"],
+            [], $"<html><body><form id=\"f\"><select id=\"s\" name=\"s\">{Options}</select></form><div id=\"out\"></div></body></html>", PageUrl);
+        Assert.NotNull(session);
+
+        Assert.Equal(
+            [
+                "reads: a,b@g,*c@g,d si=2 len=4 ret=a,d,undefined,undefined,true,true,false,b",
+                "options[len]=e: a,b@g,*c@g,d,e si=2 len=5",
+                "options[len+2]=e: a,b@g,*c@g,d,,,e si=2 len=7",
+                "options[3]=e: a,b@g,*c@g,e si=2 len=4",
+                "options[2]=e: *a,b@g,e,d si=0 len=4",
+                "options[1]=e: ERR NotFoundError: Failed to set an indexed property [1] on 'HTMLOptionsCollection': " +
+                    "The node before which the new node is to be inserted is not a child of this node. :: a,*c@g,d si=1 len=3",
+                "options[0]=e: ERR NotFoundError: Failed to set an indexed property [0] on 'HTMLOptionsCollection': " +
+                    "The node before which the new node is to be inserted is not a child of this node. :: b@g,*c@g,d si=1 len=3",
+                "options[1]=options[0]: ERR NotFoundError: Failed to set an indexed property [1] on 'HTMLOptionsCollection': " +
+                    "The node before which the new node is to be inserted is not a child of this node. :: a,*c@g,d si=1 len=3",
+                "options[1]=null: a,*c@g,d si=1 len=3",
+                "options[0]=undefined: b@g,*c@g,d si=1 len=3",
+                "options[10]=null: a,b@g,*c@g,d si=2 len=4",
+                "options[100000]=e: a,b@g,*c@g,d si=2 len=4",
+                "options['3']=e: a,b@g,*c@g,e si=2 len=4",
+                "select[3]=e: a,b@g,*c@g,e si=2 len=4",
+                "select[1]=null: a,*c@g,d si=1 len=3",
+                "options[0]='x' strict: ERR TypeError: Failed to set an indexed property [0] on 'HTMLOptionsCollection': " +
+                    "parameter 2 is not of type 'HTMLOptionElement'. :: a,b@g,*c@g,d si=2 len=4",
+                "select[0]=5: ERR TypeError: Failed to set an indexed property [0] on 'HTMLSelectElement': " +
+                    "parameter 2 is not of type 'HTMLOptionElement'. :: a,b@g,*c@g,d si=2 len=4",
+                "options[0]=div: ERR TypeError: Failed to set an indexed property [0] on 'HTMLOptionsCollection': " +
+                    "parameter 2 is not of type 'HTMLOptionElement'. :: a,b@g,*c@g,d si=2 len=4",
+                "interface: a,b@g,*c@g,d si=2 len=4 ret=[object HTMLOptionsCollection],true,true,true,function,add/constructor/length/remove/selectedIndex",
+                "length descriptor: a,b@g,*c@g,d si=2 len=4 ret=function,function,true,true,0/1/2/3,true",
+                "constructor: ERR TypeError: Failed to construct 'HTMLOptionsCollection': Illegal constructor :: a,b@g,*c@g,d si=2 len=4",
+                "illegal invocation: ERR TypeError: Failed to execute 'add' on 'HTMLOptionsCollection': Illegal invocation. :: a,b@g,*c@g,d si=2 len=4",
+                "expando: a,b@g,*c@g,d si=2 len=4 ret=1",
+            ],
+            PageProbe.OutOf(session!.SettleLoadWindow(), decode: true).Split(" ## "));
+    }
+
     /// <summary>Each step from the same select: its options, which is selected, <c>selectedIndex</c> and <c>length</c> after it.</summary>
     [Fact]
     public void OptionsComeAndGoAsInChromium()

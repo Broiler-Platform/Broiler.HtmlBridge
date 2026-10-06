@@ -107,9 +107,10 @@ internal static class TreeMutationBinding
         // Prevent circular references (HierarchyRequestError per DOM spec)
         if (ReferenceEquals(newEl, element) || element.IsDescendantOf(newEl))
             throw call.Realm.DomError("HierarchyRequestError", "The new child element contains the parent.");
+        var realm = call.Realm;
         if (call.Length < 2 || call[1].IsNull || call[1].IsUndefined)
         {
-            host.InsertNodeAt(element, newEl, element.ChildNodes.Count);
+            DomExceptionTranslation.Run(realm, "insertBefore", "Node", () => host.InsertNodeAt(element, newEl, element.ChildNodes.Count));
             return call[0];
         }
 
@@ -131,7 +132,7 @@ internal static class TreeMutationBinding
             throw NotFoundError(call.Realm, "insertBefore",
                 "The node before which the new node is to be inserted is not a child of this node.");
         }
-        host.InsertNodeAt(element, newEl, idx);
+        DomExceptionTranslation.Run(realm, "insertBefore", "Node", () => host.InsertNodeAt(element, newEl, idx));
         return call[0];
     }
 
@@ -148,7 +149,7 @@ internal static class TreeMutationBinding
         // Prevent circular references (HierarchyRequestError per DOM spec)
         if (ReferenceEquals(childEl, element) || element.IsDescendantOf(childEl))
             throw call.Realm.DomError("HierarchyRequestError", "The new child element contains the parent.");
-        host.InsertNodeAt(element, childEl, element.ChildNodes.Count);
+        DomExceptionTranslation.Run(call.Realm, "appendChild", "Node", () => host.InsertNodeAt(element, childEl, element.ChildNodes.Count));
         return call[0];
     }
 
@@ -203,8 +204,11 @@ internal static class TreeMutationBinding
             throw NotFoundError(call.Realm, "removeChild",
                 "The node to be removed is not a child of this node.");
         }
-        DomBridgeUtils.RemoveNthChild(element, idx);
-        DomBridgeUtils.SetParent(childEl, null);
+        DomExceptionTranslation.Run(call.Realm, "removeChild", "Node", () =>
+        {
+            DomBridgeUtils.RemoveNthChild(element, idx);
+            DomBridgeUtils.SetParent(childEl, null);
+        });
         host.InvalidateStyleScope(element);
         return call[0];
     }
@@ -234,31 +238,37 @@ internal static class TreeMutationBinding
             throw NotFoundError(call.Realm, "replaceChild",
                 "The node to be replaced is not a child of this node.");
         }
-        // If newChild is already in this parent, remove it first and re-find idx
-        if (ReferenceEquals(DomBridgeUtils.ParentEl(newEl), element))
+        // A removal runs the page's blur handler first (DomDocument.Removing); one that moves a node makes
+        // Broiler.DOM refuse the removal, and the page sees that as a DOMException.
+        var realm = call.Realm;
+        DomExceptionTranslation.Run(realm, "replaceChild", "Node", () =>
         {
-            DomBridgeUtils.RemoveChildFrom(element, newEl);
-            idx = DomBridgeUtils.ChildIndexOf(element, oldEl);
-            if (idx < 0)
-                return call[1];
-        }
-        else
-        {
-            if (DomBridgeUtils.ParentEl(newEl) != null)
+            // If newChild is already in this parent, remove it first and re-find idx
+            if (ReferenceEquals(DomBridgeUtils.ParentEl(newEl), element))
             {
-                var oldParent = DomBridgeUtils.ParentEl(newEl);
-                var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, newEl);
-                if (oldIndex >= 0)
-                    DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
+                DomBridgeUtils.RemoveChildFrom(element, newEl);
+                idx = DomBridgeUtils.ChildIndexOf(element, oldEl);
+                if (idx < 0)
+                    return;
             }
-        }
+            else
+            {
+                if (DomBridgeUtils.ParentEl(newEl) != null)
+                {
+                    var oldParent = DomBridgeUtils.ParentEl(newEl);
+                    var oldIndex = DomBridgeUtils.ChildIndexOf(oldParent, newEl);
+                    if (oldIndex >= 0)
+                        DomBridgeUtils.RemoveNthChild(oldParent, oldIndex);
+                }
+            }
 
-        // Single canonical replace: ReplaceChild removes oldEl and inserts newEl at its exact
-        // position, firing one ChildList(removed oldEl) + one ChildList(added newEl). The prior
-        // detach-oldEl + append-newEl-at-end + ReplaceChild(ChildNodes[idx]) dance fired several
-        // spurious canonical records that the NodeIterator/CSS mutation subscribers observe. newEl
-        // was already detached from any prior parent above; oldEl is still a child of element here.
-        element.ReplaceChild(newEl, oldEl);
+            // Single canonical replace: ReplaceChild removes oldEl and inserts newEl at its exact
+            // position, firing one ChildList(removed oldEl) + one ChildList(added newEl). The prior
+            // detach-oldEl + append-newEl-at-end + ReplaceChild(ChildNodes[idx]) dance fired several
+            // spurious canonical records that the NodeIterator/CSS mutation subscribers observe. newEl
+            // was already detached from any prior parent above; oldEl is still a child of element here.
+            element.ReplaceChild(newEl, oldEl);
+        });
         host.InvalidateStyleScope(element);
         return call[1]; // returns the old child
     }

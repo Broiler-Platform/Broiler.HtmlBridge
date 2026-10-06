@@ -45,11 +45,12 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Where a frame was navigated to, by which document's script, with what body when it was a <c>post</c>,
-    /// and with what document when a <c>javascript:</c> URL's script answered one (<see cref="Html"/>).
+    /// and with what document when a <c>javascript:</c> URL's script answered one (<see cref="Html"/>) -- which is
+    /// bound by the policies of the document it replaced (<see cref="Policies"/>).
     /// </summary>
     private sealed record FrameNavigationTarget(
         string Url, DocumentRequestContext Initiator, FrameRequestBody? Body = null, string? Html = null,
-        FrameHistoryHandling History = FrameHistoryHandling.Push);
+        FrameHistoryHandling History = FrameHistoryHandling.Push, Scripting.ContentSecurityPolicySet? Policies = null);
 
     /// <summary>What a <c>method="post"</c> submission into a frame sends (DomBridge/FrameSubmission.cs).</summary>
     private sealed record FrameRequestBody(byte[] Content, string ContentType);
@@ -92,6 +93,10 @@ public sealed partial class DomBridge
     private string? FrameNavigationDocument(DomElement container) =>
         _frameNavigations.TryGetValue(container, out var navigation) ? navigation.Html : null;
 
+    /// <summary>The policies of the document a <c>javascript:</c> URL's string replaced in <paramref name="container"/>'s frame.</summary>
+    private Scripting.ContentSecurityPolicySet? FrameNavigationPolicies(DomElement container) =>
+        _frameNavigations.TryGetValue(container, out var navigation) ? navigation.Policies : null;
+
     /// <summary>The document whose script navigated <paramref name="container"/>'s frame, when it was navigated.</summary>
     private DocumentRequestContext? FrameNavigationInitiator(DomElement container) =>
         _frameNavigations.TryGetValue(container, out var navigation) ? navigation.Initiator : null;
@@ -131,7 +136,7 @@ public sealed partial class DomBridge
     /// <summary>Queues the navigation of <paramref name="container"/>'s frame to what <paramref name="request"/> names.</summary>
     private void RequestFrameNavigation(
         DomElement container, NavigationRequest request, FrameRequestBody? body = null, string? html = null,
-        FrameHistoryHandling? history = null)
+        FrameHistoryHandling? history = null, Scripting.ContentSecurityPolicySet? policies = null)
     {
         // A reload or a replace takes the frame's current entry, a traversal the entry it went to; anything
         // else is a new entry of the joint history (DomBridge/SessionHistory.cs).
@@ -173,7 +178,7 @@ public sealed partial class DomBridge
         var generation = _frameNavigationGenerations.GetValueOrDefault(container) + 1;
         _frameNavigationGenerations[container] = generation;
         var initiator = CurrentScriptDocumentContext();
-        _eventLoop.QueueTask(() => NavigateFrame(container, new FrameNavigationTarget(url, initiator, body, html, handling), generation));
+        _eventLoop.QueueTask(() => NavigateFrame(container, new FrameNavigationTarget(url, initiator, body, html, handling, policies), generation));
     }
 
     private void NavigateFrame(DomElement container, FrameNavigationTarget target, int generation)

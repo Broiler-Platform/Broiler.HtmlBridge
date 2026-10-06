@@ -13,7 +13,7 @@ public sealed partial class DomBridge
 
     private void BuildInlineAnchorRegistry(Dictionary<string, AnchorInfo> registry)
     {
-        foreach (var el in Elements)
+        foreach (var el in AnchorPassElements)
         {
             if (BakedInlineStyle(el).TryGetValue("anchor-name", out var anchorName) &&
                 !string.IsNullOrWhiteSpace(anchorName))

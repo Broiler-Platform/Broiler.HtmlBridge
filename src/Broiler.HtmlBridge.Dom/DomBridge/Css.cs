@@ -495,6 +495,10 @@ public sealed partial class DomBridge
     /// </summary>
     private (int Width, int Height) GetViewportForDocRoot(DomElement docRoot)
     {
+        // A render projection's root stands for the page's: its media queries are the page's. It was
+        // taken for an unknown document's, whose viewport is 0x0.
+        docRoot = ResolveRenderSource(docRoot);
+
         if (ReferenceEquals(docRoot, DocumentElement) ||
             string.Equals(docRoot.TagName, "#document", StringComparison.OrdinalIgnoreCase))
             return (_viewportWidth, _viewportHeight);
