@@ -394,6 +394,11 @@ public sealed partial class DomBridge : ISubWindowHost
 
     JsValue ISubWindowHost.TopPostMessage => _topPostMessage;
 
+    JsValue ISubWindowHost.PageStorage(bool session) => PageStorage(session);
+
+    JsValue ISubWindowHost.FrameStorage(DomElement container, bool session, IJsRealm realm) =>
+        StorageOf(FrameDocumentContext(container), session, realm);
+
     bool ISubWindowHost.IsWindowCrossOriginToTop(JsValue window) =>
         AreCrossOriginForAccess(DocumentContextOfWindow(window), TopDocumentContext);
 

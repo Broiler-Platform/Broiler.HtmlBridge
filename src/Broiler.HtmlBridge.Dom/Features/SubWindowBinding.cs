@@ -131,11 +131,8 @@ internal sealed class SubWindowBinding(
         // an embedded player is exactly the kind of document that probes MediaSource first.
         "Notification", "MediaSource",
 
-        // The two storage areas. A frame gets the parent's objects rather than fresh ones, which
-        // is what a same-origin frame sees in a browser: the Storage object differs there, the
-        // *area* behind it does not, and a frame that cannot read what its opener wrote is the
-        // more visible wrong answer.
-        "localStorage", "sessionStorage",
+        // Not the two storage areas: they were mirrored here once, so a frame of any origin had the
+        // page's. A frame's window answers the areas of its own document instead (Build).
     ];
 
     /// <summary>Gets or builds the sub-window for a nested-browsing-context container.</summary>
@@ -207,6 +204,14 @@ internal sealed class SubWindowBinding(
                 return document;
             },
             null);
+
+        // The frame's two storage areas are its document's: the page's when the frame shares the page's
+        // storage key, and otherwise the areas of the frame's own (DomBridge/WebStorage.cs). Read at
+        // each access, as `document` is, because the window outlives the documents it shows.
+        realm.DefineAccessor(window, "localStorage",
+            (in call) => FrameStorage(containerElement, window, session: false, in call), null);
+        realm.DefineAccessor(window, "sessionStorage",
+            (in call) => FrameStorage(containerElement, window, session: true, in call), null);
 
         // The frame's Location is built the same way the top-level one is — components and the
         // navigation methods together, because a framed page calls location.replace() as readily
@@ -313,6 +318,19 @@ internal sealed class SubWindowBinding(
                 call.Realm.SetProperty(location, "href", call.Length > 0 ? call[0] : JsValue.Undefined);
                 return JsValue.Undefined;
             });
+
+    /// <summary>
+    /// The frame's <c>localStorage</c> or <c>sessionStorage</c>: an area of the document it shows, for a
+    /// script of that document's origin. Another origin's script is refused as it is for <c>document</c>,
+    /// and a document with an opaque origin has no area to give (DomBridge/WebStorage.cs).
+    /// </summary>
+    private JsValue FrameStorage(DomElement container, JsValue window, bool session, in JsCall call)
+    {
+        _host.GetOrCreateSubDocument(container);
+        if (_host.IsWindowCrossOriginToCurrentScript(window))
+            throw call.Realm.DomError("SecurityError", "Blocked a frame from accessing a cross-origin frame.");
+        return _host.FrameStorage(container, session, call.Realm);
+    }
 
     // ── Frame names and frame lists ─────────────────────────────────────────
 
@@ -712,7 +730,8 @@ internal sealed class SubWindowBinding(
     // The top window's members a view answers itself, rather than the global object, which in a
     // frame's script answers for the frame.
     private static readonly string[] TopWindowOwnMembers =
-        ["window", "self", "top", "parent", "globalThis", "location", "document", "name", "postMessage", "frameElement"];
+        ["window", "self", "top", "parent", "globalThis", "location", "document", "name", "postMessage", "frameElement",
+         "localStorage", "sessionStorage"];
 
     /// <summary>The top window as a frame of its origin has it: the whole window, through a forwarding view.</summary>
     private JsValue SameOriginTopView()
@@ -729,6 +748,9 @@ internal sealed class SubWindowBinding(
             "name" => JsValue.String(_browsingContexts.TopName),
             "postMessage" => _host.TopPostMessage,
             "frameElement" => JsValue.Null,
+            // The page's areas, which are not the frame's own when its storage is partitioned.
+            "localStorage" => _host.PageStorage(session: false),
+            "sessionStorage" => _host.PageStorage(session: true),
             // The page's onload, onmessage, …: the global's answer for the frame's script is the frame's.
             var handler when DomBridge.IsWindowEventHandlerName(handler) => _host.PageWindowHandler(handler),
             _ => view,
@@ -750,8 +772,8 @@ internal sealed class SubWindowBinding(
                     break;
             }
 
-            // The others are the window itself, its document and its postMessage, which an
-            // assignment does not replace.
+            // The others are the window itself, its document, its postMessage and its storage areas,
+            // which an assignment does not replace.
             return JsValue.Undefined;
         }, 2);
 

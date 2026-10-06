@@ -33,6 +33,19 @@ internal interface ISubWindowHost : IRealmHost, ISubDocumentFactoryHost
     /// <summary>The top-level window's own <c>postMessage</c>, which a frame's script has swapped off the global.</summary>
     JsValue TopPostMessage { get; }
 
+    /// <summary>
+    /// The top-level document's own <c>localStorage</c> (or, with <paramref name="session"/>, its
+    /// <c>sessionStorage</c>), which a view of the top window answers whoever reads it.
+    /// </summary>
+    JsValue PageStorage(bool session);
+
+    /// <summary>
+    /// The <c>localStorage</c> (or <c>sessionStorage</c>) of the document the frame
+    /// <paramref name="container"/> shows: the page's, or the areas of the frame's own storage key.
+    /// Throws the <c>SecurityError</c> a document with an opaque origin gets for reading either.
+    /// </summary>
+    JsValue FrameStorage(DomElement container, bool session, IJsRealm realm);
+
     /// <summary>Whether the document <paramref name="window"/> shows has a different origin from the top-level document.</summary>
     bool IsWindowCrossOriginToTop(JsValue window);
 

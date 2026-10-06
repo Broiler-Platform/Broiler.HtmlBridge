@@ -29,9 +29,9 @@ public sealed partial class DomBridge
         //
         // The storage areas are exotic objects: WebStorageBinding mints all six members of each through
         // the realm onto an area whose handler completes its own lookup and, through IJsExoticDelete,
-        // its own deletion.
-        realm.DefineValue(window, "localStorage", Dom.Features.WebStorageBinding.BuildStorage(realm));
-        realm.DefineValue(window, "sessionStorage", Dom.Features.WebStorageBinding.BuildStorage(realm));
+        // its own deletion. The global's two members answer the areas of the document whose script is
+        // running, because a frame's script reads them here as well (DomBridge/WebStorage.cs).
+        InstallWebStorage(window);
 
         // window.matchMedia(query) — evaluates basic media queries. The realm mints the function
         // with the same name, arity and non-constructable shape it had, and the binding builds its
