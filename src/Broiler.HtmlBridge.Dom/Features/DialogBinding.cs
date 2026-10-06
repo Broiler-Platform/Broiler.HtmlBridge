@@ -185,6 +185,22 @@ internal sealed class DialogBinding(IDialogHost host)
         return JsValue.Undefined;
     }
 
+    /// <summary>
+    /// Closes <paramref name="element"/> with <paramref name="returnValue"/>, as <c>close(returnValue)</c>
+    /// does -- what a <c>method="dialog"</c> form's submission does to its dialog; a null result leaves the
+    /// <c>returnValue</c> as it was.
+    /// </summary>
+    internal void CloseDialog(DomElement element, string? returnValue)
+    {
+        if (!_host.DialogKeepsDisplayOnClose(element))
+            _host.SetOpenAttribute(element, false);
+        if (!_host.DialogKeepsOverlayOnClose(element))
+            _host.SetDialogModal(element, false);
+        if (returnValue is not null)
+            _host.SetReturnValue(element, returnValue);
+        _host.InvalidateStyleScope(element);
+    }
+
     private JsValue Close(DomElement element, in JsCall call)
     {
         // CSS Position §overlay: closing a dialog whose `overlay` is transitioned with

@@ -363,14 +363,8 @@ public sealed partial class DomBridge
         if (!TryGetAttribute(link, "href", out var href))
             return;
 
-        // A javascript: URL runs script rather than loading a document; it is not run here, and handing
-        // it to the host as a navigation would take the page away for a link that only meant to run code.
-        if (href.TrimStart().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
-        {
-            RenderLogger.LogDebug(LogCategory.JavaScript, "DomBridge.keyboard", $"A link to a javascript: URL is not followed: {href}");
-            return;
-        }
-
+        // A javascript: URL is the target location's to run, as the link's document's script
+        // (DomBridge/JavaScriptUrl.cs): in the document the link targets, if that has its origin.
         var realm = Realm;
         var document = GetOwningDocument(link);
         var frame = GetFrameForContentDocument(document);

@@ -26,7 +26,8 @@ namespace Broiler.HtmlBridge;
 /// activation behaviour acts: a checkbox or a radio button changes before the listeners run and back if
 /// they cancel the click, and otherwise gets a trusted <c>input</c> and <c>change</c> when it is in a
 /// document; a label clicks its control the same way; a submit button submits its form as a user's
-/// click would -- validated, with its <c>submit</c> -- and a reset button resets it; a link is followed.
+/// click would -- validated, with its <c>submit</c> -- and a reset button resets it; a link is followed,
+/// a <c>javascript:</c> one by running its script.
 /// A dispatched click that is a <c>MouseEvent</c> does the same, and one that is a plain <c>Event</c>
 /// only runs its listeners.
 /// </para>
@@ -199,7 +200,7 @@ public sealed partial class DomBridge
     /// <summary>
     /// Follows a link a script's click activated, as a user's would be -- unless following it would take
     /// the page somewhere this window cannot show: another window (<c>target="_blank"</c> or a name), or
-    /// a download.
+    /// a download. A <c>javascript:</c> link runs its script (DomBridge/JavaScriptUrl.cs).
     /// </summary>
     /// <remarks>
     /// A script's click opens no window: Chromium blocks a pop-up a script opens without the user's
@@ -258,12 +259,13 @@ public sealed partial class DomBridge
     /// <summary>
     /// The click <c>click()</c> fires, as Chromium makes it (measured): a pointer event with no pointer --
     /// <c>pointerId</c> -1 and an empty <c>pointerType</c> -- untrusted, bubbling, cancelable and composed,
-    /// its coordinates, buttons and modifier keys all zero. A <c>MouseEvent</c> to <c>instanceof</c>.
+    /// its coordinates, buttons and modifier keys all zero. A <c>PointerEvent</c>, and so a
+    /// <c>MouseEvent</c>, to <c>instanceof</c>.
     /// </summary>
     private JsValue NewScriptClickEvent(DomElement target)
     {
         var realm = Realm;
-        var evt = NewEvent(realm, "click", bubbles: true, cancelable: true, composed: true, MouseEventPrototype(realm), trusted: false);
+        var evt = NewEvent(realm, "click", bubbles: true, cancelable: true, composed: true, PointerEventPrototype(realm), trusted: false);
         var window = WindowOfDocument(GetOwningDocument(target));
         Define(realm, evt, "view", window.IsObject ? window : JsValue.Null);
         Define(realm, evt, "detail", JsValue.Number(0));

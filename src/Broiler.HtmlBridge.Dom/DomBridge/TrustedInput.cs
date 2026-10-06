@@ -85,9 +85,21 @@ public sealed partial class DomBridge
         for (var i = 0; i < levels.Count; i++)
             levels[i] = levels[i] with { Window = levels[i].Frame is { } frame ? _subWindows.GetOrCreate(frame) : WindowHandle };
 
-        var hit = levels[^1];
         if (input.Kind == PointerInputKind.Move)
-            return MovePointer(input, levels);
+        {
+            // A captured pointer's events go to the element that captured it, wherever the pointer is
+            // (DomBridge/PointerCapture.cs).
+            ProcessPendingPointerCapture(input);
+            return MovePointer(input, CapturedLevels() ?? levels);
+        }
+
+        if (input.Kind == PointerInputKind.Up)
+        {
+            ProcessPendingPointerCapture(input);
+            levels = CapturedLevels() ?? levels;
+        }
+
+        var hit = levels[^1];
 
         UpdateHover(levels, input);
         _lastPointerPosition = (input.X - input.ScrollX, input.Y - input.ScrollY);
@@ -95,6 +107,8 @@ public sealed partial class DomBridge
 
         if (input.Kind == PointerInputKind.Down)
         {
+            // A button is down: a pointerdown listener can capture the pointer.
+            _pointerButtonsDown = true;
             NotifyUserActivation(GetOwningDocument(hit.Target));
             _keyboardModality = false;
             if (input.Button == 0)
@@ -135,6 +149,11 @@ public sealed partial class DomBridge
         if (!_pressSuppressesMouseEvents)
             FireInputEvent(hit, input, "mouseup", input.ClickCount);
 
+        // The button came up: the capture ends, with its lostpointercapture before the click.
+        _pointerButtonsDown = input.Buttons != 0;
+        if (!_pointerButtonsDown)
+            ReleasePointerCaptureImplicitly(input);
+
         var press = _pressTarget;
         _pressTarget = null;
         _pressSuppressesMouseEvents = false;
@@ -160,7 +179,11 @@ public sealed partial class DomBridge
         // A submit or reset button's activation is the page's: the form is validated, gets its submit
         // event and is submitted, or is reset (DomBridge/FormSubmission.cs). The host performs none of
         // its own for the click.
-        var handled = allowed && FormButtonClickedAt(clickTarget) is { } button && ActivateFormButton(button);
+        // An image button submits where in it it was clicked.
+        var handled = allowed && FormButtonClickedAt(clickTarget) is { } button &&
+                      ActivateFormButton(button, ReferenceEquals(button, clickTarget)
+                          ? ((int)(input.X - clickHit.TargetLeft), (int)(input.Y - clickHit.TargetTop))
+                          : default);
         if (input.ClickCount == 2)
             FireInputEvent(clickHit, input, "dblclick", 2);
 
@@ -625,7 +648,12 @@ public sealed partial class DomBridge
         DomElement? related = null, bool bubbles = true, double movementX = 0, double movementY = 0)
     {
         var realm = Realm;
-        var evt = NewTrustedEvent(realm, type, bubbles, cancelable: bubbles, composed: bubbles, MouseEventPrototype(realm));
+        var isPointerEvent = IsPointerEventType(type);
+
+        // gotpointercapture and lostpointercapture bubble, and are neither cancelable nor composed.
+        var isCaptureEvent = type is "gotpointercapture" or "lostpointercapture";
+        var evt = NewTrustedEvent(realm, type, bubbles, cancelable: bubbles && !isCaptureEvent, composed: bubbles && !isCaptureEvent,
+            isPointerEvent ? PointerEventPrototype(realm) : MouseEventPrototype(realm));
 
         var clientX = input.X - (hit.InFrame ? hit.OriginX : input.ScrollX);
         var clientY = input.Y - (hit.InFrame ? hit.OriginY : input.ScrollY);
@@ -651,7 +679,7 @@ public sealed partial class DomBridge
         var button = type switch
         {
             "pointerdown" or "pointerup" or "mousedown" or "mouseup" or "click" or "dblclick" or "auxclick" => input.Button,
-            _ when type.StartsWith("pointer", StringComparison.Ordinal) => -1,
+            _ when isPointerEvent => -1,
             _ => 0,
         };
         Define(realm, evt, "button", JsValue.Number(button));
@@ -674,10 +702,11 @@ public sealed partial class DomBridge
             });
         });
 
-        if (type.StartsWith("pointer", StringComparison.Ordinal))
+        if (isPointerEvent)
         {
-            // The mouse is pointer 1, the primary pointer, one pixel across, half pressed while a button is down.
-            Define(realm, evt, "pointerId", JsValue.Number(1));
+            // The mouse is pointer 1, the primary pointer, one pixel across, half pressed while a button is
+            // down -- a click too, which Chromium fires as a PointerEvent (measured).
+            Define(realm, evt, "pointerId", JsValue.Number(MousePointerId));
             Define(realm, evt, "pointerType", JsValue.String("mouse"));
             Define(realm, evt, "isPrimary", JsValue.True);
             Define(realm, evt, "width", JsValue.Number(1));

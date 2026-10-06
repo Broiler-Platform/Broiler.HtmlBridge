@@ -242,10 +242,10 @@ public sealed partial class DomBridge
         realm.DefineAccessor(document, "contentType", (in c) => Dom.Features.WindowDocumentMiscBinding.GetContentType(this, in c), null);
 
         // document.URL — returns the document URL
-        realm.DefineAccessor(document, "URL", (in _) => JsValue.String(_pageUrl), null);
+        realm.DefineAccessor(document, "URL", (in _) => JsValue.String(CurrentPageUrl), null);
 
         // document.documentURI — same as document.URL
-        realm.DefineAccessor(document, "documentURI", (in _) => JsValue.String(_pageUrl), null);
+        realm.DefineAccessor(document, "documentURI", (in _) => JsValue.String(CurrentPageUrl), null);
 
         // document.compatMode — "CSS1Compat" for standards mode, "BackCompat" for quirks
         realm.DefineAccessor(document, "compatMode", (in _) => JsValue.String("CSS1Compat"), null);

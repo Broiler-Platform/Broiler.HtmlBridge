@@ -236,11 +236,13 @@ public sealed partial class DomBridge
     /// The exclusions are the specified ones and each is observable: a disabled control submits
     /// nothing, a control with no <c>name</c> submits nothing, an unchecked checkbox or radio submits
     /// nothing (and a checked one with no <c>value</c> submits <c>"on"</c>), and a button — including
-    /// an <c>&lt;input type=submit&gt;</c> — submits only as the submitter, which a
-    /// <c>new FormData(form)</c> has none of. A file input submits nothing because this engine has no
-    /// file selection.
+    /// an <c>&lt;input type=submit&gt;</c> — submits only as <paramref name="submitter"/>, in its place in
+    /// tree order: a button its <c>value</c> or nothing, a submit input its <c>value</c> or its label
+    /// "Submit", an image button <c>name.x</c> and <c>name.y</c> (<c>x</c> and <c>y</c> without a name) at
+    /// <paramref name="imagePoint"/> (Chromium, measured). A file input submits nothing because this engine
+    /// has no file selection; the host adds the files its pickers chose.
     /// </remarks>
-    internal List<KeyValuePair<string, string>> BuildFormEntryList(DomElement form)
+    internal List<KeyValuePair<string, string>> BuildFormEntryList(DomElement form, DomElement? submitter = null, (int X, int Y) imagePoint = default)
     {
         var entries = new List<KeyValuePair<string, string>>();
         foreach (var control in CollectFormControlsIncludingCustom(form))
@@ -256,6 +258,12 @@ public sealed partial class DomBridge
             {
                 if (_elementInternals?.SubmissionEntriesFor(control, name) is { } custom)
                     entries.AddRange(custom);
+                continue;
+            }
+
+            if (ReferenceEquals(control, submitter))
+            {
+                AppendSubmitterEntries(entries, control, name, imagePoint);
                 continue;
             }
 
@@ -283,6 +291,25 @@ public sealed partial class DomBridge
         }
 
         return entries;
+    }
+
+    /// <summary>The submitter's own entries: <c>name.x</c>/<c>name.y</c> for an image button, its name and value otherwise.</summary>
+    private static void AppendSubmitterEntries(List<KeyValuePair<string, string>> entries, DomElement submitter, string name, (int X, int Y) imagePoint)
+    {
+        var isInput = submitter.TagName.Equals("input", StringComparison.OrdinalIgnoreCase);
+        if (isInput && InputTypeOf(submitter) == "image")
+        {
+            var prefix = name.Length > 0 ? name + "." : string.Empty;
+            entries.Add(new(prefix + "x", imagePoint.X.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            entries.Add(new(prefix + "y", imagePoint.Y.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            return;
+        }
+
+        if (name.Length == 0)
+            return;
+
+        // A submit input with no value submits its label, which is "Submit" (Chromium: the UI language's).
+        entries.Add(new(name, TryGetAttribute(submitter, "value", out var value) ? value : isInput ? "Submit" : string.Empty));
     }
 
     private void AppendInputEntry(List<KeyValuePair<string, string>> entries, DomElement input, string name)

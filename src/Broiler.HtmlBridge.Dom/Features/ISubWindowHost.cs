@@ -63,6 +63,12 @@ internal interface ISubWindowHost : IRealmHost, ISubDocumentFactoryHost
     /// </summary>
     ILocationHost FrameLocationHost(DomElement container);
 
+    /// <summary>
+    /// The frame's own <c>History</c>, over <paramref name="url"/>, the URL its Location shows: its
+    /// <c>pushState</c> moves the frame's URL and nothing of the page's.
+    /// </summary>
+    JsValue FrameHistory(DomElement container, DocumentUrl url);
+
     /// <summary>The window of the frame whose script is running, or <see langword="null"/> for the top document's.</summary>
     JsValue? CurrentSubWindow { get; }
 

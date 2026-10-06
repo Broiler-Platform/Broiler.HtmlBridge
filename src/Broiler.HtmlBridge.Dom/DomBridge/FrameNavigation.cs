@@ -107,7 +107,9 @@ public sealed partial class DomBridge
                 bridge.SetTargetFromFragment(document, fragment);
         }
 
-        public void FragmentChanged(string oldUrl, string newUrl) => bridge.FrameFragmentChanged(container, oldUrl, newUrl);
+        public void FragmentChanged(string oldUrl, string newUrl, bool replace) => bridge.FrameFragmentChanged(container, oldUrl, newUrl, replace);
+
+        public bool RunJavaScriptUrl(string url) => bridge.RunJavaScriptUrl(url, container, bridge.CurrentScriptDocumentContext());
     }
 
     /// <summary>Queues the navigation of <paramref name="container"/>'s frame to what <paramref name="request"/> names.</summary>

@@ -484,6 +484,118 @@ public sealed partial class DomBridge
                         options.isComposing === true);
                     return evt;
                 }
+
+                function PointerEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('PointerEvent');
+                    evt.initMouseEvent(
+                        type,
+                        options.bubbles === true,
+                        options.cancelable === true,
+                        options.view !== undefined ? options.view : null,
+                        options.detail !== undefined ? options.detail : 0,
+                        options.screenX !== undefined ? options.screenX : 0,
+                        options.screenY !== undefined ? options.screenY : 0,
+                        options.clientX !== undefined ? options.clientX : 0,
+                        options.clientY !== undefined ? options.clientY : 0,
+                        options.ctrlKey === true,
+                        options.altKey === true,
+                        options.shiftKey === true,
+                        options.metaKey === true,
+                        options.button !== undefined ? options.button : 0,
+                        options.relatedTarget !== undefined ? options.relatedTarget : null);
+                    evt.buttons = options.buttons !== undefined ? Number(options.buttons) : 0;
+                    evt.pointerId = options.pointerId !== undefined ? Number(options.pointerId) : 0;
+                    evt.width = options.width !== undefined ? Number(options.width) : 1;
+                    evt.height = options.height !== undefined ? Number(options.height) : 1;
+                    evt.pressure = options.pressure !== undefined ? Number(options.pressure) : 0;
+                    evt.tangentialPressure = options.tangentialPressure !== undefined ? Number(options.tangentialPressure) : 0;
+                    evt.tiltX = options.tiltX !== undefined ? Number(options.tiltX) : 0;
+                    evt.tiltY = options.tiltY !== undefined ? Number(options.tiltY) : 0;
+                    evt.twist = options.twist !== undefined ? Number(options.twist) : 0;
+                    evt.altitudeAngle = options.altitudeAngle !== undefined ? Number(options.altitudeAngle) : Math.PI / 2;
+                    evt.azimuthAngle = options.azimuthAngle !== undefined ? Number(options.azimuthAngle) : 0;
+                    evt.pointerType = options.pointerType !== undefined ? String(options.pointerType) : '';
+                    evt.isPrimary = options.isPrimary === true;
+                    return evt;
+                }
+
+                function CompositionEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('CompositionEvent');
+                    evt.initUIEvent(
+                        type,
+                        options.bubbles === true,
+                        options.cancelable === true,
+                        options.view !== undefined ? options.view : null,
+                        options.detail !== undefined ? options.detail : 0);
+                    evt.data = options.data !== undefined ? String(options.data) : '';
+                    return evt;
+                }
+
+                function SubmitEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('SubmitEvent');
+                    evt.initEvent(type, options.bubbles === true, options.cancelable === true);
+                    evt.submitter = options.submitter !== undefined ? options.submitter : null;
+                    return evt;
+                }
+
+                function FormDataEvent(type, options) {
+                    if (!options || typeof options.formData !== 'object' || options.formData === null)
+                        throw new TypeError(""Failed to construct 'FormDataEvent': Failed to read the 'formData' property from 'FormDataEventInit': Required member is undefined."");
+                    var evt = document.createEvent('FormDataEvent');
+                    evt.initEvent(type, options.bubbles === true, options.cancelable === true);
+                    evt.formData = options.formData;
+                    return evt;
+                }
+
+                function PopStateEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('PopStateEvent');
+                    evt.initEvent(type, options.bubbles === true, options.cancelable === true);
+                    evt.state = options.state !== undefined ? options.state : null;
+                    evt.hasUAVisualTransition = options.hasUAVisualTransition === true;
+                    return evt;
+                }
+
+                function HashChangeEvent(type, options) {
+                    options = options || {};
+                    var evt = document.createEvent('HashChangeEvent');
+                    evt.initEvent(type, options.bubbles === true, options.cancelable === true);
+                    evt.oldURL = options.oldURL !== undefined ? String(options.oldURL) : '';
+                    evt.newURL = options.newURL !== undefined ? String(options.newURL) : '';
+                    return evt;
+                }
+
+                // The interfaces inherit as they do in a browser, so a MouseEvent is a UIEvent and an
+                // Event to instanceof, and a PointerEvent a MouseEvent.
+                (function () {
+                    function inherit(child, parent) {
+                        child.prototype = Object.create(parent.prototype, {
+                            constructor: { value: child, writable: true, configurable: true }
+                        });
+                    }
+                    inherit(UIEvent, Event);
+                    inherit(CustomEvent, Event);
+                    inherit(MouseEvent, UIEvent);
+                    inherit(FocusEvent, UIEvent);
+                    inherit(KeyboardEvent, UIEvent);
+                    inherit(InputEvent, UIEvent);
+                    inherit(CompositionEvent, UIEvent);
+                    inherit(WheelEvent, MouseEvent);
+                    inherit(PointerEvent, MouseEvent);
+                    inherit(SubmitEvent, Event);
+                    inherit(FormDataEvent, Event);
+                    inherit(PopStateEvent, Event);
+                    inherit(HashChangeEvent, Event);
+                    Object.defineProperty(PointerEvent.prototype, 'getCoalescedEvents', {
+                        value: function getCoalescedEvents() { return []; }, writable: true, configurable: true
+                    });
+                    Object.defineProperty(PointerEvent.prototype, 'getPredictedEvents', {
+                        value: function getPredictedEvents() { return []; }, writable: true, configurable: true
+                    });
+                })();
             ", "polyfill:event-constructors");
         // MutationObserver (constructor/prototype + host bridge functions) is installed by the
         // MutationObserverBinding feature module.

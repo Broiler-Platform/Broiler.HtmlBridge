@@ -69,12 +69,20 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         _jsonStringify = realm.GetProperty(json, "stringify");
         _typeError = realm.GetProperty(realm.Global, "TypeError");
 
+        // What makes each FormData iterable: its entries() as its Symbol.iterator, which only script can name.
+        _formDataIterable = realm.EvaluateHostScript(
+            "(function (formData) { formData[Symbol.iterator] = formData.entries; })", "polyfill:formdata-iterator");
+
         // The response factories the callback cores take as delegates, bound to this realm.
         ResponseFactory createResponse = (body, statusCode, statusText, responseUrl, type, redirected, headers) =>
             CreateResponse(realm, body, statusCode, statusText, responseUrl, type, redirected, headers);
         ResponseInitParser parseResponseInit = init => ParseResponseInit(realm, init);
 
-        var formDataCtor = realm.NewConstructor("FormData", (in call) => CreateFormDataObject(realm, call[0]), 1);
+        var formDataCtor = realm.NewConstructor("FormData", (in call) =>
+            // A form's entry list is the host's to construct: its submitter, its formdata event.
+            _host.FormDataForForm(call[0], call.Length > 1 ? call[1] : JsValue.Undefined) is { IsObject: true } fromForm
+                ? fromForm
+                : CreateFormDataObject(realm, call[0]), 1);
         var headersCtor = realm.NewConstructor("Headers", (in call) => CreateHeadersObject(realm, call[0]), 1);
         var requestCtor = realm.NewConstructor(
             "Request",

@@ -78,7 +78,8 @@ internal sealed class SubWindowBinding(
     [
         // Event constructors.
         "Event", "CustomEvent", "MouseEvent", "FocusEvent", "KeyboardEvent",
-        "WheelEvent", "UIEvent", "MessageChannel",
+        "WheelEvent", "UIEvent", "MessageChannel", "PointerEvent", "InputEvent", "CompositionEvent",
+        "SubmitEvent", "FormDataEvent", "PopStateEvent", "HashChangeEvent",
 
         // Fundamental objects and their namespaces.
         "Object", "Function", "Boolean", "Symbol", "Math", "JSON", "Reflect",
@@ -221,9 +222,12 @@ internal sealed class SubWindowBinding(
         // FrameNavigation). And `location` itself is [PutForwards=href]: `frames[0].location = url`, the
         // commonest way a page drives a frame, assigns the frame's href rather than overwriting the
         // window's property.
-        var locationHref = GetSubWindowLocationHref(containerElement);
-        var iframeLocation = LocationBinding.Build(realm, locationHref, _host.FrameLocationHost(containerElement));
+        var locationUrl = new DocumentUrl(GetSubWindowLocationHref(containerElement));
+        var iframeLocation = LocationBinding.Build(realm, locationUrl, _host.FrameLocationHost(containerElement));
         DefineForwardedLocation(realm, window, iframeLocation);
+
+        // The frame's own History, over the same URL: its pushState moves the frame's URL, not the page's.
+        realm.DefineValue(window, "history", _host.FrameHistory(containerElement, locationUrl));
 
         realm.DefineAccessor(window, "scrollX",
             (in _) => JsValue.Number(GetSubWindowScrollOffset(containerElement, vertical: false)), null);

@@ -225,6 +225,54 @@ public sealed partial class DomBridge
 
     private void QueueFrameAction(Action callback) => _eventLoop.QueueFrameAction(callback);
 
+    /// <summary>
+    /// Where the page's viewport is scrolled to, as its <c>window.scrollX</c> and <c>scrollY</c> say: what a
+    /// host follows when the page scrolls itself -- <c>scrollTo</c>, <c>scrollIntoView</c>, a fragment
+    /// navigation.
+    /// </summary>
+    internal (double X, double Y) ViewportScroll =>
+        DocumentElement is { } root ? (GetElementScrollOffset(root, vertical: false), GetElementScrollOffset(root, vertical: true)) : (0, 0);
+
+    /// <summary>
+    /// The user scrolled the host's view of the page to (<paramref name="x"/>, <paramref name="y"/>): the
+    /// page's viewport follows, clamped to what it can scroll, and the page hears <c>scroll</c> and
+    /// <c>scrollend</c> in a later task -- one pair however many moves come before it, as a browser fires a
+    /// user's scroll in its next frame. Nothing of the page's runs in the call, which a host makes as it
+    /// draws.
+    /// </summary>
+    internal void ScrollViewportTo(double x, double y)
+    {
+        if (_realm is null || DocumentElement is not { } root)
+            return;
+
+        CancelSmoothScroll(root);
+        var (left, top) = ResolveElementScrollOffsets(root, x, y, relative: false, clamp: true);
+        if (AreClose(left, GetElementScrollOffset(root, vertical: false)) && AreClose(top, GetElementScrollOffset(root, vertical: true)))
+            return;
+
+        ScrollStateFor(root).Left.Set(left);
+        ScrollStateFor(root).Top.Set(top);
+        if (_viewportScrollEventQueued)
+            return;
+
+        _viewportScrollEventQueued = true;
+        _eventLoop.QueueTask(() =>
+        {
+            _viewportScrollEventQueued = false;
+            if (_realm is null || DocumentElement is not { } scrolled)
+                return;
+
+            foreach (var type in (ReadOnlySpan<string>)["scroll", "scrollend"])
+            {
+                DispatchElementEvent(scrolled, type);
+                DispatchViewportScrollEventToWindow(scrolled, type);
+            }
+        });
+    }
+
+    // Whether the scroll events of a host's scroll are queued and not fired yet.
+    private bool _viewportScrollEventQueued;
+
     private void CancelSmoothScroll(DomElement element) => _smoothScrollTokens.TryRemove(element, out _);
 
     private void DispatchScrollEventIfNeeded(DomElement element, double previousLeft, double previousTop)

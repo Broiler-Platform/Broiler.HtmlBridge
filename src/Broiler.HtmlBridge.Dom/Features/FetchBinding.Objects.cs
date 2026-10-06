@@ -152,14 +152,26 @@ internal sealed partial class FetchBinding
         return builder.ToString();
     }
 
+    // Makes a FormData iterable; installed with the fetch surface, so it belongs to the realm in use.
+    private JsValue _formDataIterable;
+
+    /// <summary>
+    /// A <c>FormData</c> holding <paramref name="entries"/>, reporting every <c>append</c>, <c>set</c> and
+    /// <c>delete</c> made to it through <paramref name="onEdit"/> -- what a form's submission hands its
+    /// <c>formdata</c> listeners, so what they change can reach the host's entry list.
+    /// </summary>
+    internal JsValue CreateFormData(IJsRealm realm, IEnumerable<KeyValuePair<string, string>> entries, Action<FormDataEdit>? onEdit) =>
+        CreateFormDataObject(realm, default, entries, onEdit);
+
     // A FormData built from a <form> reads that form's entry list through the host, which is what
     // `new FormData(form)` means. It used to enumerate the wrapper's own string properties
     // instead, so it produced the element object's members — tagName, innerHTML and the rest —
     // rather than the form's fields.
-    private JsValue CreateFormDataObject(IJsRealm realm, JsValue initValue = default)
+    private JsValue CreateFormDataObject(IJsRealm realm, JsValue initValue = default,
+        IEnumerable<KeyValuePair<string, string>>? initialEntries = null, Action<FormDataEdit>? onEdit = null)
     {
         var formDataObject = realm.NewObject();
-        var entries = new List<KeyValuePair<string, string>>();
+        var entries = new List<KeyValuePair<string, string>>(initialEntries ?? []);
 
         void AppendEntry(string name, string value)
             => entries.Add(new KeyValuePair<string, string>(name, value));
@@ -192,16 +204,8 @@ internal sealed partial class FetchBinding
         {
             if (initValue.IsObject)
             {
-                if (_host.FormEntriesFor(initValue) is { } formEntries)
-                {
-                    foreach (var entry in formEntries)
-                        AppendEntry(entry.Key, entry.Value);
-                }
-                else
-                {
-                    foreach (var (key, value) in EnumerateObjectStringEntries(realm, initValue))
-                        AppendEntry(key, value);
-                }
+                foreach (var (key, value) in EnumerateObjectStringEntries(realm, initValue))
+                    AppendEntry(key, value);
             }
             else
             {
@@ -221,7 +225,12 @@ internal sealed partial class FetchBinding
         JsValue JsRegistrationAppend084(in JsCall call)
         {
             if (call.Length >= 2)
-                AppendEntry(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+            {
+                var (name, value) = (call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+                AppendEntry(name, value);
+                onEdit?.Invoke(new FormDataEdit(FormDataEditKind.Append, name, value));
+            }
+
             return JsValue.Undefined;
         }
 
@@ -232,6 +241,7 @@ internal sealed partial class FetchBinding
             {
                 var name = call.Realm.ToJsString(call[0]);
                 entries.RemoveAll(entry => string.Equals(entry.Key, name, StringComparison.Ordinal));
+                onEdit?.Invoke(new FormDataEdit(FormDataEditKind.Delete, name));
             }
 
             return JsValue.Undefined;
@@ -292,10 +302,34 @@ internal sealed partial class FetchBinding
         JsValue JsRegistrationSet090(in JsCall call)
         {
             if (call.Length >= 2)
-                SetEntry(call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+            {
+                var (name, value) = (call.Realm.ToJsString(call[0]), call.Realm.ToJsString(call[1]));
+                SetEntry(name, value);
+                onEdit?.Invoke(new FormDataEdit(FormDataEditKind.Set, name, value));
+            }
+
             return JsValue.Undefined;
         }
         realm.DefineMethod(formDataObject, "set", 2, JsRegistrationSet090);
+
+        // entries(), keys(), values() and the iterator: what `for (const [name, value] of formData)`,
+        // Object.fromEntries(formData) and new URLSearchParams(formData) read. They did not exist, so
+        // each of those threw or saw nothing.
+        JsValue Iterate(IJsRealm callRealm, Func<KeyValuePair<string, string>, JsValue> select)
+        {
+            var array = callRealm.NewArray([.. entries.Select(select)]);
+            return callRealm.Invoke(callRealm.GetProperty(array, "values"), array);
+        }
+
+        realm.DefineMethod(formDataObject, "entries", 0, (in call) =>
+        {
+            var callRealm = call.Realm;
+            return Iterate(callRealm, entry => callRealm.NewArray([JsValue.String(entry.Key), JsValue.String(entry.Value)]));
+        });
+        realm.DefineMethod(formDataObject, "keys", 0, (in call) => Iterate(call.Realm, static entry => JsValue.String(entry.Key)));
+        realm.DefineMethod(formDataObject, "values", 0, (in call) => Iterate(call.Realm, static entry => JsValue.String(entry.Value)));
+        if (_formDataIterable.IsFunction)
+            realm.Invoke(_formDataIterable, JsValue.Undefined, [formDataObject]);
         realm.DefineMethod(
             formDataObject,
             "toString",

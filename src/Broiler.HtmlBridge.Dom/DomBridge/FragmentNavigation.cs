@@ -27,45 +27,94 @@ namespace Broiler.HtmlBridge;
 /// none at the page's.
 /// </para>
 /// <para>
-/// <c>history.length</c> stays at one: the bridge keeps no session history, and a count that grew would
-/// tell a page that <c>history.back()</c> -- which does nothing here -- had somewhere to go.
+/// A fragment navigation adds an entry to the document's session history, which <c>location.replace</c>
+/// replaces instead (DomBridge/SessionHistory.cs); a traversal between two entries fires the same two
+/// events, the <c>popstate</c> with the entry's state.
 /// </para>
 /// </remarks>
 public sealed partial class DomBridge
 {
-    // The page's History object, whose state a fragment navigation clears.
-    private JsValue _historyObject;
-
-    /// <summary>The page's fragment changed from <paramref name="oldUrl"/> to <paramref name="newUrl"/>: <c>popstate</c> now, <c>hashchange</c> later.</summary>
-    private void PageFragmentChanged(string oldUrl, string newUrl)
+    /// <summary>
+    /// The page's fragment changed from <paramref name="oldUrl"/> to <paramref name="newUrl"/>: an entry for
+    /// it (or the current one replaced), <c>popstate</c> now, <c>hashchange</c> later.
+    /// </summary>
+    private void PageFragmentChanged(string oldUrl, string newUrl, bool replace)
     {
         if (_realm is null)
             return;
 
-        // The entry a fragment navigation makes carries no state.
-        if (_historyObject.IsObject)
-            Realm.DefineValue(_historyObject, "state", JsValue.Null);
+        if (_pageHistory is { } history)
+            NoteFragmentNavigation(history, newUrl, replace);
 
-        FireFragmentEvent("popstate", () => DispatchWindowEvent(NewPopStateEvent()));
+        // The host scrolls to a fragment it navigated to itself, and tells the page where it is.
+        if (!_hostNavigatingToFragment)
+            ScrollToFragment(_document, FragmentOf(newUrl) ?? string.Empty);
+        FirePageHistoryEvents(JsValue.Null, (oldUrl, newUrl));
+    }
+
+    /// <summary>
+    /// HTML's "scroll to the fragment", as Chromium does it at once (measured): the element the fragment
+    /// names -- by id, or an <c>a</c> by name, as written and then percent-decoded -- to the top of its
+    /// viewport; for an empty fragment, or <c>top</c> naming nothing, the top of the document; for a
+    /// fragment naming nothing, nothing.
+    /// </summary>
+    private void ScrollToFragment(DomDocument document, string fragment)
+    {
+        var name = fragment.TrimStart('#');
+        if ((name.Length == 0 ? null : IndicatedElement(document, name) ?? IndicatedElement(document, DecodeFragment(name))) is { } target)
+        {
+            ScrollElementIntoView(target, block: "start", inline: "nearest", behavior: "instant");
+            return;
+        }
+
+        if ((name.Length == 0 || name.Equals("top", StringComparison.OrdinalIgnoreCase)) &&
+            document.ChildNodes.OfType<DomElement>().FirstOrDefault() is { } root)
+        {
+            SetElementScrollOffsetsWithBehavior(root, 0, 0, behavior: "instant");
+        }
+    }
+
+    /// <summary><c>popstate</c> at the page's window with <paramref name="state"/>, and, for a fragment that changed, <c>hashchange</c> in a later task.</summary>
+    private void FirePageHistoryEvents(JsValue state, (string Old, string New)? hashChange)
+    {
+        FireFragmentEvent("popstate", () => DispatchWindowEvent(NewPopStateEvent(state)));
+        if (hashChange is not { } urls)
+            return;
+
         _eventLoop.QueueTask(() =>
         {
             if (_realm is not null)
-                FireFragmentEvent("hashchange", () => DispatchWindowEvent(NewHashChangeEvent(oldUrl, newUrl)));
+                FireFragmentEvent("hashchange", () => DispatchWindowEvent(NewHashChangeEvent(urls.Old, urls.New)));
         });
     }
 
     /// <summary>
-    /// The fragment of <paramref name="container"/>'s document changed: <c>popstate</c> now and
-    /// <c>hashchange</c> later at the frame's window, as the frame's script -- unless the frame shows
-    /// another document by then.
+    /// The fragment of <paramref name="container"/>'s document changed: an entry in the frame's history,
+    /// <c>popstate</c> now and <c>hashchange</c> later at the frame's window, as the frame's script --
+    /// unless the frame shows another document by then.
     /// </summary>
-    private void FrameFragmentChanged(DomElement container, string oldUrl, string newUrl)
+    private void FrameFragmentChanged(DomElement container, string oldUrl, string newUrl, bool replace)
+    {
+        if (_frameHistories.TryGetValue(container, out var history))
+            NoteFragmentNavigation(history, newUrl, replace);
+        if (GetContentDocument(container) is { } document)
+            ScrollToFragment(document, FragmentOf(newUrl) ?? string.Empty);
+        FireFrameHistoryEvents(container, JsValue.Null, (oldUrl, newUrl));
+    }
+
+    /// <summary><c>popstate</c> at <paramref name="container"/>'s window with <paramref name="state"/>, and <c>hashchange</c> later when the fragment changed.</summary>
+    private void FireFrameHistoryEvents(DomElement container, JsValue state, (string Old, string New)? hashChange)
     {
         if (_realm is null || !_browsingContexts.TryGetSubWindow(container, out var window) || !window.IsObject)
             return;
 
         var document = GetContentDocument(container);
-        FireFragmentEvent("popstate", () => RunWithWindowContext(window, () => _eventDispatch.DispatchEventOnWindow(window, NewPopStateEvent())));
+        FireFragmentEvent("popstate", () => RunWithWindowContext(window, () => _eventDispatch.DispatchEventOnWindow(window, NewPopStateEvent(state))));
+        if (hashChange is not { } urls)
+            return;
+
+        var (oldUrl, newUrl) = urls;
+
         _eventLoop.QueueTask(() =>
         {
             if (_realm is null || !container.IsConnected || !ReferenceEquals(GetContentDocument(container), document) ||
@@ -95,11 +144,11 @@ public sealed partial class DomBridge
         }
     }
 
-    private JsValue NewPopStateEvent()
+    private JsValue NewPopStateEvent(JsValue state)
     {
         var realm = Realm;
         var evt = NewTrustedEvent(realm, "popstate", bubbles: false, cancelable: false, composed: false, InterfacePrototype(realm, "PopStateEvent"));
-        Define(realm, evt, "state", JsValue.Null);
+        Define(realm, evt, "state", state);
         Define(realm, evt, "hasUAVisualTransition", JsValue.False);
         return evt;
     }

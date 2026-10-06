@@ -58,6 +58,15 @@ internal static class LegacyEventBinding
         ["WheelEvent"] = "WheelEvent",
         ["WheelEvents"] = "WheelEvent",
         ["InputEvent"] = "InputEvent",
+
+        // The interfaces the event constructors build on this factory: no page's createEvent names
+        // them in a browser, which refuses them, but the bridge's own constructors do.
+        ["PointerEvent"] = "PointerEvent",
+        ["CompositionEvent"] = "CompositionEvent",
+        ["SubmitEvent"] = "SubmitEvent",
+        ["FormDataEvent"] = "FormDataEvent",
+        ["PopStateEvent"] = "PopStateEvent",
+        ["HashChangeEvent"] = "HashChangeEvent",
     };
 
     public static JsValue Create(in JsCall call)

@@ -57,12 +57,14 @@ internal interface IFetchHost : IPageUrlHost, IRealmHost
     JsValue CreateBlob(byte[] bytes, string contentType);
 
     /// <summary>
-    /// The entry list of a <c>&lt;form&gt;</c> wrapper (HTML §4.10.21.4), or <see langword="null"/>
-    /// when the object is not one. <c>new FormData(form)</c> is the shape a page collects a form's
-    /// values with, and enumerating the wrapper's own properties — which is what it did — produced
-    /// the element's members rather than the form's fields.
+    /// <c>new FormData(form, submitter)</c> for a <c>&lt;form&gt;</c> wrapper (HTML "constructing the entry
+    /// list"): the form's entries, with the submitter's when one is given, in a <c>FormData</c> the
+    /// form's <c>formdata</c> listeners have seen and may have changed; <see cref="JsValue.Missing"/>
+    /// when <paramref name="candidate"/> is not a form. <c>new FormData(form)</c> is the shape a page
+    /// collects a form's values with, and enumerating the wrapper's own properties — which is what it
+    /// did — produced the element's members rather than the form's fields.
     /// </summary>
-    IReadOnlyList<KeyValuePair<string, string>>? FormEntriesFor(JsValue candidate);
+    JsValue FormDataForForm(JsValue candidate, JsValue submitter);
 
     /// <summary>
     /// A real <c>ReadableStream</c> over a body's text, for <c>response.body</c> and

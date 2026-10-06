@@ -408,6 +408,8 @@ public sealed partial class DomBridge : ISubWindowHost
 
     Dom.Features.ILocationHost ISubWindowHost.FrameLocationHost(DomElement container) => FrameLocationHost(container);
 
+    JsValue ISubWindowHost.FrameHistory(DomElement container, Dom.Features.DocumentUrl url) => FrameHistory(container, url);
+
     JsValue? ISubWindowHost.CurrentSubWindow => _windowContext.ResolveCurrentSubWindow();
 
     JsValue ISubWindowHost.PageWindowHandler(string attribute) => PageWindowHandler(attribute);

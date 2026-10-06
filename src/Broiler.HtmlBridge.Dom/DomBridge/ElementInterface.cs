@@ -157,6 +157,9 @@ public sealed partial class DomBridge
 
         Dom.Features.ElementGeometryBinding.InstallElementMembers(this, Realm, target, element);
 
+        // setPointerCapture(), releasePointerCapture() and hasPointerCapture() (DomBridge/PointerCapture.cs).
+        InstallPointerCaptureMembers(target, element);
+
         // Fullscreen's requestFullscreen()/webkitRequestFullscreen(), which the dialog/details/popover
         // module owns because they share its top-layer machinery. The realm's, in this position.
         _dialogs.InstallElementMembers(target, element);

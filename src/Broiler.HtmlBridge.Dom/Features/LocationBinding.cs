@@ -77,45 +77,20 @@ internal static class LocationBinding
     private const string LogContext = "DomBridge.location";
 
     /// <summary>
-    /// The URL of the document in hand, behind <c>href</c> and <c>hash</c>. Mutable because a
-    /// fragment navigation changes this document's URL without loading another one; every other
-    /// navigation leaves it exactly as it was.
-    /// </summary>
-    private sealed class DocumentUrl
-    {
-        internal DocumentUrl(string href)
-        {
-            Href = href;
-            // The fragment of an absolute URL and nothing at all otherwise.
-            Fragment = Uri.TryCreate(href, UriKind.Absolute, out var uri) ? uri.Fragment : string.Empty;
-        }
-
-        internal string Href { get; private set; }
-
-        internal string Fragment { get; private set; }
-
-        internal void MoveToFragment(Uri resolved)
-        {
-            Href = resolved.ToString();
-            Fragment = resolved.Fragment;
-        }
-    }
-
-    /// <summary>
-    /// Builds the Location for a document at <paramref name="href"/>. The components are derived
+    /// Builds the Location for a document at <paramref name="url"/>. The components are derived
     /// from the URL when it is absolute; when it is not, only what can be known is defined.
     /// </summary>
     /// <param name="realm">The realm the Location is built in.</param>
-    /// <param name="href">The URL of the frame's document.</param>
+    /// <param name="url">The URL of the frame's document, which its History moves too.</param>
     /// <param name="host">
     /// The frame's own: a navigation loads another document into the frame, and <c>popstate</c> and
     /// <c>hashchange</c> fire at the frame's window.
     /// </param>
-    internal static JsValue Build(IJsRealm realm, string href, ILocationHost? host = null)
+    internal static JsValue Build(IJsRealm realm, DocumentUrl url, ILocationHost? host = null)
     {
         var location = realm.NewObject();
 
-        if (Uri.TryCreate(href, UriKind.Absolute, out var uri))
+        if (Uri.TryCreate(url.Href, UriKind.Absolute, out var uri))
         {
             Add(realm, location, "protocol", uri.Scheme + ":");
             Add(realm, location, "host", Scripting.Origin.HostOf(uri));
@@ -124,8 +99,9 @@ internal static class LocationBinding
             // default is what `host` omits, and a page testing `location.port === ""` is asking
             // exactly that question.
             Add(realm, location, "port", uri.IsDefaultPort ? string.Empty : uri.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            Add(realm, location, "pathname", uri.AbsolutePath);
-            Add(realm, location, "search", uri.Query);
+            // The path and the query follow the document's URL, which pushState and replaceState move.
+            realm.DefineAccessor(location, "pathname", (in _) => JsValue.String(url.PathName), null);
+            realm.DefineAccessor(location, "search", (in _) => JsValue.String(url.Search), null);
             // `origin` is a getter with no setter, and not configurable: HTML's Location has no way to
             // change it, and messaging and the frame's own code must not see a value its script chose.
             var origin = JsValue.String(Scripting.Origin.Of(uri));
@@ -138,7 +114,7 @@ internal static class LocationBinding
 
         // `hash` is not added here — the navigation surface owns it, because a fragment navigation
         // has to move it and `href` together and a data property cannot be kept in step.
-        AddNavigationSurface(realm, location, href, host);
+        AddNavigationSurface(realm, location, url, host);
         return location;
     }
 
@@ -155,10 +131,8 @@ internal static class LocationBinding
     /// argument before.
     /// </remarks>
     internal static void AddNavigationSurface(
-        IJsRealm realm, JsValue location, string href, ILocationHost? host = null)
+        IJsRealm realm, JsValue location, DocumentUrl url, ILocationHost? host = null)
     {
-        var url = new DocumentUrl(href);
-
         // `href` is the fourth way to ask for a navigation and the one pages reach for most —
         // `location.href = url` is assign(url) with different spelling (HTML §7.10.5: the setter
         // performs "location-object navigate"). It was a plain data property, so the write stuck
@@ -202,7 +176,25 @@ internal static class LocationBinding
 
     private static JsValue Navigate(DocumentUrl url, ILocationHost? host, string method, in JsCall call)
     {
-        NavigateTo(url, host, method, call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
+        var requested = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+
+        // A javascript: URL runs its script in this document rather than loading one, as a task
+        // (HTML "navigate to a javascript: URL"); the host queues and runs it -- for a script of this
+        // document's origin. Another origin's gets the SecurityError Chromium throws (measured).
+        if (requested.TrimStart().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
+        {
+            RenderLogger.LogDebug(LogCategory.JavaScript, LogContext, $"{Spell(method, requested)} runs its script");
+            if (host is not null && !host.RunJavaScriptUrl(requested.Trim()))
+            {
+                var member = method == "href" ? "set a named property 'href' on" : $"execute '{method}' on";
+                throw call.Realm.DomError("SecurityError",
+                    $"Failed to {member} 'Location': The current window does not have permission to navigate the target frame to '{requested}'.");
+            }
+
+            return JsValue.Undefined;
+        }
+
+        NavigateTo(url, host, method, requested);
         return JsValue.Undefined;
     }
 
@@ -232,7 +224,7 @@ internal static class LocationBinding
                 host?.NavigatedToFragment(url.Fragment);
 
                 if (changed)
-                    host?.FragmentChanged(from, url.Href);
+                    host?.FragmentChanged(from, url.Href, replace: method == "replace");
 
                 RenderLogger.LogDebug(LogCategory.JavaScript, LogContext,
                     $"{Spell(method, target)} is a fragment navigation; the document is unchanged and location.hash is now \"{url.Fragment}\"");

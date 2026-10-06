@@ -49,9 +49,11 @@ So the work is split, and the split is the design:
   out; `InteractiveSession.TakePendingNavigation` is where a browser reads it. Following is policy, and
   policy differs: an interactive browser navigates, a capture pinned to one document may not.
 
-A **fragment** navigation never reaches the host. It is same-document — no fetch, just a moved
-`location.hash`, a `popstate` at once and a `hashchange` in a later task — so the binding performs it
-outright.
+A **fragment** navigation never reaches the host as a navigation. It is same-document — no fetch, just a
+moved `location.hash`, a scroll to the element it names, a `popstate` at once and a `hashchange` in a later
+task — so the binding performs it outright; the entry it adds to the session history is reported through
+`InteractiveSession.TakeHistoryChanges`, with `pushState`'s. A **`javascript:`** URL never reaches the host
+either: its script runs in the document, as a task, for a script of the document's own origin only.
 
 ## Reading it at the right moment
 

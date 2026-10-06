@@ -29,8 +29,16 @@ internal interface ILocationHost
 
     /// <summary>
     /// The document's fragment changed, its URL from <paramref name="oldUrl"/> to
-    /// <paramref name="newUrl"/>: the window hears <c>popstate</c> now and <c>hashchange</c> in a later
+    /// <paramref name="newUrl"/>: a history entry is added -- or, for <c>location.replace</c>, the
+    /// current one replaced -- and the window hears <c>popstate</c> now and <c>hashchange</c> in a later
     /// task (HTML §7.4.2.3.3, "navigate to a fragment").
     /// </summary>
-    void FragmentChanged(string oldUrl, string newUrl);
+    void FragmentChanged(string oldUrl, string newUrl, bool replace);
+
+    /// <summary>
+    /// A navigation to <paramref name="url"/>, a <c>javascript:</c> URL: its script runs in this document,
+    /// in a later task, if the document's Content-Security-Policy allows inline script. Answers false,
+    /// running nothing, when the document whose script navigated has another origin, which may not.
+    /// </summary>
+    bool RunJavaScriptUrl(string url);
 }

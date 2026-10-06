@@ -121,7 +121,17 @@ public sealed partial class DomBridge
             return false;
         }
 
-        Realm.SetProperty(_topLocation, "href", JsValue.String(url));
+        // The host has the entry for it already: the page's history adds its own and reports none.
+        _hostNavigatingToFragment = true;
+        try
+        {
+            Realm.SetProperty(_topLocation, "href", JsValue.String(url));
+        }
+        finally
+        {
+            _hostNavigatingToFragment = false;
+        }
+
         return true;
     }
 

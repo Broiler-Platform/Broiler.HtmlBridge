@@ -38,8 +38,11 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
     void Dom.Features.ILocationHost.NavigatedToFragment(string fragment)
         => SetTargetFromFragment(_document, fragment);
 
-    void Dom.Features.ILocationHost.FragmentChanged(string oldUrl, string newUrl)
-        => PageFragmentChanged(oldUrl, newUrl);
+    void Dom.Features.ILocationHost.FragmentChanged(string oldUrl, string newUrl, bool replace)
+        => PageFragmentChanged(oldUrl, newUrl, replace);
+
+    bool Dom.Features.ILocationHost.RunJavaScriptUrl(string url)
+        => RunJavaScriptUrl(url, frame: null, CurrentScriptDocumentContext());
 
     /// <summary>
     /// Records where the page asked to go. Nothing is loaded here — see
@@ -619,21 +622,10 @@ public sealed partial class DomBridge : IWorkerHost
 public sealed partial class DomBridge : IFetchHost
 {
     /// <summary>
-    /// The entry list of a <c>&lt;form&gt;</c> wrapper, or <see langword="null"/> for anything else —
-    /// what <c>new FormData(form)</c> collects.
+    /// <c>new FormData(form, submitter)</c> for a <c>&lt;form&gt;</c> wrapper -- its constructed entry list,
+    /// after its <c>formdata</c> -- or missing for anything else (DomBridge/FormSubmission.cs).
     /// </summary>
-    /// <remarks>
-    /// The <c>IsObject</c> test and the lookup answer the same question now: a handle that is not an
-    /// object is not in the wrapper map either. The test is kept because collapsing the ten redundant
-    /// guards this re-typing left across the assembly is a separate change, not because a primitive
-    /// would reach anything that minds.
-    /// </remarks>
-    IReadOnlyList<KeyValuePair<string, string>>? IFetchHost.FormEntriesFor(JsValue candidate) =>
-        candidate.IsObject &&
-        FindDomNodeByJSObject(candidate) is Broiler.Dom.DomElement element &&
-        string.Equals(element.TagName, "form", StringComparison.OrdinalIgnoreCase)
-            ? BuildFormEntryList(element)
-            : null;
+    JsValue IFetchHost.FormDataForForm(JsValue candidate, JsValue submitter) => FormDataForForm(candidate, submitter);
 
     JsValue IFetchHost.StreamOverText(string text) => _streams.StreamOverText(text);
 

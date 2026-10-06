@@ -5,9 +5,9 @@ namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
 /// The <c>form.submit()</c> action, registered on every element wrapper, co-located as an HtmlBridge
-/// feature module. On a <c>&lt;form&gt;</c> it hands the submission to the host, and does nothing
-/// else: HTML's "submit" run "from the <c>submit()</c> method" fires no <c>submit</c> event and
-/// validates nothing, and a page calls <c>submit()</c> precisely to submit past both.
+/// feature module. On a <c>&lt;form&gt;</c> it submits the form as HTML's "submit" does when run "from
+/// the <c>submit()</c> method": no <c>submit</c> event and no validation -- a page calls <c>submit()</c>
+/// precisely to submit past both -- but the entry list and its <c>formdata</c> event.
 /// <para>
 /// <b>It fired a <c>submit</c> event of its own</b>, so a page's <c>submit</c> listener ran for it
 /// and the one that cancels -- the common "check, then <c>preventDefault()</c>" listener -- stopped a
@@ -32,7 +32,7 @@ internal static class FormSubmitBinding
     public static JsValue Submit(IFormSubmitHost host, DomElement element)
     {
         if (string.Equals(element.TagName, "form", StringComparison.OrdinalIgnoreCase))
-            host.RequestFormSubmission(element);
+            host.SubmitFromSubmitMethod(element);
 
         return JsValue.Undefined;
     }

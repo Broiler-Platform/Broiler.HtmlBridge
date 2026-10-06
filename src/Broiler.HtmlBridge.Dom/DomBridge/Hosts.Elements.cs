@@ -121,11 +121,17 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
         _formState.SetDirtyChecked(element, value);
 }
 
-// Explicit IFormSubmitHost implementation for the FormSubmitBinding feature module: the submission
-// handover is an explicit interface member, so the public surface is unchanged.
+// Explicit IFormSubmitHost implementation for the FormSubmitBinding feature module: form.submit() is an
+// explicit interface member, so the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
 {
-    void Dom.Features.IFormSubmitHost.RequestFormSubmission(DomElement form)
+    void Dom.Features.IFormSubmitHost.SubmitFromSubmitMethod(DomElement form) => SubmitFromSubmitMethod(form);
+
+    /// <summary>
+    /// Asks the host to submit <paramref name="form"/> as <paramref name="submitter"/>, with what its
+    /// <c>formdata</c> listeners did to its entry list (<paramref name="edits"/>).
+    /// </summary>
+    private void RequestFormSubmission(DomElement form, DomElement? submitter, (int X, int Y) imagePoint, IReadOnlyList<FormDataEdit> edits)
     {
         var index = IndexOfForm(form);
         if (index < 0)
@@ -138,17 +144,46 @@ public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
             return;
         }
 
-        var action = ResolveFormAction(form);
+        var action = ResolveFormAction(form, submitter);
         RenderLogger.LogDebug(LogCategory.JavaScript, FormSubmitLogContext,
-            $"form.submit() requested for form {index} to {action}; the host builds the data set and decides whether to follow it");
+            $"A submission of form {index} to {action}; the host builds the data set and decides whether to follow it");
 
         // The form's own document starts a form submission (HTML "submit": the form's node document
         // is the source document), whoever called submit().
         RequestNavigation(new NavigationRequest(action, NavigationKind.FormSubmit)
         {
             FormIndex = index,
+            SubmitterIndex = submitter is null ? -1 : IndexOfButtonOrInput(submitter),
+            SubmitterX = imagePoint.X,
+            SubmitterY = imagePoint.Y,
+            FormDataEdits = edits,
             Initiator = DocumentContextFor(form),
         });
+    }
+
+    /// <summary>
+    /// <paramref name="control"/>'s position among the document's <c>button</c> and <c>input</c> elements in
+    /// document order, or <c>-1</c> when it is not in the document -- how the host finds a submitter in its
+    /// parse of the serialized document, as it finds the form by <see cref="IndexOfForm"/>.
+    /// </summary>
+    private int IndexOfButtonOrInput(DomElement control)
+    {
+        var seen = 0;
+        foreach (var element in _document.InclusiveDescendants().OfType<DomElement>())
+        {
+            if (!element.TagName.Equals("button", StringComparison.OrdinalIgnoreCase) &&
+                !element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (ReferenceEquals(element, control))
+                return seen;
+
+            seen++;
+        }
+
+        return -1;
     }
 
     /// <summary>
@@ -174,16 +209,17 @@ public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
     }
 
     /// <summary>
-    /// The form's <c>action</c> resolved against the document, falling back to the document's own
-    /// URL — which is what an absent or empty <c>action</c> means (HTML §4.10.21.3).
+    /// The submission's action -- the submitter's <c>formaction</c>, else the form's <c>action</c> --
+    /// resolved against the document, falling back to the document's own URL — which is what an absent
+    /// or empty action means (HTML §4.10.21.3).
     /// </summary>
-    private string ResolveFormAction(DomElement form)
+    private string ResolveFormAction(DomElement form, DomElement? submitter = null)
     {
-        var action = form.GetAttribute("action");
+        var action = submitter?.GetAttribute("formaction") ?? form.GetAttribute("action");
         if (string.IsNullOrWhiteSpace(action))
-            return _pageUrl;
+            return CurrentPageUrl;
 
-        return Uri.TryCreate(_pageUrl, UriKind.Absolute, out var baseUri)
+        return Uri.TryCreate(DocumentBaseUrl(), UriKind.Absolute, out var baseUri)
             && Uri.TryCreate(baseUri, action, out var resolved)
                 ? resolved.ToString()
                 : action;
