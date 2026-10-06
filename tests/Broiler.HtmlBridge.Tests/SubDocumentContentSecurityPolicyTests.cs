@@ -238,8 +238,7 @@ public class SubDocumentContentSecurityPolicyTests
 
         public LoopbackOrigin(string body, string contentType, string? contentSecurityPolicy)
         {
-            _listener = new TcpListener(IPAddress.Loopback, 0);
-            _listener.Start();
+            _listener = LoopbackPorts.Start(IPAddress.Loopback);
             var origin = $"http://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}";
             Url = origin + "/frame";
             PageUrl = origin + "/page";

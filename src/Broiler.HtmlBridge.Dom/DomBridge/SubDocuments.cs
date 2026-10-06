@@ -111,6 +111,9 @@ public sealed partial class DomBridge
             RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.FireSubDocumentOnload",
                 $"onload handler error for <{tag}>: {ex.Message}", ex);
         }
+
+        // The frame's window gets its pageshow after the element's load, as in Chromium.
+        FireFramePageShow(element);
     }
 
     /// <summary>
@@ -193,6 +196,9 @@ public sealed partial class DomBridge
         // it did -- never instead of one.
         ContentSecurityPolicy? deliveredPolicy = null;
 
+        // A javascript: URL's document has neither: it is bound by every policy of the document it replaced.
+        ContentSecurityPolicySet? inheritedPolicies = null;
+
         // The frame document's request context (Network.cs): from the container document's, the URL
         // the document actually came from, and the container's sandbox attribute. Recorded against the
         // new document before its scripts run, so they, and the frames it embeds, are attributed to it.
@@ -204,7 +210,25 @@ public sealed partial class DomBridge
             // A frame its location navigated loads that URL, in place of its src or srcdoc, which a
             // navigation leaves as they were.
             var navigated = TryGetFrameNavigation(containerElement, out var navigatedUrl);
-            if (!navigated &&
+            if (navigated && FrameNavigationDocument(containerElement) is { } replacement)
+            {
+                // A javascript: URL's string (DomBridge/JavaScriptUrl.cs): a document at the URL the frame
+                // shows, of the origin it had, bound by the policies of the document it replaced -- HTML
+                // clones that document's policy container (Chromium, measured).
+                // It used to get what its scheme would give its own load: the page's for a local one, and
+                // none for a network one, which let a frame's javascript: URL shed the policy its document
+                // had been delivered.
+                var shown = IsHttpUrl(navigatedUrl);
+                inheritedPolicies = FrameNavigationPolicies(containerElement) ?? new ContentSecurityPolicySet(Csp);
+                _browsingContexts.SetLocation(containerElement, navigatedUrl);
+                _browsingContexts.SetBaseUrl(containerElement, shown ? navigatedUrl : GetInheritedSubDocumentBaseUrl(containerElement));
+                docRoot = BuildSubDocumentFromHtml(replacement, containerElement);
+                frameContext = CreateFrameDocumentContext(containerElement, documentUrl: shown ? navigatedUrl : null);
+                htmlToExecute = replacement;
+                executeHtmlScripts = true;
+            }
+            // A traversal back to a srcdoc frame's first document asks for about:srcdoc, which is its srcdoc again.
+            else if ((!navigated || string.Equals(navigatedUrl, "about:srcdoc", StringComparison.OrdinalIgnoreCase)) &&
                 string.Equals(containerElement.TagName, "iframe", StringComparison.OrdinalIgnoreCase) &&
                 TryGetAttribute(containerElement, "srcdoc", out var srcDoc))
             {
@@ -233,7 +257,8 @@ public sealed partial class DomBridge
                 deliveredPolicy = localScheme ? Csp : null;
 
                 var (fetchedContent, contentType, responsePolicy, documentUrl) =
-                    TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(containerElement), containerElement);
+                    TryFetchSubResource(resourceUrl, GetInheritedSubDocumentBaseUrl(containerElement), containerElement,
+                        navigated ? FrameNavigationBody(containerElement) : null);
 
                 // The frame is where its response came from, not where its src pointed: after a
                 // redirect, location and the base its relative URLs resolve against are the final URL.
@@ -291,6 +316,12 @@ public sealed partial class DomBridge
         if (frameContext is not null || !_frameDocumentContexts.ContainsKey(docRoot))
             SetFrameDocumentContext(docRoot, frameContext ?? CreateFrameDocumentContext(containerElement, documentUrl: null));
 
+        // Its scripts run with the document loading, and it loads once they have (DomBridge/FrameLoad.cs);
+        // the element its URL names is its :target from the start (DomBridge/ElementStates.cs).
+        BeginFrameDocumentLoad(docRoot);
+        if (_browsingContexts.TryGetLocation(containerElement, out var frameLocation))
+            SetTargetFromFragment(docRoot, FragmentOf(frameLocation));
+
         var doc = _subDocuments.Build(docRoot);
         // The frame document's own document.cookie, for its own context: a cross-site frame reads
         // the cookies a third-party context may, and a sandboxed one gets a SecurityError. Looked up
@@ -298,7 +329,9 @@ public sealed partial class DomBridge
         DefineDocumentCookie(doc, () => _frameDocumentContexts.TryGetValue(docRoot, out var context) ? context : null);
         _browsingContexts.SetSubDocument(containerElement, doc);
         if (executeHtmlScripts && !string.IsNullOrEmpty(htmlToExecute))
-            ExecuteSubDocumentScripts(containerElement, htmlToExecute, deliveredPolicy);
+            ExecuteSubDocumentScripts(containerElement, htmlToExecute, deliveredPolicy, inheritedPolicies);
+
+        CompleteFrameDocumentLoad(containerElement, docRoot);
         return doc;
     }
 
@@ -340,10 +373,15 @@ public sealed partial class DomBridge
     /// header carried. It is enforced ALONGSIDE any policy the frame's markup declares, so a
     /// permissive <c>&lt;meta&gt;</c> inside a <c>srcdoc</c> cannot widen what the page allowed.
     /// </param>
+    /// <param name="inheritedPolicies">
+    /// For a <c>javascript:</c> URL's document, the policies of the document it replaced, which it is bound
+    /// by in place of a delivered one, besides any its markup declares.
+    /// </param>
     private void ExecuteSubDocumentScripts(
         DomElement containerElement,
         string html,
-        ContentSecurityPolicy? deliveredPolicy = null)
+        ContentSecurityPolicy? deliveredPolicy = null,
+        ContentSecurityPolicySet? inheritedPolicies = null)
     {
         if (_realm is null || string.IsNullOrWhiteSpace(html))
             return;
@@ -360,13 +398,18 @@ public sealed partial class DomBridge
         // The frame's scripts are fetched as the frame document's, through the profile transport when
         // the bridge has one.
         var frameContext = FrameDocumentContext(containerElement);
-        var extraction = ScriptExtractionService.ExtractAll(
-            html, GetSubDocumentBaseUrl(containerElement), deliveredPolicy, ScriptFetchFor(frameContext));
+        var extraction = inheritedPolicies is { } inherited
+            ? ScriptExtractionService.ExtractAll(html, GetSubDocumentBaseUrl(containerElement), inherited, ScriptFetchFor(frameContext))
+            : ScriptExtractionService.ExtractAll(html, GetSubDocumentBaseUrl(containerElement), deliveredPolicy, ScriptFetchFor(frameContext));
 
         // The same policy set ExtractAll checked the frame's scripts against, kept for the modules the
         // frame asks for once they run: its module roots' imports and its classic scripts' import().
         if (GetContentDocument(containerElement) is { } frameDocument)
-            SetFrameScriptPolicies(frameDocument, new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(html)));
+        {
+            SetFrameScriptPolicies(frameDocument, inheritedPolicies is { } kept
+                ? ContentSecurityPolicySet.Inheriting(kept, ContentSecurityPolicy.FromHtml(html))
+                : new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(html)));
+        }
         if (extraction.Scripts.Count == 0 &&
             extraction.AsyncScripts.Count == 0 &&
             extraction.DeferredScripts.Count == 0 &&
@@ -595,7 +638,8 @@ public sealed partial class DomBridge
     private (string? content, string contentType, ContentSecurityPolicy? policy, string? documentUrl) TryFetchSubResource(
         string resourceUrl,
         string? baseUrl,
-        DomElement container)
+        DomElement container,
+        FrameRequestBody? postBody = null)
     {
         if (string.IsNullOrWhiteSpace(resourceUrl))
             return (null, string.Empty, null, null);
@@ -671,8 +715,11 @@ public sealed partial class DomBridge
         var attempt = ResourceTrace.Begin(ResourceTraceKind.SubDocument, resolvedUrl);
         try
         {
-            using var transportResponse = _resources
-                .GetAsync(resolvedUrl, FrameNavigationRequest(container))
+            // A submission's post sends its body; anything else is a get.
+            using var request = postBody is null ? null : PostRequest(resolvedUrl, postBody);
+            using var transportResponse = (request is null
+                    ? _resources.GetAsync(resolvedUrl, FrameNavigationRequest(container))
+                    : _resources.SendAsync(request, FrameNavigationRequest(container)))
                 .GetAwaiter()
                 .GetResult();
             var response = transportResponse.Message;

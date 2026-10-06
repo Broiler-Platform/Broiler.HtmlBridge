@@ -101,6 +101,18 @@ public sealed partial class DomBridge : IDisposable
         _subWindows.ResetSession();
         ResetInputState();
         ClearFrameNavigations();
+        _pageWindowHandlers.Clear();
+        _frameDocumentLoads.Clear();
+        ResetElementStates();
+        ResetFieldSelections();
+        _composition = null;
+        ResetScriptActivation();
+        ResetFormSubmissionState();
+        ResetPointerCapture();
+        ResetPopovers();
+        ResetInertness();
+        ResetScrollSteps();
+        ResetSessionHistories();
 
         _messaging.ClearPorts();
 
@@ -515,6 +527,25 @@ public sealed partial class DomBridge
                 listener => InvokeEventListener(realm, listener, evt, "DomBridge.window.dispatchEvent"),
                 ref immediateStopped, ref currentListenerPassive,
                 nonCaptureListenersOnly ? false : null);
+        }
+
+        // The page's on… handler, after its listeners, as an element's runs after its own -- onmessage,
+        // onhashchange and the rest ran nothing before (DomBridge/WindowEventHandlers.cs). load's runs
+        // in the load sequence (FireWindowLoadEvent).
+        if (!immediateStopped && eventType != "load" && PageWindowHandler("on" + eventType) is { IsFunction: true } handler)
+        {
+            currentListenerPassive = false;
+            try
+            {
+                var returned = realm.Invoke(handler, window, [evt]);
+                if (returned.IsBoolean && !returned.AsBoolean)
+                    PreventDefault(default);
+            }
+            catch (Exception ex)
+            {
+                RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.window.dispatchEvent",
+                    $"on{eventType} handler error: {ex.Message}", ex);
+            }
         }
 
         realm.SetProperty(evt, "currentTarget", JsValue.Null);

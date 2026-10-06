@@ -125,6 +125,7 @@ public sealed partial class DomBridge
 
         // Per-bridge instance tables — each owns its CopyTo.
         _formState.CopyControlState(source, clone);
+        CopySelectState(source, clone);
         ScrollStateFor(source).CopyTo(ScrollStateFor(clone));
         DialogStateFor(source).CopyTo(DialogStateFor(clone));
         StyleSheetStateFor(source).CopyTo(StyleSheetStateFor(clone));
@@ -236,13 +237,15 @@ public sealed partial class DomBridge
     /// The exclusions are the specified ones and each is observable: a disabled control submits
     /// nothing, a control with no <c>name</c> submits nothing, an unchecked checkbox or radio submits
     /// nothing (and a checked one with no <c>value</c> submits <c>"on"</c>), and a button — including
-    /// an <c>&lt;input type=submit&gt;</c> — submits only as the submitter, which a
-    /// <c>new FormData(form)</c> has none of. A file input submits nothing because this engine has no
-    /// file selection.
+    /// an <c>&lt;input type=submit&gt;</c> — submits only as <paramref name="submitter"/>, in its place in
+    /// tree order: a button its <c>value</c> or nothing, a submit input its <c>value</c> or its label
+    /// "Submit", an image button <c>name.x</c> and <c>name.y</c> (<c>x</c> and <c>y</c> without a name) at
+    /// <paramref name="imagePoint"/> (Chromium, measured). A file input with nothing chosen submits an empty,
+    /// nameless file, as Chromium's does; the files a host's picker chose are the host's to add.
     /// </remarks>
-    internal List<KeyValuePair<string, string>> BuildFormEntryList(DomElement form)
+    internal List<Dom.Features.FormEntry> BuildFormEntryList(DomElement form, DomElement? submitter = null, (int X, int Y) imagePoint = default)
     {
-        var entries = new List<KeyValuePair<string, string>>();
+        var entries = new List<Dom.Features.FormEntry>();
         foreach (var control in CollectFormControlsIncludingCustom(form))
         {
             if (Broiler.Dom.Html.HtmlFormQueries.IsFormControlDisabled(control))
@@ -255,7 +258,13 @@ public sealed partial class DomBridge
             if (_customElements?.IsFormAssociated(control) == true)
             {
                 if (_elementInternals?.SubmissionEntriesFor(control, name) is { } custom)
-                    entries.AddRange(custom);
+                    entries.AddRange(custom.Select(static entry => new Dom.Features.FormEntry(entry.Key, entry.Value)));
+                continue;
+            }
+
+            if (ReferenceEquals(control, submitter))
+            {
+                AppendSubmitterEntries(entries, control, name, imagePoint);
                 continue;
             }
 
@@ -269,7 +278,14 @@ public sealed partial class DomBridge
                     continue;
 
                 case "select":
-                    entries.Add(new(name, _select.GetValue(control)));
+                    // Each selected option that is not disabled, in order: one for a select-one, any
+                    // number for a multiple select (measured: m=a&m=c).
+                    foreach (var option in _select.SelectedOptions(control))
+                    {
+                        if (!Broiler.Dom.Html.HtmlFormQueries.IsFormControlDisabled(option))
+                            entries.Add(new(name, _select.OptionValue(option)));
+                    }
+
                     continue;
 
                 case "textarea":
@@ -285,7 +301,26 @@ public sealed partial class DomBridge
         return entries;
     }
 
-    private void AppendInputEntry(List<KeyValuePair<string, string>> entries, DomElement input, string name)
+    /// <summary>The submitter's own entries: <c>name.x</c>/<c>name.y</c> for an image button, its name and value otherwise.</summary>
+    private static void AppendSubmitterEntries(List<Dom.Features.FormEntry> entries, DomElement submitter, string name, (int X, int Y) imagePoint)
+    {
+        var isInput = submitter.TagName.Equals("input", StringComparison.OrdinalIgnoreCase);
+        if (isInput && InputTypeOf(submitter) == "image")
+        {
+            var prefix = name.Length > 0 ? name + "." : string.Empty;
+            entries.Add(new(prefix + "x", imagePoint.X.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            entries.Add(new(prefix + "y", imagePoint.Y.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            return;
+        }
+
+        if (name.Length == 0)
+            return;
+
+        // A submit input with no value submits its label, which is "Submit" (Chromium: the UI language's).
+        entries.Add(new(name, TryGetAttribute(submitter, "value", out var value) ? value : isInput ? "Submit" : string.Empty));
+    }
+
+    private void AppendInputEntry(List<Dom.Features.FormEntry> entries, DomElement input, string name)
     {
         var type = TryGetAttribute(input, "type", out var declaredType)
             ? AsciiToLower(declaredType)
@@ -293,7 +328,15 @@ public sealed partial class DomBridge
 
         switch (type)
         {
-            case "submit" or "reset" or "button" or "image" or "file":
+            case "submit" or "reset" or "button" or "image":
+                return;
+
+            case "file":
+                var chosen = ChosenFilesOf(input);
+                if (chosen.Count == 0)
+                    entries.Add(new(name, string.Empty, IsFile: true));
+                foreach (var (file, fileObject) in chosen)
+                    entries.Add(new(name, file.Name, IsFile: true) { File = file, FileObject = fileObject });
                 return;
 
             case "checkbox" or "radio":
@@ -343,7 +386,16 @@ public sealed partial class DomBridge
     internal void ResetFormControls(DomElement form)
     {
         _formState.ResetForm(form);
+        foreach (var control in CollectFormControlsIncludingCustom(form))
+        {
+            if (control.TagName.Equals("select", StringComparison.OrdinalIgnoreCase))
+                _select.Reset(control);
+        }
+
         InvalidateStyleScope(form);
+
+        // Nothing of the form has been interacted with or edited any more (DomBridge/ElementStates.cs).
+        ForgetUserValidity(form);
 
         // A form-associated custom element has no dirty flags to clear — its value is whatever it
         // chose to submit — so a reset reaches it as a reaction instead, which is where a component

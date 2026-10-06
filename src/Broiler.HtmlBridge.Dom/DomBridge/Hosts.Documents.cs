@@ -221,6 +221,8 @@ public sealed partial class DomBridge : ISubDocumentHost
     // (DomBridge.cs) as it stands.
     JsValue ISubDocumentHost.MainWindow => WindowHandle;
 
+    string ISubDocumentHost.ReadyStateOf(DomNode docRoot) => docRoot is DomDocument document ? ReadyStateOf(document) : "complete";
+
     JsValue ISubDocumentHost.ActiveElementOf(DomNode docRoot) =>
         docRoot is DomDocument document && ActiveElementOf(document) is { } active ? WrapNode(active) : JsValue.Null;
 
@@ -406,7 +408,13 @@ public sealed partial class DomBridge : ISubWindowHost
 
     Dom.Features.ILocationHost ISubWindowHost.FrameLocationHost(DomElement container) => FrameLocationHost(container);
 
+    JsValue ISubWindowHost.FrameHistory(DomElement container, Dom.Features.DocumentUrl url) => FrameHistory(container, url);
+
     JsValue? ISubWindowHost.CurrentSubWindow => _windowContext.ResolveCurrentSubWindow();
+
+    JsValue ISubWindowHost.PageWindowHandler(string attribute) => PageWindowHandler(attribute);
+
+    void ISubWindowHost.SetPageWindowHandler(string attribute, JsValue value) => SetPageWindowHandler(attribute, value);
 
     DomDocument? ISubWindowHost.GetContentDocument(DomElement container) => GetContentDocument(container);
 
@@ -523,6 +531,8 @@ public sealed partial class DomBridge : Dom.Features.IIframeElementHost
     // last took it.
     void Dom.Features.IIframeElementHost.InvalidateCachedSubDocument(DomElement element)
     {
+        // Another document for the frame: a new entry of the joint history, as a navigation is.
+        NoteFrameNavigation(element, FrameHistoryHandling.Push);
         ForgetFrameNavigation(element);
         InvalidateCachedSubDocument(element);
     }

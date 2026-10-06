@@ -32,11 +32,24 @@ public sealed partial class DomBridge : Dom.Features.ILocationHost
         return pending;
     }
 
-    void Dom.Features.ILocationHost.DispatchWindowEvent(JsValue evt)
-        => DispatchWindowEvent(evt);
-
     void Dom.Features.ILocationHost.RequestNavigation(NavigationRequest request)
         => RequestNavigation(request);
+
+    void Dom.Features.ILocationHost.NavigatedToFragment(string fragment)
+        => SetTargetFromFragment(_document, fragment);
+
+    JsValue Dom.Features.IFetchHost.FormDataEntryValue(IJsRealm realm, JsValue value, string? filename) =>
+        _blobs.AsEntryFile(realm, value, filename) ?? JsValue.String(realm.ToJsString(value));
+
+    JsValue Dom.Features.IFetchHost.EmptyEntryFile(IJsRealm realm) => _blobs.CreateEmptyEntryFile(realm);
+
+    string? Dom.Features.IFetchHost.FileNameOf(JsValue value) => _blobs.FileNameOf(value);
+
+    void Dom.Features.ILocationHost.FragmentChanged(string oldUrl, string newUrl, bool replace)
+        => PageFragmentChanged(oldUrl, newUrl, replace);
+
+    bool Dom.Features.ILocationHost.RunJavaScriptUrl(string url)
+        => RunJavaScriptUrl(url, frame: null, CurrentScriptDocumentContext());
 
     /// <summary>
     /// Records where the page asked to go. Nothing is loaded here — see
@@ -616,21 +629,10 @@ public sealed partial class DomBridge : IWorkerHost
 public sealed partial class DomBridge : IFetchHost
 {
     /// <summary>
-    /// The entry list of a <c>&lt;form&gt;</c> wrapper, or <see langword="null"/> for anything else —
-    /// what <c>new FormData(form)</c> collects.
+    /// <c>new FormData(form, submitter)</c> for a <c>&lt;form&gt;</c> wrapper -- its constructed entry list,
+    /// after its <c>formdata</c> -- or missing for anything else (DomBridge/FormSubmission.cs).
     /// </summary>
-    /// <remarks>
-    /// The <c>IsObject</c> test and the lookup answer the same question now: a handle that is not an
-    /// object is not in the wrapper map either. The test is kept because collapsing the ten redundant
-    /// guards this re-typing left across the assembly is a separate change, not because a primitive
-    /// would reach anything that minds.
-    /// </remarks>
-    IReadOnlyList<KeyValuePair<string, string>>? IFetchHost.FormEntriesFor(JsValue candidate) =>
-        candidate.IsObject &&
-        FindDomNodeByJSObject(candidate) is Broiler.Dom.DomElement element &&
-        string.Equals(element.TagName, "form", StringComparison.OrdinalIgnoreCase)
-            ? BuildFormEntryList(element)
-            : null;
+    JsValue IFetchHost.FormDataForForm(JsValue candidate, JsValue submitter) => FormDataForForm(candidate, submitter);
 
     JsValue IFetchHost.StreamOverText(string text) => _streams.StreamOverText(text);
 
@@ -838,6 +840,9 @@ public sealed partial class DomBridge : IEventDispatchHost
             ? frame
             : null;
     }
+
+    JsValue IEventDispatchHost.WindowEventHandler(JsValue window, string attribute) =>
+        window == WindowHandle ? PageWindowHandler(attribute) : Realm.GetProperty(window, attribute);
 }
 
 // Explicit IEventTargetHost implementation for the EventTargetBinding feature module: the bridge
@@ -851,21 +856,18 @@ public sealed partial class DomBridge : Dom.Features.IEventTargetHost
     Dictionary<string, List<EventListenerRegistration>> Dom.Features.IEventTargetHost.GetEventListeners(DomNode element)
         => GetEventListeners(element);
 
-    // Answers the "not cancelled" boolean the DOM says dispatchEvent returns.
+    // Answers the "not cancelled" boolean the DOM says dispatchEvent returns; a click that is a
+    // MouseEvent activates what it is dispatched at (DomBridge/ScriptActivation.cs).
     JsValue Dom.Features.IEventTargetHost.DispatchEvent(DomNode element, JsValue evt)
-        => JsValue.Boolean(_eventDispatch.DispatchEventOnElement(element, evt).AsBoolean);
+        => JsValue.Boolean(DispatchEventByScript(element, evt));
+
+    void Dom.Features.IEventTargetHost.Click(DomElement element) => ClickByScript(element);
 
     JsValue Dom.Features.IEventTargetHost.WindowWrapper => WindowHandle;
 
     void Dom.Features.IEventTargetHost.FocusElement(DomElement element) => FocusElement(element);
 
     void Dom.Features.IEventTargetHost.BlurElement(DomElement element) => BlurElement(element);
-
-    bool Dom.Features.IEventTargetHost.TryGetFormControlChecked(DomElement element, out bool value)
-        => _formState.TryGetDirtyChecked(element, out value);
-
-    void Dom.Features.IEventTargetHost.SetFormControlChecked(DomElement element, bool value)
-        => _formState.SetDirtyChecked(element, value);
 }
 
 // Explicit IEventHandlerReflectorHost implementation for the EventHandlerReflectorBinding feature module:

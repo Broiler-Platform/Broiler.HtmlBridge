@@ -202,14 +202,15 @@ public sealed partial class DomBridge
         }
 
         if (element.TagName.Equals("select", StringComparison.OrdinalIgnoreCase) &&
-            _formState.TryGetDirtySelectedIndex(element, out var selectedIndex))
+            IsSelectHeld(element))
         {
             // The same walk the select binding selects through, so "which option is the third one"
             // has one answer rather than two that can disagree about nested optgroups.
             var options = Dom.Features.SelectBinding.CollectSelectOptions(element);
-            for (var index = 0; index < options.Count; index++)
+            var selected = _select.Selectedness(element);
+            for (var index = 0; index < options.Count && index < selected.Length; index++)
             {
-                if (index == selectedIndex)
+                if (selected[index])
                     SetAttr(options[index], "selected", string.Empty);
                 else if (HasAttr(options[index], "selected"))
                     RemoveAttr(options[index], "selected");
@@ -586,7 +587,9 @@ public sealed partial class DomBridge
             if (scriptSetSelected is not null && name.Equals("selected", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (_stampUserActionInMarkup && name.Equals(CssUserActionStateMarkup.AttributeName, StringComparison.OrdinalIgnoreCase))
+            if (_stampUserActionInMarkup &&
+                (name.Equals(CssUserActionStateMarkup.AttributeName, StringComparison.OrdinalIgnoreCase) ||
+                 name.Equals(CssElementStateMarkup.AttributeName, StringComparison.OrdinalIgnoreCase)))
                 continue;
 
             yield return new(
@@ -603,14 +606,49 @@ public sealed partial class DomBridge
         // elements as the page's projection does (StampUserActionState); a script's outerHTML does not.
         if (_stampUserActionInMarkup && CssUserActionStateMarkup.Format(UserActionStateOf(element)) is { } userAction)
             yield return new(CssUserActionStateMarkup.AttributeName, userAction);
+        if (_stampUserActionInMarkup && CssElementStateMarkup.Format(ElementStateOf(element)) is { } elementState)
+            yield return new(CssElementStateMarkup.AttributeName, elementState);
+
+        // A frame's top layer: what the page's projection gets from ResolveTopLayerAndAnchorsForRender, the
+        // markup a frame is rendered from carries too -- an open modal dialog or a showing popover there is a
+        // top-layer box of the frame's own, over its backdrop. Anchors in a frame are not resolved.
+        if (_stampUserActionInMarkup && FrameTopLayerStamps(element) is { } topLayer)
+        {
+            yield return new(TopLayerOrderAttr, topLayer.Order);
+            if (topLayer.Backdrop is { } backdrop)
+                yield return new(BackdropBgAttr, backdrop);
+        }
 
         if (scriptSetSelected is true)
             yield return new("selected", string.Empty);
     }
 
     /// <summary>
-    /// Whether a script has decided this option's selectedness, and how — <c>null</c> when it is not
-    /// an option, or when its select carries no index a script chose, in which case the authored
+    /// The top-layer marker and <c>::backdrop</c> background a frame's element is rendered with, as
+    /// <c>InsertDialogBackdrops</c> stamps a page's: for an open modal dialog, a showing popover or a fullscreen
+    /// element; <c>null</c> for anything else.
+    /// </summary>
+    private (string Order, string? Backdrop)? FrameTopLayerStamps(DomElement element)
+    {
+        if (!_dialogRuntimeStates.TryGetValue(element, out var state))
+            return null;
+
+        var modal = state.Modal.TryGet(out var m) && m is true && HasAttr(element, "open");
+        var popover = state.PopoverOpen.TryGet(out var p) && p is true && !PopoverHeldOutOfTopLayerForPaint(element);
+        var fullscreen = state.Fullscreen.TryGet(out var f) && f is true;
+        if (!modal && !popover && !fullscreen)
+            return null;
+
+        var order = TopLayerOrderOf(element).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var declarations = BackdropDeclarationsFor(element);
+        var hidden = declarations.TryGetValue("display", out var display) &&
+                     display.Trim().Equals("none", StringComparison.OrdinalIgnoreCase);
+        return (order, hidden ? null : GetBackdropBackground(element, DefaultBackdropBackground(element, isPopover: popover && !modal)));
+    }
+
+    /// <summary>
+    /// Whether a script or the user has decided this option's selectedness, and how — <c>null</c> when it
+    /// is not an option, or when its select is still as its markup says, in which case the authored
     /// <c>selected</c> attribute is still the answer.
     /// </summary>
     /// <remarks>
@@ -634,13 +672,12 @@ public sealed partial class DomBridge
             }
         }
 
-        if (select is null ||
-            !_formState.TryGetDirtySelectedIndex(select, out var chosen))
-        {
+        if (select is null || !IsSelectHeld(select))
             return null;
-        }
 
-        return Dom.Features.SelectBinding.CollectSelectOptions(select).IndexOf(element) == chosen;
+        var index = Dom.Features.SelectBinding.CollectSelectOptions(select).IndexOf(element);
+        var selected = _select.Selectedness(select);
+        return index >= 0 && index < selected.Length && selected[index];
     }
 
     private string? TrySerializeCurrentSrcDoc(DomElement element, DomElement? sourceElement)

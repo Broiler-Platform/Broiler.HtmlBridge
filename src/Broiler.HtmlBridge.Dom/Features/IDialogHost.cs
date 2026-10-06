@@ -25,15 +25,49 @@ internal interface IDialogHost : IRealmHost, IStyleInvalidationHost
     /// <summary>Whether <paramref name="element"/> currently has the <c>open</c> attribute.</summary>
     bool HasOpenAttribute(DomElement element);
 
+    /// <summary>Whether <paramref name="element"/> is open as a modal dialog.</summary>
+    bool IsDialogModal(DomElement element);
+
+    /// <summary>
+    /// Fires the trusted, non-bubbling <paramref name="type"/> at <paramref name="element"/> -- a
+    /// <c>ToggleEvent</c> carrying <paramref name="oldState"/> and <paramref name="newState"/> when they are
+    /// given -- and answers whether it was not cancelled.
+    /// </summary>
+    bool FireDialogEvent(DomElement element, string type, bool cancelable, string? oldState = null, string? newState = null);
+
+    /// <summary>
+    /// Queues the element's <c>toggle</c> (HTML's toggle task tracker): one queued already is cancelled, its
+    /// old state kept, and the new one goes to the back of the queue.
+    /// </summary>
+    void QueueToggleEvent(DomElement element, string oldState, string newState);
+
+    /// <summary>Whether <paramref name="element"/> is a popover that is showing.</summary>
+    bool IsPopoverShowing(DomElement element);
+
+    /// <summary>Closes the open auto and hint popovers a dialog that is showing is not in, with their events.</summary>
+    void HidePopoversForDialog(DomElement dialog);
+
+    /// <summary>
+    /// The dialog focusing steps, as Chromium takes them (measured): focus to an <c>autofocus</c> element in
+    /// the dialog, else its first focusable one, else the dialog; what had focus is remembered.
+    /// </summary>
+    void RunDialogFocusingSteps(DomElement dialog);
+
+    /// <summary>Gives focus back to what had it before the dialog opened, when focus is in it or it was modal.</summary>
+    void RestoreFocusAfterDialog(DomElement dialog, bool wasModal);
+
+    /// <summary>Queues <paramref name="action"/> for the next animation frame.</summary>
+    void QueueDialogFrameAction(Action action);
+
+    /// <summary>Runs <paramref name="call"/>, a script's call: the events it fires end with no microtask checkpoint.</summary>
+    JsValue RunAsScriptCall(Func<JsValue> call);
+
     /// <summary>Assigns <paramref name="element"/> the next monotonic top-layer order (promotes it
     /// above previously promoted dialogs/popovers).</summary>
     void AssignNextTopLayerOrder(DomElement element);
 
     /// <summary>Sets or clears the dialog's modal flag.</summary>
     void SetDialogModal(DomElement element, bool modal);
-
-    /// <summary>Sets or clears the element's popover-open flag.</summary>
-    void SetPopoverOpen(DomElement element, bool open);
 
     /// <summary>
     /// Sets or clears the element's fullscreen flag (Fullscreen §
@@ -58,22 +92,12 @@ internal interface IDialogHost : IRealmHost, IStyleInvalidationHost
     /// <summary>Sets the dialog's <c>returnValue</c>.</summary>
     void SetReturnValue(DomElement element, string value);
 
-    /// <summary>Whether a hiding popover must stay in the top layer (mid-transition overlay per
-    /// CSS Position §overlay) — a renderer decision.</summary>
-    bool PopoverKeepsOverlayOnHide(DomElement element);
-
     /// <summary>Whether a closing dialog must stay in the top layer because its <c>overlay</c> is
-    /// transitioned with <c>allow-discrete</c> — the dialog counterpart of
-    /// <see cref="PopoverKeepsOverlayOnHide"/> (CSS Position §overlay).</summary>
+    /// transitioned with <c>allow-discrete</c>, as a hiding popover does (CSS Position §overlay).</summary>
     bool DialogKeepsOverlayOnClose(DomElement element);
 
     /// <summary>Whether a closing dialog must keep generating a box because its <c>display</c> is
     /// transitioned with <c>allow-discrete</c>, so the UA sheet's
     /// <c>dialog:not([open]) { display: none }</c> must not take effect yet.</summary>
     bool DialogKeepsDisplayOnClose(DomElement element);
-
-    /// <summary>Records that <c>hidePopover()</c> left the element in the top layer because its
-    /// <c>overlay</c> is transitioning out, so the show-time "held out of the top layer while
-    /// <c>overlay</c> transitions in" rule does not misfire on it (CSS Position §overlay).</summary>
-    void MarkPopoverOverlayTransitioningOut(DomElement element);
 }

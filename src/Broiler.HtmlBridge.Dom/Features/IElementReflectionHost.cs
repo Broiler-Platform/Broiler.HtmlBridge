@@ -9,4 +9,12 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </summary>
 internal interface IElementReflectionHost : IPageUrlHost
 {
+    /// <summary>
+    /// The document's base URL now: its <c>&lt;base href&gt;</c>, or its URL -- which pushState and a
+    /// fragment navigation move -- when it has none.
+    /// </summary>
+    string DocumentBaseUrl { get; }
+
+    /// <summary>The document's URL now, which a <c>&lt;base&gt;</c>'s own <c>href</c> resolves against.</summary>
+    string DocumentUrl { get; }
 }

@@ -157,6 +157,195 @@ public sealed class InteractiveSession : IDisposable
     /// </summary>
     public long FocusVersion => _disposed || _bridge is not DomBridge bridge ? 0 : bridge.FocusVersion;
 
+    /// <summary>
+    /// Delivers the selection the host's editor holds in the focused text field after the user changed
+    /// it: the page's <c>selectionStart</c>, <c>selectionEnd</c> and <c>selectionDirection</c> follow, a
+    /// trusted <c>select</c> fires when it selects something new, and a <c>selectionchange</c> follows.
+    /// </summary>
+    public KeyboardInputResult DispatchSelection(FieldSelectionInput input) =>
+        DispatchToBridge(bridge => bridge.DispatchFieldSelection(input));
+
+    /// <summary>
+    /// Delivers a step of an input method's composition in the focused text field: <c>compositionstart</c>,
+    /// <c>compositionupdate</c> and <c>compositionend</c>, with the field holding the text being composed
+    /// through <c>beforeinput</c> and <c>input</c> of type <c>insertCompositionText</c>. Keys pressed while
+    /// composing have <c>isComposing</c>.
+    /// </summary>
+    public KeyboardInputResult DispatchComposition(CompositionInput input) =>
+        DispatchToBridge(bridge => bridge.DispatchComposition(input));
+
+    /// <summary>
+    /// A number that changes whenever a script changes a text field's value or selection, so that a host
+    /// editing the focused field with an editor of its own reads <see cref="FocusedTextField"/> again and
+    /// follows what the page did to it -- a mask that reformatted the value, a caret put back.
+    /// </summary>
+    public long FieldVersion => _disposed || _bridge is not DomBridge bridge ? 0 : bridge.FieldVersion;
+
+    /// <summary>
+    /// Moves the page to a fragment of itself, as following a link into the page does: the page's
+    /// <c>location</c> moves to <paramref name="url"/>, the element its fragment names becomes the page's
+    /// <c>:target</c>, and when the fragment changed <c>popstate</c> fires at once and <c>hashchange</c> as
+    /// a task the host's next steps run. A host calls it for a link
+    /// into the page the user followed, and for going back or forward between two such places. Answers
+    /// <see langword="false"/>, doing nothing, for a URL that is not the page's own with a fragment.
+    /// </summary>
+    public bool NavigateToFragment(string url)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var moved = bridge.NavigateToFragment(url);
+        _microTasks.Drain();
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return moved;
+    }
+
+    /// <summary>
+    /// Where the page's viewport is scrolled to, as its <c>window.scrollX</c> and <c>scrollY</c> say. A host
+    /// compares it with what it last saw, and follows the page when it scrolled itself -- <c>scrollTo</c>,
+    /// <c>scrollIntoView</c>, a fragment navigation.
+    /// </summary>
+    public (double X, double Y) ViewportScroll => _disposed || _bridge is not DomBridge bridge ? (0, 0) : bridge.ViewportScroll;
+
+    /// <summary>
+    /// The user scrolled the host's view of the page: the page's viewport moves with it, clamped to what the
+    /// page can scroll, and the page hears <c>scroll</c> as a task the host's next steps run -- nothing of the
+    /// page's runs in the call, so a host may make it as it draws. Read <see cref="ViewportScroll"/> back for
+    /// where it went.
+    /// </summary>
+    public void ScrollViewportTo(double x, double y)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return;
+
+        bridge.ScrollViewportTo(x, y);
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+    }
+
+    /// <summary>
+    /// What the page's session history did since the host last asked, oldest first: the entries its
+    /// <c>pushState</c>, <c>replaceState</c> and fragment navigations added or replaced, its traversals
+    /// among them, and a traversal to another document's entry the host is to make. A host keeping the
+    /// window's history applies them to it, so its back and forward go through the page's entries.
+    /// </summary>
+    public IReadOnlyList<HistoryChange> TakeHistoryChanges() =>
+        _disposed || _bridge is not DomBridge bridge ? [] : bridge.TakeHistoryChanges();
+
+    /// <summary>
+    /// Tells the page how many entries of the window's history come before and after its own, which
+    /// <c>history.length</c> counts and <c>history.back()</c> and <c>forward()</c> may reach.
+    /// </summary>
+    public void SetSessionHistory(int before, int after)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is DomBridge bridge)
+            bridge.SetSessionHistory(before, after);
+    }
+
+    /// <summary>
+    /// The host's back or forward by <paramref name="delta"/> entries, to one of the page's own: the page
+    /// moves to it -- its URL and state -- and hears <c>popstate</c>, and <c>hashchange</c> as a task when
+    /// the fragment changed. Answers <see langword="false"/>, doing nothing, for another document's entry,
+    /// which the host loads.
+    /// </summary>
+    public bool TraverseHistory(int delta)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var moved = bridge.TraverseHistory(delta);
+        _microTasks.Drain();
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return moved;
+    }
+
+    /// <summary>
+    /// A link to a <c>javascript:</c> URL the user followed: its script runs in the page, as a task the
+    /// host's next steps run, if the page's Content-Security-Policy allows inline script. Answers whether
+    /// <paramref name="url"/> was one.
+    /// </summary>
+    public bool RunJavaScriptUrl(string url)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var queued = bridge.RunJavaScriptUrl(url, frame: null, initiator: null);
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return queued;
+    }
+
+    /// <summary>
+    /// The user chose the option <paramref name="optionIndex"/> of the page's select
+    /// <paramref name="selectIndex"/> -- both counted in tree order -- in a control the host draws for it:
+    /// the page's select takes the choice and hears <c>input</c> and <c>change</c>, as a user's. Answers
+    /// whether the selection changed.
+    /// </summary>
+    public bool SelectOptionByUser(int selectIndex, int optionIndex)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var changed = bridge.SelectOptionByUser(selectIndex, optionIndex);
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return changed;
+    }
+
+    /// <summary>
+    /// The user chose exactly the options <paramref name="optionIndexes"/> of the page's select
+    /// <paramref name="selectIndex"/> -- a multiple select's whole selection, counted in tree order -- in a
+    /// control the host draws for it: the page's select takes them and hears <c>input</c> and <c>change</c>,
+    /// as a user's. Answers whether the selection changed.
+    /// </summary>
+    public bool SelectOptionsByUser(int selectIndex, IReadOnlyCollection<int> optionIndexes)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(optionIndexes);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var changed = bridge.SelectOptionsByUser(selectIndex, optionIndexes);
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return changed;
+    }
+
+    /// <summary>
+    /// The user chose <paramref name="files"/> in the host's picker for the page's file input
+    /// <paramref name="fileInputIndex"/>, counted in tree order among the page's file inputs: <c>input.files</c>
+    /// lists them, a <c>FormData</c> and the bridge's own submissions carry them, and the input hears
+    /// <c>input</c> and <c>change</c>. Answers whether the choice changed what the input held.
+    /// </summary>
+    public bool SetFilesByUser(int fileInputIndex, IReadOnlyList<ChosenFile> files)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(files);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var changed = bridge.SetFilesByUser(fileInputIndex, files);
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return changed;
+    }
+
+    /// <summary>
+    /// The user closed the host's picker for the page's file input <paramref name="fileInputIndex"/> without
+    /// choosing: the input hears <c>cancel</c>. Answers whether there was such an input to hear it.
+    /// </summary>
+    public bool CancelFilePickByUser(int fileInputIndex)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_bridge is not DomBridge bridge)
+            return false;
+
+        var heard = bridge.CancelFilePickByUser(fileInputIndex);
+        _horizonMs = Math.Max(_horizonMs, bridge.VirtualNowMs + DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs);
+        return heard;
+    }
+
     private KeyboardInputResult DispatchToBridge(Func<DomBridge, KeyboardInputResult> dispatch)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

@@ -163,6 +163,21 @@ public sealed partial class DomBridge
         return !string.Equals(value.Trim(), "auto", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// What the renderer cannot know of an open popover's geometry. HTML's user-agent rule
+    /// <c>[popover] { position: fixed; inset: 0; width: fit-content; height: fit-content; margin: auto }</c> is the
+    /// renderer's (Broiler.HTML CssDefaults), so an author's own insets and margins combine with it as they do in
+    /// Chromium: a popover is centred in the viewport, and one an author gives only a <c>top</c> and a <c>left</c>
+    /// is centred in what remains (measured). This used to write
+    /// <c>top: 0; left: 0</c> here instead, which drew every popover at the viewport's top-left corner.
+    /// </summary>
+    /// <remarks>
+    /// Left for the bridge: the <c>position</c> its own anchor resolution reads -- the UA's <c>fixed</c>, or
+    /// <c>absolute</c> for an author's <c>static</c>, <c>relative</c> or <c>sticky</c>, which a box in the top
+    /// layer computes to (CSS Position 4, measured) -- and, for a popover placed by <c>position-area</c>, margins
+    /// of 0 where the author gave none: Chromium uses 0 for the auto ones there, and the area's box, which the
+    /// anchor resolution writes out in pixels, would otherwise be centred between the UA's insets.
+    /// </remarks>
     private void ApplyPopoverUAPositioning(IEnumerable<DomElement> elements)
     {
         foreach (var el in elements)
@@ -171,16 +186,23 @@ public sealed partial class DomBridge
                 continue;
 
             var props = GetComputedProps(el);
-            bool alreadyPositioned = props.TryGetValue("position", out var pos) &&
-                (pos == "fixed" || pos == "absolute");
+            var position = props.TryGetValue("position", out var pos) ? pos.Trim().ToLowerInvariant() : string.Empty;
+            if (position is not ("fixed" or "absolute"))
+                BakedInlineStyle(el)["position"] = position.Length == 0 ? "fixed" : "absolute";
 
-            if (!alreadyPositioned)
+            if (props.TryGetValue("position-area", out var area) && !string.IsNullOrWhiteSpace(area) &&
+                !area.Trim().Equals("none", StringComparison.OrdinalIgnoreCase))
             {
-                BakedInlineStyle(el)["position"] = "fixed";
-                if (!BakedInlineStyle(el).ContainsKey("top") && !props.ContainsKey("top"))
-                    BakedInlineStyle(el)["top"] = "0";
-                if (!BakedInlineStyle(el).ContainsKey("left") && !props.ContainsKey("left"))
-                    BakedInlineStyle(el)["left"] = "0";
+                var specified = BuildSpecifiedStyleMap(el);
+                foreach (var (side, logical) in PopoverMarginSides)
+                {
+                    if (!specified.ContainsKey("margin") && !specified.ContainsKey("margin-" + side) &&
+                        !specified.ContainsKey(logical) && !specified.ContainsKey(logical + "-start") &&
+                        !specified.ContainsKey(logical + "-end") && !BakedInlineStyle(el).ContainsKey("margin-" + side))
+                    {
+                        BakedInlineStyle(el)["margin-" + side] = "0";
+                    }
+                }
             }
 
             // An open popover whose `overlay` is still transitioning in at screenshot time is out of
@@ -206,6 +228,12 @@ public sealed partial class DomBridge
                 BakedInlineStyle(el)["z-index"] = (TopLayerZIndexBase + order).ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
     }
+    // Each physical margin of a popover, and the logical shorthand that also sets it in a horizontal writing mode.
+    private static readonly (string Side, string Logical)[] PopoverMarginSides =
+    [
+        ("top", "margin-block"), ("right", "margin-inline"), ("bottom", "margin-block"), ("left", "margin-inline"),
+    ];
+
     // -----------------------------------------------------------------
     // Dialog backdrop insertion
     // -----------------------------------------------------------------
@@ -216,10 +244,16 @@ public sealed partial class DomBridge
     /// (Fullscreen §user-agent level style sheet defaults), the dimming scrim behind a modal
     /// dialog, and nothing behind a popover.
     /// </summary>
+    /// <remarks>
+    /// The scrim is HTML's and Chromium's <c>rgba(0, 0, 0, 0.1)</c> (measured). It was that colour composited
+    /// over white, <c>rgb(229, 229, 229)</c>, which is right for a
+    /// white WPT reference page and nothing else: in the window it covered the page behind a modal
+    /// dialog with grey, where Chromium dims it.
+    /// </remarks>
     private string DefaultBackdropBackground(DomElement element, bool isPopover) =>
         DialogStateFor(element).Fullscreen.TryGet(out var fs) && fs is true
             ? "black"
-            : isPopover ? "transparent" : "rgb(229, 229, 229)";
+            : isPopover ? "transparent" : "rgba(0, 0, 0, 0.1)";
 
     private void InsertDialogBackdrops(
         DomElement root, int vpW, int vpH,
@@ -369,11 +403,10 @@ public sealed partial class DomBridge
         return merged;
     }
 
-    private string GetBackdropBackground(DomElement dialog, string defaultBg = "rgb(229, 229, 229)")
+    private string GetBackdropBackground(DomElement dialog, string defaultBg = "rgba(0, 0, 0, 0.1)")
     {
-        // Default modal-dialog backdrop color: pre-composited rgba(0,0,0,0.1) over
-        // white (255*(1-0.1) + 0*0.1 = 229.5 ≈ 229). Callers pass "transparent"
-        // for popovers, whose ::backdrop has no UA scrim.
+        // Default modal-dialog backdrop color: the UA scrim (DefaultBackdropBackground). Callers pass
+        // "transparent" for popovers, whose ::backdrop has no UA scrim.
 
         var declarations = BackdropDeclarationsFor(dialog);
 

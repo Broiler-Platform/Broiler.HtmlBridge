@@ -66,7 +66,7 @@ public sealed partial class DomBridge
         {
             var hits = new List<DomElement>();
             CollectHitTestMatches(documentElement, x, y, hits);
-            return hits;
+            return InPaintOrder(documentElement, hits);
         });
     }
 

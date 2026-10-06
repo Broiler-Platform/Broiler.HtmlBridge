@@ -78,7 +78,8 @@ internal sealed class SubWindowBinding(
     [
         // Event constructors.
         "Event", "CustomEvent", "MouseEvent", "FocusEvent", "KeyboardEvent",
-        "WheelEvent", "UIEvent", "MessageChannel",
+        "WheelEvent", "UIEvent", "MessageChannel", "PointerEvent", "InputEvent", "CompositionEvent",
+        "SubmitEvent", "FormDataEvent", "PopStateEvent", "HashChangeEvent", "ToggleEvent",
 
         // Fundamental objects and their namespaces.
         "Object", "Function", "Boolean", "Symbol", "Math", "JSON", "Reflect",
@@ -221,9 +222,12 @@ internal sealed class SubWindowBinding(
         // FrameNavigation). And `location` itself is [PutForwards=href]: `frames[0].location = url`, the
         // commonest way a page drives a frame, assigns the frame's href rather than overwriting the
         // window's property.
-        var locationHref = GetSubWindowLocationHref(containerElement);
-        var iframeLocation = LocationBinding.Build(realm, locationHref, _host.FrameLocationHost(containerElement));
+        var locationUrl = new DocumentUrl(GetSubWindowLocationHref(containerElement));
+        var iframeLocation = LocationBinding.Build(realm, locationUrl, _host.FrameLocationHost(containerElement));
         DefineForwardedLocation(realm, window, iframeLocation);
+
+        // The frame's own History, over the same URL: its pushState moves the frame's URL, not the page's.
+        realm.DefineValue(window, "history", _host.FrameHistory(containerElement, locationUrl));
 
         realm.DefineAccessor(window, "scrollX",
             (in _) => JsValue.Number(GetSubWindowScrollOffset(containerElement, vertical: false)), null);
@@ -725,6 +729,8 @@ internal sealed class SubWindowBinding(
             "name" => JsValue.String(_browsingContexts.TopName),
             "postMessage" => _host.TopPostMessage,
             "frameElement" => JsValue.Null,
+            // The page's onload, onmessage, …: the global's answer for the frame's script is the frame's.
+            var handler when DomBridge.IsWindowEventHandlerName(handler) => _host.PageWindowHandler(handler),
             _ => view,
         }, 1);
 
@@ -739,6 +745,9 @@ internal sealed class SubWindowBinding(
                 case "name":
                     _browsingContexts.TopName = call.Realm.ToJsString(call[1]);
                     break;
+                case var handler when DomBridge.IsWindowEventHandlerName(handler):
+                    _host.SetPageWindowHandler(handler, call[1]);
+                    break;
             }
 
             // The others are the window itself, its document and its postMessage, which an
@@ -746,9 +755,11 @@ internal sealed class SubWindowBinding(
             return JsValue.Undefined;
         }, 2);
 
-        var names = new JsValue[TopWindowOwnMembers.Length];
-        for (var i = 0; i < names.Length; i++)
+        var names = new JsValue[TopWindowOwnMembers.Length + DomBridge.WindowEventHandlerNames.Length];
+        for (var i = 0; i < TopWindowOwnMembers.Length; i++)
             names[i] = JsValue.String(TopWindowOwnMembers[i]);
+        for (var i = 0; i < DomBridge.WindowEventHandlerNames.Length; i++)
+            names[TopWindowOwnMembers.Length + i] = JsValue.String(DomBridge.WindowEventHandlerNames[i]);
 
         view = TopWindowView.Build(realm, _host.MainWindow, realm.NewArray(names), lookup, assign);
         _sameOriginTopView = view;

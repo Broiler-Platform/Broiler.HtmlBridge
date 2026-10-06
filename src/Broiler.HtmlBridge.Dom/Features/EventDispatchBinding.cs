@@ -179,7 +179,13 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
     /// whose path is the window alone: its capture listeners, then the rest and its <c>on…</c>
     /// handler. Answers whether it was not cancelled.
     /// </summary>
-    internal JsValue DispatchEventOnWindow(JsValue window, JsValue evt)
+    /// <param name="window">The window.</param>
+    /// <param name="evt">The event.</param>
+    /// <param name="targetOverride">
+    /// What the event names as its target in place of the window: the document, for the <c>load</c> and
+    /// <c>pageshow</c> HTML fires with the legacy target override.
+    /// </param>
+    internal JsValue DispatchEventOnWindow(JsValue window, JsValue evt, JsValue targetOverride = default)
     {
         var realm = _host.Realm;
         var typeVal = realm.GetProperty(evt, "type");
@@ -191,8 +197,9 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
         var currentListenerPassive = false;
         var legacyCancelBubble = false;
 
-        realm.SetProperty(evt, "target", window);
-        realm.SetProperty(evt, "srcElement", window);
+        var target = targetOverride.IsObject ? targetOverride : window;
+        realm.SetProperty(evt, "target", target);
+        realm.SetProperty(evt, "srcElement", target);
         realm.DefineMethod(evt, "stopPropagation", (in _) => EventStopPropagation(ref legacyCancelBubble, ref stopped));
         realm.DefineMethod(evt, "stopImmediatePropagation",
             (in _) => EventStopImmediatePropagation(ref immediateStopped, ref legacyCancelBubble, ref stopped));
@@ -257,7 +264,7 @@ internal sealed class EventDispatchBinding(IEventDispatchHost host)
 
         if (!immediateStopped && !capturePhase)
         {
-            var handler = _host.Realm.GetProperty(window, "on" + eventType);
+            var handler = _host.WindowEventHandler(window, "on" + eventType);
             FireInlineHandler(handler.IsFunction ? handler : JsValue.Missing, evt, ref currentListenerPassive, ref prevented);
         }
     }

@@ -36,6 +36,12 @@ internal interface IFormControlHost : IRealmHost, IStyleInvalidationHost
     /// <summary>Resolves the <c>&lt;select&gt;</c> element's current value (delegates to SelectBinding).</summary>
     string GetSelectValue(DomElement element);
 
+    /// <summary>A file input's <c>value</c>: <c>C:\fakepath\</c> and the first chosen file's name, or empty.</summary>
+    string GetFileInputValue(DomElement element);
+
+    /// <summary>Sets a file input's <c>value</c>: the empty string clears the chosen files; anything else throws.</summary>
+    void SetFileInputValue(DomElement element, string value, IJsRealm realm);
+
     /// <summary>Sets the <c>&lt;select&gt;</c> element's value (delegates to SelectBinding).</summary>
     void SetSelectValue(DomElement element, string value);
 

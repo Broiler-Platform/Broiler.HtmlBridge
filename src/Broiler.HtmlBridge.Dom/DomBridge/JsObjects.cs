@@ -64,10 +64,15 @@ public sealed partial class DomBridge
         // on this same object. The lookup itself is FormNamedControls, an IJsExotic the realm consults
         // after ordinary properties — the same handler form.elements uses, so the two cannot answer a
         // name differently.
+        //
+        // A <select> gets one that answers its indices -- `select[i]` is its i-th option, and
+        // `select[i] = option` HTMLSelectElement's indexed setter (SelectBinding.Indices).
         var handle = node is DomElement formElement &&
                      string.Equals(formElement.TagName, "form", StringComparison.OrdinalIgnoreCase)
             ? Realm.NewExotic(new Dom.Features.FormNamedControls(formElement, this, missingIsNull: false))
-            : Realm.NewObject();
+            : node is DomElement selectElement && Dom.Features.SelectBinding.IsHtmlSelect(selectElement)
+                ? Realm.NewExotic(_select.Indices(selectElement))
+                : Realm.NewObject();
 
         _jsObjects.Set(node, handle);
 
@@ -226,18 +231,26 @@ public sealed partial class DomBridge
         // HTMLElement's, hidden and tabIndex, are on its prototype.
         _formControl.Install(handle, element);
 
-        // checkValidity() — form validation; FormBinding owns the validity check.
-        Realm.DefineMethod(handle, "checkValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element)));
+        // checkValidity() and reportValidity() -- constraint validation on the live value, with the
+        // invalid events a browser fires (DomBridge/FormSubmission.cs).
+        Realm.DefineMethod(handle, "checkValidity", (in _) => JsValue.Boolean(RunAsScriptCall(() => CheckValidity(element))));
+        Realm.DefineMethod(handle, "reportValidity", (in _) => JsValue.Boolean(RunAsScriptCall(() => ReportValidity(element))));
 
-        // reportValidity() — form validation
-        Realm.DefineMethod(handle, "reportValidity", (in _) => JsValue.Boolean(_forms.IsElementValid(element)));
+        // selectionStart, setSelectionRange(), select(), setRangeText() -- an input's or a text area's
+        // selection (DomBridge/FieldSelection.cs).
+        if (element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase) ||
+            element.TagName.Equals("textarea", StringComparison.OrdinalIgnoreCase))
+            InstallFieldSelection(handle, element);
+
+        // requestSubmit(submitter) -- a form's submission as a submit button would ask for it: validated,
+        // with its submit event (DomBridge/FormSubmission.cs).
+        if (element.TagName.Equals("form", StringComparison.OrdinalIgnoreCase))
+            Realm.DefineMethod(handle, "requestSubmit", 0, (in call) => RequestSubmit(element, in call));
 
         // submit() — for form elements (the co-located FormSubmitBinding feature module, reached
-        // through IFormSubmitHost; DomBridge/Hosts.Elements.cs). The method is minted by the realm —
-        // which is what gives its body a call frame to build the synthetic event in — and it is handed
-        // this wrapper's handle, which becomes the event's target.
+        // through IFormSubmitHost; DomBridge/Hosts.Elements.cs): the submission, with no submit event.
         Realm.DefineMethod(handle, "submit",
-            (in call) => Dom.Features.FormSubmitBinding.Submit(this, element, handle, in call));
+            (in _) => Dom.Features.FormSubmitBinding.Submit(this, element));
 
         // getContext(contextType) — for <canvas> elements, in the co-located CanvasBinding feature
         // module. The realm mints the canvas members and everything the 2D context builds, and the

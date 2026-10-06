@@ -65,7 +65,8 @@ public class EventPathTests
     /// <summary>
     /// A viewport scroll reaches each of the window's scroll listeners once, a capture listener
     /// included: the element dispatch's path reaches the window's capture listeners, and the window
-    /// dispatch that follows runs only the others.
+    /// dispatch that follows runs only the others. The scroll is heard in the next frame, not in the
+    /// call that scrolled.
     /// </summary>
     [Fact]
     public void AViewportScrollReachesEachWindowListenerOnce()
@@ -80,12 +81,11 @@ public class EventPathTests
         }));
 
         var html = engine.Execute(
-            [PageProbe.Probe(
-                "(function () { var hits = [];" +
-                " window.addEventListener('scroll', function () { hits.push('capture'); }, true);" +
-                " window.addEventListener('scroll', function () { hits.push('bubble'); });" +
-                " window.scrollTo(0, 100);" +
-                " return hits.join(',') + '|' + scrollY; })()")],
+            ["var hits = [], out = document.getElementById('out');" +
+             "function report(hit) { hits.push(hit); out.textContent = hits.join(',') + '|' + scrollY; }" +
+             "window.addEventListener('scroll', function () { report('capture'); }, true);" +
+             "window.addEventListener('scroll', function () { report('bubble'); });" +
+             "window.scrollTo(0, 100); out.textContent = 'scrolled ' + hits.length;"],
             "<html id=\"root\"><body><div id=\"tall\" style=\"height:5000px\"></div><div id=\"out\"></div></body></html>",
             PageUrl);
 

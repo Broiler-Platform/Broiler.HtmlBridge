@@ -361,6 +361,7 @@ public sealed partial class DomBridge
 
     private ulong _documentBaseUrlVersion;
     private string? _documentBaseUrlCache;
+    private string? _documentBaseUrlFor;
 
     /// <summary>
     /// The document base URL, cached against <see cref="DomDocument.Version"/>.
@@ -376,12 +377,15 @@ public sealed partial class DomBridge
     /// </remarks>
     private string DocumentBaseUrl()
     {
+        // The document's URL as it is now: pushState moves it, and with it what a relative URL means.
         var version = _document.Version;
-        if (_documentBaseUrlCache is null || _documentBaseUrlVersion != version)
+        var documentUrl = CurrentPageUrl;
+        if (_documentBaseUrlCache is null || _documentBaseUrlVersion != version || !string.Equals(_documentBaseUrlFor, documentUrl, StringComparison.Ordinal))
         {
             _documentBaseUrlCache = HtmlBaseHref.ResolveDocumentBaseUrl(
-                _pageUrl, TryFindDocumentBaseHref(DocumentElement, out var baseHref) ? baseHref : null);
+                documentUrl, TryFindDocumentBaseHref(DocumentElement, out var baseHref) ? baseHref : null);
             _documentBaseUrlVersion = version;
+            _documentBaseUrlFor = documentUrl;
         }
 
         return _documentBaseUrlCache;

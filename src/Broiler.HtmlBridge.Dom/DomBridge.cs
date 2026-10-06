@@ -52,9 +52,9 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
     // option.defaultSelected/text) live in SelectBinding, reached through the narrow ISelectHost contract
     // (see DomBridge/Hosts.Elements.cs); the shared value property delegates its select branch to it.
     private readonly Dom.Features.SelectBinding _select;
-    // HTMLFormElement (elements/length/action) and constraint validation (checkValidity/
-    // reportValidity) live in FormBinding, reached through the narrow IFormHost contract
-    // (see DomBridge/Hosts.Elements.cs).
+    // HTMLFormElement (elements/length/action) lives in FormBinding, reached through the narrow
+    // IFormHost contract (see DomBridge/Hosts.Elements.cs); constraint validation is
+    // DomBridge/FormSubmission.cs's.
     private readonly Dom.Features.FormBinding _forms;
     // The form-control IDL reflectors (value/checked/type/name/disabled/hidden/tabIndex/required)
     // live in FormControlBinding, reached through the narrow IFormControlHost contract
@@ -383,6 +383,10 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         _document = new DomDocument();
         // A sheet's text changing through the DOM invalidates computed style; see OnStyleSheetSourceMutation.
         _document.Mutated += OnStyleSheetSourceMutation;
+        // A popover removed, or its attribute changed, and a select's options moved (DomBridge/ElementStateMutations.cs).
+        _document.Mutated += OnElementStateMutation;
+        // A focused element about to leave the document is blurred first (DomBridge/Focus.cs).
+        _document.Removing += OnRemoving;
         DocumentElement = CreateBridgeElement("html");
         // The canonical DomDocument is the document root — the JS `document` object maps to it and
         // <html>/doctype are its direct children (no #document wrapper element).
@@ -479,6 +483,8 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         DocumentStateFor(document).HasViewport.Set(false);
         // Its sheets resolve through the same computed-style memo as the page's.
         document.Mutated += OnStyleSheetSourceMutation;
+        document.Mutated += OnElementStateMutation;
+        document.Removing += OnRemoving;
         // Custom element reactions are dispatched off each document's mutation stream, and adoption
         // publishes on the document a node moves *to* — so a document that can receive one has to be
         // listened to as well as the page's own.
@@ -577,6 +583,9 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(
             Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.ParseHtml))
             ParseHtml(html);
+
+        // The element the page's URL names is its :target from the start (DomBridge/ElementStates.cs).
+        SetTargetFromFragment(_document, FragmentOf(_pageUrl));
         using (Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(
             Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegisterDocument))
             RegisterDocument(context);

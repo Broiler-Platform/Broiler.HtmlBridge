@@ -303,7 +303,7 @@ public sealed partial class DomBridge
     /// </summary>
     private DomElement? FindElementByAnchorName(string anchorName)
     {
-        foreach (var el in Elements)
+        foreach (var el in AnchorPassElements)
         {
             if (IsText(el)) continue;
             // Check inline styles first.
@@ -313,7 +313,7 @@ public sealed partial class DomBridge
         }
 
         // Fall back to the shared cascade.
-        foreach (var el in Elements)
+        foreach (var el in AnchorPassElements)
         {
             if (IsText(el)) continue;
             var declarations = CollectMatchedRuleProperties(el);

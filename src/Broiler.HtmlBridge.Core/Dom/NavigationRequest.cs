@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Broiler.HtmlBridge.Dom;
 
@@ -24,12 +25,53 @@ public enum NavigationKind
     MetaRefresh,
 
     /// <summary>
-    /// <c>form.submit()</c>: the one navigation whose target the bridge cannot finish computing, so
-    /// the request names the form and the host builds the rest. See
-    /// <see cref="NavigationRequest.FormIndex"/>.
+    /// A form submission -- <c>form.submit()</c>, <c>requestSubmit()</c>, a submit button's click, Enter
+    /// in a field: the one navigation whose target the bridge cannot finish computing, so the request
+    /// names the form and the host builds the rest. See <see cref="NavigationRequest.FormIndex"/>.
     /// </summary>
     FormSubmit,
 }
+
+/// <summary>What a page's session history did, for the host whose history its entries are part of.</summary>
+public enum HistoryChangeKind
+{
+    /// <summary>An entry added after the current one -- <c>pushState</c>, or a fragment navigation -- which every later one goes with.</summary>
+    Push,
+
+    /// <summary>The current entry replaced -- <c>replaceState</c>, or <c>location.replace</c> to a fragment.</summary>
+    Replace,
+
+    /// <summary>A traversal among the page's own entries by <see cref="HistoryChange.Delta"/>, which the page has made.</summary>
+    Traverse,
+
+    /// <summary>A traversal by <see cref="HistoryChange.Delta"/> to another document's entry, which the host is to make.</summary>
+    TraverseAway,
+}
+
+/// <summary>One thing a page's session history did, oldest first, as <c>InteractiveSession.TakeHistoryChanges</c> reports it.</summary>
+/// <param name="Kind">What it did.</param>
+/// <param name="Url">The URL of the entry it is at now -- for <see cref="HistoryChangeKind.TraverseAway"/>, the one it leaves.</param>
+/// <param name="Delta">For a traversal, by how many entries, backward negative.</param>
+public sealed record HistoryChange(HistoryChangeKind Kind, string Url, int Delta = 0);
+
+/// <summary>What a <c>formdata</c> listener did to a submission's entry list.</summary>
+public enum FormDataEditKind
+{
+    /// <summary><c>formData.append(name, value)</c>: an entry added after the others.</summary>
+    Append,
+
+    /// <summary><c>formData.set(name, value)</c>: the first entry of that name takes the value, the others go; with none, one is added.</summary>
+    Set,
+
+    /// <summary><c>formData.delete(name)</c>: every entry of that name goes.</summary>
+    Delete,
+}
+
+/// <summary>One change a <c>formdata</c> listener made to a submission's entry list, to replay on the host's.</summary>
+/// <param name="Kind">Which of the three changes.</param>
+/// <param name="Name">The entry name it names.</param>
+/// <param name="Value">The value it gives, for <see cref="FormDataEditKind.Append"/> and <see cref="FormDataEditKind.Set"/>.</param>
+public sealed record FormDataEdit(FormDataEditKind Kind, string Name, string Value = "");
 
 /// <summary>
 /// A cross-document navigation a script asked for and the bridge could not perform itself.
@@ -59,8 +101,34 @@ public enum NavigationKind
 /// a redirect, a long one is a notice meant to be read, and only the host knows whether it can
 /// honour either.
 /// </param>
+/// <summary>What a form submission sends: <paramref name="Url"/>, and for a <c>post</c> its <paramref name="Body"/> of <paramref name="BodyContentType"/>.</summary>
+public sealed record FormSubmissionRequest(string Url, byte[]? Body = null, string? BodyContentType = null);
+
 public sealed record NavigationRequest(string Url, NavigationKind Kind, TimeSpan Delay = default)
 {
+    /// <summary>
+    /// For a <see cref="Document"/> a <c>javascript:</c> URL answered: the Content-Security-Policy of the
+    /// document it replaces, which the new one is bound by besides any its markup declares. HTML gives
+    /// that document a clone of the replaced one's policy container; Chromium, measured, refuses in it what
+    /// the replaced page's <c>&lt;meta&gt;</c> policy refused. A host loads the document with this as the
+    /// policy it was delivered.
+    /// </summary>
+    public Scripting.ContentSecurityPolicy? InheritedPolicy { get; init; }
+
+    /// <summary>
+    /// For the page's own <see cref="NavigationKind.FormSubmit"/>: the request the submission makes, encoded from
+    /// the page's form data set -- what its file inputs hold, what its selects have selected, its checkboxes'
+    /// checkedness, and what its <c>formdata</c> listeners did -- a <c>get</c>'s URL with the entries in its query,
+    /// or a <c>post</c>'s action with them as its body. A host sends it as it is.
+    /// </summary>
+    /// <remarks>
+    /// A host that built the data set again from the page's markup and its own record of the user's choices sent a
+    /// file input's files read from disk where the user had picked them, and a select's option as the user had
+    /// chosen it, whatever the page had done to either since: a script that cleared the input or changed the
+    /// select changed nothing that was sent. <see cref="FormIndex"/> and the rest still say which form it was.
+    /// </remarks>
+    public FormSubmissionRequest? Submission { get; init; }
+
     /// <summary>
     /// For <see cref="NavigationKind.FormSubmit"/>, which of the document's forms to submit,
     /// counted in document order. <c>-1</c> for every other kind.
@@ -80,6 +148,56 @@ public sealed record NavigationRequest(string Url, NavigationKind Kind, TimeSpan
     /// </para>
     /// </remarks>
     public int FormIndex { get; init; } = -1;
+
+    /// <summary>
+    /// For <see cref="NavigationKind.FormSubmit"/>, the button that submitted the form, by its position
+    /// among the document's <c>button</c> and <c>input</c> elements in document order; <c>-1</c> when
+    /// none did (<c>form.submit()</c>, or Enter in a form without a submit button).
+    /// </summary>
+    /// <remarks>
+    /// The submitter adds its own name and value to the entry list -- the only way a server tells which
+    /// of a form's buttons was used -- and its <c>formaction</c>, <c>formmethod</c> and
+    /// <c>formenctype</c> stand in for the form's. Named by position for the reason the form is.
+    /// </remarks>
+    public int SubmitterIndex { get; init; } = -1;
+
+    /// <summary>
+    /// For an image button that submitted, where in it it was clicked -- <c>name.x</c> and
+    /// <c>name.y</c> of the entry list; (0, 0) for a click without a position, a script's or a key's.
+    /// </summary>
+    public int SubmitterX { get; init; }
+
+    /// <inheritdoc cref="SubmitterX"/>
+    public int SubmitterY { get; init; }
+
+    /// <summary>
+    /// For <see cref="NavigationKind.FormSubmit"/>, what the form's <c>formdata</c> listeners did to its
+    /// entry list, in order: the host replays them on the entry list it builds, which carries what the
+    /// bridge cannot -- the files chosen in the host's file pickers.
+    /// </summary>
+    public IReadOnlyList<FormDataEdit> FormDataEdits { get; init; } = [];
+
+    /// <summary>
+    /// For a <see cref="NavigationKind.FormSubmit"/> the bridge encoded itself -- a frame's <c>post</c> form
+    /// whose target is the page (<see cref="FormIndex"/> <c>-1</c>) -- the request body to send to
+    /// <see cref="Url"/>, as <see cref="BodyContentType"/>; <see langword="null"/> for a navigation without one.
+    /// </summary>
+    /// <remarks>
+    /// A page's own form is the host's to encode, which it finds by <see cref="FormIndex"/>; a frame's form is
+    /// in another document, which the host does not parse, so the bridge hands over the body it built --
+    /// URL-encoded, multipart with the files the user chose, or plain text, as the form's encoding says.
+    /// </remarks>
+    public byte[]? Body { get; init; }
+
+    /// <summary>The media type of <see cref="Body"/>, with a multipart body's boundary.</summary>
+    public string? BodyContentType { get; init; }
+
+    /// <summary>
+    /// The document a <c>javascript:</c> URL's script answered with: a string, which replaces the page's
+    /// document at <see cref="Url"/>, the page's own, and leaves its history entry as it is (HTML "navigate
+    /// to a javascript: URL"). A host shows it without fetching anything.
+    /// </summary>
+    public string? Document { get; init; }
 
     /// <summary>
     /// The document that started the navigation, as its request context, or <see langword="null"/>

@@ -181,19 +181,25 @@ public partial class EventListenerRegistrationTests
     [Fact]
     public void FormSubmitUsesTheSameOnceAndRemovalRules()
     {
-        Assert.Equal("A", Run("""
+        // submit() fires no submit event at all, so the once listener is still there for the
+        // requestSubmit() after it, which fires one under the ordinary rules; one asked for from the
+        // form's own submit listener is ignored.
+        Assert.Equal("A by requestSubmit", Run("""
             (function () {
                 var form = document.createElement('form');
-                var seen = '';
+                document.body.appendChild(form);
+                var seen = '', by = '';
                 var second = function () { seen += 'B'; };
-                form.addEventListener('submit', function () {
-                    seen += 'A';
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    seen += 'A by ' + by;
                     form.removeEventListener('submit', second);
-                    if (seen.length < 2) form.submit();
+                    form.requestSubmit();
                 }, { once: true });
                 form.addEventListener('submit', second);
-                form.submit();
-                form.submit();
+                by = 'submit'; form.submit();
+                by = 'requestSubmit'; form.requestSubmit();
+                form.requestSubmit();
                 return seen;
             })()
             """));

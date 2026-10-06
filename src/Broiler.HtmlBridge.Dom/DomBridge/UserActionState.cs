@@ -192,19 +192,30 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Writes each projected element's user-action state into its markup, in place of whatever the page
-    /// put there: the renderer's matcher reads it there (<see cref="CssUserActionStateMarkup"/>).
+    /// Writes each projected element's user-action state, and its element state (DomBridge/ElementStates.cs),
+    /// into its markup, in place of whatever the page put there: the renderer's matcher reads them there
+    /// (<see cref="CssUserActionStateMarkup"/>, <see cref="CssElementStateMarkup"/>).
     /// </summary>
     private void StampUserActionState(DomElement projected)
     {
-        var state = UserActionStateOf(ResolveRenderSource(projected));
-        if (CssUserActionStateMarkup.Format(state) is { } value)
-            SetAttr(projected, CssUserActionStateMarkup.AttributeName, value);
-        else if (HasAttr(projected, CssUserActionStateMarkup.AttributeName))
-            RemoveAttr(projected, CssUserActionStateMarkup.AttributeName);
+        var source = ResolveRenderSource(projected);
+        Stamp(CssUserActionStateMarkup.AttributeName, CssUserActionStateMarkup.Format(UserActionStateOf(source)));
+        Stamp(CssElementStateMarkup.AttributeName, CssElementStateMarkup.Format(ElementStateOf(source)));
+
+        void Stamp(string attribute, string? value)
+        {
+            if (value is not null)
+                SetAttr(projected, attribute, value);
+            else if (HasAttr(projected, attribute))
+                RemoveAttr(projected, attribute);
+        }
     }
 
-    /// <summary>The selector state the bridge's own matcher asks: a form control's checkedness, and what the user is doing to each element.</summary>
+    /// <summary>
+    /// The selector state the bridge's own matcher asks: a form control's checkedness and value, what the
+    /// user is doing to each element, and its element state. Never <see cref="CssElementState.Visited"/>:
+    /// this matcher answers the page's own scripts.
+    /// </summary>
     private sealed class BridgeSelectorStateProvider(DomBridge bridge) : ICssSelectorStateProvider
     {
         public bool? IsChecked(DomElement element) =>
@@ -212,5 +223,11 @@ public sealed partial class DomBridge
 
         public CssUserActionState GetUserActionState(DomElement element) =>
             bridge.UserActionStateOf(bridge.ResolveRenderSource(element));
+
+        public CssElementState GetElementState(DomElement element) =>
+            bridge.ElementStateOf(bridge.ResolveRenderSource(element));
+
+        public string? GetValue(DomElement element) =>
+            bridge.LiveValueOf(bridge.ResolveRenderSource(element));
     }
 }

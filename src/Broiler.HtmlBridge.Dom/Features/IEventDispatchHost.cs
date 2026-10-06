@@ -68,4 +68,10 @@ internal interface IEventDispatchHost : IDocumentNodeHost, INodeWrapperHost, IRe
 
     /// <summary>The listeners registered on <paramref name="window"/> for <paramref name="eventType"/>, if any.</summary>
     List<EventListenerRegistration>? WindowListeners(JsValue window, string eventType);
+
+    /// <summary>
+    /// <paramref name="window"/>'s event handler named <paramref name="attribute"/> (<c>onload</c>): the
+    /// page's from the page's own store, whichever script is running, and a frame's off its window.
+    /// </summary>
+    JsValue WindowEventHandler(JsValue window, string attribute);
 }

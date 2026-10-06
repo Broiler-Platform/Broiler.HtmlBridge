@@ -218,6 +218,9 @@ public sealed partial class DomBridge : Dom.Features.IElementContentHost
 // module needs is a neutral internal static bridge helper it calls directly.
 public sealed partial class DomBridge : Dom.Features.IElementReflectionHost
 {
+    string Dom.Features.IElementReflectionHost.DocumentBaseUrl => DocumentBaseUrl();
+
+    string Dom.Features.IElementReflectionHost.DocumentUrl => CurrentPageUrl;
 }
 
 // Explicit IElementTraversalHost implementation for the ElementTraversalBinding feature module:

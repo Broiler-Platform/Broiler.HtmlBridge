@@ -182,7 +182,7 @@ public sealed partial class DomBridge
     /// URL a script hands to <c>fetch()</c> or <c>sendBeacon</c> resolves against.
     /// </summary>
     private string CurrentScriptBaseUrl() =>
-        CurrentScriptFrame() is { } container ? GetSubDocumentBaseUrl(container) : _pageUrl;
+        CurrentScriptFrame() is { } container ? GetSubDocumentBaseUrl(container) : DocumentBaseUrl();
 
     /// <summary>
     /// The frame container whose window context is current, or <see langword="null"/> for the top

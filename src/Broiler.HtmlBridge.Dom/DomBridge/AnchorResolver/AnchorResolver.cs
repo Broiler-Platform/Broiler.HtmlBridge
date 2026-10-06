@@ -93,6 +93,10 @@ public sealed partial class DomBridge
     /// <param name="viewportHeight">Viewport height in pixels (default 768).</param>
     public void ResolveAnchorPositions(int viewportWidth = 1024, int viewportHeight = 768)
     {
+        // The live tree carries the bakes from here on, so a render projection of it must not
+        // resolve them a second time (ResolveTopLayerAndAnchorsForRender).
+        _anchorPassAppliedToLiveTree = true;
+
         // Serialize-time bakes mutate the live tree (SetAttr / element replacement / backdrop
         // insertion) as an implementation detail of render. Suppress script-observable mutation
         // delivery so these do not deliver spurious records to — or synchronously re-enter — a
@@ -438,6 +442,218 @@ public sealed partial class DomBridge
 
         foreach (var child in ChildElements(element))
             CollectContentReplacedElements(child, ref acc, isRoot: false);
+    }
+
+    // Set once ResolveAnchorPositions has baked into the live tree.
+    private bool _anchorPassAppliedToLiveTree;
+
+    // The root the anchor and top-layer passes walk: the live document's, or the render projection's
+    // while ResolveTopLayerAndAnchorsForRender runs them on it.
+    private DomElement? _anchorPassRoot;
+
+    private DomElement AnchorPassRoot => _anchorPassRoot ?? DocumentElement;
+
+    private IReadOnlyList<DomElement> AnchorPassElements =>
+        _anchorPassRoot is { } root ? [.. root.InclusiveDescendants().OfType<DomElement>()] : Elements;
+
+    /// <summary>
+    /// The anchor and top-layer passes of <see cref="ResolveAnchorPositions"/>, on a render projection
+    /// rather than on the live tree: what an open modal dialog, a showing popover or a fullscreen element
+    /// is drawn as -- top-layer boxes above everything, with a <c>::backdrop</c> -- and where an anchored box
+    /// goes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Nothing in the window ran them.</b> <see cref="ResolveAnchorPositions"/> was the WPT runner's,
+    /// called once on a page that would not run again, and it bakes into the live tree; the window
+    /// renders a live page on every change, from <see cref="CreateRenderProjection"/>. So a modal dialog
+    /// had no backdrop and painted in its place in the page's stacking order, under a high
+    /// <c>z-index</c>, clipped by an <c>overflow: hidden</c> ancestor; and an anchored popover sat at
+    /// the place HTML's rules give a popover with no anchor. On the projection the bakes go to elements
+    /// that are thrown away with it, and the page is untouched.
+    /// </para>
+    /// <para>
+    /// <b>The renderer places most anchored boxes itself</b>: the window turns on the layout engine's anchor
+    /// placement (Broiler.HTML's <c>PlacesAnchoredBoxes</c>) for what it draws and for the geometry its
+    /// scripts read, and <see cref="IsMvpNativeAnchorBox"/> leaves those boxes to it. What this adds is what
+    /// the engine cannot know: which elements are in the top layer, and a showing popover's implicit anchor
+    /// (<see cref="NameImplicitAnchors"/>). Neither needs geometry, so both are written into every projection,
+    /// the one a geometry snapshot lays out included -- a script reading a modal dialog's or an anchored
+    /// popover's box gets the box that is drawn. The bakes of the boxes the engine does not place, and the
+    /// backdrops, read geometry, so they are written only into a projection that is drawn: in a geometry
+    /// snapshot's (<see cref="_layoutGeometryPassActive"/>) they would ask for the snapshot being built.
+    /// </para>
+    /// <para>
+    /// Only when the page has a top-layer element or mentions anchor positioning. The rest of
+    /// <see cref="ResolveAnchorPositions"/> -- content replacement, inline containing blocks, scroll simulation,
+    /// the visual viewport, frames -- is the WPT runner's approximation of things the window renders itself or
+    /// not at all.
+    /// </para>
+    /// </remarks>
+    private void ResolveTopLayerAndAnchorsForRender(DomElement projectedRoot)
+    {
+        if (_anchorPassAppliedToLiveTree)
+            return;
+
+        var hasTopLayer = HasTopLayerElement(projectedRoot);
+        var usesAnchors = UsesAnchorPositioning(projectedRoot);
+        if (!hasTopLayer && !usesAnchors)
+            return;
+
+        var drawn = !_layoutGeometryPassActive;
+        var previousRoot = _anchorPassRoot;
+        var snapshotBefore = _sharedGeometrySnapshot;
+        _anchorPassRoot = projectedRoot;
+        try
+        {
+            var elements = AnchorPassElements;
+            ApplyDialogUAPositioning(elements);
+            ApplyPopoverUAPositioning(elements);
+            if (usesAnchors)
+                NameImplicitAnchors(projectedRoot);
+
+            if (!drawn)
+                return;
+
+            var anchorRegistry = new Dictionary<string, AnchorInfo>(StringComparer.Ordinal);
+            var positionTryRules = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
+            if (usesAnchors)
+            {
+                BuildAnchorRegistry(anchorRegistry);
+                BuildInlineAnchorRegistry(anchorRegistry);
+                positionTryRules = ParsePositionTryRules();
+                ResolveAnchorFunctions(projectedRoot, anchorRegistry, positionTryRules);
+
+                var scrollContainersNeedingRelative = new HashSet<DomElement>();
+                var deferredDomMoves = new List<(DomElement element, DomElement oldParent, DomElement newParent)>();
+                ResolvePositionAreaValues(projectedRoot, anchorRegistry, scrollContainersNeedingRelative, deferredDomMoves);
+                ResolvePositionTryFallbacks(projectedRoot, anchorRegistry, positionTryRules);
+
+                foreach (var (el, oldParent, newParent) in deferredDomMoves)
+                {
+                    RemoveChildFrom(oldParent, el);
+                    newParent.AppendChild(el);
+                }
+
+                foreach (var sc in scrollContainersNeedingRelative)
+                {
+                    var position = GetComputedProps(sc).GetValueOrDefault("position");
+                    if (position is not ("relative" or "absolute" or "fixed" or "sticky"))
+                        BakedInlineStyle(sc)["position"] = "relative";
+                }
+            }
+
+            if (hasTopLayer)
+                InsertDialogBackdrops(projectedRoot, _viewportWidth, _viewportHeight, anchorRegistry, positionTryRules);
+        }
+        finally
+        {
+            _anchorPassRoot = previousRoot;
+
+            // An anchor's box was read from a geometry snapshot of the page as it is; it is not kept,
+            // so a script's later geometry read lays the page out afresh, as it did before.
+            if (drawn && snapshotBefore is null)
+                ClearSharedGeometrySnapshot();
+        }
+    }
+
+    /// <summary>
+    /// CSS Anchor Positioning's implicit anchor element: a showing popover's invoker -- the
+    /// <c>popovertarget</c> button that showed it, or <c>showPopover()</c>'s <c>source</c> -- anchors it
+    /// when its <c>position-anchor</c> is <c>auto</c>, the initial value. The engine knows nothing of
+    /// invokers, so the projection names the anchor: the popover's copy takes the invoker's first
+    /// <c>anchor-name</c> as its <c>position-anchor</c>, or one minted for it, which the invoker's copy
+    /// then carries.
+    /// </summary>
+    /// <remarks>Chromium (measured): a popover with <c>position-area: bottom</c>
+    /// and no anchor of its own sits under the button that showed it, and at (0, 0) when a script showed it
+    /// with no source.</remarks>
+    private void NameImplicitAnchors(DomElement projectedRoot)
+    {
+        if (_renderProjectionTargets is not { } projected)
+            return;
+
+        var count = 0;
+        foreach (var element in projectedRoot.InclusiveDescendants().OfType<DomElement>())
+        {
+            if (!_popoverShowings.TryGetValue(ResolveRenderSource(element), out var showing) ||
+                showing.Invoker is not { } invoker ||
+                !projected.TryGetValue(invoker, out var projectedInvoker))
+            {
+                continue;
+            }
+
+            var declared = BakedInlineStyle(element).GetValueOrDefault("position-anchor") ??
+                           CollectMatchedRuleProperties(element).GetValueOrDefault("position-anchor");
+            if (!string.IsNullOrWhiteSpace(declared) &&
+                !declared.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var invokerNames = BakedInlineStyle(projectedInvoker).GetValueOrDefault("anchor-name") ??
+                               CollectMatchedRuleProperties(projectedInvoker).GetValueOrDefault("anchor-name");
+            var name = invokerNames?.Split(',')[0].Trim() is { Length: > 2 } first && first.StartsWith("--", StringComparison.Ordinal)
+                ? first
+                : null;
+            if (name is null)
+            {
+                name = $"--broiler-implicit-anchor-{++count}";
+                BakedInlineStyle(projectedInvoker)["anchor-name"] = name;
+            }
+
+            BakedInlineStyle(element)["position-anchor"] = name;
+        }
+    }
+
+    /// <summary>Whether anything under <paramref name="root"/> is in the top layer: an open modal dialog, a showing popover, a fullscreen element.</summary>
+    private bool HasTopLayerElement(DomElement root)
+    {
+        foreach (var element in root.InclusiveDescendants().OfType<DomElement>())
+        {
+            if (_dialogRuntimeStates.TryGetValue(element, out var state) &&
+                (Holds(state.Modal) || Holds(state.PopoverOpen) || Holds(state.Fullscreen)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+
+        static bool Holds(Dom.Runtime.RuntimeValue<bool> value) => value.TryGet(out var held) && held is true;
+    }
+
+    /// <summary>
+    /// Whether the page asks for anchor positioning: a style sheet or a <c>style</c> attribute that
+    /// names <c>anchor</c> anything, <c>position-area</c> or <c>position-try</c>. A false match costs
+    /// only the pass.
+    /// </summary>
+    private bool UsesAnchorPositioning(DomElement projectedRoot)
+    {
+        var sheets = new List<DomElement>();
+        CollectStyleElementsInTree(DocumentElement, sheets);
+        foreach (var sheet in sheets)
+        {
+            if (MentionsAnchorPositioning(GetStyleElementCssText(sheet)))
+                return true;
+        }
+
+        foreach (var element in projectedRoot.InclusiveDescendants().OfType<DomElement>())
+        {
+            foreach (var (property, value) in EffectiveInlineStyle(element))
+            {
+                if (MentionsAnchorPositioning(property) || MentionsAnchorPositioning(value))
+                    return true;
+            }
+        }
+
+        return false;
+
+        static bool MentionsAnchorPositioning(string? text) =>
+            text is not null &&
+            (text.Contains("anchor", StringComparison.OrdinalIgnoreCase) ||
+             text.Contains("position-area", StringComparison.OrdinalIgnoreCase) ||
+             text.Contains("position-try", StringComparison.OrdinalIgnoreCase));
     }
 
     private void ApplyVisualViewportSerializationState()

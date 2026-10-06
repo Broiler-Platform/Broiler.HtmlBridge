@@ -24,13 +24,10 @@ namespace Broiler.HtmlBridge;
 /// </remarks>
 public sealed partial class DomBridge : IFormHost
 {
-    void IFormHost.ResetForm(DomElement form) => ResetFormControls(form);
+    void IFormHost.ResetForm(DomElement form) => RunAsScriptCall(() => ResetForm(form));
 
     IReadOnlyList<DomElement> IFormHost.CollectFormControls(DomElement form) =>
         CollectFormControlsIncludingCustom(form);
-
-    bool IFormHost.IsCustomElementValid(DomElement element) =>
-        !CustomElements.IsFormAssociated(element) || ElementInternals.IsValid(element);
 }
 
 // Explicit IFormAssociationHost implementation for the FormAssociationBinding feature module: the
@@ -70,9 +67,8 @@ public sealed partial class DomBridge : Dom.Features.IFormAssociationHost
 // bridge's realm and cached as the JsValue it answers.
 public sealed partial class DomBridge : Dom.Features.IFormControlHost
 {
-    /// <summary>One <c>FileList</c> per file input, cached so <c>input.files === input.files</c>. The
-    /// contents function stays live over an always-empty list rather than being a fixed one, so a file
-    /// selection would need no second shape.</summary>
+    /// <summary>One <c>FileList</c> per file input, cached so <c>input.files === input.files</c>, live over
+    /// the files the user chose for it (DomBridge/FileInputs.cs).</summary>
     private readonly Dictionary<DomElement, JsValue> _fileLists = [];
 
     JsValue Dom.Features.IFormControlHost.GetFileList(DomElement element)
@@ -83,7 +79,7 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
         // DomCollectionBinding.FileList's only overload, which takes the realm and answers a JsValue.
         // A file input never asks the bridge for a script context, so it cannot throw "asked for
         // before the bridge was attached" when there is a realm but no context to hand it.
-        var files = Dom.Features.DomCollectionBinding.FileList(Realm, static () => []);
+        var files = Dom.Features.DomCollectionBinding.FileList(Realm, () => ChosenFilesOf(element).Select(static file => file.Object).ToList());
         _fileLists[element] = files;
         return files;
     }
@@ -102,11 +98,22 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
 
     void Dom.Features.IFormControlHost.SetFormControlValue(DomElement element, string value)
     {
+        var previous = _formState.GetEffectiveValue(element);
         _formState.SetDirtyValue(element, value);
         NoteScriptSetFieldValue(element, value);
+        if (!string.Equals(previous, value, StringComparison.Ordinal))
+        {
+            FieldVersion++;
+            MoveCaretToEndAfterScriptValue(element, previous, value);
+        }
     }
 
     string Dom.Features.IFormControlHost.GetSelectValue(DomElement element) => _select.GetValue(element);
+
+    string Dom.Features.IFormControlHost.GetFileInputValue(DomElement element) => FileInputValue(element);
+
+    void Dom.Features.IFormControlHost.SetFileInputValue(DomElement element, string value, IJsRealm realm) =>
+        SetFileInputValue(element, value, realm);
 
     void Dom.Features.IFormControlHost.SetSelectValue(DomElement element, string value) =>
         _select.SetValue(element, value);
@@ -118,15 +125,17 @@ public sealed partial class DomBridge : Dom.Features.IFormControlHost
         _formState.SetDirtyChecked(element, value);
 }
 
-// Explicit IFormSubmitHost implementation for the FormSubmitBinding feature module: the bridge
-// exposes read access to the live per-node listener store via an explicit interface member, so the
-// submit action never reaches an arbitrary bridge private field and the public surface is unchanged.
+// Explicit IFormSubmitHost implementation for the FormSubmitBinding feature module: form.submit() is an
+// explicit interface member, so the public surface is unchanged.
 public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
 {
-    Dictionary<string, List<EventListenerRegistration>> Dom.Features.IFormSubmitHost.GetEventListeners(DomNode node)
-        => GetEventListeners(node);
+    void Dom.Features.IFormSubmitHost.SubmitFromSubmitMethod(DomElement form) => SubmitFromSubmitMethod(form);
 
-    void Dom.Features.IFormSubmitHost.RequestFormSubmission(DomElement form)
+    /// <summary>
+    /// Asks the host to submit <paramref name="form"/> as <paramref name="submitter"/>, with what its
+    /// <c>formdata</c> listeners did to its entry list (<paramref name="edits"/>).
+    /// </summary>
+    private void RequestFormSubmission(DomElement form, DomElement? submitter, (int X, int Y) imagePoint, IReadOnlyList<FormDataEdit> edits)
     {
         var index = IndexOfForm(form);
         if (index < 0)
@@ -139,17 +148,61 @@ public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
             return;
         }
 
-        var action = ResolveFormAction(form);
+        var action = ResolveFormAction(form, submitter);
         RenderLogger.LogDebug(LogCategory.JavaScript, FormSubmitLogContext,
-            $"form.submit() requested for form {index} to {action}; the host builds the data set and decides whether to follow it");
+            $"A submission of form {index} to {action}; the host decides whether to follow it");
+
+        // What the submission sends, from the page's own form data set (see NavigationRequest.Submission): the
+        // same encoding a frame's submission into the page gets (DomBridge/FrameSubmission.cs).
+        var entries = ApplyFormDataEdits(BuildFormEntryList(form, submitter, imagePoint), edits);
+        FormSubmissionRequest submission;
+        if (SubmissionMethodOf(form, submitter) == "post")
+        {
+            var body = EncodeFormBody(entries, FormEncodingOf(form, submitter));
+            submission = new FormSubmissionRequest(action, body.Content, body.ContentType);
+        }
+        else
+        {
+            submission = new FormSubmissionRequest(WithQuery(action, UrlEncodeEntries(entries)));
+        }
 
         // The form's own document starts a form submission (HTML "submit": the form's node document
         // is the source document), whoever called submit().
         RequestNavigation(new NavigationRequest(action, NavigationKind.FormSubmit)
         {
             FormIndex = index,
+            SubmitterIndex = submitter is null ? -1 : IndexOfButtonOrInput(submitter),
+            SubmitterX = imagePoint.X,
+            SubmitterY = imagePoint.Y,
+            FormDataEdits = edits,
             Initiator = DocumentContextFor(form),
+            Submission = submission,
         });
+    }
+
+    /// <summary>
+    /// <paramref name="control"/>'s position among the document's <c>button</c> and <c>input</c> elements in
+    /// document order, or <c>-1</c> when it is not in the document -- how the host finds a submitter in its
+    /// parse of the serialized document, as it finds the form by <see cref="IndexOfForm"/>.
+    /// </summary>
+    private int IndexOfButtonOrInput(DomElement control)
+    {
+        var seen = 0;
+        foreach (var element in _document.InclusiveDescendants().OfType<DomElement>())
+        {
+            if (!element.TagName.Equals("button", StringComparison.OrdinalIgnoreCase) &&
+                !element.TagName.Equals("input", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (ReferenceEquals(element, control))
+                return seen;
+
+            seen++;
+        }
+
+        return -1;
     }
 
     /// <summary>
@@ -175,16 +228,17 @@ public sealed partial class DomBridge : Dom.Features.IFormSubmitHost
     }
 
     /// <summary>
-    /// The form's <c>action</c> resolved against the document, falling back to the document's own
-    /// URL — which is what an absent or empty <c>action</c> means (HTML §4.10.21.3).
+    /// The submission's action -- the submitter's <c>formaction</c>, else the form's <c>action</c> --
+    /// resolved against the document, falling back to the document's own URL — which is what an absent
+    /// or empty action means (HTML §4.10.21.3).
     /// </summary>
-    private string ResolveFormAction(DomElement form)
+    private string ResolveFormAction(DomElement form, DomElement? submitter = null)
     {
-        var action = form.GetAttribute("action");
+        var action = submitter?.GetAttribute("formaction") ?? form.GetAttribute("action");
         if (string.IsNullOrWhiteSpace(action))
-            return _pageUrl;
+            return CurrentPageUrl;
 
-        return Uri.TryCreate(_pageUrl, UriKind.Absolute, out var baseUri)
+        return Uri.TryCreate(DocumentBaseUrl(), UriKind.Absolute, out var baseUri)
             && Uri.TryCreate(baseUri, action, out var resolved)
                 ? resolved.ToString()
                 : action;
@@ -223,11 +277,88 @@ public sealed partial class DomBridge : ISelectHost
 
     DomElement? ISelectHost.FindElement(JsValue wrapper) => FindDomElementByJSObject(wrapper);
 
-    bool ISelectHost.TryGetSelectedIndex(DomElement select, out int index) =>
-        _formState.TryGetDirtySelectedIndex(select, out index);
+    // Each option's selectedness and dirtiness, once a script or the user has changed its select, and the
+    // selects that hold them (Features/SelectBinding.cs). Element-keyed, so they go with their elements.
+    private sealed class OptionState(bool selected, bool dirty)
+    {
+        public bool Selected { get; set; } = selected;
 
-    void ISelectHost.SetSelectedIndex(DomElement select, int index) =>
-        _formState.SetDirtySelectedIndex(select, index);
+        public bool Dirty { get; set; } = dirty;
+    }
+
+    private readonly ConditionalWeakTable<DomElement, OptionState> _optionStates = new();
+    private readonly ConditionalWeakTable<DomElement, object> _heldSelects = new();
+    private static readonly object Held = new();
+
+    // One live collection per element and kind -- a select's options and selected options -- so a page's
+    // `select.options === select.options` holds.
+    private readonly ConditionalWeakTable<DomElement, Dictionary<string, JsValue>> _elementCollections = new();
+
+    bool ISelectHost.TryGetOptionState(DomElement option, out bool selected, out bool dirty)
+    {
+        if (_optionStates.TryGetValue(option, out var state))
+        {
+            selected = state.Selected;
+            dirty = state.Dirty;
+            return true;
+        }
+
+        selected = dirty = false;
+        return false;
+    }
+
+    void ISelectHost.SetOptionState(DomElement option, bool selected, bool dirty)
+    {
+        if (_optionStates.TryGetValue(option, out var state))
+        {
+            state.Selected = selected;
+            state.Dirty = dirty;
+            return;
+        }
+
+        _optionStates.AddOrUpdate(option, new OptionState(selected, dirty));
+    }
+
+    bool ISelectHost.IsSelectHeld(DomElement select) => IsSelectHeld(select);
+
+    /// <summary>Whether a script or the user has changed the select, so its options' selectedness is held rather than read from their markup.</summary>
+    private bool IsSelectHeld(DomElement select) => _heldSelects.TryGetValue(select, out _);
+
+    void ISelectHost.HoldSelect(DomElement select) => _heldSelects.AddOrUpdate(select, Held);
+
+    void ISelectHost.NoteSelectionChanged(DomElement select)
+    {
+        BridgeRuntimeStateEpoch.Bump();
+        InvalidateStyleScope(select);
+        NoteElementStateChange();
+    }
+
+    JsValue ISelectHost.LiveCollection(DomElement owner, string kind, Func<List<JsValue>> contents, Action<JsValue>? initialize,
+        Dom.Features.DomCollectionBinding.OptionsCollectionOperations? options)
+    {
+        var collections = _elementCollections.GetValue(owner, static _ => new Dictionary<string, JsValue>(StringComparer.Ordinal));
+        if (collections.TryGetValue(kind, out var existing))
+            return existing;
+
+        var collection = options is null
+            ? LiveCollection(contents)
+            : Dom.Features.DomCollectionBinding.HtmlOptionsCollection(Realm, contents, name => NamedItem(Realm, contents, name), options);
+        collections[kind] = collection;
+        initialize?.Invoke(collection);
+        return collection;
+    }
+
+    /// <summary>
+    /// Copies an option's selectedness and dirtiness to its clone (HTML's cloning steps for option), and that
+    /// a select holds its options' -- which the clones of its options carry -- to the select's.
+    /// </summary>
+    private void CopySelectState(DomElement source, DomElement clone)
+    {
+        if (_optionStates.TryGetValue(source, out var state))
+            _optionStates.AddOrUpdate(clone, new OptionState(state.Selected, state.Dirty));
+        if (_heldSelects.TryGetValue(source, out _))
+            _heldSelects.AddOrUpdate(clone, Held);
+    }
 
     bool ISelectHost.TryGetOptionValue(DomElement option, out string value)
     {
@@ -239,22 +370,6 @@ public sealed partial class DomBridge : ISelectHost
 
         value = string.Empty;
         return false;
-    }
-
-    // defaultSelected reflects the `selected` CONTENT ATTRIBUTE (HTML §4.10.10), so the runtime slot
-    // is an override of it rather than the whole story.
-    bool ISelectHost.GetOptionDefaultSelected(DomElement option) =>
-        _formState.GetEffectiveOptionSelected(option);
-
-    // Writing the property writes the attribute it reflects, so a later reset — which clears the
-    // slot — restores what was written rather than what the markup happened to say.
-    void ISelectHost.SetOptionDefaultSelected(DomElement option, bool value)
-    {
-        _formState.SetDirtyOptionSelected(option, value);
-        if (value)
-            SetAttr(option, "selected", string.Empty);
-        else
-            RemoveAttr(option, "selected");
     }
 }
 
@@ -304,30 +419,51 @@ public sealed partial class DomBridge : IDialogHost
 
     bool IDialogHost.HasOpenAttribute(DomElement element) => HasAttr(element, "open");
 
+    bool IDialogHost.IsDialogModal(DomElement element) => IsModalDialog(element);
+
+    bool IDialogHost.FireDialogEvent(DomElement element, string type, bool cancelable, string? oldState, string? newState) =>
+        FireToggleEvent(element, type, cancelable, oldState, newState);
+
+    void IDialogHost.QueueToggleEvent(DomElement element, string oldState, string newState) =>
+        QueueToggleEvent(element, oldState, newState);
+
+    bool IDialogHost.IsPopoverShowing(DomElement element) => IsPopoverShowing(element);
+
+    void IDialogHost.HidePopoversForDialog(DomElement dialog) => HidePopoversForDialog(dialog);
+
+    void IDialogHost.RunDialogFocusingSteps(DomElement dialog) => RunDialogFocusingSteps(dialog);
+
+    void IDialogHost.RestoreFocusAfterDialog(DomElement dialog, bool wasModal) => RestoreFocusAfterDialog(dialog, wasModal);
+
+    void IDialogHost.QueueDialogFrameAction(Action action) => QueueFrameAction(() =>
+    {
+        if (_realm is not null)
+            action();
+    });
+
+    JsValue IDialogHost.RunAsScriptCall(Func<JsValue> call) => RunAsScriptCall(call);
+
+    /// <summary>Whether <paramref name="element"/> is a dialog open as a modal one.</summary>
+    private bool IsModalDialog(DomElement element) =>
+        HasAttr(element, "open") && DialogStateFor(element).Modal is { IsSet: true, Value: true };
+
     void IDialogHost.AssignNextTopLayerOrder(DomElement element) =>
         DialogStateFor(element).TopLayerOrder.Set(++_topLayerCounter);
 
     void IDialogHost.SetDialogModal(DomElement element, bool modal)
     {
         if (modal)
+        {
             DialogStateFor(element).Modal.Set(true);
+            _modalDialogs.Add(element);
+        }
         else
+        {
             DialogStateFor(element).Modal.Remove();
-    }
+            _modalDialogs.Remove(element);
+        }
 
-    void IDialogHost.SetPopoverOpen(DomElement element, bool open)
-    {
-        if (open)
-        {
-            DialogStateFor(element).PopoverOpen.Set(true);
-            // A fresh show clears any leftover "transitioning out" mark: if the element is now
-            // transitioning `overlay` at all, it is transitioning *in*.
-            DialogStateFor(element).PopoverTransitioningOut.Remove();
-        }
-        else
-        {
-            DialogStateFor(element).PopoverOpen.Remove();
-        }
+        NoteElementStateChange();
     }
 
     void IDialogHost.SetFullscreen(DomElement element, bool fullscreen)
@@ -358,9 +494,6 @@ public sealed partial class DomBridge : IDialogHost
         }
     }
 
-    void IDialogHost.MarkPopoverOverlayTransitioningOut(DomElement element) =>
-        DialogStateFor(element).PopoverTransitioningOut.Set(true);
-
     string IDialogHost.GetReturnValue(DomElement element) =>
         _formState.TryGetReturnValue(element, out var rv) && rv is string s
             ? s
@@ -368,8 +501,6 @@ public sealed partial class DomBridge : IDialogHost
 
     void IDialogHost.SetReturnValue(DomElement element, string value) =>
         _formState.SetReturnValue(element, value);
-
-    bool IDialogHost.PopoverKeepsOverlayOnHide(DomElement element) => PopoverKeepsOverlayOnHide(element);
 
     bool IDialogHost.DialogKeepsOverlayOnClose(DomElement element) => DialogKeepsOverlayOnClose(element);
 

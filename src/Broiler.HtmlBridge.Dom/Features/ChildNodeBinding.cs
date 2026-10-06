@@ -22,10 +22,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </remarks>
 internal static class ChildNodeBinding
 {
-    public static JsValue Remove(IChildNodeHost host, DomNode element, in JsCall _)
+    public static JsValue Remove(IChildNodeHost host, DomNode element, in JsCall call)
     {
+        var realm = call.Realm;
         var parentElement = element.ParentElement;
-        element.Remove();
+        DomExceptionTranslation.Run(realm, "remove", DomExceptionTranslation.ChildNodeInterface(element), element.Remove);
         if (parentElement is not null)
             host.InvalidateStyleScope(parentElement);
         return JsValue.Undefined;
@@ -36,7 +37,8 @@ internal static class ChildNodeBinding
         var parentElement = element.ParentElement;
         if (element.ParentNode == null || call.Length == 0)
             return JsValue.Undefined;
-        element.Before(host.BuildChildNodeArgumentNodes(call.Arguments));
+        var nodes = host.BuildChildNodeArgumentNodes(call.Arguments);
+        DomExceptionTranslation.Run(call.Realm, "before", DomExceptionTranslation.ChildNodeInterface(element), () => element.Before(nodes));
         if (parentElement is not null)
             host.InvalidateStyleScope(parentElement);
         return JsValue.Undefined;
@@ -47,7 +49,8 @@ internal static class ChildNodeBinding
         var parentElement = element.ParentElement;
         if (element.ParentNode == null || call.Length == 0)
             return JsValue.Undefined;
-        element.After(host.BuildChildNodeArgumentNodes(call.Arguments));
+        var nodes = host.BuildChildNodeArgumentNodes(call.Arguments);
+        DomExceptionTranslation.Run(call.Realm, "after", DomExceptionTranslation.ChildNodeInterface(element), () => element.After(nodes));
         if (parentElement is not null)
             host.InvalidateStyleScope(parentElement);
         return JsValue.Undefined;
@@ -58,7 +61,8 @@ internal static class ChildNodeBinding
         var parentElement = element.ParentElement;
         if (element.ParentNode == null)
             return JsValue.Undefined;
-        element.ReplaceWith(host.BuildChildNodeArgumentNodes(call.Arguments));
+        var nodes = host.BuildChildNodeArgumentNodes(call.Arguments);
+        DomExceptionTranslation.Run(call.Realm, "replaceWith", DomExceptionTranslation.ChildNodeInterface(element), () => element.ReplaceWith(nodes));
         if (parentElement is not null)
             host.InvalidateStyleScope(parentElement);
         return JsValue.Undefined;

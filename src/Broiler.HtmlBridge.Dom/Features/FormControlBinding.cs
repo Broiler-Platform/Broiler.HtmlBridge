@@ -130,6 +130,11 @@ internal sealed class FormControlBinding(IFormControlHost host)
             });
     }
 
+    private static bool IsFileInput(DomElement element) =>
+        string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase) &&
+        DomBridgeUtils.TryGetAttribute(element, "type", out var inputType) &&
+        string.Equals(inputType.Trim(), "file", StringComparison.OrdinalIgnoreCase);
+
     private JsValue GetFiles(DomElement element) =>
         string.Equals(element.TagName, "input", StringComparison.OrdinalIgnoreCase) &&
         DomBridgeUtils.TryGetAttribute(element, "type", out var inputType) &&
@@ -141,6 +146,9 @@ internal sealed class FormControlBinding(IFormControlHost host)
     {
         if (string.Equals(element.TagName, "select", StringComparison.OrdinalIgnoreCase))
             return _host.GetSelectValue(element);
+        // A file input's value is the file the user chose, never its attribute (measured: C:\fakepath\name).
+        if (IsFileInput(element))
+            return _host.GetFileInputValue(element);
         if (_host.TryGetFormControlValue(element, out var sv))
             return sv;
         // A textarea has no `value` content attribute: its raw value starts as the child text
@@ -203,7 +211,9 @@ internal sealed class FormControlBinding(IFormControlHost host)
         // it from writing `defaultValue`. Falling through to a `value` content attribute instead
         // would be a lost write, because the getter falls back to the child text the specification
         // names as the default and nothing reads that attribute on a textarea.
-        if (tag is "input" or "textarea")
+        if (tag == "input" && IsFileInput(element))
+            _host.SetFileInputValue(element, v, call.Realm);
+        else if (tag is "input" or "textarea")
             _host.SetFormControlValue(element, v); // IDL value, not reflected
         else if (tag == "select")
             _host.SetSelectValue(element, v);

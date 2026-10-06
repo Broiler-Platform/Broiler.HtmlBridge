@@ -390,9 +390,10 @@ public static partial class DomBridgeUtils
     /// <summary>
     /// Applies UA popover positioning and top-layer elevation to open popovers (HTML §popover).
     /// <para>
-    /// The UA sheet's <c>[popover] { position: fixed; inset: 0 }</c> is unconditional — it is not
-    /// gated on top-layer membership — so every open popover with no explicit position becomes a
-    /// fixed box anchored at the viewport origin. Top-layer <em>elevation</em> is the separate,
+    /// The UA sheet's <c>[popover] { position: fixed; inset: 0; margin: auto }</c> is unconditional — it
+    /// is not gated on top-layer membership — and the renderer's own (Broiler.HTML CssDefaults), so every
+    /// open popover with no explicit position is a fixed box centred in the viewport; the bridge writes
+    /// only the <c>position</c> its anchor resolution reads. Top-layer <em>elevation</em> is the separate,
     /// conditional half: a popover held out by a running <c>overlay</c> entry transition is still an
     /// out-of-flow fixed box, it just does not paint in the top layer yet. Later-shown popovers keep
     /// their source order, so they paint over earlier ones — matching the top-layer stacking these

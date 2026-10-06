@@ -157,6 +157,9 @@ public sealed partial class DomBridge
 
         Dom.Features.ElementGeometryBinding.InstallElementMembers(this, Realm, target, element);
 
+        // setPointerCapture(), releasePointerCapture() and hasPointerCapture() (DomBridge/PointerCapture.cs).
+        InstallPointerCaptureMembers(target, element);
+
         // Fullscreen's requestFullscreen()/webkitRequestFullscreen(), which the dialog/details/popover
         // module owns because they share its top-layer machinery. The realm's, in this position.
         _dialogs.InstallElementMembers(target, element);
@@ -436,6 +439,9 @@ public sealed partial class DomBridge
     private void InstallHtmlElementInterface(JsValue target, Dom.Features.JsElementSource element)
     {
         Dom.Features.GlobalAttributeBinding.InstallHtmlElementMembers(this, Realm, target, element);
+
+        // popover, showPopover(), hidePopover(), togglePopover() and inert (DomBridge/Popovers.cs).
+        InstallPopoverMembers(target, element);
         Dom.Features.ElementContentBinding.InstallHtmlElementMembers(Realm, target, element);
 
         // hidden and tabIndex — the two genuinely global reflectors the form-control module carries.
@@ -470,7 +476,8 @@ public sealed partial class DomBridge
             (in call) => DatasetFor(element(in call, "dataset")), null);
 
         // click/focus/blur are EventTargetBinding's, and they are installed the way attachInternals
-        // is below -- same object, same position, same element source.
+        // is below -- same object, same position, same element source. What a click activates is the
+        // bridge's (DomBridge/ScriptActivation.cs).
         Realm.DefineMethod(target, "click", 0,
             (in call) => Dom.Features.EventTargetBinding.Click(this, element(in call, "click"), in call));
         Realm.DefineMethod(target, "focus", 0,

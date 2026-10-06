@@ -407,12 +407,14 @@ that reasoning and leaked an entry per `permissions.query()` for the life of a d
 The belief survived four attempts to act on it. What broke it was asking what the *provider* promises
 rather than what the *struct* can be.
 
-**Another gap is recorded and not yet closed.** `IJsExotic` routes an integer-index key to the indexed
-hooks, has no indexed *write* hook, and gives a handler no way to declare that it has no indexed
-properties at all. `Storage` has named property getters and setters and no indexed ones, so
-`localStorage[8]` is a name — and both engines treat it as an index.
-`WebStorageTests.ADigitOnlyKeyIsANamedPropertyLikeAnyOther` carries the case, skipped, with the
-contract named rather than the module.
+**Another gap is half closed.** `IJsExotic` routes an integer-index key to the indexed hooks and
+gives a handler no way to declare that it has no indexed properties at all. `Storage` has named
+property getters and setters and no indexed ones, so `localStorage[8]` is a name — and both engines
+treat it as an index. `WebStorageTests.ADigitOnlyKeyIsANamedPropertyLikeAnyOther` carries the case,
+skipped, with the contract named rather than the module. The indexed *write* hook it also lacked is
+`IJsExoticIndexedSet`, added for `HTMLOptionsCollection` and `HTMLSelectElement`, whose indexed
+setters replace, append or remove an option: Broiler.JS asks it before its ordinary assignment, and
+Broiler.VM puts it behind the same `Proxy` as the delete hook, as a `set` trap.
 
 **The conformance suite has earned its place three times, and it is what both contract additions were
 measured against.** Every one of its tests is a theory over every registered provider and none of them

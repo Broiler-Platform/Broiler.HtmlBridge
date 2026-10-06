@@ -85,9 +85,21 @@ public sealed partial class DomBridge
         for (var i = 0; i < levels.Count; i++)
             levels[i] = levels[i] with { Window = levels[i].Frame is { } frame ? _subWindows.GetOrCreate(frame) : WindowHandle };
 
-        var hit = levels[^1];
         if (input.Kind == PointerInputKind.Move)
-            return MovePointer(input, levels);
+        {
+            // A captured pointer's events go to the element that captured it, wherever the pointer is
+            // (DomBridge/PointerCapture.cs).
+            ProcessPendingPointerCapture(input);
+            return MovePointer(input, CapturedLevels() ?? levels);
+        }
+
+        if (input.Kind == PointerInputKind.Up)
+        {
+            ProcessPendingPointerCapture(input);
+            levels = CapturedLevels() ?? levels;
+        }
+
+        var hit = levels[^1];
 
         UpdateHover(levels, input);
         _lastPointerPosition = (input.X - input.ScrollX, input.Y - input.ScrollY);
@@ -95,6 +107,8 @@ public sealed partial class DomBridge
 
         if (input.Kind == PointerInputKind.Down)
         {
+            // A button is down: a pointerdown listener can capture the pointer.
+            _pointerButtonsDown = true;
             NotifyUserActivation(GetOwningDocument(hit.Target));
             _keyboardModality = false;
             if (input.Button == 0)
@@ -122,6 +136,10 @@ public sealed partial class DomBridge
             if (allowed && hit.Target.IsConnected)
                 FocusForPress(hit.Target);
 
+            // Then the open auto popovers the press is not in close (light dismiss, DomBridge/Popovers.cs).
+            if (hit.Target.IsConnected)
+                LightDismissPopovers(hit.Target);
+
             return new PointerInputResult(true, !allowed);
         }
 
@@ -134,6 +152,11 @@ public sealed partial class DomBridge
         FireInputEvent(hit, input, "pointerup", detail: 0);
         if (!_pressSuppressesMouseEvents)
             FireInputEvent(hit, input, "mouseup", input.ClickCount);
+
+        // The button came up: the capture ends, with its lostpointercapture before the click.
+        _pointerButtonsDown = input.Buttons != 0;
+        if (!_pointerButtonsDown)
+            ReleasePointerCaptureImplicitly(input);
 
         var press = _pressTarget;
         _pressTarget = null;
@@ -156,10 +179,24 @@ public sealed partial class DomBridge
             return new PointerInputResult(true, false);
 
         allowed = FireClick(clickHit, input, input.ClickCount, labelDepth: 0);
+
+        // A submit or reset button's activation is the page's: the form is validated, gets its submit
+        // event and is submitted, or is reset (DomBridge/FormSubmission.cs). The host performs none of
+        // its own for the click.
+        // An image button submits where in it it was clicked.
+        var handled = allowed && FormButtonClickedAt(clickTarget) is { } button &&
+                      ActivateFormButton(button, ReferenceEquals(button, clickTarget)
+                          ? ((int)(input.X - clickHit.TargetLeft), (int)(input.Y - clickHit.TargetTop))
+                          : default);
+
+        // A button's popovertarget shows or hides its popover once the click is dispatched (measured:
+        // beforetoggle after the click), unless it is a form's submit button (DomBridge/Popovers.cs).
+        if (allowed && ActivationElementOf(clickTarget) is { } invoker && invoker.TagName.ToLowerInvariant() is "button" or "input")
+            ActivatePopoverTarget(invoker, clickTarget);
         if (input.ClickCount == 2)
             FireInputEvent(clickHit, input, "dblclick", 2);
 
-        return new PointerInputResult(true, !allowed);
+        return new PointerInputResult(true, !allowed) { Handled = handled };
     }
 
     /// <summary>The element under the pointer, and how the coordinates of its events are measured.</summary>
@@ -354,7 +391,7 @@ public sealed partial class DomBridge
     {
         var hits = new List<DomElement>();
         CollectHitTestMatches(root, x, y, hits);
-        foreach (var hit in hits)
+        foreach (var hit in InPaintOrder(root, hits))
         {
             // The root's own rectangle is its viewport, which inside a frame is not where the frame is.
             if (!ReferenceEquals(hit, root))
@@ -405,6 +442,8 @@ public sealed partial class DomBridge
 
         if (changed)
         {
+            // The user changed the control: it is :user-valid or :user-invalid from now on (DomBridge/ElementStates.cs).
+            MarkUserInteracted(activation);
             FireInputNotification(hit with { Target = activation }, "input", composed: true);
             FireInputNotification(hit with { Target = activation }, "change", composed: false);
         }
@@ -560,9 +599,47 @@ public sealed partial class DomBridge
         return false;
     }
 
-    private static bool IsDisabledFormControl(DomElement element) =>
-        HasAttr(element, "disabled") &&
-        element.TagName.ToLowerInvariant() is "button" or "input" or "select" or "textarea" or "optgroup" or "option" or "fieldset";
+    /// <summary>
+    /// Whether <paramref name="element"/> is a disabled form control: by its own <c>disabled</c>, or by a
+    /// disabled fieldset it is in -- unless it is in that fieldset's first legend (HTML §4.10.18.5).
+    /// </summary>
+    /// <remarks>
+    /// Only the control's own attribute counted, so a button in a <c>&lt;fieldset disabled&gt;</c> was
+    /// clicked, focused and submitted its form like any other, where Chromium does none of the three.
+    /// </remarks>
+    private static bool IsDisabledFormControl(DomElement element)
+    {
+        var tag = element.TagName.ToLowerInvariant();
+        if (tag is not ("button" or "input" or "select" or "textarea" or "optgroup" or "option" or "fieldset"))
+            return false;
+        if (HasAttr(element, "disabled"))
+            return true;
+        if (tag is "optgroup" or "option")
+            return false;
+
+        for (DomElement? child = element, ancestor = ParentEl(element); ancestor != null; child = ancestor, ancestor = ParentEl(ancestor))
+        {
+            if (ancestor.TagName.Equals("fieldset", StringComparison.OrdinalIgnoreCase) && HasAttr(ancestor, "disabled") &&
+                !ReferenceEquals(child, FirstLegendOf(ancestor)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The first <c>legend</c> child of <paramref name="fieldset"/>, whose controls its <c>disabled</c> leaves alone.</summary>
+    private static DomElement? FirstLegendOf(DomElement fieldset)
+    {
+        foreach (var child in fieldset.ChildNodes)
+        {
+            if (child is DomElement element && element.TagName.Equals("legend", StringComparison.OrdinalIgnoreCase))
+                return element;
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Dispatches a trusted pointer or mouse event of <paramref name="type"/> at <paramref name="hit"/>'s
@@ -580,7 +657,12 @@ public sealed partial class DomBridge
         DomElement? related = null, bool bubbles = true, double movementX = 0, double movementY = 0)
     {
         var realm = Realm;
-        var evt = NewTrustedEvent(realm, type, bubbles, cancelable: bubbles, composed: bubbles, MouseEventPrototype(realm));
+        var isPointerEvent = IsPointerEventType(type);
+
+        // gotpointercapture and lostpointercapture bubble, and are neither cancelable nor composed.
+        var isCaptureEvent = type is "gotpointercapture" or "lostpointercapture";
+        var evt = NewTrustedEvent(realm, type, bubbles, cancelable: bubbles && !isCaptureEvent, composed: bubbles && !isCaptureEvent,
+            isPointerEvent ? PointerEventPrototype(realm) : MouseEventPrototype(realm));
 
         var clientX = input.X - (hit.InFrame ? hit.OriginX : input.ScrollX);
         var clientY = input.Y - (hit.InFrame ? hit.OriginY : input.ScrollY);
@@ -606,7 +688,7 @@ public sealed partial class DomBridge
         var button = type switch
         {
             "pointerdown" or "pointerup" or "mousedown" or "mouseup" or "click" or "dblclick" or "auxclick" => input.Button,
-            _ when type.StartsWith("pointer", StringComparison.Ordinal) => -1,
+            _ when isPointerEvent => -1,
             _ => 0,
         };
         Define(realm, evt, "button", JsValue.Number(button));
@@ -629,10 +711,11 @@ public sealed partial class DomBridge
             });
         });
 
-        if (type.StartsWith("pointer", StringComparison.Ordinal))
+        if (isPointerEvent)
         {
-            // The mouse is pointer 1, the primary pointer, one pixel across, half pressed while a button is down.
-            Define(realm, evt, "pointerId", JsValue.Number(1));
+            // The mouse is pointer 1, the primary pointer, one pixel across, half pressed while a button is
+            // down -- a click too, which Chromium fires as a PointerEvent (measured).
+            Define(realm, evt, "pointerId", JsValue.Number(MousePointerId));
             Define(realm, evt, "pointerType", JsValue.String("mouse"));
             Define(realm, evt, "isPrimary", JsValue.True);
             Define(realm, evt, "width", JsValue.Number(1));
@@ -653,7 +736,7 @@ public sealed partial class DomBridge
     private void FireInputNotification(InputHit hit, string type, bool composed)
     {
         var realm = Realm;
-        DispatchTrusted(hit, NewTrustedEvent(realm, type, bubbles: true, cancelable: false, composed, JsValue.Missing));
+        DispatchTrusted(hit, NewTrustedEvent(realm, type, bubbles: true, cancelable: false, composed, InterfacePrototype(realm, "Event")));
     }
 
     private bool DispatchTrusted(InputHit hit, JsValue evt)
@@ -675,7 +758,8 @@ public sealed partial class DomBridge
                 $"Dispatching a trusted event failed: {ex.Message}", ex);
         }
 
-        TaskCheckpointCallback?.Invoke();
+        if (EndsTaskWithCheckpoint)
+            TaskCheckpointCallback?.Invoke();
         return allowed;
     }
 
@@ -683,7 +767,15 @@ public sealed partial class DomBridge
     /// A new event object as the user agent makes one: <c>isTrusted</c> is true, and cannot be made
     /// otherwise -- a getter, not a property a script could write over.
     /// </summary>
-    private static JsValue NewTrustedEvent(IJsRealm realm, string type, bool bubbles, bool cancelable, bool composed, JsValue prototype)
+    private static JsValue NewTrustedEvent(IJsRealm realm, string type, bool bubbles, bool cancelable, bool composed, JsValue prototype) =>
+        NewEvent(realm, type, bubbles, cancelable, composed, prototype, trusted: true);
+
+    /// <summary>
+    /// A new event object as the user agent makes one, its <c>isTrusted</c> a getter answering
+    /// <paramref name="trusted"/>: false for the click a script's <c>click()</c> fires, which the user
+    /// agent makes but the user did not.
+    /// </summary>
+    private static JsValue NewEvent(IJsRealm realm, string type, bool bubbles, bool cancelable, bool composed, JsValue prototype, bool trusted)
     {
         var evt = realm.NewObject();
         if (prototype.IsObject)
@@ -699,7 +791,7 @@ public sealed partial class DomBridge
         Define(realm, evt, "srcElement", JsValue.Null);
         Define(realm, evt, "eventPhase", JsValue.Number(0));
         Define(realm, evt, "timeStamp", JsValue.Number(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
-        realm.DefineAccessor(evt, "isTrusted", static (in _) => JsValue.True, null, JsPropertyFlags.Enumerable);
+        realm.DefineAccessor(evt, "isTrusted", trusted ? static (in _) => JsValue.True : static (in _) => JsValue.False, null, JsPropertyFlags.Enumerable);
         return evt;
     }
 

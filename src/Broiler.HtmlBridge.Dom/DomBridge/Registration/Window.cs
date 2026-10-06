@@ -52,10 +52,15 @@ public sealed partial class DomBridge
         realm.DefineValue(location, "host", JsValue.String(_pageHost));
         realm.DefineValue(location, "hostname", JsValue.String(_pageHostName));
         realm.DefineValue(location, "port", JsValue.String(_pagePort));
-        realm.DefineValue(location, "pathname", JsValue.String(_pagePathName));
-        realm.DefineValue(location, "search", JsValue.String(_pageSearch));
         realm.DefineValue(location, "origin", JsValue.String(_pageOrigin));
-        Dom.Features.LocationBinding.AddNavigationSurface(realm, location, _pageUrl, this);
+
+        // The URL the page's Location and History share: a fragment navigation, pushState and a history
+        // traversal move it, and with it the path and the query (DomBridge/SessionHistory.cs).
+        _pageDocumentUrl = new Dom.Features.DocumentUrl(_pageUrl);
+        var pageUrl = _pageDocumentUrl;
+        realm.DefineAccessor(location, "pathname", (in _) => JsValue.String(pageUrl.IsAbsolute ? pageUrl.PathName : _pagePathName), null);
+        realm.DefineAccessor(location, "search", (in _) => JsValue.String(pageUrl.IsAbsolute ? pageUrl.Search : _pageSearch), null);
+        Dom.Features.LocationBinding.AddNavigationSurface(realm, location, _pageDocumentUrl, this);
 
         // The global's `location` is the Location of the document whose script is running -- this
         // one, or a frame's, since every document shares the global -- and it is [PutForwards=href]:
@@ -192,6 +197,10 @@ public sealed partial class DomBridge
         // ReferenceError ("Object reference not set to an instance of an object"), and a page with
         // nothing on it.
         realm.DeleteProperty(global, "setImmediate");
+
+        // onload, onmessage and the rest answer for the window whose script is running
+        // (DomBridge/WindowEventHandlers.cs).
+        RegisterWindowEventHandlers(window);
     }
 
     /// <summary>
@@ -292,9 +301,8 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// <c>window.history</c> (HTML §7.2.3). A capture never leaves the page it was given, so the
-    /// session is one entry long and the traversal methods do nothing; what matters is that the
-    /// object and its members <em>exist</em>.
+    /// <c>window.history</c> (HTML §7.2.3): the page's session history, over the URL its Location shows
+    /// (DomBridge/SessionHistory.cs).
     /// </summary>
     /// <remarks>
     /// Absent, it did not read as a missing feature — reading through it threw "Cannot get
@@ -308,23 +316,13 @@ public sealed partial class DomBridge
     private void RegisterHistoryObject(JsValue window)
     {
         var realm = Realm;
-        var history = realm.NewObject();
+        BuildPageHistory(_pageDocumentUrl ??= new Dom.Features.DocumentUrl(_pageUrl));
 
-        realm.DefineValue(history, "length", JsValue.Number(1));
-        realm.DefineValue(history, "state", JsValue.Null);
-        realm.DefineValue(history, "scrollRestoration", JsValue.String("auto"));
-
-        // pushState/replaceState record the state the page hands them, because a page that writes
-        // one commonly reads it straight back; neither changes the document's URL, which a capture
-        // has no way to honour.
-        realm.DefineMethod(history, "pushState", 3, (in c) => StoreHistoryState(history, in c));
-        realm.DefineMethod(history, "replaceState", 3, (in c) => StoreHistoryState(history, in c));
-
-        realm.DefineValue(history, "back", UndefinedMember("back", 0));
-        realm.DefineValue(history, "forward", UndefinedMember("forward", 0));
-        realm.DefineValue(history, "go", UndefinedMember("go", 1));
-
-        DefineWindowGlobal(window, "history", history);
+        // The global's `history` is the History of the document whose script is running -- the page's, or
+        // a frame's, since every document shares the global -- as its `location` is. A frame's pushState
+        // must move the frame's URL, not the page's.
+        realm.DefineAccessor(window, "history", (in _) => CurrentHistory(), null);
+        realm.DefineAccessor(realm.Global, "history", (in _) => CurrentHistory(), null);
     }
 
     /// <summary>
@@ -491,10 +489,17 @@ public sealed partial class DomBridge
         // the idiomatic unqualified `addEventListener("load", …)` registers a window listener,
         // as it does in a browser — through MirrorWindowMembersOntoGlobal, which shares the
         // identical function objects so the two spellings address one listener store. It holds
-        // handles, and the host contract converts nothing.
-        realm.DefineMethod(window, "addEventListener", 3, (in c) => Dom.Features.WindowEventTargetBinding.AddEventListener(this, in c));
-        realm.DefineMethod(window, "removeEventListener", 3, (in c) => Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c));
-        realm.DefineMethod(window, "dispatchEvent", 1, (in c) => Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c));
+        // handles, and the host contract converts nothing. Called bare in a frame's script, they are
+        // the frame window's (TryGetFrameWindowForGlobalCall).
+        realm.DefineMethod(window, "addEventListener", 3, (in c) => TryGetFrameWindowForGlobalCall(in c, out var frame)
+            ? CallOnFrameWindow(frame, "addEventListener", in c)
+            : Dom.Features.WindowEventTargetBinding.AddEventListener(this, in c));
+        realm.DefineMethod(window, "removeEventListener", 3, (in c) => TryGetFrameWindowForGlobalCall(in c, out var frame)
+            ? CallOnFrameWindow(frame, "removeEventListener", in c)
+            : Dom.Features.WindowEventTargetBinding.RemoveEventListener(this, in c));
+        realm.DefineMethod(window, "dispatchEvent", 1, (in c) => TryGetFrameWindowForGlobalCall(in c, out var frame)
+            ? CallOnFrameWindow(frame, "dispatchEvent", in c)
+            : Dom.Features.WindowEventTargetBinding.DispatchEvent(this, in c));
 
         _messaging.RegisterWindowMessaging(window);
 

@@ -439,6 +439,7 @@ internal static class DomBridgeHostUtils
         // The six NamedNodeMap members that need the owning element are host functions, so they
         // are installed on the interface prototype after it exists.
         Dom.Features.DomCollectionBinding.RegisterNamedNodeMapOperations(realm);
+        Dom.Features.DomCollectionBinding.RegisterOptionsCollectionOperations(realm);
     }
 
     /// <summary>

@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.Linq;
+
 namespace Broiler.HtmlBridge.Scripting;
 
 /// <summary>
@@ -25,62 +28,72 @@ namespace Broiler.HtmlBridge.Scripting;
 /// is the default.
 /// </para>
 /// <para>
-/// Two slots rather than a list: the two ways a policy reaches a document cannot both be doubled —
-/// a network document takes header plus meta and inherits nothing, and a local-scheme document
-/// inherits the embedder's plus its own meta and has no response to carry a header. A third would
-/// mean a rule this type does not know about, so it is better as a compile error than as a silently
-/// dropped policy.
+/// A third way is a <c>javascript:</c> URL's document, which has no response either: HTML gives it a
+/// clone of the replaced document's policy container, so it is bound by every policy that document
+/// was -- delivered and declared alike -- and by any its own markup declares
+/// (<see cref="Inheriting"/>). Chromium, measured: a policy from the replaced document's
+/// <c>&lt;meta&gt;</c> refuses an image and <c>eval</c> in the new one. Two slots could not hold that,
+/// so the set is a list; the constructor still takes the two ways that come in pairs.
 /// </para>
 /// </remarks>
 public readonly struct ContentSecurityPolicySet
 {
-    private readonly ContentSecurityPolicy? _first;
-    private readonly ContentSecurityPolicy? _second;
+    // Never empty when set: no policy at all is null, so the default value is the empty set.
+    private readonly ContentSecurityPolicy[]? _policies;
 
     /// <summary>A set of the policies given; a <see langword="null"/> is simply not a policy.</summary>
     public ContentSecurityPolicySet(ContentSecurityPolicy? first, ContentSecurityPolicy? second = null)
+        : this(Normalise([first, second]))
     {
-        // Normalised so that a set holding one policy always holds it in the first slot, which keeps
-        // `IsEmpty` a test of the first slot alone and makes two sets of the same policies equal in
-        // shape however they were built.
-        if (first is null)
-        {
-            _first = second;
-            _second = null;
-        }
-        else
-        {
-            _first = first;
-            _second = ReferenceEquals(first, second) ? null : second;
-        }
     }
+
+    private ContentSecurityPolicySet(ContentSecurityPolicy[]? policies) => _policies = policies;
+
+    /// <summary>
+    /// A <c>javascript:</c> URL's document's: every policy of the document it replaced, and the one its
+    /// own markup declares.
+    /// </summary>
+    public static ContentSecurityPolicySet Inheriting(ContentSecurityPolicySet replaced, ContentSecurityPolicy? declared) =>
+        new(Normalise([.. replaced.Policies, declared]));
 
     /// <summary>No policy governs the document, so nothing is refused.</summary>
     public static ContentSecurityPolicySet None => default;
 
     /// <summary>Whether any policy at all governs the document.</summary>
-    public bool IsEmpty => _first is null;
+    public bool IsEmpty => _policies is null;
+
+    /// <summary>The policies, each of which has to admit what the document does.</summary>
+    public IReadOnlyList<ContentSecurityPolicy> Policies => _policies ?? [];
 
     /// <inheritdoc cref="ContentSecurityPolicy.AllowsInlineScript"/>
     public bool AllowsInlineScript(string? nonce = null, string? scriptText = null) =>
-        (_first is null || _first.AllowsInlineScript(nonce, scriptText)) &&
-        (_second is null || _second.AllowsInlineScript(nonce, scriptText));
+        Policies.All(policy => policy.AllowsInlineScript(nonce, scriptText));
 
     /// <inheritdoc cref="ContentSecurityPolicy.AllowsExternalScript"/>
     public bool AllowsExternalScript(string scriptUrl, string? pageUrl, string? nonce = null) =>
-        (_first is null || _first.AllowsExternalScript(scriptUrl, pageUrl, nonce)) &&
-        (_second is null || _second.AllowsExternalScript(scriptUrl, pageUrl, nonce));
+        Policies.All(policy => policy.AllowsExternalScript(scriptUrl, pageUrl, nonce));
 
     /// <inheritdoc cref="ContentSecurityPolicy.AllowsWorker"/>
     public bool AllowsWorker(string workerUrl, string? pageUrl) =>
-        (_first is null || _first.AllowsWorker(workerUrl, pageUrl)) &&
-        (_second is null || _second.AllowsWorker(workerUrl, pageUrl));
+        Policies.All(policy => policy.AllowsWorker(workerUrl, pageUrl));
 
     /// <summary>
     /// Whether every policy in the set permits <c>eval</c>. An empty set permits it, as
     /// <see cref="ContentSecurityPolicy.AllowsEval"/> does when no policy was stated.
     /// </summary>
-    public bool AllowsEval =>
-        (_first is null || _first.AllowsEval) &&
-        (_second is null || _second.AllowsEval);
+    public bool AllowsEval => Policies.All(static policy => policy.AllowsEval);
+
+    // Without the nulls, and without a policy twice, so a policy that is both inherited and declared is
+    // asked once; null when nothing is left.
+    private static ContentSecurityPolicy[]? Normalise(IEnumerable<ContentSecurityPolicy?> policies)
+    {
+        var list = new List<ContentSecurityPolicy>();
+        foreach (var policy in policies)
+        {
+            if (policy is not null && !list.Exists(existing => ReferenceEquals(existing, policy)))
+                list.Add(policy);
+        }
+
+        return list.Count == 0 ? null : [.. list];
+    }
 }

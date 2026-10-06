@@ -56,19 +56,23 @@ internal static class ElementReflectionBinding
         return JsValue.Undefined;
     }
 
-    // <object>.data getter — reflected URL, resolved against the page URL.
+    // <object>.data getter — reflected URL, resolved against the document's base URL.
     public static JsValue GetData(IElementReflectionHost host, DomElement element)
-        => JsValue.String(ResolveReflectedUrl(host.PageUrl, element, "data"));
+        => JsValue.String(ResolveReflectedUrl(host.DocumentBaseUrl, element, "data"));
 
-    // <a>/<area>/<base>/<link>.href getter — reflected URL, resolved against the page URL.
+    // <a>/<area>/<link>.href getter — reflected URL, resolved against the document's base URL: its
+    // <base href>, or the URL it has now. It used the URL the page was loaded from, so neither a <base>
+    // nor a pushState moved what a relative link names. A <base>'s own href resolves against the
+    // document's URL, since it is what sets the base.
     public static JsValue GetHref(IElementReflectionHost host, DomElement element)
-        => JsValue.String(ResolveReflectedUrl(host.PageUrl, element, "href"));
+        => JsValue.String(ResolveReflectedUrl(
+            element.TagName.Equals("base", StringComparison.OrdinalIgnoreCase) ? host.DocumentUrl : host.DocumentBaseUrl, element, "href"));
 
-    // <script>/<img>.src getter — reflected URL, resolved against the page URL like href/data.
+    // <script>/<img>.src getter — reflected URL, resolved against the document's base URL like href/data.
     // Absolute is what the IDL returns even when the content attribute is relative, which is what a
     // page comparing script.src against a known URL — or handing img.src to a URL parser — expects.
     public static JsValue GetSrc(IElementReflectionHost host, DomElement element)
-        => JsValue.String(ResolveReflectedUrl(host.PageUrl, element, "src"));
+        => JsValue.String(ResolveReflectedUrl(host.DocumentBaseUrl, element, "src"));
 
     // <img>.currentSrc getter — read-only, the URL the element settled on. Srcset candidate selection
     // happens in layout and is not visible from here, so a src is reported as the URL that was chosen

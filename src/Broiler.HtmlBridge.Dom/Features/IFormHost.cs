@@ -34,9 +34,4 @@ internal interface IFormHost : INodeWrapperHost, IRealmHost
     /// be the collection this reports.
     /// </summary>
     IReadOnlyList<DomElement> CollectFormControls(DomElement form);
-
-    /// <summary>Whether a form-associated custom element's own validity (set through
-    /// <c>ElementInternals.setValidity</c>) is satisfied. A form is valid when all its controls are,
-    /// and a custom control's validity is not readable from its markup.</summary>
-    bool IsCustomElementValid(DomElement element);
 }
