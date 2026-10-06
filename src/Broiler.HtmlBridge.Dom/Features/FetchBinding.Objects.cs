@@ -179,6 +179,9 @@ internal sealed partial class FetchBinding
         var formDataObject = realm.NewObject();
         var entries = new List<KeyValuePair<string, JsValue>>(initialEntries ?? []);
 
+        // What a FormData body is made of: the live list, so what the page appends later is sent.
+        _formDataEntries.AddOrUpdate(IdentityOf(formDataObject), entries);
+
         void AppendEntry(string name, JsValue value)
             => entries.Add(new KeyValuePair<string, JsValue>(name, value));
 
@@ -356,10 +359,11 @@ internal sealed partial class FetchBinding
     // nothing else, so `(await response.blob()) instanceof Blob` was false, `constructor.name`
     // was "Object" and there was no `slice` — a shape-only stub that was invisible only because
     // the interface it was imitating did not exist either.
-    private JsValue CreateBlobBody(IJsRealm realm, string bodyText, JsValue headersObject) =>
-        _host.CreateBlob(
-            Encoding.UTF8.GetBytes(bodyText),
-            TryGetJsPropertyString(realm, headersObject, "content-type", "Content-Type") ?? string.Empty);
+    //
+    // Its type is the Content-Type's MIME type without parameters (measured: a
+    // `text/plain; charset=iso-8859-1` response's blob is `text/plain`).
+    private JsValue CreateBlobBody(IJsRealm realm, byte[] body, JsValue headersObject) =>
+        _host.CreateBlob(body, EssenceOf(TryGetJsPropertyString(realm, headersObject, "content-type", "Content-Type")));
 
     // "Disturbed or locked", the Body mixin's own test. Disturbed is bodyUsed, which the body
     // stream sets the first time it is read or cancelled; locked is the stream's own answer, so
@@ -393,16 +397,16 @@ internal sealed partial class FetchBinding
     // object: a getReader whose reader had read/cancel/releaseLock and nothing else — no
     // `closed`, no `tee`, no `cancel` on the stream, and no async iteration, so
     // `for await (const chunk of response.body)` threw on a body that was there.
-    private JsValue CreateReadableStreamBody(IJsRealm realm, JsValue owner, string bodyText) =>
+    private JsValue CreateReadableStreamBody(IJsRealm realm, JsValue owner, byte[] body) =>
         // bodyUsed is the Body mixin's "disturbed" flag, and it is the stream being read that
         // sets it — reported from the underlying source, so the stream a page holds is an
         // ordinary one with no own properties of its own.
-        _host.StreamOverTextObserved(bodyText, () => realm.SetProperty(owner, "bodyUsed", JsValue.True));
+        _host.StreamOverBytesObserved(body, () => realm.SetProperty(owner, "bodyUsed", JsValue.True));
 
     private JsValue CreateRequestObject(IJsRealm realm, JsValue inputValue, JsValue initValue = default)
     {
         string url;
-        string? body;
+        BodyWithType? body;
         JsValue headersObject;
         var signalValue = JsValue.Undefined;
         string? inputMode = null, inputCredentials = null, inputRedirect = null;
@@ -416,7 +420,8 @@ internal sealed partial class FetchBinding
         {
             url = TryGetJsPropertyString(realm, inputValue, "url", "href") ?? string.Empty;
             methodName = TryGetJsPropertyString(realm, inputValue, "method");
-            body = TryGetJsPropertyString(realm, inputValue, "_bodyInit", "body");
+            // A Request's body is the one it was made with; its headers already carry its type.
+            body = RequestBodyOf(inputValue) is { } stored ? new BodyWithType(stored.Bytes, null) : null;
             var inputHeaders = realm.GetProperty(inputValue, "headers");
             headersObject = inputHeaders.IsObject
                 ? CreateHeadersObject(realm, inputHeaders)
@@ -442,8 +447,9 @@ internal sealed partial class FetchBinding
         if (initValue.IsObject)
         {
             methodName = TryGetJsPropertyString(realm, initValue, "method") ?? methodName;
-            if (TryGetJsPropertyString(realm, initValue, "body") is string initBody)
-                body = initBody;
+            var initBody = realm.GetProperty(initValue, "body");
+            if (!initBody.IsNullish)
+                body = ExtractBody(realm, initBody);
             var initHeaders = realm.GetProperty(initValue, "headers");
             if (initHeaders.IsObject)
                 headersObject = CreateHeadersObject(realm, initHeaders);
@@ -479,13 +485,20 @@ internal sealed partial class FetchBinding
             throw realm.Error(JsErrorKind.TypeError, $"Failed to construct 'Request': {error.Message}");
         }
 
+        // The body's own type when the headers name none (Fetch's "new Request" steps).
+        if (body?.ContentType is { } bodyType &&
+            realm.Invoke(realm.GetProperty(headersObject, "get"), headersObject, [JsValue.String("Content-Type")]).IsNull)
+            realm.Invoke(realm.GetProperty(headersObject, "set"), headersObject, [JsValue.String("Content-Type"), JsValue.String(bodyType)]);
+
+        var bytes = body?.Bytes;
         var requestObject = realm.NewObject();
         realm.SetProperty(requestObject, "url", JsValue.String(url));
         realm.SetProperty(requestObject, "method", JsValue.String(method));
         realm.SetProperty(requestObject, "headers", headersObject);
         realm.SetProperty(requestObject, "bodyUsed", JsValue.False);
-        realm.SetProperty(requestObject, "_bodyInit", body == null ? JsValue.Null : JsValue.String(body));
-        realm.SetProperty(requestObject, "body", body == null ? JsValue.Null : CreateReadableStreamBody(realm, requestObject, body));
+        realm.SetProperty(requestObject, "body", bytes == null ? JsValue.Null : CreateReadableStreamBody(realm, requestObject, bytes));
+        if (bytes != null)
+            _requestBodies.AddOrUpdate(IdentityOf(requestObject), new StoredBody(bytes, null));
         realm.SetProperty(requestObject, "signal", signalValue);
         realm.SetProperty(requestObject, "mode", JsValue.String(mode));
         realm.SetProperty(requestObject, "credentials", JsValue.String(credentials));
@@ -501,16 +514,17 @@ internal sealed partial class FetchBinding
         }
         realm.DefineMethod(requestObject, "clone", 0, JsRegistrationClone098);
         // A Request's body is optional, so every reader here reads the absent one as the empty body.
-        DefineBodyReader(realm, requestObject, "Request", "text", () => body == null ? JsValue.String(string.Empty) : JsValue.String(body));
-        DefineBodyReader(realm, requestObject, "Request", "json", () => ParseJsonText(realm, body ?? string.Empty));
-        DefineBodyReader(realm, requestObject, "Request", "arrayBuffer", () => realm.NewArrayBuffer(Encoding.UTF8.GetBytes(body ?? string.Empty)));
-        DefineBodyReader(realm, requestObject, "Request", "blob", () => CreateBlobBody(realm, body ?? string.Empty, headersObject));
-        DefineBodyReader(realm, requestObject, "Request", "formData", () => CreateFormDataObject(realm, JsValue.String(body ?? string.Empty)));
+        var content = bytes ?? [];
+        DefineBodyReader(realm, requestObject, "Request", "text", () => JsValue.String(DecodeUtf8(content)));
+        DefineBodyReader(realm, requestObject, "Request", "json", () => ParseJsonText(realm, DecodeUtf8(content)));
+        DefineBodyReader(realm, requestObject, "Request", "arrayBuffer", () => realm.NewArrayBuffer(content));
+        DefineBodyReader(realm, requestObject, "Request", "blob", () => CreateBlobBody(realm, content, headersObject));
+        DefineBodyReader(realm, requestObject, "Request", "formData", () => CreateFormDataObject(realm, JsValue.String(DecodeUtf8(content))));
 
         return requestObject;
     }
 
-    private JsValue CreateResponse(IJsRealm realm, string body, int statusCode, string statusText, string responseUrl, string type, bool redirected, Dictionary<string, string> headers)
+    private JsValue CreateResponse(IJsRealm realm, byte[] body, int statusCode, string statusText, string responseUrl, string type, bool redirected, Dictionary<string, string> headers)
     {
         var responseHeaders = realm.NewObject();
         foreach (var header in headers)
@@ -526,15 +540,16 @@ internal sealed partial class FetchBinding
         realm.SetProperty(responseObject, "type", JsValue.String(type));
         realm.SetProperty(responseObject, "bodyUsed", JsValue.False);
         realm.SetProperty(responseObject, "headers", headersObject);
-        realm.SetProperty(responseObject, "_bodyText", JsValue.String(body));
         realm.SetProperty(responseObject, "body", CreateReadableStreamBody(realm, responseObject, body));
-        // A Response always has a body text, even when it is empty, and json() reports a parse
-        // failure as its own message — hence ParseResponseJsonText rather than Request's ParseJsonText.
-        DefineBodyReader(realm, responseObject, "Response", "text", () => JsValue.String(body));
-        DefineBodyReader(realm, responseObject, "Response", "json", () => ParseResponseJsonText(realm, body));
-        DefineBodyReader(realm, responseObject, "Response", "arrayBuffer", () => realm.NewArrayBuffer(Encoding.UTF8.GetBytes(body)));
+        headers.TryGetValue("Content-Type", out var contentType);
+        _responseBodies.AddOrUpdate(IdentityOf(responseObject), new StoredBody(body, contentType));
+        // A Response always has a body, even when it is empty, and json() reports a parse failure as
+        // its own message — hence ParseResponseJsonText rather than Request's ParseJsonText.
+        DefineBodyReader(realm, responseObject, "Response", "text", () => JsValue.String(DecodeUtf8(body)));
+        DefineBodyReader(realm, responseObject, "Response", "json", () => ParseResponseJsonText(realm, DecodeUtf8(body)));
+        DefineBodyReader(realm, responseObject, "Response", "arrayBuffer", () => realm.NewArrayBuffer(body));
         DefineBodyReader(realm, responseObject, "Response", "blob", () => CreateBlobBody(realm, body, headersObject));
-        DefineBodyReader(realm, responseObject, "Response", "formData", () => CreateFormDataObject(realm, JsValue.String(body)));
+        DefineBodyReader(realm, responseObject, "Response", "formData", () => CreateFormDataObject(realm, JsValue.String(DecodeUtf8(body))));
         JsValue JsRegistrationClone109(in JsCall call)
         {
             if (IsBodyUnavailable(realm, responseObject))

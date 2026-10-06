@@ -1,6 +1,5 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text;
 
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Internal.Scripting;
@@ -47,7 +46,7 @@ internal sealed partial class FetchBinding
         Uri Url,
         string Method,
         IReadOnlyList<KeyValuePair<string, string>> Headers,
-        string? Body,
+        byte[]? Body,
         RequestMode Mode,
         CredentialsMode Credentials,
         RedirectMode Redirect);
@@ -78,13 +77,13 @@ internal sealed partial class FetchBinding
     /// <param name="baseUrl">What a relative <paramref name="url"/> resolves against: the calling document's base.</param>
     /// <param name="method">The method, or <see langword="null"/> for <c>GET</c>.</param>
     /// <param name="headers">The headers as the page supplied them, unvalidated.</param>
-    /// <param name="body">The body text, or <see langword="null"/> for none.</param>
+    /// <param name="body">The body, or <see langword="null"/> for none.</param>
     private static AuthorRequest PrepareAuthorRequest(
         string url,
         string baseUrl,
         string? method,
         IEnumerable<KeyValuePair<string, string>> headers,
-        string? body,
+        byte[]? body,
         RequestMode mode,
         CredentialsMode credentials,
         RedirectMode redirect)
@@ -244,8 +243,9 @@ internal sealed partial class FetchBinding
     }
 
     /// <summary>
-    /// Builds the request body, carrying the author's <c>Content-Type</c> across as a header value
-    /// rather than as a bare media type.
+    /// Builds the request body, carrying its <c>Content-Type</c> — the page's, or the one the body
+    /// implies (<see cref="ExtractBody"/>) — across verbatim, as a header value rather than as a bare
+    /// media type.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -262,32 +262,25 @@ internal sealed partial class FetchBinding
     /// same way.
     /// </para>
     /// <para>
-    /// Parsing into <see cref="HttpContentHeaders.ContentType"/> keeps those parameters. The bytes
-    /// stay UTF-8 regardless of the charset the author wrote, which is what Fetch §body extraction
-    /// says for a string body — the parameter travels in the header, it does not pick the encoding.
-    /// A value too malformed to parse is sent verbatim instead of costing the whole request, and
-    /// with no <c>Content-Type</c> at all the default stays the spec's <c>text/plain;charset=UTF-8</c>.
+    /// The value goes out as written, as Chromium sends it: parsing it into
+    /// <see cref="HttpContentHeaders.ContentType"/>, as this did, re-serialized
+    /// <c>text/plain;charset=UTF-8</c> as <c>text/plain; charset=UTF-8</c>, and an empty value the page
+    /// set (reCAPTCHA sends one) was dropped where Chromium sends it empty. The bytes are the extracted
+    /// body's — a string's are UTF-8 regardless of the charset the author wrote, which is what Fetch
+    /// §body extraction says: the parameter travels in the header, it does not pick the encoding. A body
+    /// with no <c>Content-Type</c> — an <c>ArrayBuffer</c>, a typed array, an untyped <c>Blob</c> —
+    /// goes without one, as in a browser.
     /// </para>
     /// </remarks>
-    private static StringContent CreateRequestContent(string requestBody, IReadOnlyList<KeyValuePair<string, string>> requestHeaders)
+    private static ByteArrayContent CreateRequestContent(byte[] requestBody, IReadOnlyList<KeyValuePair<string, string>> requestHeaders)
     {
-        var content = new StringContent(requestBody, Encoding.UTF8);
+        var content = new ByteArrayContent(requestBody);
         var contentType = requestHeaders
             .Where(header => string.Equals(header.Key, "Content-Type", StringComparison.OrdinalIgnoreCase))
             .Select(header => header.Value)
             .LastOrDefault();
-        if (string.IsNullOrWhiteSpace(contentType))
-            return content;
-
-        if (MediaTypeHeaderValue.TryParse(contentType, out var parsed))
-        {
-            content.Headers.ContentType = parsed;
-        }
-        else
-        {
-            content.Headers.Remove("Content-Type");
+        if (contentType is not null)
             content.Headers.TryAddWithoutValidation("Content-Type", contentType);
-        }
 
         return content;
     }
@@ -311,8 +304,10 @@ internal sealed partial class FetchBinding
     {
         var opaque = response.Tainting is ResponseTainting.Opaque or ResponseTainting.OpaqueRedirect;
         var message = response.Message;
-        var body = opaque ? string.Empty : message.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-        attempt.Completed(opaque ? null : body, response.StatusCode, message.Content.Headers.ContentType?.MediaType, method);
+
+        // The bytes as received: text() decodes them, arrayBuffer() and blob() hand them back as they are.
+        var body = opaque ? [] : message.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+        attempt.Completed(opaque ? null : DecodeUtf8(body), response.StatusCode, message.Content.Headers.ContentType?.MediaType, method);
 
         // Headers joins repeated fields with ", ", which is what Headers.get answers for them.
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

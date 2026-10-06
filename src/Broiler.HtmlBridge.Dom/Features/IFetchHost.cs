@@ -87,11 +87,11 @@ internal interface IFetchHost : IPageUrlHost, IRealmHost
     JsValue StreamOverText(string text);
 
     /// <summary>
-    /// The same stream, reporting the first read or cancel through <paramref name="onDisturbed"/> —
-    /// the Body mixin's <c>bodyUsed</c>, which is what makes <c>text()</c>, <c>json()</c> and
-    /// <c>clone()</c> refuse a body something has already consumed.
+    /// A stream over a body's bytes, reporting the first read or cancel through
+    /// <paramref name="onDisturbed"/> — the Body mixin's <c>bodyUsed</c>, which is what makes
+    /// <c>text()</c>, <c>json()</c> and <c>clone()</c> refuse a body something has already consumed.
     /// </summary>
-    JsValue StreamOverTextObserved(string text, Action onDisturbed);
+    JsValue StreamOverBytesObserved(byte[] bytes, Action onDisturbed);
 
     /// <summary>Whether a reader holds the given body stream — the Body mixin's "locked" half.</summary>
     bool IsStreamLocked(JsValue stream);

@@ -113,6 +113,7 @@ internal sealed class LoopbackCookieServer : IDisposable
     /// <summary>A request as the server received it.</summary>
     /// <param name="Fields">Every header field in the order received, repeated names included.</param>
     /// <param name="Body">The body, decoded as UTF-8; empty for none.</param>
+    /// <param name="BodyBytes">The body as received; empty for none.</param>
     internal sealed record Request(
         string Method,
         string Path,
@@ -120,7 +121,8 @@ internal sealed class LoopbackCookieServer : IDisposable
         string? Cookie,
         string? Origin,
         IReadOnlyList<(string Name, string Value)>? Fields = null,
-        string Body = "")
+        string Body = "",
+        byte[]? BodyBytes = null)
     {
         /// <summary>Every value of <paramref name="name"/>, joined with ", "; null when the request had none.</summary>
         public string? Header(string name)
@@ -138,13 +140,15 @@ internal sealed class LoopbackCookieServer : IDisposable
     }
 
     /// <summary>A scripted response.</summary>
+    /// <param name="BodyBytes">The body as bytes, sent instead of <paramref name="Body"/> when given.</param>
     internal sealed record Reply(
         int Status = 200,
         string ContentType = "text/html",
         string Body = "",
         IReadOnlyList<string>? SetCookies = null,
         string? Location = null,
-        IReadOnlyList<(string Name, string Value)>? Headers = null);
+        IReadOnlyList<(string Name, string Value)>? Headers = null,
+        byte[]? BodyBytes = null);
 
     public int Port { get; }
 
@@ -245,7 +249,7 @@ internal sealed class LoopbackCookieServer : IDisposable
                     received.AddRange(buffer.AsSpan(0, read).ToArray());
                 }
 
-                var body = Encoding.UTF8.GetString(received.Skip(headerEnd).Take(length).ToArray());
+                var bodyBytes = received.Skip(headerEnd).Take(length).ToArray();
                 var request = new Request(
                     parts[0],
                     parts[1],
@@ -253,14 +257,15 @@ internal sealed class LoopbackCookieServer : IDisposable
                     First("Cookie"),
                     First("Origin"),
                     fields,
-                    body);
+                    Encoding.UTF8.GetString(bodyBytes),
+                    bodyBytes);
                 _requests.Enqueue(request);
 
                 var reply = _routes.TryGetValue(StripQuery(request.Path), out var route)
                     ? route(request)
                     : new Reply(404, "text/plain", "not found");
 
-                var payload = Encoding.UTF8.GetBytes(reply.Body);
+                var payload = reply.BodyBytes ?? Encoding.UTF8.GetBytes(reply.Body);
                 var head = new StringBuilder()
                     .Append($"HTTP/1.1 {reply.Status} {ReasonPhrase(reply.Status)}\r\n")
                     .Append($"Content-Type: {reply.ContentType}\r\n")

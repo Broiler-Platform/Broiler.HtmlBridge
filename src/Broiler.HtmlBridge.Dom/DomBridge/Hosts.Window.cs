@@ -636,8 +636,8 @@ public sealed partial class DomBridge : IFetchHost
 
     JsValue IFetchHost.StreamOverText(string text) => _streams.StreamOverText(text);
 
-    JsValue IFetchHost.StreamOverTextObserved(string text, System.Action onDisturbed) =>
-        _streams.StreamOverTextObserved(text, onDisturbed);
+    JsValue IFetchHost.StreamOverBytesObserved(byte[] bytes, System.Action onDisturbed) =>
+        _streams.StreamOverBytesObserved(bytes, onDisturbed);
 
     bool IFetchHost.IsStreamLocked(JsValue stream) => _streams.IsStreamLocked(stream);
 
