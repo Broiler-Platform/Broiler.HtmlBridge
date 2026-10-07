@@ -239,7 +239,7 @@ public sealed partial class DomBridge
         {
             var insertedTag = insertedElement.TagName?.ToLowerInvariant();
             if (IsNestedBrowsingContextContainer(insertedTag))
-                _eventLoop.QueueTask(() => FireSubDocumentOnload(insertedElement));
+                _eventLoop.QueueTask(() => FireInsertedContainerOnloads(insertedElement));
             else
                 _eventLoop.QueueTask(() => FireDescendantOnloads(insertedElement));
 

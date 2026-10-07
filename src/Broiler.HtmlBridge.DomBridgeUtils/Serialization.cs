@@ -238,4 +238,9 @@ public static partial class DomBridgeUtils
     /// <summary>The URL the frame's document was loaded from, so relative references inside it
     /// resolve against the resource rather than against the containing page.</summary>
     internal const string FrameDocumentBaseAttr = "data-broiler-frame-base";
+
+    /// <summary>The MIME type an <c>&lt;object&gt;</c>'s data loaded as, on an object that renders
+    /// it rather than its fallback, read by Broiler.Layout's <c>CssBoxHelper.IsImageObject</c>. Not
+    /// the object's <c>type</c>, which author selectors match.</summary>
+    internal const string ObjectTypeAttr = "data-broiler-object-type";
 }
