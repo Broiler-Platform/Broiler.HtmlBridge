@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Broiler.JSeal.BroilerJs" Version="0.1.0-preview.5" />
+    <PackageReference Include="Broiler.JSeal.BroilerJs" />
   </ItemGroup>
 
   <ItemGroup>
