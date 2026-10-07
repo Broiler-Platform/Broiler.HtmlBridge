@@ -42,8 +42,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Broiler.JavaScript.Modules" Version="0.1.0-preview.6" />
-    <PackageReference Include="Broiler.JSeal" Version="0.1.0-preview.4" />
+    <PackageReference Include="Broiler.JavaScript.Modules" />
+    <PackageReference Include="Broiler.JSeal" />
   </ItemGroup>
 
   <ItemGroup>
