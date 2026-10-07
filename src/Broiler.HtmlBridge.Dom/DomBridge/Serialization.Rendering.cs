@@ -1,6 +1,7 @@
 using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.Dom.Html;
+using Broiler.HtmlBridge.Dom.Runtime;
 using static Broiler.HtmlBridge.DomBridgeHostUtils;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
@@ -43,11 +44,14 @@ public sealed partial class DomBridge
     /// </summary>
     /// <remarks>
     /// Copying the page's state onto the projection's elements is not a change to the page, so
-    /// <see cref="RenderVersion"/> does not count it (<see cref="NoteRenderStateChange"/>).
+    /// neither <see cref="RenderVersion"/> (<see cref="NoteRenderStateChange"/>) nor the epoch a
+    /// retained geometry snapshot is keyed on (<see cref="BridgeRuntimeStateEpoch.EnterProjection"/>)
+    /// counts it.
     /// </remarks>
     private RenderProjection CreateRenderProjection()
     {
         _renderProjectionDepth++;
+        using var projecting = BridgeRuntimeStateEpoch.EnterProjection();
         try
         {
             return BuildRenderProjection();
@@ -94,7 +98,13 @@ public sealed partial class DomBridge
                 ResolveTopLayerAndAnchorsForRender(projectedRoot);
 
             if (ZoomBakeActive)
-                ApplyZoomSerializationStyles(projectedRoot, 1.0);
+            {
+                if (MayUseZoom(projectedRoot))
+                    ApplyZoomSerializationStyles(projectedRoot, 1.0);
+                else
+                    ApplySvgSerializationAttributes(projectedRoot);
+            }
+
             ApplySerializationTransforms(projectedRoot);
             ApplyViewTransitionRendering(projectedRoot);
             WithUserActionStates(() => ReflectRenderState(projectedRoot));
@@ -102,7 +112,12 @@ public sealed partial class DomBridge
         finally
         {
             _zoomSpecifiedStyleCache.Clear();
-            ClearComputedPropsCache();
+            // The projection's elements, and its own style scope, are never asked about again: its root
+            // is not the page's. The page's styles still hold. They were all cleared here, so the hit
+            // test after each frame a window draws resolved every element of the page again: a quarter
+            // of a second a pointer move over html5test.com.
+            _styleContext.ForgetComputedPropsOf(projectedDocument);
+            _styleContext.DropEngineScopesOf(projectedDocument);
             _renderProjectionSources = previousSources;
             _renderProjectionTargets = previousTargets;
             _renderProjectionDocument = previousDocument;
@@ -302,8 +317,135 @@ public sealed partial class DomBridge
 /// </summary>
 public sealed partial class DomBridge
 {
+    /// <summary>
+    /// Whether anything in <paramref name="root"/>'s tree can give an element a used <c>zoom</c> other
+    /// than 1: a <c>zoom</c> declaration, in a style sheet -- what it imports included -- or an inline
+    /// style, whose value is not one that leaves the zoom as it is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The zoom passes resolve every element's computed style to find its <c>zoom</c>, and a render
+    /// projection is a document of its own, so that was two whole-document cascades for each
+    /// projection. A window builds one for each change it shows and another for each layout a script
+    /// or a hit test asks for: on html5test.com, whose sheet declares only <c>zoom: 1</c>, the old
+    /// layout hack, they were a third of every pointer move. The user agent's own sheet sets no zoom.
+    /// </para>
+    /// <para>
+    /// What a sheet imports is read through the document's stylesheet responses
+    /// (<see cref="FetchExternalStylesheet"/>), which ask the network once. Any import used to count, as
+    /// what it brought was not read here, and reCAPTCHA's demo page imports a font sheet: each of its
+    /// projections, many a second, was baked.
+    /// </para>
+    /// </remarks>
+    private bool MayUseZoom(DomElement root)
+    {
+        foreach (var element in root.Descendants().OfType<DomElement>().Prepend(root))
+        {
+            if (IsStyleSheetOwner(element) && SheetMayScale(element))
+                return true;
+
+            if (InlineStyleForRead(element).TryGetValue("zoom", out var inlineZoom) && MayScale(inlineZoom))
+                return true;
+
+            if (element.GetAttribute("style") is { } styleAttribute &&
+                styleAttribute.Contains("zoom", StringComparison.OrdinalIgnoreCase) &&
+                ParseStyle(styleAttribute).TryGetValue("zoom", out var attributeZoom) &&
+                MayScale(attributeZoom))
+            {
+                return true;
+            }
+        }
+
+        return false;
+
+        // The sheet's own rules, or, when it imports, its text with each import's in place
+        // (ExpandCssImports, as the projection inlines a <style>'s imports): the requests of the live
+        // document the projected element stands for, against the sheet's own base URL.
+        bool SheetMayScale(DomElement owner)
+        {
+            if (GetStyleElementCssText(owner) is not { Length: > 0 } css)
+                return false;
+
+            if (!HasLeadingImport(css))
+                return css.Contains("zoom", StringComparison.OrdinalIgnoreCase) && DeclaresZoom(EnsureStyleSheetRulesCurrent(owner));
+
+            var source = ResolveRenderSource(owner);
+            var expanded = ExpandCssImports(
+                css, GetStyleElementBaseUrl(owner), new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0,
+                _importsBeforePolicyMeta?.GetValueOrDefault(source), source);
+            return expanded.Contains("zoom", StringComparison.OrdinalIgnoreCase) &&
+                   DeclaresZoom(new CssParser().ParseStyleSheet(expanded).Rules);
+        }
+
+        static bool DeclaresZoom(IReadOnlyList<CssRule> rules)
+        {
+            foreach (var rule in rules)
+            {
+                var declarations = rule switch
+                {
+                    CssStyleRule styleRule => styleRule.Declarations,
+                    CssAtRule atRule => atRule.Declarations,
+                    _ => null,
+                };
+
+                if (declarations is not null)
+                {
+                    foreach (var declaration in declarations.Declarations)
+                    {
+                        if (declaration.Name.Equals("zoom", StringComparison.OrdinalIgnoreCase) &&
+                            MayScale(declaration.Value.Text))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                if (rule is CssAtRule { Rules.Count: > 0 } group && DeclaresZoom(group.Rules))
+                    return true;
+            }
+
+            return false;
+        }
+
+        // A used zoom is the product of the specified ones (CssZoom.ResolveUsed), so only a value other
+        // than these can change one. Anything else counts, a substitution among them.
+        static bool MayScale(string value)
+        {
+            var specified = value.Trim();
+            return !(specified.Equals("normal", StringComparison.OrdinalIgnoreCase) ||
+                     specified.Equals("100%", StringComparison.Ordinal) ||
+                     specified.Equals("inherit", StringComparison.OrdinalIgnoreCase) ||
+                     specified.Equals("initial", StringComparison.OrdinalIgnoreCase) ||
+                     specified.Equals("unset", StringComparison.OrdinalIgnoreCase) ||
+                     specified.Equals("revert", StringComparison.OrdinalIgnoreCase) ||
+                     specified.Equals("revert-layer", StringComparison.OrdinalIgnoreCase) ||
+                     double.TryParse(specified, System.Globalization.NumberStyles.Float,
+                         System.Globalization.CultureInfo.InvariantCulture, out var factor) && factor == 1);
+        }
+    }
+
+    /// <summary>
+    /// The part of <see cref="ApplyZoomSerializationStyles"/> that is not about zoom, for a tree
+    /// without any: each SVG element's presentation attributes from its computed style.
+    /// </summary>
+    private void ApplySvgSerializationAttributes(DomElement element)
+    {
+        if (IsText(element))
+            return;
+
+        if (ShouldApplySvgSerializationAttributes(element))
+            ApplyZoomSerializationSvgAttributes(element, 1.0);
+
+        foreach (var child in ChildElements(element))
+            ApplySvgSerializationAttributes(child);
+    }
+
     private void ApplyZoomPseudoSerializationOverrides(DomElement root)
     {
+        // Every element's used zoom is 1, and a pseudo-element is overridden only where it is not.
+        if (!MayUseZoom(root))
+            return;
+
         var rules = new List<string>();
         int pseudoIndex = 0;
         CollectZoomPseudoSerializationOverrides(root, 1.0, rules, ref pseudoIndex);

@@ -223,6 +223,9 @@ public sealed partial class DomBridge : ISubDocumentHost
 
     string ISubDocumentHost.ReadyStateOf(DomNode docRoot) => docRoot is DomDocument document ? ReadyStateOf(document) : "complete";
 
+    void ISubDocumentHost.RegisterDocumentEventHandlers(JsValue doc, DomNode docRoot) =>
+        RegisterDocumentEventHandlers(doc, docRoot);
+
     JsValue ISubDocumentHost.ActiveElementOf(DomNode docRoot) =>
         docRoot is DomDocument document && ActiveElementOf(document) is { } active ? WrapNode(active) : JsValue.Null;
 

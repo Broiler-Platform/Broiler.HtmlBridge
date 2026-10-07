@@ -9,7 +9,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <see cref="CssStyleEngine"/> scopes, the bridge's
 /// <c>GetComputedProps</c> memo (plus its re-entrancy in-progress map), and the style-invalidation
 /// batch state. Consolidating these means there is one place that clears computed style and one
-/// invalidation route — <see cref="InvalidateComputedStyle"/> — so an inline-style mutation and a
+/// invalidation route — <see cref="InvalidateComputedStyle()"/> — so an inline-style mutation and a
 /// selector-affecting mutation cannot drift out of sync.
 /// </summary>
 /// <remarks>
@@ -26,8 +26,10 @@ internal sealed class DocumentStyleContext
 {
     // One engine scope per document root: keeps the engine's mutation-driven computed-style cache
     // and its single DomDocument.Mutated subscription intact across calls (rather than leaking a
-    // subscription per getComputedStyle()).
-    private readonly Dictionary<DomElement, ComputedStyleEngineScope> _engines = [];
+    // subscription per getComputedStyle()). Concurrent like the memo maps below: a render projection
+    // adds a scope and drops it again, while a continuation on a ThreadPool thread may be resolving
+    // computed style.
+    private readonly ConcurrentDictionary<DomElement, ComputedStyleEngineScope> _engines = new();
 
     private readonly ConcurrentDictionary<DomElement, Dictionary<string, string>> _computedPropsCache = new();
     private readonly ConcurrentDictionary<DomElement, Dictionary<string, string>> _computedPropsInProgress = new();
@@ -48,16 +50,28 @@ internal sealed class DocumentStyleContext
     public ComputedStyleEngineScope GetOrCreateEngineScope(DomElement documentRoot, Func<ComputedStyleEngineScope> factory)
     {
         if (!_engines.TryGetValue(documentRoot, out var scope))
-        {
-            scope = factory();
-            _engines[documentRoot] = scope;
-        }
+            scope = _engines.GetOrAdd(documentRoot, _ => factory());
 
         return scope;
     }
 
     /// <summary>Drops every per-document engine scope so rebuilt document roots retain no engine or subscription.</summary>
     public void ResetEngines() => _engines.Clear();
+
+    /// <summary>
+    /// Drops the engine scopes of the trees <paramref name="document"/> owns: a render projection's,
+    /// once it is built. Each projection is a document of its own, with a root no later call names
+    /// again, so its scope only held on to the projection, and every projection a page built stayed
+    /// in memory, engine and all, until the page was parsed again.
+    /// </summary>
+    public void DropEngineScopesOf(DomDocument document)
+    {
+        foreach (var root in _engines.Keys)
+        {
+            if (ReferenceEquals(root.OwnerDocument, document))
+                _engines.TryRemove(root, out _);
+        }
+    }
 
     // ------------------------------------------------------------------
     //  GetComputedProps memo
@@ -78,6 +92,19 @@ internal sealed class DocumentStyleContext
     public void RemoveComputedPropsInProgress(DomElement element) =>
         _computedPropsInProgress.TryRemove(element, out _);
 
+    /// <summary>
+    /// Forgets the memoized styles of <paramref name="document"/>'s elements: a render projection's, once
+    /// it is built, whose elements no later call names again.
+    /// </summary>
+    public void ForgetComputedPropsOf(DomDocument document)
+    {
+        foreach (var element in _computedPropsCache.Keys)
+        {
+            if (ReferenceEquals(element.OwnerDocument, document))
+                _computedPropsCache.TryRemove(element, out _);
+        }
+    }
+
     // ------------------------------------------------------------------
     //  The single computed-style invalidation route
     // ------------------------------------------------------------------
@@ -94,6 +121,18 @@ internal sealed class DocumentStyleContext
         _computedPropsCache.Clear();
         foreach (var scope in _engines.Values)
             scope.Engine.InvalidateComputedStyleCaches();
+    }
+
+    /// <summary>
+    /// <see cref="InvalidateComputedStyle()"/> for <paramref name="elements"/> alone: a change whose reach
+    /// the bridge knows, which must include every element whose style can follow it.
+    /// </summary>
+    public void InvalidateComputedStyle(IReadOnlySet<DomElement> elements)
+    {
+        foreach (var element in elements)
+            _computedPropsCache.TryRemove(element, out _);
+        foreach (var scope in _engines.Values)
+            scope.Engine.InvalidateComputedStyleCaches(elements);
     }
 
     // ------------------------------------------------------------------
@@ -180,6 +219,18 @@ internal sealed class ComputedStyleEngineScope(CssStyleScopeBuilder scopeBuilder
     /// </para>
     /// </remarks>
     public StyleSheetCandidateSnapshot? StyleSheetCandidates { get; set; }
+
+    /// <summary>
+    /// What the engine's sheets were last synced from, or <c>null</c> when that cannot be told without
+    /// reading them again. While it still holds, the sheets are the same and the sync is skipped.
+    /// </summary>
+    /// <remarks>
+    /// The sheets' text was read again, concatenated, compared and hashed for every element resolved:
+    /// all of a page's style text per element, which on html5test.com made each pass over the page
+    /// reread its stylesheet a few thousand times. One reference, for the reason
+    /// <see cref="StyleSheetCandidates"/> is one.
+    /// </remarks>
+    public StyleSourcesStamp? SyncedSources { get; set; }
 }
 
 /// <summary>
@@ -187,3 +238,17 @@ internal sealed class ComputedStyleEngineScope(CssStyleScopeBuilder scopeBuilder
 /// <see cref="DomDocument.Version"/> they were collected at, which is what makes them reusable.
 /// </summary>
 internal sealed record StyleSheetCandidateSnapshot(ulong Version, List<DomElement> Elements);
+
+/// <summary>
+/// Everything a scope's sheets are read from. The document's <see cref="DomDocument.Version"/> covers
+/// its tree: which elements are sheets, their text, <c>media</c> and <c>href</c>, a <c>&lt;base&gt;</c>.
+/// <see cref="BridgeRuntimeStateEpoch"/> covers what the DOM does not record: a CSSOM edit, a sheet
+/// disabled from script, a linked sheet's text arriving. The CSSOM edit count is the page's own record of
+/// the first, and the viewport is what each sheet's <c>media</c> is matched against.
+/// </summary>
+internal sealed record StyleSourcesStamp(
+    ulong DocumentVersion,
+    long RuntimeState,
+    long SheetEdits,
+    int ViewportWidth,
+    int ViewportHeight);

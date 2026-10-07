@@ -884,9 +884,16 @@ public sealed partial class DomBridge : Dom.Features.IEventTargetHost
 // The map holds JSEAL handles, and nothing here converts. Every file that touches it is in this
 // assembly: the declaration in DomBridge/RuntimeStates.cs, the accessor in DomBridge.cs, the dispatch
 // read in the IEventDispatchHost implementation, DomBridge/Events.cs and this implementation.
+//
+// A body of the page's document reflects the window's onscroll (IsWindowReflectingBodyHandler in
+// DomBridge/Events.cs), so `document.body.onscroll` reads and writes the window's handler and not the map.
 public sealed partial class DomBridge : Dom.Features.IEventHandlerReflectorHost
 {
-    JsValue Dom.Features.IEventHandlerReflectorHost.GetInlineEventHandler(DomNode node, string eventName) =>
+    JsValue Dom.Features.IEventHandlerReflectorHost.GetInlineEventHandler(DomNode node, string eventName)
+    {
+        if (IsWindowReflectingBodyHandler(node, eventName))
+            return PageWindowHandler("on" + eventName);
+
         // Only functions are ever put in this map. It has two writers: CompileInlineEventAttribute in
         // DomBridge/Events.cs, which stores a compiled handler only when it answered IsFunction, and the
         // setter below, whose one caller, EventHandlerReflectorBinding.SetOn, stores only a handle that
@@ -895,13 +902,24 @@ public sealed partial class DomBridge : Dom.Features.IEventHandlerReflectorHost
         // wrapped, and the two attribute-write paths in Features/AttributesBinding.cs. So the object
         // test is what turns nothing stored into the IDL attribute's null, and the stored handle is
         // returned as it is.
-        GetInlineEventHandlers(node).TryGetValue(eventName, out var handler) && handler.IsObject
+        return GetInlineEventHandlers(node).TryGetValue(eventName, out var handler) && handler.IsObject
             ? handler
             : JsValue.Null;
+    }
 
-    void Dom.Features.IEventHandlerReflectorHost.SetInlineEventHandler(DomNode node, string eventName, JsValue handler) =>
-        GetInlineEventHandlers(node)[eventName] = handler;
+    void Dom.Features.IEventHandlerReflectorHost.SetInlineEventHandler(DomNode node, string eventName, JsValue handler)
+    {
+        if (IsWindowReflectingBodyHandler(node, eventName))
+            SetPageWindowHandler("on" + eventName, handler);
+        else
+            GetInlineEventHandlers(node)[eventName] = handler;
+    }
 
-    void Dom.Features.IEventHandlerReflectorHost.RemoveInlineEventHandler(DomNode node, string eventName) =>
-        GetInlineEventHandlers(node).Remove(eventName);
+    void Dom.Features.IEventHandlerReflectorHost.RemoveInlineEventHandler(DomNode node, string eventName)
+    {
+        if (IsWindowReflectingBodyHandler(node, eventName))
+            SetPageWindowHandler("on" + eventName, JsValue.Null);
+        else
+            GetInlineEventHandlers(node).Remove(eventName);
+    }
 }

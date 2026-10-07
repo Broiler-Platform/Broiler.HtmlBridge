@@ -253,17 +253,52 @@ internal sealed class AnimationRuntimeState
 /// <c>DomBridge.CurrentLayoutSnapshotKey</c>.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Process-wide rather than per-bridge because <see cref="RuntimeValue{T}"/> holds no back-reference
 /// to the bridge that owns it. A second document in the same process therefore invalidates this one's
 /// snapshot too — conservative, never wrong: a spurious bump only costs a rebuild.
+/// </para>
+/// <para>
+/// Writes made while this thread builds a render projection do not count
+/// (<see cref="EnterProjection"/>). Building one copies the page's state onto the projection's
+/// elements and bakes into those copies, element by element, and none of that changes the page. It
+/// used to count, so every serialization of a page threw its retained snapshot away: in a window, which
+/// serializes after each change it shows, the next pointer move over html5test.com laid the whole page
+/// out again. A change of what the page renders that its DOM does not record bumps here explicitly
+/// instead (<c>DomBridge.NoteRenderStateChange</c>), where it used to be caught only by the
+/// serialization that followed it.
+/// </para>
 /// </remarks>
 internal static class BridgeRuntimeStateEpoch
 {
     private static long _value;
 
+    // How many render projections this thread is building, one inside another.
+    [ThreadStatic]
+    private static int _projectionDepth;
+
     public static long Current => Interlocked.Read(ref _value);
 
-    public static void Bump() => Interlocked.Increment(ref _value);
+    public static void Bump()
+    {
+        if (_projectionDepth == 0)
+            Interlocked.Increment(ref _value);
+    }
+
+    /// <summary>
+    /// Stops this thread's writes from counting until the returned scope is disposed: the writes of a
+    /// render projection's build, which are to the projection's copies of the page's state.
+    /// </summary>
+    public static ProjectionScope EnterProjection()
+    {
+        _projectionDepth++;
+        return new ProjectionScope();
+    }
+
+    public readonly struct ProjectionScope : IDisposable
+    {
+        public void Dispose() => _projectionDepth--;
+    }
 }
 
 /// <param name="affectsLayout">

@@ -268,7 +268,7 @@ public sealed partial class DomBridge
 
         ScrollStateFor(root).Left.Set(left);
         ScrollStateFor(root).Top.Set(top);
-        if (!ViewportScrollIsHeard(root))
+        if (!ViewportScrollIsHeard())
             return false;
 
         PendScrollEvent(_pendingScrollTargets, root);
@@ -281,18 +281,17 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Whether anything hears a scroll of the viewport: a <c>scroll</c> or <c>scrollend</c> listener or
-    /// <c>on…</c> handler on the window, the document or <paramref name="root"/>, the targets
-    /// <see cref="RunScrollSteps"/> reaches. All the document's listeners count, though only its capture
-    /// listeners run: answering yes for nothing costs a step, answering no for a listener loses its event.
+    /// <c>on…</c> handler on the window or the document, the event's path (<see cref="DispatchScrollEvent"/>).
+    /// <c>&lt;body onscroll&gt;</c> is the window's handler. Answering yes for nothing costs a step, answering
+    /// no for a listener loses its event.
     /// </summary>
-    private bool ViewportScrollIsHeard(DomElement root)
+    private bool ViewportScrollIsHeard()
     {
         foreach (var type in ViewportScrollEventTypes)
         {
             if (_eventTargets.TryGetWindowListeners(type, out var listeners) && listeners.Count > 0 ||
                 PageWindowHandler("on" + type).IsObject ||
-                HasListenerOrHandler(_document, type) ||
-                HasListenerOrHandler(root, type))
+                HasListenerOrHandler(_document, type))
             {
                 return true;
             }
@@ -343,16 +342,10 @@ public sealed partial class DomBridge
             return;
 
         foreach (var element in scrolled)
-        {
-            DispatchElementEvent(element, "scroll");
-            DispatchViewportScrollEventToWindow(element, "scroll");
-        }
+            DispatchScrollEvent(element, "scroll");
 
         foreach (var element in ended)
-        {
-            DispatchElementEvent(element, "scrollend");
-            DispatchViewportScrollEventToWindow(element, "scrollend");
-        }
+            DispatchScrollEvent(element, "scrollend");
     }
 
     private void CancelSmoothScroll(DomElement element) => _smoothScrollTokens.TryRemove(element, out _);
@@ -376,28 +369,31 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Also delivers a viewport scroll to <c>window</c>'s listeners.
+    /// Fires <paramref name="eventType"/> for a scroll of <paramref name="element"/>: at the element, without
+    /// bubbling, or, when it is its document's root and so the viewport is what scrolled, at its document,
+    /// bubbling to the window (CSSOM View, "run the scroll steps").
     /// </summary>
     /// <remarks>
-    /// CSSOM View fires a scrolling event at the <em>Document</em> when the scrolling box is the
-    /// viewport, so it reaches the window through the propagation path — which is why
-    /// <c>addEventListener("scroll", …)</c> at global scope (a window listener, the idiomatic
-    /// spelling) is how pages observe page scrolling. This bridge dispatches the event on the
-    /// document element and marks it non-bubbling, so a window listener never saw it and
-    /// <c>document.documentElement.scrollTop = N</c> looked like it scrolled silently: the offset
-    /// changed and the render moved, but nothing was notified. WPT
-    /// <c>css-view-transitions/*-root-scrollbar-with-fixed-background</c> awaits exactly such a
-    /// listener before it starts its transition, so the test simply stopped there.
     /// <para>
-    /// Delivered in addition to the element dispatch rather than instead of it, so element-level
-    /// and <c>onscroll</c> listeners keep seeing what they saw before. The element dispatch's path
-    /// already reaches the window's capture listeners, so only the others are run here.
+    /// A viewport's scroll was fired at the document element without bubbling and then at the window's
+    /// listeners alone. So a bubbling listener on the document heard nothing, one on the document
+    /// element heard what no browser gives it, and <c>&lt;body onscroll&gt;</c>, which HTML makes the
+    /// window's handler, heard nothing either.
+    /// </para>
+    /// <para>
+    /// Measured in Chromium with a wheel over the viewport: the window's capture listeners, the
+    /// document's listeners and its <c>onscroll</c> at the target, then the window's other listeners and
+    /// its <c>onscroll</c> -- which <c>&lt;body onscroll&gt;</c> sets -- with the document as the target
+    /// and <c>bubbles</c> true throughout. Nothing on the document element or the body hears it.
+    /// <c>scrollend</c> takes the same path.
     /// </para>
     /// </remarks>
-    private void DispatchViewportScrollEventToWindow(DomElement element, string eventType)
+    private void DispatchScrollEvent(DomElement element, string eventType)
     {
-        if (ReferenceEquals(element, DocumentElement))
-            DispatchWindowEvent(eventType, nonCaptureListenersOnly: true);
+        if (element.ParentNode is DomDocument document)
+            _eventDispatch.DispatchEventOnElement(document, SimpleEvent(eventType, bubbles: true));
+        else
+            DispatchElementEvent(element, eventType);
     }
 
     private void DispatchElementEvent(DomElement element, string eventType)

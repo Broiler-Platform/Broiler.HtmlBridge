@@ -451,12 +451,12 @@ public sealed partial class DomBridge
         return evt;
     }
 
-    private bool DispatchWindowEvent(string eventType, bool bubbles = false, bool nonCaptureListenersOnly = false)
+    private bool DispatchWindowEvent(string eventType, bool bubbles = false)
     {
         if (_realm is null)
             return true;
 
-        return DispatchWindowEvent(SimpleEvent(eventType, bubbles), nonCaptureListenersOnly);
+        return DispatchWindowEvent(SimpleEvent(eventType, bubbles));
     }
 
     /// <summary>
@@ -477,12 +477,7 @@ public sealed partial class DomBridge
     /// <c>toString</c> gets that <c>toString</c> run, and the listener lookup keys on its result.
     /// </para>
     /// </remarks>
-    /// <param name="evt">The event.</param>
-    /// <param name="nonCaptureListenersOnly">
-    /// Whether to leave out the window's capture listeners: for an event a dispatch at the document
-    /// already carried to them (the window is the first stop of a document's event path).
-    /// </param>
-    private bool DispatchWindowEvent(JsValue evt, bool nonCaptureListenersOnly = false)
+    private bool DispatchWindowEvent(JsValue evt)
     {
         // Nothing on this path converts the event. The loop below hands the invoker the handle this
         // method was given, and the invoker calls each listener through the realm. A conversion used
@@ -526,8 +521,7 @@ public sealed partial class DomBridge
         {
             Dom.Features.EventListenerBinding.InvokeListeners(listeners,
                 listener => InvokeEventListener(realm, listener, evt, "DomBridge.window.dispatchEvent"),
-                ref immediateStopped, ref currentListenerPassive,
-                nonCaptureListenersOnly ? false : null);
+                ref immediateStopped, ref currentListenerPassive);
         }
 
         // The page's on… handler, after its listeners, as an element's runs after its own -- onmessage,
