@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using Broiler.CSS;
 using Broiler.CSS.Dom;
 using Broiler.Dom;
 using Broiler.Dom.Html;
@@ -99,11 +101,57 @@ public sealed partial class DomBridge
     // Initialized in the constructor (a field initializer cannot capture `this`).
     private readonly CssSelectorMatcher _selectorMatcher;
 
+    /// <summary>
+    /// Whether <paramref name="element"/> matches <paramref name="selector"/>, a selector list: whether
+    /// any of its selectors matches it (Selectors 4 §4.1).
+    /// </summary>
+    /// <remarks>
+    /// The matcher takes one complex selector, and was handed the whole list, so a list matched no
+    /// element at all: <c>querySelectorAll('div, p')</c> found nothing, <c>querySelector</c> answered
+    /// <c>null</c> and <c>matches</c> false, where each selector alone worked (measured in Chromium).
+    /// </remarks>
     internal bool MatchesSelector(
         DomElement element,
         string selector,
-        DomElement? scope = null) =>
-        _selectorMatcher.Matches(element, selector, scope);
+        DomElement? scope = null)
+    {
+        if (SelectorsOfList(selector) is not { } selectors)
+            return _selectorMatcher.Matches(element, selector, scope);
+
+        foreach (var complex in selectors)
+        {
+            if (_selectorMatcher.Matches(element, complex, scope))
+                return true;
+        }
+
+        return false;
+    }
+
+    // A list's selectors are a function of its text alone, and querySelectorAll asks for them once per
+    // element of the document. Bounded, as the matcher's own caches are.
+    private static readonly ConcurrentDictionary<string, string[]?> SelectorListCache = new(StringComparer.Ordinal);
+    private const int SelectorListCacheLimit = 1024;
+
+    /// <summary>
+    /// The selectors of the list <paramref name="selector"/>, or <see langword="null"/> for a single one.
+    /// A comma in a pseudo-class's argument, an attribute value, a string, an escape or a comment
+    /// separates nothing.
+    /// </summary>
+    private static string[]? SelectorsOfList(string selector)
+    {
+        if (selector.IndexOf(',') < 0)
+            return null;
+
+        if (SelectorListCache.TryGetValue(selector, out var cached))
+            return cached;
+
+        var selectors = CssSyntax.SplitTopLevel(selector, ',').ToArray();
+        var list = selectors.Length > 1 ? selectors : null;
+        if (SelectorListCache.Count >= SelectorListCacheLimit)
+            SelectorListCache.Clear();
+        SelectorListCache.TryAdd(selector, list);
+        return list;
+    }
 
     // The selector state provider the matcher asks is in DomBridge/UserActionState.cs.
 }
