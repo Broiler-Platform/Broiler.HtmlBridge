@@ -19,11 +19,21 @@ namespace Broiler.HtmlBridge;
 /// </summary>
 public sealed partial class DomBridge
 {
+    private const string XhtmlNamespace = "http://www.w3.org/1999/xhtml";
+
     /// <summary>
-    /// Builds a sub-document tree from XML/SVG/XHTML content using an XML parser.
-    /// For XHTML with valid namespace, also executes embedded scripts.
-    /// XML well-formedness errors result in an empty document.
+    /// Builds a sub-document tree from XML/SVG/XHTML content using an XML parser, and runs the
+    /// document's HTML <c>script</c> elements — <c>script</c> in the XHTML namespace — whatever XML
+    /// type it was served as. XML well-formedness errors result in an empty document.
     /// </summary>
+    /// <remarks>
+    /// Whether a script runs is the element's namespace, not the response's type: a browser runs an
+    /// XHTML document's scripts when it arrives as <c>text/xml</c> or <c>application/xml</c> as well
+    /// as <c>application/xhtml+xml</c>. Acid3's test 80 loads a well-formed XHTML file as
+    /// <c>text/xml</c> and expects its script to run, and one whose root is in the namespace
+    /// <c>http://www.w3.org/1999/xhtml#</c> not to. The scripts are found on the parsed XML tree,
+    /// because <see cref="BuildDomElementFromXElement"/> keeps only an element's local name.
+    /// </remarks>
     private DomDocument BuildSubDocumentFromXml(
         string xmlContent,
         string contentType,
@@ -53,7 +63,7 @@ public sealed partial class DomBridge
             // Check XHTML namespace validity
             var rootNs = xdoc.Root.Name.NamespaceName;
             var isXhtml = string.Equals(contentType, "application/xhtml+xml", StringComparison.OrdinalIgnoreCase);
-            var hasCorrectXhtmlNs = string.Equals(rootNs, "http://www.w3.org/1999/xhtml", StringComparison.Ordinal);
+            var hasCorrectXhtmlNs = string.Equals(rootNs, XhtmlNamespace, StringComparison.Ordinal);
 
             if (isXhtml && !hasCorrectXhtmlNs)
             {
@@ -68,12 +78,17 @@ public sealed partial class DomBridge
 
             LinkContentDocument(containerElement, document);
 
-            // Execute scripts in XHTML documents with correct namespace
-            if (isXhtml && hasCorrectXhtmlNs)
+            // Execute the document's XHTML scripts, whatever XML type it was served as.
+            var scripts = xdoc.Root
+                .DescendantsAndSelf(XName.Get("script", XhtmlNamespace))
+                .Select(script => script.Value)
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToList();
+            if (scripts.Count > 0)
             {
                 var policies = new ContentSecurityPolicySet(deliveredPolicy, ContentSecurityPolicy.FromHtml(xmlContent));
                 SetFrameScriptPolicies(document, policies);
-                ExecuteSubDocumentScripts(rootEl, policies);
+                ExecuteSubDocumentScripts(scripts, policies);
             }
         }
         catch (System.Xml.XmlException)
@@ -117,7 +132,7 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
-    /// Finds and executes script elements within a sub-document tree.
+    /// Executes the text of an XML sub-document's script elements.
     /// Scripts call parent.notify() etc. in the main JS context.
     /// </summary>
     /// <param name="policies">
@@ -134,15 +149,12 @@ public sealed partial class DomBridge
     /// the control that says the same document still runs when nothing forbids it — without that
     /// control the test would pass on a path where scripts never run.
     /// </remarks>
-    private void ExecuteSubDocumentScripts(DomElement docRoot, ContentSecurityPolicySet policies = default)
+    private void ExecuteSubDocumentScripts(IReadOnlyList<string> scripts, ContentSecurityPolicySet policies = default)
     {
         if (_realm is not { } realm) return;
 
-        var scripts = new List<string>();
-        CollectScriptContent(docRoot, scripts);
-
-        // An XML sub-document's scripts are inline by construction -- CollectScriptContent takes
-        // an element's text and never a src -- so the inline directive is the one that decides.
+        // An XML sub-document's scripts are inline by construction -- the caller takes an
+        // element's text and never a src -- so the inline directive is the one that decides.
         //
         // What the filter admits is A CLASSIC SCRIPT, exactly as the HTML path's are, and evaluated
         // through the same member for the same reason: script-src governs a script element, the

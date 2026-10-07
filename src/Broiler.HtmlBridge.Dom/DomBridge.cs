@@ -371,10 +371,16 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         _formControl = new Dom.Features.FormControlBinding(this);
         // A form control's state is rendered and is not in the DOM: a change to it is one the page's
         // RenderVersion has to see, as well as the process-wide epoch the geometry snapshot keys on.
+        // Nor does it raise document.Mutated, which is what clears the computed styles, so a style
+        // :checked decided would outlive a click() that unchecked the box (Acid3 test 43). Cloning
+        // elements for a render projection copies their state too; that must not clear the styles
+        // the projection is being built from.
         _formState.OnStateChanged = () =>
         {
             BridgeRuntimeStateEpoch.Bump();
             NoteRenderStateChange();
+            if (_renderProjectionDepth == 0)
+                ClearComputedPropsCache();
         };
 
         _messaging = new Dom.Features.MessagingBinding(this, _eventTargets);

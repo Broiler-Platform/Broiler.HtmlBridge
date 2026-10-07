@@ -157,26 +157,6 @@ public static partial class DomBridgeUtils
 
 public static partial class DomBridgeUtils
 {
-    /// <summary>
-    /// Recursively collects text content from script elements.
-    /// </summary>
-    internal static void CollectScriptContent(DomElement element, List<string> scripts)
-    {
-        if (string.Equals(element.TagName, "script", StringComparison.OrdinalIgnoreCase))
-        {
-            var text = element.TextContent;
-            if (!string.IsNullOrWhiteSpace(text))
-                scripts.Add(text);
-            return;
-        }
-
-        foreach (var child in ChildElements(element))
-            CollectScriptContent(child, scripts);
-    }
-}
-
-public static partial class DomBridgeUtils
-{
     // Two neutral sub-tree search helpers, shared by the
     // Broiler.HtmlBridge.Dom.Features.SubDocumentBinding module (which owns the nested-browsing-
     // context `document` surface) and non-frame bridge code — FindInSubTree by the main document's

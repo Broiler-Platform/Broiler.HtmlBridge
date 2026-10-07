@@ -207,20 +207,14 @@ internal sealed class TableBinding(ITableHost host)
     // -------- Helpers --------
 
     /// <summary>
-    /// A node snapshot as a JS array whose own <c>length</c> is an accessor over the snapshot the
-    /// array was built from — what every one of these collection sites has always installed, and
-    /// what keeps the array and its length in agreement.
+    /// A node snapshot as a JS array.
     /// </summary>
     /// <remarks>
-    /// The getter closes over the materialised wrapper array, never over <paramref name="nodes"/>:
-    /// re-running the query inside it would turn a snapshot length into a live one, which is not
-    /// what these properties answer.
+    /// The array's own <c>length</c> already is the snapshot's. It used to be redefined as an accessor
+    /// as well, and an array's <c>length</c> is a non-configurable data property that ECMAScript does
+    /// not let become an accessor: once Broiler.JS refused it, every read of <c>tBodies</c>,
+    /// <c>rows</c> and <c>cells</c> threw "Cannot define property" (Acid3 tests 29, 49, 50 and 51).
     /// </remarks>
-    private JsValue WrapCollection(IJsRealm realm, IEnumerable<DomNode> nodes)
-    {
-        var items = nodes.Select(_host.WrapNode).ToArray();
-        var array = realm.NewArray(items);
-        realm.DefineAccessor(array, "length", (in _) => JsValue.Number(items.Length), null);
-        return array;
-    }
+    private JsValue WrapCollection(IJsRealm realm, IEnumerable<DomNode> nodes) =>
+        realm.NewArray(nodes.Select(_host.WrapNode).ToArray());
 }
