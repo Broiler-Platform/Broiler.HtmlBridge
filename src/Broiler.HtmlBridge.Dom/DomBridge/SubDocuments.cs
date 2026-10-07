@@ -7,6 +7,7 @@ using Broiler.JavaScript.Modules;
 using Broiler.Net.Http;
 using Broiler.Dom;
 using Broiler.Dom.Html;
+using Broiler.HtmlBridge.Dom.Runtime;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
 namespace Broiler.HtmlBridge;
@@ -134,9 +135,127 @@ public sealed partial class DomBridge
             if (IsNestedBrowsingContextContainer(childTag))
             {
                 FireSubDocumentOnload(child);
+
+                // An <object> that shows its data renders none of its children, so the objects in
+                // its fallback are never loaded (HTML §4.8.7).
+                if (ObjectShowsItsData(child))
+                    continue;
             }
             FireDescendantOnloads(child);
         }
+    }
+
+    /// <summary>
+    /// Loads a container that was just inserted and, for an <c>&lt;object&gt;</c> that falls back,
+    /// the objects in its fallback, which render in its place.
+    /// </summary>
+    /// <remarks>
+    /// Acid3's test 16 inserts an object whose data is a 404, holding one whose data is a page: the
+    /// inner one is what renders, and only once it was loaded could the renderer be told that its
+    /// own fallback does not.
+    /// </remarks>
+    private void FireInsertedContainerOnloads(DomElement container)
+    {
+        if (IsInObjectThatHoldsItBack(container))
+            return;
+
+        FireSubDocumentOnload(container);
+        if (IsObjectElement(container) && !ObjectShowsItsData(container))
+            FireDescendantOnloads(container);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="container"/> is in the fallback of an <c>&lt;object&gt;</c> that
+    /// shows its data, and so is never loaded, or of one whose data is still to load, which loads
+    /// the objects in its fallback itself if it falls back.
+    /// </summary>
+    /// <remarks>
+    /// Acid3 builds its nested objects inside out, so each is inserted, and its load queued, before
+    /// the object that holds it; the innermost, in the fallback of a page, was loaded too.
+    /// </remarks>
+    private bool IsInObjectThatHoldsItBack(DomElement container)
+    {
+        for (var ancestor = ParentEl(container); ancestor is not null; ancestor = ParentEl(ancestor))
+        {
+            if (!IsObjectElement(ancestor))
+                continue;
+
+            if (ObjectShowsItsData(ancestor))
+                return true;
+
+            if (!_browsingContexts.HasOnloadFired(ancestor) &&
+                !_browsingContexts.HasObjectLoadFailed(ancestor) &&
+                !string.IsNullOrWhiteSpace(GetSubResourceUrl(ancestor)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsObjectElement(DomElement element) =>
+        string.Equals(element.TagName, "object", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether <paramref name="element"/> is an <c>&lt;object&gt;</c> that renders its data rather
+    /// than its fallback content: one whose data loaded as a document or an image. An object not
+    /// loaded yet is not known to.
+    /// </summary>
+    private bool ObjectShowsItsData(DomElement element) =>
+        IsObjectElement(element) &&
+        !_browsingContexts.HasObjectLoadFailed(element) &&
+        _browsingContexts.TryGetObjectContent(element, out var content) &&
+        content.Kind != ObjectContentKind.Fallback;
+
+    /// <summary>
+    /// Records what an <c>&lt;object&gt;</c>'s data turned out to be, from the response it was
+    /// loaded from, for the renderer (<see cref="ProjectObjectContent"/>) and for the objects in its
+    /// fallback. A failed load is marked as <see cref="IsObjectLoadFailed"/> would mark it, which
+    /// spares that a second request.
+    /// </summary>
+    /// <param name="reached">Whether the data was read at all, rather than typed from its URL.</param>
+    private void RecordObjectContent(
+        DomElement objectElement, string resourceUrl, string contentType, string? content, bool reached)
+    {
+        if (string.Equals(contentType, FetchFailedContentType, StringComparison.Ordinal))
+        {
+            _browsingContexts.MarkObjectLoadFailed(objectElement);
+            _browsingContexts.SetObjectContent(objectElement, new ObjectContent(ObjectContentKind.Fallback, string.Empty));
+            return;
+        }
+
+        _browsingContexts.SetObjectContent(objectElement,
+            new ObjectContent(ClassifyObjectContent(resourceUrl, contentType, content, reached), contentType));
+    }
+
+    /// <summary>
+    /// What an <c>&lt;object&gt;</c> renders for data of <paramref name="contentType"/>: a raster
+    /// image as an image, and what this bridge builds a document from (HTML, XML, text) as that
+    /// document. No data, an SVG image, which the renderer draws from the object's markup, and a
+    /// type nothing renders (Acid2's <c>data:application/x-unknown</c>) leave the fallback.
+    /// </summary>
+    private static ObjectContentKind ClassifyObjectContent(
+        string resourceUrl, string contentType, string? content, bool reached)
+    {
+        if (string.IsNullOrWhiteSpace(resourceUrl) ||
+            contentType.StartsWith("image/svg", StringComparison.OrdinalIgnoreCase))
+        {
+            return ObjectContentKind.Fallback;
+        }
+
+        if (contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            return reached ? ObjectContentKind.Image : ObjectContentKind.Fallback;
+
+        if (IsXmlContentType(contentType) ||
+            contentType.Contains("html", StringComparison.OrdinalIgnoreCase) ||
+            contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ||
+            (contentType.Length == 0 && !string.IsNullOrEmpty(content)))
+        {
+            return ObjectContentKind.Document;
+        }
+
+        return ObjectContentKind.Fallback;
     }
 
     /// <summary>
@@ -316,6 +435,16 @@ public sealed partial class DomBridge
                     // Default: create an empty sub-document structure
                     // (binary resources like image/png, fetch failures, about:blank, etc.)
                     docRoot = BuildEmptySubDocument(containerElement);
+                }
+
+                // A URL that names nothing this bridge can request answers a type from its extension
+                // alone, with no content and no document URL; a local base path's binary file is the
+                // one load that answers the same.
+                if (!navigated && IsObjectElement(containerElement))
+                {
+                    RecordObjectContent(containerElement, resourceUrl, contentType, fetchedContent,
+                        reached: fetchedContent is not null || documentUrl is not null ||
+                                 !string.IsNullOrEmpty(_resources.LocalBasePath));
                 }
             }
         }
