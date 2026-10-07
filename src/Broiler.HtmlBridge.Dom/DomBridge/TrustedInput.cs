@@ -351,10 +351,12 @@ public sealed partial class DomBridge
         if (ReferenceEquals(left, entered))
             return;
 
-        NoteUserActionStateChange(hoverOrActive: true);
         var common = left is not null && entered is not null ? CommonInclusiveAncestor(left, entered) : null;
         var leaving = left is null ? [] : AncestorsBelow(left, common);
         var entering = entered is null ? [] : AncestorsBelow(entered, common);
+
+        // What the pointer left and what it entered are the elements whose hover state changed.
+        NoteUserActionStateChange(hoverOrActive: true, hoverChanged: [.. leaving, .. entering]);
         entering.Reverse();
 
         foreach (var kind in (ReadOnlySpan<string>)["pointer", "mouse"])

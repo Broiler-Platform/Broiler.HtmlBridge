@@ -9,7 +9,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// <see cref="CssStyleEngine"/> scopes, the bridge's
 /// <c>GetComputedProps</c> memo (plus its re-entrancy in-progress map), and the style-invalidation
 /// batch state. Consolidating these means there is one place that clears computed style and one
-/// invalidation route — <see cref="InvalidateComputedStyle"/> — so an inline-style mutation and a
+/// invalidation route — <see cref="InvalidateComputedStyle()"/> — so an inline-style mutation and a
 /// selector-affecting mutation cannot drift out of sync.
 /// </summary>
 /// <remarks>
@@ -92,6 +92,19 @@ internal sealed class DocumentStyleContext
     public void RemoveComputedPropsInProgress(DomElement element) =>
         _computedPropsInProgress.TryRemove(element, out _);
 
+    /// <summary>
+    /// Forgets the memoized styles of <paramref name="document"/>'s elements: a render projection's, once
+    /// it is built, whose elements no later call names again.
+    /// </summary>
+    public void ForgetComputedPropsOf(DomDocument document)
+    {
+        foreach (var element in _computedPropsCache.Keys)
+        {
+            if (ReferenceEquals(element.OwnerDocument, document))
+                _computedPropsCache.TryRemove(element, out _);
+        }
+    }
+
     // ------------------------------------------------------------------
     //  The single computed-style invalidation route
     // ------------------------------------------------------------------
@@ -108,6 +121,18 @@ internal sealed class DocumentStyleContext
         _computedPropsCache.Clear();
         foreach (var scope in _engines.Values)
             scope.Engine.InvalidateComputedStyleCaches();
+    }
+
+    /// <summary>
+    /// <see cref="InvalidateComputedStyle()"/> for <paramref name="elements"/> alone: a change whose reach
+    /// the bridge knows, which must include every element whose style can follow it.
+    /// </summary>
+    public void InvalidateComputedStyle(IReadOnlySet<DomElement> elements)
+    {
+        foreach (var element in elements)
+            _computedPropsCache.TryRemove(element, out _);
+        foreach (var scope in _engines.Values)
+            scope.Engine.InvalidateComputedStyleCaches(elements);
     }
 
     // ------------------------------------------------------------------

@@ -37,7 +37,7 @@ public sealed partial class DomBridge
     /// <summary>
     /// Clears the bridge's <c>GetComputedProps</c> memo <em>and</em> the per-document engines'
     /// cascade/computed-style caches together — the single computed-style invalidation route
-    /// (see <see cref="DocumentStyleContext.InvalidateComputedStyle"/>). The two must invalidate as
+    /// (see <see cref="DocumentStyleContext.InvalidateComputedStyle()"/>). The two must invalidate as
     /// one because <c>GetComputedProps</c> routes through the engine's sparse projection, which reads
     /// inline style from the live <see cref="InlineStyleRuntimeState"/> table (a mutation there is
     /// invisible to the engine's own DOM-mutation subscription).
@@ -77,7 +77,7 @@ public sealed partial class DomBridge
     /// <para>
     /// <b>Why <see cref="ClearComputedPropsCache"/> and not <see cref="InvalidateStyleScope"/>.</b> The memo
     /// and the engines' caches are the whole of what a sheet edit leaves stale, and that call clears them
-    /// together, as <see cref="DocumentStyleContext.InvalidateComputedStyle"/> requires. The scope walk the
+    /// together, as <see cref="DocumentStyleContext.InvalidateComputedStyle()"/> requires. The scope walk the
     /// other adds visits every element to prune inline-style keys neither the <c>style</c> attribute nor
     /// script set, which a sheet edit cannot have produced, and it would run per edit: pages building styles
     /// with CSS-in-JS insert rules by the thousand. The geometry snapshot needs nothing from here, because

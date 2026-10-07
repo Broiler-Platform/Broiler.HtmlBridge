@@ -45,7 +45,15 @@ public sealed partial class DomBridge
     // only what is hovered then matters only if they do, and lays the page out again only if one can.
     private UserActionRules? _userActionRules;
 
-    private sealed record UserActionRules(long Version, bool Hover, bool Active, bool MovesBoxes);
+    /// <summary>What the page's sheets say about the user-action pseudo-classes.</summary>
+    /// <param name="Version">The versions of the documents and CSSOM edits they were read at.</param>
+    /// <param name="Hover">Whether they mention <c>:hover</c>.</param>
+    /// <param name="Active">Whether they mention <c>:active</c>.</param>
+    /// <param name="MovesBoxes">Whether a rule that mentions either can move a box.</param>
+    /// <param name="HoverReachesSiblings">Whether a sibling combinator can follow a <c>:hover</c>, so a hover can restyle an element's later siblings.</param>
+    /// <param name="HoverReachesAnywhere">Whether a selector can reach up or out of a tree (<c>:has()</c>, <c>:host</c>), so a hover can restyle any element.</param>
+    private sealed record UserActionRules(
+        long Version, bool Hover, bool Active, bool MovesBoxes, bool HoverReachesSiblings, bool HoverReachesAnywhere);
 
     // CSSOM edits of the page's sheets, which change what they say without changing a document.
     private long _styleSheetRuleEdits;
@@ -143,13 +151,25 @@ public sealed partial class DomBridge
     /// element when the page's style sheets mention <c>:hover</c> or <c>:active</c>.
     /// </summary>
     /// <param name="hoverOrActive">Whether what changed is hover or the active element, rather than focus.</param>
+    /// <param name="hoverChanged">
+    /// When only hover changed, the elements whose hover state did: the pointer left the one set and
+    /// entered the other.
+    /// </param>
     /// <remarks>
+    /// <para>
     /// A hover or a press that the page's sheets only paint -- a colour, a background, an underline, an
     /// outline -- moves no box, so the page is not laid out again for it: a retained geometry snapshot
     /// still holds. Over html5test.com, whose rows are styled <c>tr:hover</c>, that layout was most of
     /// the move after each change of row. Focus always may move one, as before.
+    /// </para>
+    /// <para>
+    /// Such a hover also restyles only the elements a <c>:hover</c> selector can reach from those whose
+    /// state changed (<see cref="HoverStyleReach"/>), so only theirs are resolved again. Every element's
+    /// style was, and the hit test that follows each move reads styles all over the page: on
+    /// html5test.com that was a quarter of a second each time the row changed.
+    /// </para>
     /// </remarks>
-    private void NoteUserActionStateChange(bool hoverOrActive = false)
+    private void NoteUserActionStateChange(bool hoverOrActive = false, IReadOnlyCollection<DomElement>? hoverChanged = null)
     {
         if (_realm is null)
             return;
@@ -158,18 +178,70 @@ public sealed partial class DomBridge
         if (rules is { Hover: false, Active: false })
             return;
 
-        ClearComputedPropsCache();
+        if (hoverChanged is not null &&
+            rules is { MovesBoxes: false, HoverReachesAnywhere: false } &&
+            HoverStyleReach(hoverChanged, rules.HoverReachesSiblings) is { } reach)
+        {
+            _styleContext.InvalidateComputedStyle(reach);
+        }
+        else
+        {
+            ClearComputedPropsCache();
+        }
+
         NoteRenderStateChange(affectsLayout: rules is null || rules.MovesBoxes);
     }
 
     /// <summary>
-    /// Whether any style sheet of the page or of its frames mentions <c>:hover</c> or <c>:active</c>, and
-    /// whether a rule that does can move a box.
+    /// The elements whose style can follow the hover state of <paramref name="changed"/>: each of them and
+    /// everything in it, and, when <paramref name="siblings"/>, its later siblings and everything in them --
+    /// or <see langword="null"/> when that is a whole document.
+    /// </summary>
+    /// <remarks>
+    /// Without <c>:has()</c> or <c>:host</c>, a selector reaches its subject from a compound through
+    /// descendant, child and sibling combinators only, which lead down and forward; inheritance leads
+    /// down. So an element's state can only restyle what is inside it, and through a sibling combinator,
+    /// its later siblings and what is inside them.
+    /// </remarks>
+    private static HashSet<DomElement>? HoverStyleReach(IReadOnlyCollection<DomElement> changed, bool siblings)
+    {
+        var reach = new HashSet<DomElement>(ReferenceEqualityComparer.Instance);
+        var pending = new Stack<DomElement>();
+        foreach (var element in changed)
+        {
+            // The root element: everything in its document.
+            if (ParentEl(element) is null)
+                return null;
+
+            pending.Push(element);
+            for (var sibling = siblings ? element.NextElementSibling : null; sibling is not null; sibling = sibling.NextElementSibling)
+                pending.Push(sibling);
+        }
+
+        while (pending.TryPop(out var element))
+        {
+            if (!reach.Add(element))
+                continue;
+
+            foreach (var child in ChildElements(element))
+                pending.Push(child);
+        }
+
+        return reach;
+    }
+
+    /// <summary>
+    /// Whether any style sheet of the page or of its frames mentions <c>:hover</c> or <c>:active</c>,
+    /// whether a rule that does can move a box, and how far a hover can reach (<see cref="UserActionRules"/>).
     /// </summary>
     /// <remarks>
     /// Whether they are mentioned is read off the sheets' text, which over-counts -- a comment that
     /// mentions <c>:hover</c> counts -- and costs one read of the page's sheets per change of what it
-    /// renders. Whether a box can move is read off their rules (<see cref="MovesBoxes"/>).
+    /// renders. Whether a box can move is read off their rules (<see cref="MovesBoxes"/>). How far a
+    /// hover reaches is read off the text too, and over-counts the same way: a <c>+</c> or <c>~</c>
+    /// anywhere between a <c>:hover</c> and the end of its rule reaches siblings
+    /// (<see cref="SiblingCombinatorFollowsHover"/>), and any <c>:has(</c> or <c>:host</c> reaches
+    /// anywhere.
     /// </remarks>
     private UserActionRules ReadUserActionRules()
     {
@@ -184,7 +256,7 @@ public sealed partial class DomBridge
         if (_userActionRules is { } known && known.Version == version)
             return known;
 
-        bool hover = false, active = false, movesBoxes = false;
+        bool hover = false, active = false, movesBoxes = false, reachesSiblings = false, reachesAnywhere = false;
         var documents = new List<DomElement>();
         if (GetDocumentElement(_document) is { } root)
             documents.Add(root);
@@ -203,6 +275,11 @@ public sealed partial class DomBridge
                 var mentionsActive = text.Contains(":active", StringComparison.OrdinalIgnoreCase);
                 hover |= mentionsHover;
                 active |= mentionsActive;
+                if (mentionsHover && !reachesSiblings)
+                    reachesSiblings = SiblingCombinatorFollowsHover(text);
+                if (!reachesAnywhere)
+                    reachesAnywhere = text.Contains(":has(", StringComparison.OrdinalIgnoreCase) ||
+                                      text.Contains(":host", StringComparison.OrdinalIgnoreCase);
 
                 // What a sheet imports is not read here, so a sheet that imports can move anything.
                 if ((mentionsHover || mentionsActive) && !movesBoxes)
@@ -211,9 +288,39 @@ public sealed partial class DomBridge
             }
         }
 
-        var rules = new UserActionRules(version, hover, active, movesBoxes);
+        var rules = new UserActionRules(version, hover, active, movesBoxes, reachesSiblings, reachesAnywhere);
         _userActionRules = rules;
         return rules;
+    }
+
+    /// <summary>
+    /// Whether a <c>+</c> or <c>~</c> comes after a <c>:hover</c> in <paramref name="text"/>, before the end
+    /// of the rule its selector opens -- nested rules included, whose selectors continue it (CSS Nesting).
+    /// </summary>
+    private static bool SiblingCombinatorFollowsHover(string text)
+    {
+        for (var at = text.IndexOf(":hover", StringComparison.OrdinalIgnoreCase); at >= 0;
+             at = text.IndexOf(":hover", at + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            if (text.AsSpan(at, EndOfRuleAfter(text, at) - at).IndexOfAny('+', '~') >= 0)
+                return true;
+        }
+
+        return false;
+
+        static int EndOfRuleAfter(string text, int from)
+        {
+            var depth = 0;
+            for (var i = text.IndexOf('{', from); i >= 0 && i < text.Length; i++)
+            {
+                if (text[i] == '{')
+                    depth++;
+                else if (text[i] == '}' && --depth == 0)
+                    return i;
+            }
+
+            return text.Length;
+        }
     }
 
     /// <summary>

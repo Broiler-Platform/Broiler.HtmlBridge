@@ -112,8 +112,11 @@ public sealed partial class DomBridge
         finally
         {
             _zoomSpecifiedStyleCache.Clear();
-            ClearComputedPropsCache();
-            // The projection's own style scope is never asked for again: its root is not the page's.
+            // The projection's elements, and its own style scope, are never asked about again: its root
+            // is not the page's. The page's styles still hold. They were all cleared here, so the hit
+            // test after each frame a window draws resolved every element of the page again: a quarter
+            // of a second a pointer move over html5test.com.
+            _styleContext.ForgetComputedPropsOf(projectedDocument);
             _styleContext.DropEngineScopesOf(projectedDocument);
             _renderProjectionSources = previousSources;
             _renderProjectionTargets = previousTargets;
