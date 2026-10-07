@@ -50,12 +50,15 @@ internal sealed class LoopbackStyleServer : IDisposable
     public string PageUrl => Origin + "/page";
 
     /// <summary>
-    /// The distinct request paths received so far, sorted ordinally. Distinct because every render
-    /// projection fetches its imports again, so the count says how often a projection was built and
-    /// nothing about policy.
+    /// The distinct request paths received so far, sorted ordinally: which sheets were asked for. How
+    /// often each was is <see cref="RequestCount"/>.
     /// </summary>
     public string[] RequestedPaths() =>
         _requests.Distinct(StringComparer.Ordinal).OrderBy(p => p, StringComparer.Ordinal).ToArray();
+
+    /// <summary>How many requests for <paramref name="path"/> were received so far.</summary>
+    public int RequestCount(string path) =>
+        _requests.Count(request => string.Equals(request, path, StringComparison.Ordinal));
 
     private async Task AcceptAsync()
     {

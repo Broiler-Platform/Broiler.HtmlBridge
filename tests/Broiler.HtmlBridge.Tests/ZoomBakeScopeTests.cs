@@ -74,4 +74,19 @@ public class ZoomBakeScopeTests
 
         Assert.Contains("width: 100px", tag);
     }
+
+    /// <summary>
+    /// A zoom that scales in a sheet that is only imported is baked: what a sheet imports is read. Any
+    /// import used to count as a zoom, and reCAPTCHA's demo page, which imports a font sheet, had each of
+    /// its projections baked.
+    /// </summary>
+    [Fact]
+    public void AZoomInAnImportedSheetIsBaked()
+    {
+        var tag = TagOf(
+            Render("@import url(" + CspFixture.DataUrl("#z { zoom: 2; width: 50px; }") + ");", "<div id=\"z\">z</div>"),
+            "z");
+
+        Assert.Contains("width: 100px", tag);
+    }
 }

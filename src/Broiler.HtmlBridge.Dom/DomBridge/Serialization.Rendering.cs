@@ -319,28 +319,30 @@ public sealed partial class DomBridge
 {
     /// <summary>
     /// Whether anything in <paramref name="root"/>'s tree can give an element a used <c>zoom</c> other
-    /// than 1: a <c>zoom</c> declaration, in a style sheet or an inline style, whose value is not one
-    /// that leaves the zoom as it is. A sheet that imports another counts, since what it imports is not
-    /// read here.
+    /// than 1: a <c>zoom</c> declaration, in a style sheet -- what it imports included -- or an inline
+    /// style, whose value is not one that leaves the zoom as it is.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The zoom passes resolve every element's computed style to find its <c>zoom</c>, and a render
     /// projection is a document of its own, so that was two whole-document cascades for each
     /// projection. A window builds one for each change it shows and another for each layout a script
     /// or a hit test asks for: on html5test.com, whose sheet declares only <c>zoom: 1</c>, the old
     /// layout hack, they were a third of every pointer move. The user agent's own sheet sets no zoom.
+    /// </para>
+    /// <para>
+    /// What a sheet imports is read through the document's stylesheet responses
+    /// (<see cref="FetchExternalStylesheet"/>), which ask the network once. Any import used to count, as
+    /// what it brought was not read here, and reCAPTCHA's demo page imports a font sheet: each of its
+    /// projections, many a second, was baked.
+    /// </para>
     /// </remarks>
     private bool MayUseZoom(DomElement root)
     {
         foreach (var element in root.Descendants().OfType<DomElement>().Prepend(root))
         {
-            if (IsStyleSheetOwner(element) &&
-                GetStyleElementCssText(element) is { Length: > 0 } css &&
-                (css.Contains("@import", StringComparison.OrdinalIgnoreCase) ||
-                 css.Contains("zoom", StringComparison.OrdinalIgnoreCase) && DeclaresZoom(EnsureStyleSheetRulesCurrent(element))))
-            {
+            if (IsStyleSheetOwner(element) && SheetMayScale(element))
                 return true;
-            }
 
             if (InlineStyleForRead(element).TryGetValue("zoom", out var inlineZoom) && MayScale(inlineZoom))
                 return true;
@@ -355,6 +357,25 @@ public sealed partial class DomBridge
         }
 
         return false;
+
+        // The sheet's own rules, or, when it imports, its text with each import's in place
+        // (ExpandCssImports, as the projection inlines a <style>'s imports): the requests of the live
+        // document the projected element stands for, against the sheet's own base URL.
+        bool SheetMayScale(DomElement owner)
+        {
+            if (GetStyleElementCssText(owner) is not { Length: > 0 } css)
+                return false;
+
+            if (!HasLeadingImport(css))
+                return css.Contains("zoom", StringComparison.OrdinalIgnoreCase) && DeclaresZoom(EnsureStyleSheetRulesCurrent(owner));
+
+            var source = ResolveRenderSource(owner);
+            var expanded = ExpandCssImports(
+                css, GetStyleElementBaseUrl(owner), new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0,
+                _importsBeforePolicyMeta?.GetValueOrDefault(source), source);
+            return expanded.Contains("zoom", StringComparison.OrdinalIgnoreCase) &&
+                   DeclaresZoom(new CssParser().ParseStyleSheet(expanded).Rules);
+        }
 
         static bool DeclaresZoom(IReadOnlyList<CssRule> rules)
         {

@@ -570,22 +570,65 @@ public sealed partial class DomBridge
     }
 
     /// <summary>
+    /// What each stylesheet fetch answered, by URL: the text, or <see langword="null"/> for a fetch that
+    /// failed, with the request it answered. Kept until the next document begins
+    /// (<see cref="BeginDocumentContext"/>).
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, StyleSheetResponse[]> _styleSheetResponses =
+        new(StringComparer.Ordinal);
+
+    private sealed record StyleSheetResponse(StyleSheetRequest Request, string? Text);
+
+    /// <summary>
     /// Fetches an external CSS stylesheet from an HTTP/HTTPS URL, as <paramref name="request"/> says
-    /// the requesting document makes the request.
+    /// the requesting document makes the request, once a document: the same request again is answered
+    /// with what the first one got.
     /// Returns the CSS text content, or <c>null</c> on failure — which includes a response the
     /// loader refused to apply as a stylesheet (not <c>text/css</c>, outside the quirks-mode exception).
     /// </summary>
+    /// <remarks>
+    /// An <c>@import</c> is fetched each time the sheet holding it is read, and that is each time a
+    /// document's style scope is assembled: whenever its sheets change, and once for every render
+    /// projection, a document of its own. Every one went to the network, on the thread that asked.
+    /// reCAPTCHA's demo page imports a font sheet from fonts.googleapis.com: it was fetched about 3000
+    /// times while the page loaded and 17 times a second after, each request blocking a step of the
+    /// page. A browser fetches it once and serves the sheet's other uses from its memory cache. A failed
+    /// fetch is kept too, so a missing sheet is not asked for again at every step.
+    /// </remarks>
     private string? FetchExternalStylesheet(string url, StyleSheetRequest request)
     {
+        if (_styleSheetResponses.TryGetValue(url, out var known))
+        {
+            foreach (var response in known)
+            {
+                if (AnswersStyleSheetRequest(response.Request, request))
+                    return response.Text;
+            }
+        }
+
+        string? text;
         try
         {
             // The file/http dispatch policy, and the response type check, live in the loader, not here.
-            return _resources.LoadText(url, request);
+            text = _resources.LoadText(url, request);
         }
         catch (Exception ex)
         {
             RenderLogger.LogError(LogCategory.HtmlRenderer, "DomBridge.FetchExternalStylesheet", $"Failed to fetch stylesheet '{url}': {ex.Message}", ex);
-            return null;
+            text = null;
         }
+
+        var answered = new StyleSheetResponse(request, text);
+        _styleSheetResponses.AddOrUpdate(url, [answered], (_, responses) => [.. responses, answered]);
+        return text;
     }
+
+    /// <summary>
+    /// Whether what <paramref name="answered"/> got answers <paramref name="wanted"/>: the same request,
+    /// for the same document in the same mode (<see cref="StyleSheetRequest.SameShape"/>), with its
+    /// redirects checked against the policy or not alike.
+    /// </summary>
+    private static bool AnswersStyleSheetRequest(StyleSheetRequest answered, StyleSheetRequest wanted) =>
+        StyleSheetRequest.SameShape(answered, wanted) &&
+        answered.Context.HopPolicy is null == wanted.Context.HopPolicy is null;
 }

@@ -300,6 +300,7 @@ public sealed partial class DomBridge
             _frameDocumentContexts.Clear();
             _sandboxedDocumentContexts.Clear();
             _frameScriptPolicies.Clear();
+            _styleSheetResponses.Clear();
         }
 
         _documentContextAttached = true;
