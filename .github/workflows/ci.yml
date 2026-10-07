@@ -127,6 +127,11 @@ jobs:
         shell: pwsh
         run: ./eng/pack.ps1 -Version $env:PACKAGE_VERSION
 
+      - name: Verify consumer restore from nuget.org (dry run)
+        if: matrix.os == 'windows-latest' && matrix.configuration == 'Release'
+        shell: pwsh
+        run: ./eng/verify-feed.ps1
+
       - name: Upload packages
         if: matrix.os == 'windows-latest' && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v7
