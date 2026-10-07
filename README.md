@@ -108,8 +108,9 @@ The coupling guard counts direct engine package references as well as project re
 
 Packages are published to nuget.org only. `publish.yml` resolves one preview version, calls
 CI with that version, then runs `eng/verify-feed.ps1` against an isolated consumer cache
-before pushing the validated artifacts and their symbol packages. Manual runs default to a
-dry run; pushing a `v*` tag publishes that exact version. Every external dependency must
+before pushing the validated artifacts and their symbol packages. Every run pushes (there is
+no dry-run mode; CI packs and verifies a consumer restore without pushing); pushing a `v*` tag
+publishes that exact version. Every external dependency must
 already be on nuget.org, and publication requires the `NUGET_TOKEN` secret.
 
 Preview numbers are cumulative. `eng/resolve-preview-version.mjs` picks one past the highest
