@@ -107,7 +107,147 @@ public sealed partial class DomBridge
             return false;
 
         return x >= rect.Left && x < rect.Left + rect.Width &&
-               y >= rect.Top && y < rect.Top + rect.Height;
+               y >= rect.Top && y < rect.Top + rect.Height &&
+               !IsClippedAwayAt(element, x, y);
+    }
+
+    /// <summary>How a box's containing block is found, which decides the ancestors whose clips it escapes.</summary>
+    private enum ClipEscape
+    {
+        /// <summary>An in-flow, floated or relatively positioned box: every ancestor clips it.</summary>
+        None,
+
+        /// <summary>An absolutely positioned box: the ancestors below its positioned containing block do not.</summary>
+        ToPositionedAncestor,
+
+        /// <summary>A fixed box: only a transformed or contained ancestor, its containing block, and those that clip that.</summary>
+        ToTransformedAncestor,
+    }
+
+    /// <summary>
+    /// Whether an ancestor's overflow clip hides <paramref name="element"/> at (<paramref name="x"/>,
+    /// <paramref name="y"/>): the point is outside the clip of an ancestor that clips the element.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The hit test took an element's whole box</b>, however much of it an ancestor clipped away.
+    /// reCAPTCHA's image challenge shows one picture across its tiles: each tile's image is the whole
+    /// picture, three or four times the tile's size, shifted so that the tile's <c>overflow: hidden</c>
+    /// wrapper shows its part. Every one of those images covered the whole grid, and the last tile's,
+    /// painted last, took every press: a click on any tile selected the last one. Chromium hits the image
+    /// of the tile clicked (measured).
+    /// </para>
+    /// <para>
+    /// <b>Which ancestors clip a box</b> (CSS Overflow 3 §3; CSS Containment 2 §3.3): those whose
+    /// <c>overflow</c> is not <c>visible</c> on an axis, or that contain their paint, on the box's chain
+    /// of containing blocks. An absolutely positioned box's containing block is its nearest positioned,
+    /// transformed or contained ancestor, so it escapes the clips of the ancestors below that; a fixed
+    /// box's is its nearest transformed or contained ancestor, or the viewport. <c>overflow</c> applies to
+    /// neither a non-atomic inline box (measured: it clips nothing) nor a table's rows, columns and their
+    /// groups, which are no block containers; a <c>display: contents</c> element has no box. A table and
+    /// a table cell clip (measured).
+    /// </para>
+    /// <para>
+    /// <b>The clip</b> is the ancestor's padding box, after its own transforms and its ancestors': a
+    /// selected reCAPTCHA tile's wrapper is scaled down, and clips to the box it is drawn in. The root
+    /// element's overflow is the viewport's, and so is the body's while the root's is visible
+    /// (CSS Overflow 3 §3.3), so neither clips as a box. Rounded corners are not followed: the clip is
+    /// the padding box's rectangle.
+    /// </para>
+    /// </remarks>
+    private bool IsClippedAwayAt(DomElement element, double x, double y)
+    {
+        var escape = ClipEscapeOf(GetComputedProps(element));
+        for (var ancestor = ParentEl(element); ancestor is not null && !IsDocumentElement(ancestor); ancestor = ParentEl(ancestor))
+        {
+            // GetComputedProps has seeded the user-agent display, so an absent one is the initial inline.
+            var props = GetComputedProps(ancestor);
+            var display = props.GetValueOrDefault("display")?.Trim().ToLowerInvariant() ?? "inline";
+            if (display == "contents")
+                continue;
+
+            var inline = display is "" or "inline";
+            var containsBox = escape switch
+            {
+                ClipEscape.ToPositionedAncestor => EstablishesContainingBlock(props),
+                ClipEscape.ToTransformedAncestor => !inline && CssContainingBlock.CreatedByTransformContainOrWillChange(
+                    props.GetValueOrDefault("transform"),
+                    props.GetValueOrDefault("contain"),
+                    props.GetValueOrDefault("will-change")),
+                _ => true,
+            };
+            if (!containsBox)
+                continue;
+
+            if (!inline && !IsTableTrackDisplay(display) && !IsInsideOverflowClip(ancestor, props, x, y))
+                return true;
+
+            escape = ClipEscapeOf(props);
+        }
+
+        return false;
+    }
+
+    private static ClipEscape ClipEscapeOf(Dictionary<string, string> props) =>
+        props.GetValueOrDefault("position")?.Trim().ToLowerInvariant() switch
+        {
+            "absolute" => ClipEscape.ToPositionedAncestor,
+            "fixed" => ClipEscape.ToTransformedAncestor,
+            _ => ClipEscape.None,
+        };
+
+    private static bool IsTableTrackDisplay(string display) =>
+        display is "table-row" or "table-row-group" or "table-header-group" or "table-footer-group" or "table-column" or "table-column-group";
+
+    /// <summary>
+    /// Whether (<paramref name="x"/>, <paramref name="y"/>) is inside what <paramref name="ancestor"/> shows of
+    /// its content: on each axis its overflow clips, inside its padding box as it is drawn.
+    /// </summary>
+    private bool IsInsideOverflowClip(DomElement ancestor, Dictionary<string, string> props, double x, double y)
+    {
+        var (clipsX, clipsY) = OverflowClipAxes(props);
+        if (!clipsX && !clipsY)
+            return true;
+
+        // The body's overflow went to the viewport, whose bounds the hit test already keeps to.
+        if (ancestor.TagName.Equals("body", StringComparison.OrdinalIgnoreCase) &&
+            ParentEl(ancestor) is { } root && IsDocumentElement(root) &&
+            OverflowClipAxes(GetComputedProps(root)) is (false, false))
+        {
+            return true;
+        }
+
+        if (!TryGetSharedLayoutGeometry(ancestor, out var geometry))
+            return true;
+
+        var padding = geometry.PaddingBox;
+        var (left, top, width, height) = ApplyTransformChain(ancestor, (padding.Left, padding.Top, padding.Width, padding.Height));
+        return (!clipsX || x >= left && x < left + width) &&
+               (!clipsY || y >= top && y < top + height);
+    }
+
+    /// <summary>
+    /// The axes <paramref name="props"/>' overflow clips: each whose <c>overflow</c> is not <c>visible</c>,
+    /// and both when paint is contained. <c>visible</c> beside a value other than <c>visible</c> or
+    /// <c>clip</c> computes to <c>auto</c> (CSS Overflow 3 §3.1), so it clips too.
+    /// </summary>
+    private static (bool X, bool Y) OverflowClipAxes(Dictionary<string, string> props)
+    {
+        var contain = props.GetValueOrDefault("contain") ?? string.Empty;
+        if (contain.Contains("paint", StringComparison.OrdinalIgnoreCase) ||
+            contain.Contains("strict", StringComparison.OrdinalIgnoreCase) ||
+            contain.Contains("content", StringComparison.OrdinalIgnoreCase))
+        {
+            return (true, true);
+        }
+
+        var overflowX = OverflowKeyword(GetOverflowAxisValue(props, vertical: false));
+        var overflowY = OverflowKeyword(GetOverflowAxisValue(props, vertical: true));
+        return (overflowX != "visible" || overflowY is not ("visible" or "clip"),
+                overflowY != "visible" || overflowX is not ("visible" or "clip"));
+
+        static string OverflowKeyword(string? value) =>
+            string.IsNullOrWhiteSpace(value) ? "visible" : value.Trim().ToLowerInvariant();
     }
 
     private (double Left, double Top, double Width, double Height) GetHitTestRectForElement(DomElement element)
