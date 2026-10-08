@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -40,19 +40,29 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal static class ScreenOrientationBinding
 {
     /// <summary>
-    /// Builds the <c>ScreenOrientation</c> for a screen of the given size. The members are
-    /// accessors so that a screen whose size is re-evaluated reports the orientation that follows
-    /// from it.
+    /// Builds the <c>ScreenOrientation</c> for a screen of the given size.
     /// </summary>
-    /// <param name="realm">The realm the object, its accessors and <c>unlock</c> belong to.</param>
-    /// <param name="width">Screen width in CSS pixels.</param>
-    /// <param name="height">Screen height in CSS pixels.</param>
-    public static JsValue Build(IJsRealm realm, int width, int height)
+    public static JsValue Build(IJsRealm realm, int width, int height) =>
+        Build(realm, new FixedScreenHost(width, height));
+
+    /// <summary>
+    /// Builds the <c>ScreenOrientation</c> for a screen backed by <paramref name="host"/>.
+    /// The members are accessors so that resizing the screen reports the updated orientation.
+    /// </summary>
+    public static JsValue Build(IJsRealm realm, IScreenHost host)
     {
         var orientation = realm.NewObject();
 
+        var orientationConstructor = realm.GetProperty(realm.Global, "ScreenOrientation");
+        if (orientationConstructor.IsObject)
+        {
+            var orientationPrototype = realm.GetProperty(orientationConstructor, "prototype");
+            if (orientationPrototype.IsObject)
+                realm.SetPrototype(orientation, orientationPrototype);
+        }
+
         realm.DefineAccessor(orientation, "type",
-            (in _) => JsValue.String(TypeOf(width, height)), null);
+            (in _) => JsValue.String(TypeOf(host.ScreenWidth, host.ScreenHeight)), null);
 
         // The angle between the current orientation and the device's natural one. Broiler's output
         // surface is its natural orientation, so the two never differ.
@@ -76,6 +86,12 @@ internal static class ScreenOrientationBinding
         realm.DefineMethod(orientation, "unlock", 0, static (in _) => JsValue.Undefined);
 
         return orientation;
+    }
+
+    private sealed class FixedScreenHost(int width, int height) : IScreenHost
+    {
+        public int ScreenWidth => width;
+        public int ScreenHeight => height;
     }
 
     /// <summary>

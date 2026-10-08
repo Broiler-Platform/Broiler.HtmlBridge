@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -52,8 +52,8 @@ internal static class NavigatorCapabilityBinding
         // entries a Chromium reports are its bundled viewer, not a plugin system. `pdfViewerEnabled`
         // is the flag that decides between the two branches, so it is registered beside them rather
         // than left for a page to infer from the empty lists.
-        realm.DefineValue(navigator, "plugins", BuildEmptyPluginArray(realm, "PluginArray"));
-        realm.DefineValue(navigator, "mimeTypes", BuildEmptyPluginArray(realm, "MimeTypeArray"));
+        realm.DefineValue(navigator, "plugins", DomCollectionBinding.PluginArray(realm, static () => []));
+        realm.DefineValue(navigator, "mimeTypes", DomCollectionBinding.MimeTypeArray(realm, static () => []));
         realm.DefineValue(navigator, "pdfViewerEnabled", JsValue.False);
 
         // navigator.getGamepads() (Gamepad §2.2) — the gamepads currently connected. Broiler has no
@@ -67,27 +67,6 @@ internal static class NavigatorCapabilityBinding
         // navigator.requestMediaKeySystemAccess() (EME §5).
         realm.DefineMethod(navigator, "requestMediaKeySystemAccess", 2,
             (in call) => RequestMediaKeySystemAccess(in call));
-    }
-
-    /// <summary>
-    /// A <c>PluginArray</c>/<c>MimeTypeArray</c> with nothing in it. Array-like rather than an
-    /// array: these are indexed <em>and</em> named collections, and <c>Array.from</c> — how a page
-    /// most often reads one — needs only the <c>length</c>.
-    /// </summary>
-    private static JsValue BuildEmptyPluginArray(IJsRealm realm, string name)
-    {
-        var collection = realm.NewObject();
-
-        realm.DefineValue(collection, "length", JsValue.Number(0));
-        realm.DefineValue(collection, "item", NullMember(realm, "item", 1));
-        realm.DefineValue(collection, "namedItem", NullMember(realm, "namedItem", 1));
-
-        // refresh() exists only on PluginArray, and re-checks for newly installed plugins. There are
-        // none to find, but a page that calls it before iterating must not lose the iteration.
-        if (name == "PluginArray")
-            realm.DefineValue(collection, "refresh", UndefinedMember(realm, "refresh", 0));
-
-        return collection;
     }
 
     /// <summary>
@@ -160,19 +139,4 @@ internal static class NavigatorCapabilityBinding
             ? realm.Construct(constructor, [JsValue.String(message), JsValue.String(name)])
             : JsValue.String($"DOMException: {message} ({name})");
     }
-
-    /// <summary>
-    /// An inert member answering <c>null</c> or <c>undefined</c>.
-    /// </summary>
-    /// <remarks>
-    /// <c>NewConstructor</c> rather than <c>NewMethod</c>: these members carry a <c>prototype</c>
-    /// object and are therefore constructable, which is the shape the bridge has always published.
-    /// These take the non-constructable shape WebIDL gives an operation.
-    /// </remarks>
-    private static JsValue NullMember(IJsRealm realm, string name, int length = 0) =>
-        realm.NewMethod(name, static (in _) => JsValue.Null, length);
-
-    /// <inheritdoc cref="NullMember"/>
-    private static JsValue UndefinedMember(IJsRealm realm, string name, int length = 0) =>
-        realm.NewMethod(name, static (in _) => JsValue.Undefined, length);
 }

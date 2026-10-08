@@ -201,8 +201,8 @@ public sealed partial class DomBridge : Dom.Features.IInsertAdjacentHost
 }
 
 // Explicit IElementContentHost implementation for the ElementContentBinding feature module: the
-// innerHTML/outerHTML members route through the bridge's shared HTML parser/serializer and canonical tree
-// mutation, so each forwards to the existing private serialize/set helpers. The textContent members are
+// innerHTML/outerHTML/innerText/outerText members route through the bridge's tree mutation and
+// style-scope invalidation, so each forwards to the existing private serialize/set helpers. The textContent members are
 // the canonical DomNode.TextContent, which the binding reaches without the bridge.
 public sealed partial class DomBridge : Dom.Features.IElementContentHost
 {
@@ -210,6 +210,8 @@ public sealed partial class DomBridge : Dom.Features.IElementContentHost
     string Dom.Features.IElementContentHost.SerializeElementToHtml(DomElement element) => SerializeElementToHtml(element);
     void Dom.Features.IElementContentHost.SetElementInnerHtml(DomElement element, string html) => SetElementInnerHtml(element, html);
     void Dom.Features.IElementContentHost.SetElementOuterHtml(DomElement element, string html) => SetElementOuterHtml(element, html);
+    void Dom.Features.IElementContentHost.SetElementInnerText(DomElement element, string text) => SetElementInnerText(element, text);
+    void Dom.Features.IElementContentHost.SetElementOuterText(DomElement element, string text) => SetElementOuterText(element, text);
 }
 
 // Explicit IElementReflectionHost implementation for the ElementReflectionBinding feature module:

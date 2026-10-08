@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using Broiler.Dom;
 using Broiler.JSeal;
 using static Broiler.HtmlBridge.DomBridgeUtils;
@@ -442,7 +442,7 @@ public sealed partial class DomBridge
 
         // popover, showPopover(), hidePopover(), togglePopover() and inert (DomBridge/Popovers.cs).
         InstallPopoverMembers(target, element);
-        Dom.Features.ElementContentBinding.InstallHtmlElementMembers(Realm, target, element);
+        Dom.Features.ElementContentBinding.InstallHtmlElementMembers(this, Realm, target, element);
 
         // hidden and tabIndex — the two genuinely global reflectors the form-control module carries.
         // The realm's, in this position, since that module reads a JsCall now.

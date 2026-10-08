@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Broiler.CSS;
 using Broiler.Dom;
@@ -401,10 +401,6 @@ public sealed partial class DomBridge
     {
         var realm = Realm;
 
-        // TODO-G4: window.innerWidth / innerHeight
-        var vpWidth = _viewportWidth;
-        var vpHeight = _viewportHeight;
-
         // Read when asked rather than when registered: a host whose window is resized sets the
         // viewport again (ViewportWidth), and the page's scripts measure the window it now shows.
         realm.DefineAccessor(window, "innerWidth", (in _) => JsValue.Number(_viewportWidth), null);
@@ -479,28 +475,10 @@ public sealed partial class DomBridge
         // the global; the window IS the global, so one registration serves both spellings.
         _subWindows.InstallTopWindowMembers(window, () => _document);
 
-        // window.screen — basic stub for screen dimensions
-        var screenObj = realm.NewObject();
-        realm.DefineValue(screenObj, "width", JsValue.Number(vpWidth));
-        realm.DefineValue(screenObj, "height", JsValue.Number(vpHeight));
-        realm.DefineValue(screenObj, "availWidth", JsValue.Number(vpWidth));
-        realm.DefineValue(screenObj, "availHeight", JsValue.Number(vpHeight));
-
-        // The origin of the available area (CSSOM View §5). Zero for the same reason the avail sizes
-        // above equal the full screen: nothing — no dock, no taskbar — is reserved out of a capture's
-        // screen, so the available rectangle starts at the screen origin. They complete the pair the
-        // avail sizes belong to; a page computing `availLeft + availWidth` was getting NaN.
-        realm.DefineValue(screenObj, "availLeft", JsValue.Number(0));
-        realm.DefineValue(screenObj, "availTop", JsValue.Number(0));
-        realm.DefineValue(screenObj, "colorDepth", JsValue.Number(24));
-        realm.DefineValue(screenObj, "pixelDepth", JsValue.Number(24));
-
-        // screen.orientation — derived from the screen's own shape, so it stays consistent with the
-        // width/height above rather than being a second, independent claim. See
-        // ScreenOrientationBinding.
-        realm.DefineValue(screenObj, "orientation", Dom.Features.ScreenOrientationBinding.Build(realm, vpWidth, vpHeight));
-
+        // window.screen and the Screen interface (CSSOM View §4). See ScreenBinding.
+        var screenObj = Dom.Features.ScreenBinding.Install(realm, window, this);
         DefineWindowGlobal(window, "screen", screenObj);
+
 
         var visualViewport = realm.NewObject();
         // The visualViewport root (DomBridge.cs) is this handle as minted — no conversion to an

@@ -417,6 +417,114 @@ public sealed partial class DomBridge
         InvalidateStyleScope(parent);
     }
 
+    private void SetElementInnerText(DomElement element, string text)
+    {
+        text ??= string.Empty;
+
+        DomNode target = element.TemplateContents ?? (DomNode)element;
+
+        foreach (var child in target.ChildNodes.ToArray())
+            RemoveElementsRecursive(child);
+
+        ClearChildren(target);
+
+        if (!string.IsNullOrEmpty(text))
+        {
+            var document = DomBridgeUtils.GetOwningDocument(element) ?? _document;
+            var fragment = BuildRenderedTextFragment(document, text);
+            foreach (var child in fragment.ChildNodes.ToArray())
+            {
+                target.AppendChild(child);
+            }
+        }
+
+        ResetComputedStyleEngines();
+        InvalidateStyleScope(element);
+    }
+
+    private void SetElementOuterText(DomElement element, string text)
+    {
+        text ??= string.Empty;
+
+        var parent = element.ParentNode;
+        if (parent == null)
+            return;
+
+        var index = ChildIndexOf(parent, element);
+        if (index < 0)
+            return;
+
+        var document = DomBridgeUtils.GetOwningDocument(element) ?? _document;
+        var fragment = BuildRenderedTextFragment(document, text);
+        if (fragment.ChildNodes.Count == 0)
+            fragment.AppendChild(document.CreateTextNode(string.Empty));
+
+        var previous = element.PreviousSibling;
+        var next = element.NextSibling;
+
+        RemoveElementsRecursive(element);
+        parent.RemoveChild(element);
+
+        var insertIndex = index;
+        foreach (var child in fragment.ChildNodes.ToArray())
+        {
+            InsertChildAt(parent, insertIndex, child);
+            insertIndex++;
+        }
+
+        if (next != null && next.PreviousSibling is DomText)
+            MergeWithNextTextNode(next.PreviousSibling);
+        if (previous is DomText)
+            MergeWithNextTextNode(previous);
+
+        ResetComputedStyleEngines();
+        if (parent is DomElement parentElement)
+            InvalidateStyleScope(parentElement);
+    }
+
+    private static DomDocumentFragment BuildRenderedTextFragment(DomDocument document, string input)
+    {
+        var fragment = document.CreateDocumentFragment();
+        if (string.IsNullOrEmpty(input))
+            return fragment;
+
+        var position = 0;
+        var length = input.Length;
+
+        while (position < length)
+        {
+            var start = position;
+            while (position < length && input[position] != '\n' && input[position] != '\r')
+                position++;
+
+            if (position > start)
+            {
+                var text = input.Substring(start, position - start);
+                fragment.AppendChild(document.CreateTextNode(text));
+            }
+
+            while (position < length && (input[position] == '\n' || input[position] == '\r'))
+            {
+                if (input[position] == '\r' && position + 1 < length && input[position + 1] == '\n')
+                    position++;
+
+                position++;
+                fragment.AppendChild(document.CreateElementNS(DomNamespaces.Html, "br"));
+            }
+        }
+
+        return fragment;
+    }
+
+    private static void MergeWithNextTextNode(DomNode? node)
+    {
+        if (node is DomText text && text.NextSibling is DomText nextText)
+        {
+            text.AppendData(nextText.Data);
+            nextText.ParentNode?.RemoveChild(nextText);
+        }
+    }
+
     private static bool TryBuildInnerHtmlFragmentContainer(DomElement contextElement, string html, out DomDocumentFragment container) =>
         HtmlFragmentParsing.TryBuildFragment(contextElement, html, out container!);
 

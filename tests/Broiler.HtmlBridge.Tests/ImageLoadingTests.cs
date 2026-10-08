@@ -220,4 +220,236 @@ public class ImageLoadingTests
         f.srcdoc="<script>var i=new Image();i.onload=function(){parent.document.getElementById('out').textContent='old';};i.src='{{Blue}}';<\/script>";
         f.srcdoc="<script>parent.document.getElementById('out').textContent='new';<\/script>";
         """));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConnectedImageElementDispatchesErrorOn404AndUpdatesMetadata(bool appendFirst)
+    {
+        using var server = new LoopbackCookieServer().Map("/nonexistent.png",
+            new Reply(Status: 404, ContentType: "image/png", BodyBytes: [0]));
+        using var profile = new BrowserNetworkSession(new BrowserNetworkSessionOptions());
+        Assert.Equal("error|true|0|0|0|0", Run($$"""
+            var out = document.getElementById('out');
+            var img = document.createElement('img');
+            img.onload = function() { out.textContent = 'load'; };
+            img.onerror = function() {
+                out.textContent = ['error', img.complete, img.naturalWidth, img.naturalHeight, img.width, img.height].join('|');
+            };
+            {{(appendFirst ? "document.body.appendChild(img); img.src = '" + server.LocalhostUrl("/nonexistent.png") + "';" : "img.src = '" + server.LocalhostUrl("/nonexistent.png") + "'; document.body.appendChild(img);")}}
+            """, options: new() { Network = profile, ImageDecoder = Decode }, url: server.Url("/page")));
+    }
+
+    [Fact]
+    public void ConnectedImageElementSannysoftBrokenImageDimensionsTest()
+    {
+        using var server = new LoopbackCookieServer().Map("/nonexistent-image.png",
+            new Reply(Status: 404, ContentType: "image/png", BodyBytes: [0]));
+        using var profile = new BrowserNetworkSession(new BrowserNetworkSessionOptions());
+        Assert.Equal("0x0|failed|true|0", Run($$"""
+            var out = document.getElementById('out');
+            var target = document.createElement('span');
+            var body = document.body;
+            var image = document.createElement('img');
+            image.onerror = function () {
+                target.textContent = image.width + 'x' + image.height;
+                if (image.width == 0 && image.height == 0) {
+                    target.className = 'failed';
+                } else {
+                    target.className = 'passed';
+                }
+                out.textContent = target.textContent + '|' + target.className + '|' + image.complete + '|' + image.naturalWidth;
+            };
+            body.appendChild(image);
+            image.src = '{{server.LocalhostUrl("/nonexistent-image.png")}}';
+            """, options: new() { Network = profile, ImageDecoder = Decode }, url: server.Url("/page")));
+    }
+
+    [Fact]
+    public void BrokenImageElementDimensionsPreserveAttributesAndCss()
+    {
+        using var server = new LoopbackCookieServer().Map("/nonexistent.png",
+            new Reply(Status: 404, ContentType: "image/png", BodyBytes: [0]));
+        using var profile = new BrowserNetworkSession(new BrowserNetworkSessionOptions());
+        Assert.Equal("unstyled:0:0:0|attrs:80:40:0|css:120:90:0", Run($$"""
+            var out = document.getElementById('out'), results = [];
+            var img1 = document.createElement('img');
+            var img2 = document.createElement('img');
+            img2.setAttribute('width', '80');
+            img2.setAttribute('height', '40');
+            var img3 = document.createElement('img');
+            img3.style.width = '120px';
+            img3.style.height = '90px';
+            var count = 0;
+            function check() {
+                count++;
+                if (count === 3) {
+                    results.push(['unstyled', img1.width, img1.height, img1.naturalWidth].join(':'));
+                    results.push(['attrs', img2.width, img2.height, img2.naturalWidth].join(':'));
+                    results.push(['css', img3.width, img3.height, img3.naturalWidth].join(':'));
+                    out.textContent = results.join('|');
+                }
+            }
+            img1.onerror = check; img2.onerror = check; img3.onerror = check;
+            document.body.appendChild(img1); document.body.appendChild(img2); document.body.appendChild(img3);
+            var url = '{{server.LocalhostUrl("/nonexistent.png")}}';
+            img1.src = url; img2.src = url; img3.src = url;
+            """, options: new() { Network = profile, ImageDecoder = Decode }, url: server.Url("/page")));
+    }
+
+    [Fact]
+    public void ConnectedImageElementSuccessfulHttpLoadsAndReflectsDimensions()
+    {
+        using var server = new LoopbackCookieServer().Map("/good.png",
+            new Reply(Status: 200, ContentType: "image/test", BodyBytes: [1]));
+        using var profile = new BrowserNetworkSession(new BrowserNetworkSessionOptions());
+        Assert.Equal("load|true|2|1|2|1|attr:50:25", Run($$"""
+            var out = document.getElementById('out');
+            var img = document.createElement('img');
+            img.onerror = function() { out.textContent = 'error'; };
+            img.onload = function() {
+                var first = ['load', img.complete, img.naturalWidth, img.naturalHeight, img.width, img.height].join('|');
+                img.setAttribute('width', '50');
+                img.setAttribute('height', '25');
+                out.textContent = first + '|attr:' + img.width + ':' + img.height;
+            };
+            document.body.appendChild(img);
+            img.src = '{{server.LocalhostUrl("/good.png")}}';
+            """, options: new() { Network = profile, ImageDecoder = Decode }, url: server.Url("/page")));
+    }
+
+    [Fact]
+    public void DisconnectedImageElement404DispatchesError()
+    {
+        using var server = new LoopbackCookieServer().Map("/nonexistent.png",
+            new Reply(Status: 404, ContentType: "image/png", BodyBytes: [0]));
+        using var profile = new BrowserNetworkSession(new BrowserNetworkSessionOptions());
+        Assert.Equal("error|true|0|0", Run($$"""
+            var out = document.getElementById('out');
+            var img = document.createElement('img');
+            img.onerror = function() {
+                out.textContent = ['error', img.complete, img.naturalWidth, img.width].join('|');
+            };
+            img.src = '{{server.LocalhostUrl("/nonexistent.png")}}';
+            """, options: new() { Network = profile, ImageDecoder = Decode }, url: server.Url("/page")));
+    }
+
+    [Fact]
+    public void ImageElementEventListenerErrorAndLoadRegistration()
+    {
+        using var server = new LoopbackCookieServer()
+            .Map("/nonexistent.png", new Reply(Status: 404, ContentType: "image/png", BodyBytes: [0]))
+            .Map("/good.png", new Reply(Status: 200, ContentType: "image/test", BodyBytes: [2]));
+        using var profile = new BrowserNetworkSession(new BrowserNetworkSessionOptions());
+        Assert.Equal("errEvent:error:false|loadEvent:load:false", Run($$"""
+            var out = document.getElementById('out'), events = [];
+            var bad = document.createElement('img');
+            var good = document.createElement('img');
+            bad.addEventListener('error', function(e) {
+                events.push(['errEvent', e.type, e.bubbles].join(':'));
+                check();
+            });
+            good.addEventListener('load', function(e) {
+                events.push(['loadEvent', e.type, e.bubbles].join(':'));
+                check();
+            });
+            var done = 0;
+            function check() {
+                done++;
+                if (done === 2) out.textContent = events.join('|');
+            }
+            document.body.appendChild(bad); document.body.appendChild(good);
+            bad.src = '{{server.LocalhostUrl("/nonexistent.png")}}';
+            good.src = '{{server.LocalhostUrl("/good.png")}}';
+            """, options: new() { Network = profile, ImageDecoder = Decode }, url: server.Url("/page")));
+    }
+
+    [Fact]
+    public void ConnectedImageElementWithInvalidDataUrlErrorsAndSetsZeroNaturalSize()
+    {
+        Assert.Equal("error|true|0|0|0|0", Run("""
+            var out = document.getElementById('out');
+            var img = document.createElement('img');
+            img.onerror = function() {
+                out.textContent = ['error', img.complete, img.naturalWidth, img.naturalHeight, img.width, img.height].join('|');
+            };
+            document.body.appendChild(img);
+            img.src = 'data:image/png;base64,invalid!';
+            """));
+    }
+
+    [Fact]
+    public void ConnectedImageElementReportsPendingBeforeLoadSettles()
+    {
+        Assert.Equal("before:false:0:0|after:true:2:1", Run($$"""
+            var out = document.getElementById('out');
+            var img = document.createElement('img');
+            document.body.appendChild(img);
+            img.src = '{{RedGreen}}';
+            var before = ['before', img.complete, img.naturalWidth, img.naturalHeight].join(':');
+            img.onload = function() {
+                var after = ['after', img.complete, img.naturalWidth, img.naturalHeight].join(':');
+                out.textContent = before + '|' + after;
+            };
+            """));
+    }
+
+    [Fact]
+    public void ImageElementWithEmptySrcIsCompleteAndHasZeroNaturalSize()
+    {
+        Assert.Equal("true|0|0|true|0|0", Run("""
+            var out = document.getElementById('out');
+            var img1 = document.createElement('img');
+            var img2 = document.createElement('img');
+            img2.src = '';
+            out.textContent = [img1.complete, img1.naturalWidth, img1.naturalHeight,
+                img2.complete, img2.naturalWidth, img2.naturalHeight].join('|');
+            """));
+    }
+
+    [Fact]
+    public void ImageElementSizingPriorityOrder()
+    {
+        Assert.Equal("css:200:150|attr:100:50|intrinsic:2:1|brokenCss:200:150|brokenAttr:100:50|brokenUnstyled:0:0", Run($$"""
+            var out = document.getElementById('out'), results = [];
+            var goodCss = document.createElement('img');
+            goodCss.setAttribute('width', '100'); goodCss.setAttribute('height', '50');
+            goodCss.style.width = '200px'; goodCss.style.height = '150px';
+
+            var goodAttr = document.createElement('img');
+            goodAttr.setAttribute('width', '100'); goodAttr.setAttribute('height', '50');
+
+            var goodPlain = document.createElement('img');
+
+            var badCss = document.createElement('img');
+            badCss.setAttribute('width', '100'); badCss.setAttribute('height', '50');
+            badCss.style.width = '200px'; badCss.style.height = '150px';
+
+            var badAttr = document.createElement('img');
+            badAttr.setAttribute('width', '100'); badAttr.setAttribute('height', '50');
+
+            var badPlain = document.createElement('img');
+
+            var loaded = 0, errored = 0;
+            function finish() {
+                if (loaded === 3 && errored === 3) {
+                    results.push(['css', goodCss.width, goodCss.height].join(':'));
+                    results.push(['attr', goodAttr.width, goodAttr.height].join(':'));
+                    results.push(['intrinsic', goodPlain.width, goodPlain.height].join(':'));
+                    results.push(['brokenCss', badCss.width, badCss.height].join(':'));
+                    results.push(['brokenAttr', badAttr.width, badAttr.height].join(':'));
+                    results.push(['brokenUnstyled', badPlain.width, badPlain.height].join(':'));
+                    out.textContent = results.join('|');
+                }
+            }
+            goodCss.onload = goodAttr.onload = goodPlain.onload = function() { loaded++; finish(); };
+            badCss.onerror = badAttr.onerror = badPlain.onerror = function() { errored++; finish(); };
+
+            document.body.appendChild(goodCss); document.body.appendChild(goodAttr); document.body.appendChild(goodPlain);
+            document.body.appendChild(badCss); document.body.appendChild(badAttr); document.body.appendChild(badPlain);
+
+            goodCss.src = goodAttr.src = goodPlain.src = '{{RedGreen}}';
+            badCss.src = badAttr.src = badPlain.src = 'data:image/test,%ff';
+            """));
+    }
 }

@@ -241,14 +241,22 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         // attributed the n-th executed script to the n-th element, which on any document carrying a
         // data block before a script — a JSON-LD block, an import map — is a different element
         // (ScriptElementMap).
-        var scriptElements = ScriptElementMap.Classic(bridge.Elements);
-        var deferredScriptElements = ScriptElementMap.Deferred(bridge.Elements);
+        var initialElements = bridge.Elements;
+        var classicIndices = ScriptElementMap.Classic(initialElements);
+        var classicElements = new List<Broiler.Dom.DomElement>(classicIndices.Count);
+        for (var ci = 0; ci < classicIndices.Count; ci++)
+            classicElements.Add(initialElements[classicIndices[ci]]);
+
+        var deferredIndices = ScriptElementMap.Deferred(initialElements);
+        var deferredElements = new List<Broiler.Dom.DomElement>(deferredIndices.Count);
+        for (var di = 0; di < deferredIndices.Count; di++)
+            deferredElements.Add(initialElements[deferredIndices[di]]);
 
         // Each script, with the checkpoint after it, is one of the page's tasks, and so is the load
         // event (StartTask).
         for (var i = 0; i < scripts.Count; i++)
         {
-            bridge.CurrentScriptIndex = i < scriptElements.Count ? scriptElements[i] : -1;
+            bridge.CurrentScriptIndex = i < classicElements.Count ? FindScriptIndex(bridge.Elements, classicElements[i]) : -1;
             var label = ScriptLabel.Inline(i);
             StartTask(bridge);
             try
@@ -273,7 +281,7 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
         {
             // A deferred script is as much the running script as a non-deferred one, so it names
             // document.currentScript and takes document.write at its own position.
-            bridge.CurrentScriptIndex = i < deferredScriptElements.Count ? deferredScriptElements[i] : -1;
+            bridge.CurrentScriptIndex = i < deferredElements.Count ? FindScriptIndex(bridge.Elements, deferredElements[i]) : -1;
             var label = ScriptLabel.Deferred(i);
             StartTask(bridge);
             try
@@ -639,4 +647,15 @@ public sealed partial class ScriptEngine : ITypedScriptEngine
     /// </remarks>
     private void AdoptDocumentFreeRealm(JSContext context) =>
         _ = DomBridgeHostUtils.AdoptRealm(context, DomBridgeUtils.RealmOptionsFor(Csp));
+
+    private static int FindScriptIndex(IReadOnlyList<Broiler.Dom.DomElement> elements, Broiler.Dom.DomElement target)
+    {
+        for (var i = 0; i < elements.Count; i++)
+        {
+            if (ReferenceEquals(elements[i], target))
+                return i;
+        }
+        return -1;
+    }
 }
+

@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using Broiler.Dom;
 using Broiler.Dom.Html;
 using Broiler.JSeal;
@@ -23,6 +23,15 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// </remarks>
 internal static class DocumentWriteBinding
 {
+    private sealed class HostWriteState
+    {
+        public int ScriptIndex { get; set; } = -1;
+        public DomElement? CurrentScript { get; set; }
+        public DomNode? LastInsertedNode { get; set; }
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IDocumentWriteHost, HostWriteState> HostStates = new();
+
     public static JsValue Write(IDocumentWriteHost host, in JsCall call)
     {
         try
@@ -31,51 +40,115 @@ internal static class DocumentWriteBinding
                 return JsValue.Undefined;
 
             // ToJsString, not the handle's rendering: document.write of an object has always run the
-            // object's own toString, and what a page writes is what that returns.
-            var fragment = call.Realm.ToJsString(call[0]);
+            // object's own toString, and what a page writes is what that returns. When multiple
+            // arguments are passed, concatenate them matching standard document.write(...text).
+            string fragment;
+            if (call.Length == 1)
+            {
+                fragment = call.Realm.ToJsString(call[0]);
+            }
+            else
+            {
+                var sb = new System.Text.StringBuilder();
+                for (var ai = 0; ai < call.Length; ai++)
+                    sb.Append(call.Realm.ToJsString(call[ai]));
+                fragment = sb.ToString();
+            }
+
+            var state = HostStates.GetOrCreateValue(host);
+            if (state.ScriptIndex != host.CurrentScriptIndex)
+            {
+                state.ScriptIndex = host.CurrentScriptIndex;
+                var documentElements = host.Elements;
+                state.CurrentScript = (host.CurrentScriptIndex >= 0 && host.CurrentScriptIndex < documentElements.Count)
+                    ? documentElements[host.CurrentScriptIndex]
+                    : null;
+                state.LastInsertedNode = null;
+            }
+
+            // Find the currently executing <script> element so we can insert the new nodes
+            // right after it (matching real browser behaviour where document.write() inserts
+            // at the parser insertion point).
+            var currentScript = (host.CurrentScriptIndex >= 0 && state.CurrentScript != null)
+                ? state.CurrentScript
+                : null;
+
+            var scriptParent = currentScript != null ? DomBridgeUtils.ParentEl(currentScript) : null;
+
+            // Find the <body> element in the main tree as fallback when no script or parent is available.
+            var mainBody = DomBridgeUtils.ChildElements(host.DocumentElement)
+                .FirstOrDefault(c => string.Equals(c.TagName, "body", StringComparison.OrdinalIgnoreCase));
+
+            var targetParent = scriptParent ?? mainBody;
+            if (targetParent == null)
+                return JsValue.Undefined;
+
             // The parser's fragment belongs to a private document, so its nodes are adopted, and a
             // defined custom element among them upgraded, only as they are inserted below.
-            var fragmentRoot = HtmlDocumentParser.ParseFragment(fragment, "body").Fragment;
-            if (fragmentRoot.ChildNodes.Count > 0)
-            {
-                // Find the <body> element in the main tree.
-                var mainBody = DomBridgeUtils.ChildElements(host.DocumentElement)
-                    .FirstOrDefault(c => string.Equals(c.TagName, "body", StringComparison.OrdinalIgnoreCase));
-                if (mainBody != null)
-                {
-                    // Find the currently executing <script> element so we can insert the new nodes
-                    // right after it (matching real browser behaviour where document.write() inserts
-                    // at the parser insertion point).
-                    DomElement? currentScript = null;
-                    var documentElements = host.Elements;
-                    if (host.CurrentScriptIndex >= 0 && host.CurrentScriptIndex < documentElements.Count)
-                    {
-                        currentScript = documentElements[host.CurrentScriptIndex];
-                        // Verify it's a <script> in mainBody.
-                        if (DomBridgeUtils.ParentEl(currentScript) != mainBody)
-                            currentScript = null;
-                    }
+            // Parse in the context of the script's parent element (e.g. td, th, head, div) so elements
+            // valid only in specific contexts survive, falling back to body.
+            var contextTag = scriptParent != null && !string.IsNullOrWhiteSpace(scriptParent.TagName)
+                ? scriptParent.TagName.ToLowerInvariant()
+                : "body";
 
-                    var writtenChildren = fragmentRoot.ChildNodes.ToArray();
-                    if (currentScript != null)
-                    {
-                        var insertIdx = DomBridgeUtils.ChildIndexOf(mainBody, currentScript) + 1;
-                        for (int ci = 0; ci < writtenChildren.Length; ci++)
-                        {
-                            // Single canonical move out of the parsed fragment into mainBody at the
-                            // insert position (prior SetParent-append + reposition fired spurious records).
-                            DomBridgeUtils.InsertChildAt(mainBody, insertIdx + ci, writtenChildren[ci]);
-                        }
-                    }
-                    else
-                    {
-                        // Fallback: append to end (single canonical move per child).
-                        foreach (var child in writtenChildren)
-                        {
-                            mainBody.AppendChild(child);
-                        }
-                    }
+            DomDocumentFragment fragmentRoot;
+            try
+            {
+                fragmentRoot = HtmlDocumentParser.ParseFragment(fragment, contextTag).Fragment;
+            }
+            catch
+            {
+                fragmentRoot = HtmlDocumentParser.ParseFragment(fragment, "body").Fragment;
+            }
+
+            if (fragmentRoot.ChildNodes.Count == 0)
+                return JsValue.Undefined;
+
+            var writtenChildren = fragmentRoot.ChildNodes.ToArray();
+
+            // Determine insertion point: consecutive writes within the same script insert right
+            // after the last inserted node to preserve document order; the initial write inserts
+            // right after the executing script element.
+            int insertIdx = -1;
+            if (state.LastInsertedNode != null && ReferenceEquals(state.LastInsertedNode.ParentNode, targetParent))
+            {
+                var lastIdx = DomBridgeUtils.ChildIndexOf(targetParent, state.LastInsertedNode);
+                if (lastIdx >= 0)
+                {
+                    insertIdx = lastIdx + 1;
                 }
+            }
+
+            if (insertIdx < 0 && currentScript != null && ReferenceEquals(currentScript.ParentNode, targetParent))
+            {
+                var scriptIdx = DomBridgeUtils.ChildIndexOf(targetParent, currentScript);
+                if (scriptIdx >= 0)
+                {
+                    insertIdx = scriptIdx + 1;
+                }
+            }
+
+            if (insertIdx >= 0)
+            {
+                for (int ci = 0; ci < writtenChildren.Length; ci++)
+                {
+                    // Single canonical move out of the parsed fragment into targetParent at the
+                    // insert position (prior SetParent-append + reposition fired spurious records).
+                    DomBridgeUtils.InsertChildAt(targetParent, insertIdx + ci, writtenChildren[ci]);
+                }
+            }
+            else
+            {
+                // Fallback: append to end of targetParent (single canonical move per child).
+                foreach (var child in writtenChildren)
+                {
+                    targetParent.AppendChild(child);
+                }
+            }
+
+            if (writtenChildren.Length > 0)
+            {
+                state.LastInsertedNode = writtenChildren[^1];
             }
 
             return JsValue.Undefined;

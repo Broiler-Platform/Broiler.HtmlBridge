@@ -91,6 +91,15 @@ public sealed partial class DomBridge : Dom.Features.IMatchMediaHost
     int Dom.Features.IMatchMediaHost.ViewportHeight => _viewportHeight;
 }
 
+// Explicit IScreenHost implementation for the ScreenBinding feature module:
+// the bridge exposes the screen geometry, which tracks the viewport dimensions live.
+public sealed partial class DomBridge : Dom.Features.IScreenHost
+{
+    int Dom.Features.IScreenHost.ScreenWidth => _viewportWidth;
+
+    int Dom.Features.IScreenHost.ScreenHeight => _viewportHeight;
+}
+
 // Explicit IWindowDocumentMiscHost implementation for the WindowDocumentMiscBinding feature module:
 // the bridge exposes the current page URL and the visual-viewport scale setter via explicit
 // interface members, so the module never reaches an arbitrary bridge private field and the public

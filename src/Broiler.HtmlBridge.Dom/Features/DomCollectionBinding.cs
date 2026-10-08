@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
@@ -78,11 +78,16 @@ namespace Broiler.HtmlBridge.Dom.Features;
 internal static class DomCollectionBinding
 {
     /// <summary>
-    /// Defines <c>NodeList</c>, <c>HTMLCollection</c>, <c>StyleSheetList</c>, <c>NamedNodeMap</c>
-    /// and <c>FileList</c> with their prototype methods, once per realm beside the other interfaces.
+    /// Defines <c>NodeList</c>, <c>HTMLCollection</c>, <c>StyleSheetList</c>, <c>NamedNodeMap</c>,
+    /// <c>FileList</c>, <c>PluginArray</c> and <c>MimeTypeArray</c> with their prototype methods,
+    /// once per realm beside the other interfaces.
     /// </summary>
     public static void RegisterInterfaces(IJsRealm realm)
     {
+        var existing = realm.GetProperty(realm.Global, "PluginArray");
+        if (existing.IsObject)
+            return;
+
         realm.EvaluateHostScript("""
             // Not constructible, as in a browser: a collection comes from the DOM, never from `new`.
             function NodeList() { throw new TypeError('Illegal constructor'); }
@@ -103,6 +108,11 @@ internal static class DomCollectionBinding
             // functions on this prototype (RegisterOptionsCollectionOperations), which inherits
             // HTMLCollection's. Chromium's message, measured.
             function HTMLOptionsCollection() { throw new TypeError("Failed to construct 'HTMLOptionsCollection': Illegal constructor"); }
+            // HTML §8.9.1.5. PluginArray and MimeTypeArray, and their element interfaces Plugin and MimeType.
+            function PluginArray() { throw new TypeError('Illegal constructor'); }
+            function MimeTypeArray() { throw new TypeError('Illegal constructor'); }
+            function Plugin() { throw new TypeError('Illegal constructor'); }
+            function MimeType() { throw new TypeError('Illegal constructor'); }
 
             (function () {
                 // Every method here is written against `this.length` and `this[i]` only. The host
@@ -167,7 +177,7 @@ internal static class DomCollectionBinding
                     return iterator;
                 }
 
-                [NodeList, HTMLCollection, StyleSheetList, NamedNodeMap, FileList].forEach(function (ctor) {
+                [NodeList, HTMLCollection, StyleSheetList, NamedNodeMap, FileList, PluginArray, MimeTypeArray].forEach(function (ctor) {
                     define(ctor.prototype, 'item', item);
                     define(ctor.prototype, Symbol.iterator, values);
                     // Web IDL's class string: Object.prototype.toString.call(select.options) is
@@ -185,6 +195,42 @@ internal static class DomCollectionBinding
                     value: 'HTMLOptionsCollection', writable: false, enumerable: false, configurable: true
                 });
 
+                // HTMLCollection, PluginArray, MimeTypeArray and Plugin provide namedItem.
+                [HTMLCollection, PluginArray, MimeTypeArray, Plugin].forEach(function (ctor) {
+                    define(ctor.prototype, 'namedItem', function (name) {
+                        var value = this[String(name)];
+                        return value === undefined ? null : value;
+                    });
+                });
+
+                // PluginArray.prototype.refresh() (HTML §8.9.1.5).
+                define(PluginArray.prototype, 'refresh', function () {});
+
+                // Plugin and MimeType element interfaces (HTML §8.9.1.5).
+                [Plugin, MimeType].forEach(function (ctor) {
+                    Object.defineProperty(ctor.prototype, Symbol.toStringTag, {
+                        value: ctor.name, writable: false, enumerable: false, configurable: true
+                    });
+                });
+                define(Plugin.prototype, 'item', item);
+                define(Plugin.prototype, Symbol.iterator, values);
+
+                function defineGetter(target, name, fn) {
+                    Object.defineProperty(target, name, {
+                        get: fn, enumerable: true, configurable: true
+                    });
+                }
+
+                defineGetter(Plugin.prototype, 'name', function () { return (this && this.name) || ''; });
+                defineGetter(Plugin.prototype, 'description', function () { return (this && this.description) || ''; });
+                defineGetter(Plugin.prototype, 'filename', function () { return (this && this.filename) || ''; });
+                defineGetter(Plugin.prototype, 'length', function () { return (this && this.length) || 0; });
+
+                defineGetter(MimeType.prototype, 'type', function () { return (this && this.type) || ''; });
+                defineGetter(MimeType.prototype, 'description', function () { return (this && this.description) || ''; });
+                defineGetter(MimeType.prototype, 'suffixes', function () { return (this && this.suffixes) || ''; });
+                defineGetter(MimeType.prototype, 'enabledPlugin', function () { return (this && this.enabledPlugin) || null; });
+
                 // NamedNodeMap's members all come from C# (see NamedNodeMapOperations): even
                 // getNamedItem cannot be written as `this[name]` the way HTMLCollection's namedItem
                 // is, because an interface member wins the property lookup over a named one — an
@@ -201,14 +247,6 @@ internal static class DomCollectionBinding
                 define(NodeList.prototype, 'entries', entries);
                 define(NodeList.prototype, 'keys', keys);
                 define(NodeList.prototype, 'values', values);
-
-                // HTMLCollection's named getter (DOM §4.2.10.2): by id, and by name for the
-                // elements HTML gives a name to. The host answers the property lookup; this is the
-                // method spelling of the same thing.
-                define(HTMLCollection.prototype, 'namedItem', function (name) {
-                    var value = this[String(name)];
-                    return value === undefined ? null : value;
-                });
             })();
             """, "interfaces:dom-collections");
     }
@@ -270,12 +308,27 @@ internal static class DomCollectionBinding
     public static JsValue FileList(IJsRealm realm, Func<List<JsValue>> contents) =>
         Create(realm, "FileList", contents, namedLookup: null);
 
+    /// <summary>
+    /// A <c>PluginArray</c> over <paramref name="contents"/> (HTML §8.9.1.5).
+    /// </summary>
+    public static JsValue PluginArray(
+        IJsRealm realm, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup = null) =>
+        Create(realm, "PluginArray", contents, namedLookup);
+
+    /// <summary>
+    /// A <c>MimeTypeArray</c> over <paramref name="contents"/> (HTML §8.9.1.5).
+    /// </summary>
+    public static JsValue MimeTypeArray(
+        IJsRealm realm, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup = null) =>
+        Create(realm, "MimeTypeArray", contents, namedLookup);
+
     private static JsValue Create(
         IJsRealm realm, string interfaceName, Func<List<JsValue>> contents, Func<string, JsValue?>? namedLookup) =>
         Create(realm, interfaceName, new DomCollection(contents, namedLookup));
 
     private static JsValue Create(IJsRealm realm, string interfaceName, DomCollection handler)
     {
+        RegisterInterfaces(realm);
         var collection = realm.NewExotic(handler);
 
         // A realm that does not yet hold the interface constructors leaves the collection

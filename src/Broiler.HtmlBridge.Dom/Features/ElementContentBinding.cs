@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -7,10 +7,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// The element-content IDL members, co-located as an HtmlBridge feature module: the HTML
 /// serialization pair <c>innerHTML</c> / <c>outerHTML</c> (read serializes, write reparses a fragment) and
 /// the text-content trio <c>textContent</c> / <c>innerText</c> / <c>outerText</c> (read returns the element's
-/// descendant text; only <c>textContent</c> is writable, replacing all children with a single text node).
-/// The serialization pair routes through the bridge's shared parser/serializer, reached through the
-/// <see cref="IElementContentHost"/> contract; the text trio is the canonical
-/// <see cref="DomNode.TextContent"/> read and written directly. The three entry points follow the
+/// descendant text; <c>textContent</c> replaces all children with a single text node, while <c>innerText</c>
+/// and <c>outerText</c> parse line breaks into <c>&lt;br&gt;</c> elements per WHATWG HTML §3.2.6.2).
+/// The serialization pair and innerText/outerText route through the bridge, reached through the
+/// <see cref="IElementContentHost"/> contract; <c>textContent</c> reads and writes the canonical
+/// <see cref="DomNode.TextContent"/> directly. The three entry points follow the
 /// interfaces: the serialization pair is <c>Element</c>'s and goes on <c>Element.prototype</c>,
 /// <c>textContent</c> (<c>Node</c>'s, shadowed here) stays on each wrapper, and the two
 /// <c>HTMLElement</c> text members go on <c>HTMLElement.prototype</c>. A wrapper that cannot inherit
@@ -80,16 +81,18 @@ internal static class ElementContentBinding
     }
 
     /// <summary>
-    /// <c>innerText</c> and <c>outerText</c> (read-only), which are <c>HTMLElement</c>'s and go on its
+    /// <c>innerText</c> and <c>outerText</c> (read/write), which are <c>HTMLElement</c>'s and go on its
     /// prototype.
     /// </summary>
-    public static void InstallHtmlElementMembers(IJsRealm realm, JsValue target, JsElementSource element)
+    public static void InstallHtmlElementMembers(IElementContentHost host, IJsRealm realm, JsValue target, JsElementSource element)
     {
         realm.DefineAccessor(target, "innerText",
-            (in call) => JsValue.String(element(in call, "innerText").TextContent), null);
+            (in call) => JsValue.String(element(in call, "innerText").TextContent),
+            (in call) => SetInnerText(host, element(in call, "innerText"), in call));
 
         realm.DefineAccessor(target, "outerText",
-            (in call) => JsValue.String(element(in call, "outerText").TextContent), null);
+            (in call) => JsValue.String(element(in call, "outerText").TextContent),
+            (in call) => SetOuterText(host, element(in call, "outerText"), in call));
     }
 
     private static JsValue SetInnerHtml(IElementContentHost host, DomElement element, in JsCall call)
@@ -104,10 +107,32 @@ internal static class ElementContentBinding
         return JsValue.Undefined;
     }
 
+    private static JsValue SetInnerText(IElementContentHost host, DomElement element, in JsCall call)
+    {
+        host.SetElementInnerText(element, LegacyNullToEmptyStringArgument(in call));
+        return JsValue.Undefined;
+    }
+
+    private static JsValue SetOuterText(IElementContentHost host, DomElement element, in JsCall call)
+    {
+        if (element.ParentNode is null)
+            throw call.Realm.DomError("NoModificationAllowedError", "Cannot set outerText on an element without a parent.");
+
+        host.SetElementOuterText(element, LegacyNullToEmptyStringArgument(in call));
+        return JsValue.Undefined;
+    }
+
     /// <summary>
     /// Argument zero as a string — the ECMAScript coercion, which may run a <c>toString</c> the page
     /// wrote — or the empty string when the setter was called with no argument at all.
     /// </summary>
     private static string StringArgument(in JsCall call)
         => call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
+
+    /// <summary>
+    /// Web IDL [LegacyNullToEmptyString] coercion: null maps to the empty string, while other values
+    /// undergo standard ToString conversion (or empty string when no arguments are provided).
+    /// </summary>
+    private static string LegacyNullToEmptyStringArgument(in JsCall call)
+        => call.Length > 0 && !call[0].IsNull ? call.Realm.ToJsString(call[0]) : string.Empty;
 }
