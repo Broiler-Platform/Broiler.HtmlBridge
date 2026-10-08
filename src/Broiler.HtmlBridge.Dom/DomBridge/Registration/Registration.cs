@@ -219,6 +219,7 @@ public sealed partial class DomBridge
 
         // new Option(...): after the interface constructors above, whose HTMLOptionElement.prototype it shares.
         RegisterOptionConstructor(window);
+        RegisterImageConstructor(window);
 
         // Interface prototypes, which have to be applied *here* rather than where each object is
         // built: the constructors they point at are registered by the polyfill pass immediately
@@ -621,7 +622,7 @@ public sealed partial class DomBridge
 {
     private void RegisterContentRenderingPolyfills(JsValue document)
     {
-        // Google Search Compliance content-rendering / fidelity polyfills — Image, IntersectionObserver,
+        // Google Search Compliance content-rendering / fidelity polyfills — IntersectionObserver,
         // ResizeObserver, TextEncoder/TextDecoder, URL/URLSearchParams and AbortController — are a versioned
         // embedded .js asset evaluated
         // once here. See Polyfills/content-rendering-polyfills*.js.

@@ -29,6 +29,9 @@ internal enum ResourceTraceKind
 
     /// <summary>An <c>&lt;iframe&gt;</c>/<c>&lt;object&gt;</c> sub-document.</summary>
     SubDocument,
+
+    /// <summary>An image requested by a DOM image element.</summary>
+    Image,
 }
 
 /// <summary>One resource the engine fetched or executed, with the outcome.</summary>

@@ -3,7 +3,7 @@
 namespace Broiler.HtmlBridge.Dom.Features;
 
 /// <summary>
-/// What <see cref="CanvasBinding"/> needs from the bridge: the window object, so that
+/// What <see cref="CanvasBinding"/> needs from the bridge: decoded image sources and the window object, so that
 /// <c>getImageData</c>/<c>createImageData</c> can build their <c>data</c> array with the realm's own
 /// <c>Uint8ClampedArray</c> constructor rather than a look-alike.
 /// </summary>
@@ -29,4 +29,9 @@ internal interface ICanvasHost
     /// checks, because a canvas can be wrapped before registration has run.
     /// </summary>
     JsValue Window { get; }
+
+    /// <summary>Decoded pixels and their origin-clean flag; null pixels mean an image still loading.</summary>
+    CanvasImageSource ImageSource(JsValue value);
 }
+
+internal readonly record struct CanvasImageSource(Broiler.Graphics.Imaging.BBitmap? Bitmap, bool OriginClean);

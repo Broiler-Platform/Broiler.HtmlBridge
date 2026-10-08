@@ -12,21 +12,6 @@
 // content-rendering-polyfills.abort-and-fonts.js. PolyfillAssets joins the four, in that order, into
 // the one script that is evaluated, so a declaration here is still visible to the files after it.
 
-// Image() constructor — returns stub object with src property
-function Image(width, height) {
-    this.src = '';
-    this.width = width || 0;
-    this.height = height || 0;
-    this.alt = '';
-    this.complete = false;
-    this.naturalWidth = 0;
-    this.naturalHeight = 0;
-    this.onload = null;
-    this.onerror = null;
-    this.addEventListener = function() {};
-    this.removeEventListener = function() {};
-}
-
 // IntersectionObserver — stub that immediately invokes callback
 function IntersectionObserver(callback, options) {
     this._callback = callback;

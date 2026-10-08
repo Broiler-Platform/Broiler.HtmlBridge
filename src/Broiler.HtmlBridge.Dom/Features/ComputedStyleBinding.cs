@@ -8,7 +8,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>window.getComputedStyle(element, pseudoElement?)</c> (which resolves an element's used-value style
 /// declaration), and the <c>&lt;img&gt;.width</c>/<c>&lt;img&gt;.height</c> IDL getters, which report the
 /// element's used (rendered) dimension by reading it out of the same computed-style object, falling back to
-/// the content attribute and then <c>0</c>. Both reach the used-value engine through the narrow
+/// the content attribute and then the intrinsic image size (or <c>0</c> before decoding). Both reach the used-value engine through the narrow
 /// <see cref="IComputedStyleHost"/> contract; the content-attribute fallback and CSS-length parse use the
 /// bridge's neutral <c>internal static</c> <c>TryGetAttribute</c>/<c>ParseCssLengthToPixels</c> helpers
 /// directly.
@@ -35,7 +35,7 @@ internal static class ComputedStyleBinding
 
     /// <summary>
     /// The <c>&lt;img&gt;.width</c> / <c>&lt;img&gt;.height</c> IDL getter — the used (rendered)
-    /// dimension read out of computed style, falling back to the raw content attribute, then <c>0</c>.
+    /// dimension read out of computed style, falling back to the raw content attribute, then the intrinsic size.
     /// </summary>
     /// <remarks>
     /// Both reads test <see cref="double.IsFinite(double)"/> rather than <c>!IsNaN</c>, which is
@@ -46,9 +46,8 @@ internal static class ComputedStyleBinding
     /// <para>
     /// Refusing at each read rather than at one exit is what keeps the documented chain: a
     /// computed value this getter cannot represent falls through to the content attribute exactly
-    /// as an unreadable one does, and an attribute it cannot represent falls through to <c>0</c>.
-    /// Those are not substitutions invented by the guard — they are the fallbacks the getter
-    /// already had, and the only ones it has.
+    /// as an unreadable one does, and an attribute it cannot represent falls through to the intrinsic
+    /// size, or <c>0</c> when no decoded image is available.
     /// </para>
     /// <para>
     /// The attribute read goes through <c>TryParseFiniteScalar</c> for its <em>culture</em> as much
@@ -66,7 +65,7 @@ internal static class ComputedStyleBinding
     /// left recorded rather than folded in here.
     /// </para>
     /// </remarks>
-    internal static JsValue GetUsedDimension(IComputedStyleHost host, string? dimName, DomElement element)
+    internal static JsValue GetUsedDimension(IComputedStyleHost host, string? dimName, DomElement element, double intrinsic = 0)
     {
         // First check computed style for this element.
         var computed = host.BuildComputedStyle(element, null);
@@ -92,7 +91,7 @@ internal static class ComputedStyleBinding
             return JsValue.Number(attrNum);
         }
 
-        return JsValue.Number(0);
+        return JsValue.Number(intrinsic);
     }
 
     /// <summary>

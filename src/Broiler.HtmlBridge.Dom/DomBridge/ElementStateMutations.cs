@@ -30,6 +30,9 @@ public sealed partial class DomBridge
                 break;
 
             case DomMutationType.Attributes when record.Target is DomElement element && record.AttributeName is { } name:
+                if (IsImageElement(element) && (name.Equals("src", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("crossorigin", StringComparison.OrdinalIgnoreCase)))
+                    UpdateImage(element);
                 if (name.Equals("popover", StringComparison.OrdinalIgnoreCase))
                     OnPopoverAttributeChanged(element, record.OldValue);
                 else

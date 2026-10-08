@@ -70,6 +70,36 @@ internal sealed class CanvasRenderingContext2D
     private const long MaxBitmapPixels = 64L * 1024 * 1024;
 
     private BBitmap? _bitmap;
+    internal BBitmap? Bitmap => _bitmap;
+    internal bool OriginClean { get; private set; } = true;
+
+    internal void DrawImage(BBitmap source, RectangleF destination, RectangleF sourceRect, bool originClean)
+    {
+        if (_bitmap is null) return;
+        OriginClean &= originClean;
+        // A self-copy must read the pixels from before the operation. Alpha belongs to the draw,
+        // not the loaded image, so never change the source's backing store.
+        BBitmap? copy = null;
+        try
+        {
+            if (ReferenceEquals(source, _bitmap) || GlobalAlpha != 1)
+            {
+                copy = source.Copy();
+                if (GlobalAlpha != 1)
+                {
+                    for (int y = 0; y < copy.Height; y++)
+                        for (int x = 0; x < copy.Width; x++)
+                        {
+                            var pixel = copy.GetPixel(x, y);
+                            copy.SetPixel(x, y, new BColor(pixel.R, pixel.G, pixel.B,
+                                (byte)Math.Round(pixel.A * Math.Clamp(GlobalAlpha, 0, 1))));
+                        }
+                }
+            }
+            Draw(canvas => canvas.DrawBitmap(copy ?? source, destination, sourceRect));
+        }
+        finally { copy?.Dispose(); }
+    }
     private BFontStyle _resolvedFont = CanvasFont.Default;
     private readonly Stack<CanvasState> _stateStack = new();
     private readonly List<List<PointF>> _subpaths = [];
@@ -114,6 +144,7 @@ internal sealed class CanvasRenderingContext2D
         Allocate(width, height);
 
         _stateStack.Clear();
+        OriginClean = true;
         _subpaths.Clear();
         FillStyle = "#000000";
         StrokeStyle = "#000000";

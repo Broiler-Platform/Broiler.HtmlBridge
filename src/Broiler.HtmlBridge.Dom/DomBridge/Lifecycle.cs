@@ -88,6 +88,7 @@ public sealed partial class DomBridge : IDisposable
     private void ClearRuntimeSessionState()
     {
         _eventLoop.Clear();
+        _images.Clear();
         ResumeResourceTimingDelivery();
         _smoothScrollTokens.Clear();
         _smoothScrollTokenCounter = 0;

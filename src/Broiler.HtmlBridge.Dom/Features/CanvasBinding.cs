@@ -230,6 +230,7 @@ internal static class CanvasBinding
         VoidMethod("stroke", static c => c.Stroke());
         realm.DefineMethod(ctx, "fillText", 3, (in call) => FillText(context2d, in call));
         realm.DefineMethod(ctx, "strokeText", 3, (in call) => StrokeText(context2d, in call));
+        realm.DefineMethod(ctx, "drawImage", 3, (in call) => DrawImage(context2d, host, in call));
         VoidMethod("save", static c => c.Save());
         VoidMethod("restore", static c => c.Restore());
 
@@ -392,8 +393,54 @@ internal static class CanvasBinding
 
     // ---- pixel access -----------------------------------------------------------------------------
 
+    internal static CanvasImageSource ImageSource(DomElement canvas) =>
+        Contexts.TryGetValue(canvas, out var context)
+            ? new(context.State.Bitmap, context.State.OriginClean)
+            : new(null, true);
+
+    private static JsValue DrawImage(CanvasRenderingContext2D context, ICanvasHost host, in JsCall call)
+    {
+        if (call.Length < 3 || call.Length is 4 or 6 or 7 or 8)
+            throw call.Realm.Error(JsErrorKind.TypeError, "drawImage requires 3, 5 or 9 arguments.");
+        var image = host.ImageSource(call[0]);
+        if (image.Bitmap is not { } bitmap) return JsValue.Undefined;
+        float sx = 0, sy = 0, sw = bitmap.Width, sh = bitmap.Height;
+        float dx, dy, dw = sw, dh = sh;
+        if (call.Length >= 9)
+        {
+            sx = Coordinate(call, 1); sy = Coordinate(call, 2);
+            sw = Coordinate(call, 3); sh = Coordinate(call, 4);
+            dx = Coordinate(call, 5); dy = Coordinate(call, 6);
+            dw = Coordinate(call, 7); dh = Coordinate(call, 8);
+        }
+        else
+        {
+            dx = Coordinate(call, 1); dy = Coordinate(call, 2);
+            if (call.Length >= 5) { dw = Coordinate(call, 3); dh = Coordinate(call, 4); }
+        }
+        if (!float.IsFinite(sx) || !float.IsFinite(sy) || !float.IsFinite(sw) || !float.IsFinite(sh) ||
+            !float.IsFinite(dx) || !float.IsFinite(dy) || !float.IsFinite(dw) || !float.IsFinite(dh))
+            return JsValue.Undefined;
+        if (sw < 0) { sx += sw; sw = -sw; }
+        if (sh < 0) { sy += sh; sh = -sh; }
+        if (dw < 0) { dx += dw; dw = -dw; }
+        if (dh < 0) { dy += dh; dh = -dh; }
+        if (sw == 0 || sh == 0 || dw == 0 || dh == 0) return JsValue.Undefined;
+        // Crop to the source, shrinking the destination by the same fraction (no edge smearing).
+        float left = Math.Max(0, sx), top = Math.Max(0, sy);
+        float right = Math.Min(bitmap.Width, sx + sw), bottom = Math.Min(bitmap.Height, sy + sh);
+        if (right <= left || bottom <= top) return JsValue.Undefined;
+        context.DrawImage(bitmap,
+            new System.Drawing.RectangleF(dx + (left - sx) * dw / sw, dy + (top - sy) * dh / sh,
+                (right - left) * dw / sw, (bottom - top) * dh / sh),
+            new System.Drawing.RectangleF(left, top, right - left, bottom - top), image.OriginClean);
+        return JsValue.Undefined;
+    }
+
     private static JsValue GetImageData(CanvasRenderingContext2D context2d, ICanvasHost host, in JsCall call)
     {
+        if (!context2d.OriginClean)
+            throw call.Realm.DomError("SecurityError", "The canvas contains cross-origin image pixels.");
         if (call.Length < 4)
             throw call.Realm.Error(JsErrorKind.Error,
                 "Failed to execute 'getImageData' on 'CanvasRenderingContext2D': 4 arguments required.");
@@ -542,6 +589,8 @@ internal static class CanvasBinding
     /// </summary>
     private static JsValue ToDataUrl(CanvasRenderingContext2D context2d, in JsCall call)
     {
+        if (!context2d.OriginClean)
+            throw call.Realm.DomError("SecurityError", "The canvas contains cross-origin image pixels.");
         // "data:," is the spec's answer for a canvas with no pixels to serialize.
         if (!context2d.HasBitmap || !BImageCodecs.IsRegistered)
             return JsValue.String("data:,");

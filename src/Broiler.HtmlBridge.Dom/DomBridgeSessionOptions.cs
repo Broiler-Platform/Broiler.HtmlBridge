@@ -21,6 +21,11 @@ namespace Broiler.HtmlBridge;
 /// </remarks>
 public sealed class DomBridgeSessionOptions
 {
+    // A per-session decoder seam for component tests/hosts inside this assembly's friend boundary.
+    // Production uses the host's registered codec catalog through BBitmap.Decode. Tests must not
+    // replace the process-global catalog, which other canvas tests deliberately leave unregistered.
+    internal Func<byte[], Broiler.Graphics.Imaging.BBitmap>? ImageDecoder { get; init; }
+
     /// <summary>
     /// Creates the document-scoped layout view lazily. The bridge disposes the
     /// resulting view with the session.

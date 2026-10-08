@@ -217,6 +217,7 @@ public sealed partial class DomBridge
         // getComputedStyle; the reflected-dimension setter is in ElementReflectionBinding.
         if (tag == "img")
         {
+            InstallImageState(handle, element);
             foreach (var dim in new[] { "height", "width" })
             {
                 var dimName = dim;
@@ -225,7 +226,7 @@ public sealed partial class DomBridge
                 // dimension's module had not migrated. It has, so the pair is one DefineAccessor
                 // over the handle the wrapper arrived as, and `obj` is not involved.
                 Realm.DefineAccessor(handle, dimName,
-                    (in call) => Dom.Features.ComputedStyleBinding.GetUsedDimension(this, dimName, element),
+                    (in call) => ImageDimension(element, dimName),
                     (in call) => Dom.Features.ElementReflectionBinding.SetReflectedDimension(dimName, element, in call));
             }
 

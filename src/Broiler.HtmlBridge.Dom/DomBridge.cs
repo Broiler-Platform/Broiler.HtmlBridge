@@ -354,6 +354,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         // The profile's network services. The loader cancels what the document still has in flight
         // when the bridge tears down; the transport and cookie access are the host's and outlive it.
         _resources = new Dom.Runtime.ResourceLoader(sessionOptions?.Network);
+        _decodeImage = sessionOptions?.ImageDecoder ?? Broiler.Graphics.Imaging.BBitmap.Decode;
         _disposal.Add(_resources);
         _documentContextFactory = sessionOptions?.DocumentContextFactory;
         _injectedCookieAccess = sessionOptions?.Cookies;

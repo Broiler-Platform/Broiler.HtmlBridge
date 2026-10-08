@@ -128,6 +128,64 @@ internal sealed class ResourceLoader : IDisposable
     /// </summary>
     public string? LocalBasePath { get; set; }
 
+    /// <summary>Loads image bytes as the element's document, preserving response tainting for canvas.</summary>
+    internal (byte[] Bytes, bool OriginClean) LoadImage(string url, RequestContext context, ResourceTimingRequest timing)
+    {
+        const int maxBytes = 32 * 1024 * 1024;
+        var attempt = ResourceTrace.Begin(ResourceTraceKind.Image, url);
+        try
+        {
+            Lifetime.ThrowIfCancellationRequested();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                throw new InvalidDataException("Invalid image URL.");
+            if (uri.Scheme == "data")
+            {
+                if (url.Length > maxBytes * 3 || !DataUrl.TryParse(url, out var data) || data.Body.Length > maxBytes)
+                    throw new InvalidDataException("Invalid or oversized image data URL.");
+                attempt.Completed(null);
+                return (data.Body.ToArray(), true);
+            }
+            if (uri.IsFile)
+            {
+                if (!LocalFileAccess.AllowedFor(context.Client?.DocumentUrl))
+                    throw new InvalidDataException("A web document cannot load a local image.");
+                if (new FileInfo(uri.LocalPath).Length > maxBytes)
+                    throw new InvalidDataException("Image is too large.");
+                var bytes = File.ReadAllBytes(uri.LocalPath);
+                attempt.Completed(null);
+                return (bytes, false); // file origins are opaque; they must not enable canvas readback
+            }
+            if (uri.Scheme is not ("http" or "https") || !MayFetchOverNetwork(url))
+                throw new InvalidDataException("Image URL is not permitted.");
+
+            // A standalone bridge has no profile. Use a private, short-lived transport so redirects,
+            // CORS and tainting still follow the same rules, without introducing a shared cookie jar.
+            using var fallback = _network is null ? new BrowserNetworkSession(new BrowserNetworkSessionOptions()) : null;
+            var network = _network ?? fallback!;
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(Lifetime);
+            budget.CancelAfter(FetchTimeout);
+            using var waiting = TaskClock.Waiting();
+            using var message = new HttpRequestMessage(HttpMethod.Get, uri);
+            var redirectEnd = new StrongBox<long>();
+            context = ResourceTimingRequest.NotingRedirects(context, redirectEnd);
+            var start = ResourceTimingRequest.Now();
+            using var response = network.Send(message, context, budget.Token);
+            var headers = ResourceTimingRequest.Now();
+            response.Message.Content.LoadIntoBufferAsync(maxBytes, budget.Token).GetAwaiter().GetResult();
+            var body = response.Message.Content.ReadAsByteArrayAsync(budget.Token).GetAwaiter().GetResult();
+            timing.Sink.Record(timing.Describe(uri, start, redirectEnd.Value, headers,
+                ResourceTimingRequest.Now(), response, body.LongLength));
+            response.Message.EnsureSuccessStatusCode();
+            attempt.Completed(null);
+            return (body, response.Tainting is ResponseTainting.Basic or ResponseTainting.Cors);
+        }
+        catch (Exception ex)
+        {
+            attempt.Failed(ex);
+            throw;
+        }
+    }
+
     /// <summary>
     /// Loads an absolute stylesheet <paramref name="url"/> as text, applying the file/http dispatch
     /// policy in one place: a <c>file://</c> URL is read from disk, <c>http(s)</c> is fetched through
