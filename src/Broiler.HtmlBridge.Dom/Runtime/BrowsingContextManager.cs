@@ -65,6 +65,9 @@ internal sealed class BrowsingContextManager
     private readonly HashSet<DomElement> _objectLoadFailures = [];
     private readonly HashSet<DomElement> _onloadFired = [];
 
+    // What each <object>'s data turned out to be, for its current data.
+    private readonly Dictionary<DomElement, ObjectContent> _objectContents = [];
+
     // Reverse map: a sub-window handle → the container element it belongs to. Keyed on the handle with
     // the default comparer (a window's identity is the object the handle carries, and that is what
     // handle equality compares; see the class remarks). Bulk-cleared on session reset, never
@@ -186,6 +189,13 @@ internal sealed class BrowsingContextManager
     public void MarkOnloadFired(DomElement element) => _onloadFired.Add(element);
     public void ClearOnloadFired(DomElement element) => _onloadFired.Remove(element);
 
+    /// <summary>What <paramref name="objectElement"/>'s data turned out to be when it was loaded;
+    /// <see langword="false"/> when it has not been loaded.</summary>
+    public bool TryGetObjectContent(DomElement objectElement, out ObjectContent content) =>
+        _objectContents.TryGetValue(objectElement, out content);
+    public void SetObjectContent(DomElement objectElement, ObjectContent content) =>
+        _objectContents[objectElement] = content;
+
     // ── Content documents ──────────────────────────────────────────────────
     public DomDocument? GetContentDocument(DomElement container) =>
         _contentDocuments.TryGetValue(container, out var document) ? document : null;
@@ -225,6 +235,7 @@ internal sealed class BrowsingContextManager
             _retiredSubWindows[container] = window;
         _subDocumentLocations.Remove(container);
         _subDocumentBaseUrls.Remove(container);
+        _objectContents.Remove(container);
     }
 
     /// <summary>Session reset (re-parse / disposal). Called from
@@ -239,3 +250,23 @@ internal sealed class BrowsingContextManager
         CurrentWindowOverride = JsValue.Missing;
     }
 }
+
+/// <summary>
+/// What an <c>&lt;object&gt;</c> renders once its data has loaded (HTML §4.8.7): the data, as an
+/// image or as a nested document, or its fallback content — its children.
+/// </summary>
+internal enum ObjectContentKind
+{
+    /// <summary>The children: the data failed to load, there is none, or it is of a type rendered
+    /// from markup alone (an SVG image) or not at all.</summary>
+    Fallback,
+
+    /// <summary>A nested document: HTML, XML or text.</summary>
+    Document,
+
+    /// <summary>A raster image.</summary>
+    Image,
+}
+
+/// <summary>What an <c>&lt;object&gt;</c>'s data turned out to be, and the MIME type it came as.</summary>
+internal readonly record struct ObjectContent(ObjectContentKind Kind, string Type);

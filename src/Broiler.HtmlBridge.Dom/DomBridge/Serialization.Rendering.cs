@@ -263,10 +263,17 @@ public sealed partial class DomBridge
     /// <summary>
     /// Stamps the live document of every <c>src</c>-loaded nested browsing context in the projection
     /// that has diverged from its resource, so the renderer paints what the frame became instead of
-    /// what its file says.
+    /// what its file says. An <c>&lt;object&gt;</c> that renders its data is projected first
+    /// (<see cref="ProjectObjectContent"/>), which drops its fallback before anything in it is stamped.
     /// </summary>
     private void ProjectScriptedFrameDocuments(DomElement element)
     {
+        var objectContent = IsObjectElement(element)
+            ? ProjectObjectContent(element, ResolveRenderSource(element))
+            : ObjectContentKind.Fallback;
+        if (objectContent == ObjectContentKind.Image)
+            return;
+
         foreach (var child in ChildElements(element).ToList())
             ProjectScriptedFrameDocuments(child);
 
@@ -295,8 +302,11 @@ public sealed partial class DomBridge
         // it correctly: keeping every untouched frame off the serialize-and-reparse round trip.
         //
         // A frame its location navigated is the exception: the renderer would re-read its src, which
-        // is the document it left, so its document is stamped whatever it holds.
-        if (!navigated &&
+        // is the document it left, so its document is stamped whatever it holds. So is an object's
+        // document that the renderer would not find from its markup (RendererReadsObjectDocument).
+        var stampAnyway = navigated ||
+            (objectContent == ObjectContentKind.Document && !RendererReadsObjectDocument(element, source));
+        if (!stampAnyway &&
             (!_subDocumentSourceMarkup.TryGetValue(subDocumentRoot, out var sourceMarkup) ||
              string.Equals(sourceMarkup, markup, StringComparison.Ordinal)))
         {
@@ -308,6 +318,71 @@ public sealed partial class DomBridge
 
         if (GetSubDocumentBaseUrl(source) is { Length: > 0 } baseUrl)
             SetAttr(element, FrameDocumentBaseAttr, baseUrl);
+    }
+
+    /// <summary>
+    /// Projects what an <c>&lt;object&gt;</c> renders (HTML §4.8.7) and answers it: once its data
+    /// has loaded as an image or a document, it renders that and not its fallback content, so its
+    /// children are dropped from the projection, and the type the data came as is stamped
+    /// (<see cref="DomBridgeUtils.ObjectTypeAttr"/>) for the renderer, which would otherwise decide
+    /// from the markup alone. An object whose data failed, or is not loaded yet, is left as it is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Acid3's test 16 nests <c>support-a.png</c> (a 404), <c>support-b.png</c> (a page served as
+    /// <c>text/html</c>, whose body is transparent) and <c>support-c.png</c> (an <c>image/png</c>)
+    /// round the text "FAIL". The first shows its fallback, the second, and the second shows its
+    /// page, which draws nothing, so neither the third nor the text renders. The renderer, which saw
+    /// an object as an image only for a <c>data:image</c> URL and as a document only for an HTML
+    /// <c>type</c> or extension, drew all three and the text above Acid3's heading.
+    /// </para>
+    /// <para>
+    /// The <c>type</c> attribute is left alone: author selectors match it, Acid2's
+    /// <c>#eyes-a object[type]</c> among them. The live object keeps its children, which scripts see.
+    /// </para>
+    /// </remarks>
+    private ObjectContentKind ProjectObjectContent(DomElement element, DomElement source)
+    {
+        if (_browsingContexts.HasObjectLoadFailed(source) ||
+            !_browsingContexts.TryGetObjectContent(source, out var content) ||
+            content.Kind == ObjectContentKind.Fallback)
+        {
+            return ObjectContentKind.Fallback;
+        }
+
+        foreach (var child in element.ChildNodes.ToArray())
+            element.RemoveChild(child);
+
+        SetAttr(element, ObjectTypeAttr, content.Type);
+        return content.Kind;
+    }
+
+    /// <summary>
+    /// Whether Broiler.Layout's <c>FragmentTreeBuilder.TryLoadEmbeddedDocument</c> finds an
+    /// object's document from its markup alone: an HTML <c>type</c>, or with none an HTML file
+    /// extension, on a file it can read. It reads no network, and a <c>data:</c> URL it reads only
+    /// as HTML.
+    /// </summary>
+    private bool RendererReadsObjectDocument(DomElement element, DomElement source)
+    {
+        if (!_browsingContexts.TryGetLocation(source, out var location) ||
+            !location.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (element.GetAttribute("type") is { } type && !string.IsNullOrWhiteSpace(type))
+        {
+            var trimmed = type.Trim();
+            return trimmed.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) ||
+                   trimmed.StartsWith("application/xhtml", StringComparison.OrdinalIgnoreCase);
+        }
+
+        var path = location.Split('?', '#')[0];
+        return path.EndsWith(".html", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".htm", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".xhtml", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".xht", StringComparison.OrdinalIgnoreCase);
     }
 }
 
