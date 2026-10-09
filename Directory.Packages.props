@@ -11,7 +11,7 @@
     <PackageVersion Include="Broiler.JSeal" Version="0.1.0-preview.6" />
     <PackageVersion Include="Broiler.JSeal.BroilerJs" Version="0.1.0-preview.6" />
     <PackageVersion Include="Broiler.JSeal.Vm" Version="0.1.0-preview.6" />
-    <PackageVersion Include="Broiler.Layout" Version="0.1.0-preview.21" />
+    <PackageVersion Include="Broiler.Layout" Version="0.1.0-preview.22" />
     <PackageVersion Include="Broiler.Net" Version="0.1.0-preview.2" />
     <!-- Test dependencies -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
