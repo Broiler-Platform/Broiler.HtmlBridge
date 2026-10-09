@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 using Broiler.JavaScript.Engine;
 using Broiler.Dom;
 using static Broiler.HtmlBridge.DomBridgeUtils;
@@ -243,7 +243,26 @@ internal static class DomBridgeHostUtils
             // one this file never registered: `document.constructor.name` answered 'Object' where a
             // browser answers 'HTMLDocument'.
             function HTMLDocument() { throw new TypeError('Illegal constructor'); }
-            function DocumentFragment() { throw new TypeError('Illegal constructor'); }
+
+            // DocumentFragment is constructible (DOM §4.6) — new DocumentFragment() creates an empty
+            // fragment associated with the global's document.
+            function DocumentFragment() {
+                var target = new.target;
+                if (!target)
+                    throw new TypeError('Failed to construct \'DocumentFragment\': Please use the \'new\' operator, this DOM object constructor cannot be called as a function.');
+                var frag = (typeof __broilerCreateDocumentFragment === 'function')
+                    ? __broilerCreateDocumentFragment()
+                    : ((typeof document !== 'undefined' && document && typeof document.createDocumentFragment === 'function')
+                        ? document.createDocumentFragment()
+                        : null);
+                if (!frag)
+                    throw new TypeError('Illegal constructor');
+                if (target !== DocumentFragment) {
+                    Object.setPrototypeOf(frag, target.prototype);
+                }
+                return frag;
+            }
+
             function CharacterData() { throw new TypeError('Illegal constructor'); }
             function Text() { throw new TypeError('Illegal constructor'); }
             function Comment() { throw new TypeError('Illegal constructor'); }
@@ -413,6 +432,11 @@ internal static class DomBridgeHostUtils
                     var child = edges[e][0], parent = edges[e][1];
                     if (child && parent && child.prototype && parent.prototype)
                         Object.setPrototypeOf(child.prototype, parent.prototype);
+                }
+                if (typeof DocumentFragment === 'function' && DocumentFragment.prototype) {
+                    Object.defineProperty(DocumentFragment.prototype, Symbol.toStringTag, {
+                        value: 'DocumentFragment', configurable: true
+                    });
                 }
             })();
         ", "interfaces:dom-constructors");

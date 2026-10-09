@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
@@ -281,6 +281,11 @@ public sealed partial class DomBridge
                     (in _) => ReflectedAttribute(element, dimName),
                     (in call) => Dom.Features.ElementReflectionBinding.SetReflectedDimension(dimName, element, in call));
             }
+
+            var nameAttr = "name";
+            Realm.DefineAccessor(handle, nameAttr,
+                (in _) => ReflectedAttribute(element, nameAttr),
+                (in call) => Dom.Features.ElementReflectionBinding.SetReflectedAttribute(nameAttr, element, in call));
         }
 
         // The bridge's own scrollParent — extracted into the co-located

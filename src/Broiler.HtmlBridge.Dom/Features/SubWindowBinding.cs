@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -124,12 +124,14 @@ internal sealed class SubWindowBinding(
         // timers already do.
         "requestIdleCallback", "cancelIdleCallback",
         "atob", "btoa", "structuredClone", "performance", "crypto",
+        "screen", "Screen", "matchMedia", "devicePixelRatio", "visualViewport", "Crypto",
+        "innerWidth", "innerHeight", "outerWidth", "outerHeight",
 
         // Interface objects a framed page feature-tests before it uses the capability behind them.
         // Both answer "not available here" rather than throwing (NotificationBinding,
         // MediaCapabilityBinding), and that answer is worth as much inside a frame as outside one —
         // an embedded player is exactly the kind of document that probes MediaSource first.
-        "Notification", "MediaSource",
+        "Notification", "MediaSource", "DocumentFragment",
 
         // Not the two storage areas: they were mirrored here once, so a frame of any origin had the
         // page's. A frame's window answers the areas of its own document instead (Build).
@@ -277,10 +279,24 @@ internal sealed class SubWindowBinding(
             (in call) => SetName(containerElement, in call));
 
         // The frame's own frames, by index and by name, and how many there are.
-        var frames = NewFrameList(() => _host.GetContentDocument(containerElement), () => window);
+        Func<DomNode?> subDocProvider = () => _host.GetContentDocument(containerElement);
+        var frames = NewFrameList(subDocProvider, () => window);
         DefineReplaceable(realm, window, "frames", (in _) => frames);
         DefineReplaceable(realm, window, "length",
-            (in _) => JsValue.Number(ChildFrameContainers(_host.GetContentDocument(containerElement)).Count));
+            (in _) =>
+            {
+                SyncFrameAccessors(window, subDocProvider);
+                return JsValue.Number(ChildFrameContainers(subDocProvider()).Count);
+            });
+        SyncFrameAccessors(window, subDocProvider);
+        if (subDocProvider() is DomDocument subDoc)
+        {
+            subDoc.Mutated += (record) =>
+            {
+                if (record.Type is DomMutationType.ChildList or DomMutationType.Attributes)
+                    SyncFrameAccessors(window, subDocProvider);
+            };
+        }
 
         foreach (var ctorName in MirroredGlobals)
         {
@@ -375,7 +391,21 @@ internal sealed class SubWindowBinding(
         var frames = NewFrameList(topDocument, () => window);
         DefineReplaceable(realm, window, "frames", (in _) => frames);
         DefineReplaceable(realm, window, "length",
-            (in _) => JsValue.Number(ChildFrameContainers(topDocument()).Count));
+            (in _) =>
+            {
+                SyncFrameAccessors(window, topDocument);
+                return JsValue.Number(ChildFrameContainers(topDocument()).Count);
+            });
+
+        SyncFrameAccessors(window, topDocument);
+        if (topDocument() is DomDocument topDoc)
+        {
+            topDoc.Mutated += (record) =>
+            {
+                if (record.Type is DomMutationType.ChildList or DomMutationType.Attributes)
+                    SyncFrameAccessors(window, topDocument);
+            };
+        }
 
         realm.DefineAccessor(window, "name",
             (in _) => JsValue.String(CurrentFrame() is { } frame
@@ -385,7 +415,10 @@ internal sealed class SubWindowBinding(
             {
                 var name = NameArgument(in call);
                 if (CurrentFrame() is { } frame)
+                {
                     _browsingContexts.SetName(frame, name);
+                    SyncFrameAccessors(window, topDocument);
+                }
                 else
                     _browsingContexts.TopName = name;
                 return JsValue.Undefined;
@@ -436,6 +469,118 @@ internal sealed class SubWindowBinding(
             _host.Realm,
             window));
 
+    private readonly Dictionary<JsValue, int> _windowFrameCounts = [];
+    private readonly Dictionary<JsValue, HashSet<string>> _windowFrameNames = [];
+
+    internal void SyncFrameAccessors(JsValue window, Func<DomNode?> documentProvider)
+    {
+        if (!window.IsObject)
+            return;
+
+        var doc = documentProvider();
+        var containers = ChildFrameContainers(doc);
+        var newCount = containers.Count;
+        var realm = _host.Realm;
+
+        _windowFrameCounts.TryGetValue(window, out var oldCount);
+        if (newCount > oldCount)
+        {
+            for (var i = oldCount; i < newCount; i++)
+            {
+                var index = i;
+                realm.DefineAccessor(window, index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    (in _) =>
+                    {
+                        var current = ChildFrameContainers(documentProvider());
+                        return (uint)index < (uint)current.Count ? WindowAsSeen(current[index]) : JsValue.Undefined;
+                    },
+                    null);
+            }
+        }
+        else if (newCount < oldCount)
+        {
+            var reflect = realm.GetProperty(realm.Global, "Reflect");
+            var reflectDelete = reflect.IsObject ? realm.GetProperty(reflect, "deleteProperty") : JsValue.Missing;
+
+            for (var i = newCount; i < oldCount; i++)
+            {
+                realm.DeleteProperty(window, i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                if (reflectDelete.IsFunction)
+                    realm.Invoke(reflectDelete, JsValue.Undefined, [window, JsValue.Number(i)]);
+            }
+        }
+        _windowFrameCounts[window] = newCount;
+
+        if (!_windowFrameNames.TryGetValue(window, out var oldNames))
+        {
+            oldNames = [];
+            _windowFrameNames[window] = oldNames;
+        }
+
+        var newNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var container in containers)
+        {
+            var name = _browsingContexts.NameOf(container);
+            if (!string.IsNullOrEmpty(name))
+                newNames.Add(name);
+        }
+
+        foreach (var oldName in oldNames.ToArray())
+        {
+            if (!newNames.Contains(oldName))
+            {
+                realm.DeleteProperty(window, oldName);
+                oldNames.Remove(oldName);
+            }
+        }
+
+        foreach (var newName in newNames)
+        {
+            if (!oldNames.Contains(newName))
+            {
+                if (IsReservedWindowProperty(newName))
+                    continue;
+
+                var name = newName;
+                try
+                {
+                    realm.DefineAccessor(window, name,
+                        (in _) =>
+                        {
+                            var current = ChildFrameContainers(documentProvider());
+                            foreach (var c in current)
+                            {
+                                if (string.Equals(_browsingContexts.NameOf(c), name, StringComparison.Ordinal))
+                                    return WindowAsSeen(c);
+                            }
+                            return JsValue.Undefined;
+                        },
+                        (in call) =>
+                        {
+                            call.Realm.DefineValue(window, name, call.Length > 0 ? call[0] : JsValue.Undefined);
+                            return JsValue.Undefined;
+                        });
+                    oldNames.Add(name);
+                }
+                catch
+                {
+                }
+            }
+        }
+    }
+
+    private static bool IsReservedWindowProperty(string name) =>
+        name is "window" or "self" or "document" or "name" or "location" or "history" or
+                "customElements" or "locationbar" or "menubar" or "personalbar" or
+                "scrollbars" or "statusbar" or "toolbar" or "status" or "closed" or
+                "frames" or "length" or "top" or "opener" or "parent" or "frameElement" or
+                "navigator" or "origin" or "external" or "screen" or "innerWidth" or
+                "innerHeight" or "scrollX" or "pageXOffset" or "scrollY" or "pageYOffset" or
+                "visualViewport" or "screenX" or "screenY" or "outerWidth" or "outerHeight" or
+                "devicePixelRatio" or "clientInformation" or "event" or "isSecureContext" or
+                "performance" or "localStorage" or "sessionStorage" or "crypto" or "console" or
+                "globalThis";
+
     /// <summary>The frame whose script is running, or <see langword="null"/> for the top document's.</summary>
     private DomElement? CurrentFrame() =>
         _host.CurrentSubWindow is { } window && _browsingContexts.TryGetSubWindowContainer(window, out var container)
@@ -445,6 +590,8 @@ internal sealed class SubWindowBinding(
     private JsValue SetName(DomElement container, in JsCall call)
     {
         _browsingContexts.SetName(container, NameArgument(in call));
+        if (_host.MainWindow.IsObject && _topDocument is not null)
+            SyncFrameAccessors(_host.MainWindow, _topDocument);
         return JsValue.Undefined;
     }
 
@@ -500,6 +647,8 @@ internal sealed class SubWindowBinding(
     {
         _crossOriginViews.Clear();
         _viewedFrames.Clear();
+        _windowFrameCounts.Clear();
+        _windowFrameNames.Clear();
         _sameOriginTopView = JsValue.Missing;
         _crossOriginTopView = JsValue.Missing;
     }
@@ -749,7 +898,7 @@ internal sealed class SubWindowBinding(
     // frame's script answers for the frame.
     private static readonly string[] TopWindowOwnMembers =
         ["window", "self", "top", "parent", "globalThis", "location", "document", "name", "postMessage", "frameElement",
-         "isSecureContext", "localStorage", "sessionStorage"];
+         "isSecureContext", "localStorage", "sessionStorage", "frames"];
 
     /// <summary>The top window as a frame of its origin has it: the whole window, through a forwarding view.</summary>
     private JsValue SameOriginTopView()

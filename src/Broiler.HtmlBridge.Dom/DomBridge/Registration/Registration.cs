@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Text;
 using Broiler.JSeal;
 using Broiler.JavaScript.Engine;
@@ -666,6 +666,15 @@ public sealed partial class DomBridge
         realm.DefineValue(window, "crypto", cryptoObj);
         realm.SetProperty(realm.Global, "crypto", cryptoObj);
 
+        var cryptoConstructor = realm.NewMethod("Crypto", (in call) =>
+            throw call.Realm.DomError("TypeError", "Illegal constructor"), 0);
+        var cryptoPrototype = realm.NewObject();
+        realm.DefineValue(cryptoConstructor, "prototype", cryptoPrototype);
+        realm.DefineValue(cryptoPrototype, "constructor", cryptoConstructor);
+        realm.DefineValue(window, "Crypto", cryptoConstructor);
+        realm.SetProperty(realm.Global, "Crypto", cryptoConstructor);
+        realm.SetPrototype(cryptoObj, cryptoPrototype);
+
         // window.isSecureContext -- the answer crypto.subtle above is given, for the document whose
         // script is running: every document's script reads the one global, as it reads `location`.
         // A getter of the window's own, enumerable and configurable, with no setter, as Chromium has it.
@@ -692,6 +701,8 @@ public sealed partial class DomBridge
 
         // Element/HTMLElement/HTMLUnknownElement/… interface globals. After Node, whose
         // @@hasInstance it installs.
+        realm.SetProperty(realm.Global, "__broilerCreateDocumentFragment",
+            realm.NewMethod("createDocumentFragment", (in _) => WrapNode(CreateBridgeDocumentFragment()), 0));
         RegisterDomInterfaceConstructors(realm);
 
         // The Node/CharacterData/Text members a text or comment node exposes, onto those interface

@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 using Broiler.HtmlBridge.Logging;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -25,6 +25,21 @@ internal static class ConsoleBinding
         realm.DefineMethod(console, "warn", Warn);
         realm.DefineMethod(console, "error", Error);
         realm.DefineMethod(console, "info", Info);
+        realm.DefineMethod(console, "debug", Debug);
+        realm.DefineMethod(console, "group", Group);
+        realm.DefineMethod(console, "groupCollapsed", GroupCollapsed);
+        realm.DefineMethod(console, "groupEnd", GroupEnd);
+        realm.DefineMethod(console, "table", Table);
+        realm.DefineMethod(console, "dir", Dir);
+        realm.DefineMethod(console, "dirxml", Dirxml);
+        realm.DefineMethod(console, "trace", Trace);
+        realm.DefineMethod(console, "clear", Clear);
+        realm.DefineMethod(console, "count", Count);
+        realm.DefineMethod(console, "countReset", CountReset);
+        realm.DefineMethod(console, "assert", AssertMethod);
+        realm.DefineMethod(console, "time", Time);
+        realm.DefineMethod(console, "timeEnd", TimeEnd);
+        realm.DefineMethod(console, "timeLog", TimeLog);
 
         return console;
     }
@@ -50,6 +65,101 @@ internal static class ConsoleBinding
     private static JsValue Info(in JsCall call)
     {
         RenderLogger.LogDebug(LogCategory.JavaScript, "console.info", Format(in call));
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Debug(in JsCall call)
+    {
+        RenderLogger.LogDebug(LogCategory.JavaScript, "console.debug", Format(in call));
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Group(in JsCall call)
+    {
+        if (call.Length > 0)
+            RenderLogger.LogDebug(LogCategory.JavaScript, "console.group", Format(in call));
+        return JsValue.Undefined;
+    }
+
+    private static JsValue GroupCollapsed(in JsCall call)
+    {
+        if (call.Length > 0)
+            RenderLogger.LogDebug(LogCategory.JavaScript, "console.groupCollapsed", Format(in call));
+        return JsValue.Undefined;
+    }
+
+    private static JsValue GroupEnd(in JsCall call)
+    {
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Table(in JsCall call)
+    {
+        RenderLogger.LogDebug(LogCategory.JavaScript, "console.table", Format(in call));
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Dir(in JsCall call)
+    {
+        RenderLogger.LogDebug(LogCategory.JavaScript, "console.dir", Format(in call));
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Dirxml(in JsCall call)
+    {
+        RenderLogger.LogDebug(LogCategory.JavaScript, "console.dirxml", Format(in call));
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Trace(in JsCall call)
+    {
+        RenderLogger.LogDebug(LogCategory.JavaScript, "console.trace", Format(in call));
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Clear(in JsCall call)
+    {
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Count(in JsCall call)
+    {
+        return JsValue.Undefined;
+    }
+
+    private static JsValue CountReset(in JsCall call)
+    {
+        return JsValue.Undefined;
+    }
+
+    private static JsValue Time(in JsCall call)
+    {
+        return JsValue.Undefined;
+    }
+
+    private static JsValue TimeEnd(in JsCall call)
+    {
+        return JsValue.Undefined;
+    }
+
+    private static JsValue TimeLog(in JsCall call)
+    {
+        return JsValue.Undefined;
+    }
+
+    private static JsValue AssertMethod(in JsCall call)
+    {
+        if (call.Length > 0 && !call.Realm.ToBoolean(call[0]))
+        {
+            var parts = new List<string>(Math.Max(1, call.Length));
+            parts.Add("Assertion failed:");
+            for (var i = 1; i < call.Length; i++)
+            {
+                var arg = call[i];
+                parts.Add(arg.IsMissing ? "undefined" : call.Realm.ToJsString(arg));
+            }
+            RenderLogger.Log(LogCategory.JavaScript, LogLevel.Error, "console.assert", string.Join(" ", parts));
+        }
         return JsValue.Undefined;
     }
 

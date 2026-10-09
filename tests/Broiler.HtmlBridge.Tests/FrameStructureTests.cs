@@ -172,12 +172,7 @@ public class FrameStructureTests
                 """));
     }
 
-    [Fact(Skip = "window.frames is a fresh array built on every read (BuildWindowFramesArray, " +
-                 "src/Broiler.HtmlBridge.Dom/DomBridge/Lifecycle.cs, installed as the accessor at " +
-                 "src/Broiler.HtmlBridge.Dom/DomBridge/Registration/Window.cs), where HTML's Window " +
-                 "interface has window, self and frames all answer with the Window itself — so " +
-                 "`window.frames === window` is false and two reads hand back two objects, which is " +
-                 "what a page caching `var f = frames` and comparing it against `window` asks.")]
+    [Fact(Skip = "window.frames is WindowFrames (an exotic object forwarding to window and child frames) rather than window itself, so frames['named'] finds child frames even when shadowed by global vars. See FrameNameTests.")]
     public void TheFrameListIsTheWindowItself()
     {
         Assert.Equal(
@@ -186,6 +181,163 @@ public class FrameStructureTests
                 (function () {
                   return 'isWindow=' + (window.frames === window) +
                          ' stable=' + (window.frames === window.frames);
+                })()
+                """));
+    }
+
+    [Fact]
+    public void WindowNumericIndexResolvesChildFramesDirectly()
+    {
+        Assert.Equal(
+            "win0=true win1=true win2=undefined self0=true self1=true top0=true in0=true in1=true in2=false",
+            Run("""
+                (function () {
+                  var f1 = document.getElementById('f1'), f2 = document.getElementById('f2');
+                  var w1 = f1.contentWindow, w2 = f2.contentWindow;
+                  return 'win0=' + (window[0] === w1) +
+                         ' win1=' + (window[1] === w2) +
+                         ' win2=' + String(window[2]) +
+                         ' self0=' + (self[0] === w1) +
+                         ' self1=' + (self[1] === w2) +
+                         ' top0=' + (top[0] === w1) +
+                         ' in0=' + (0 in window) +
+                         ' in1=' + (1 in window) +
+                         ' in2=' + (2 in window);
+                })()
+                """));
+    }
+
+    [Fact]
+    public void WindowNumericIndexUpdatesOnDynamicFrameInsertionAndRemoval()
+    {
+        Assert.Equal(
+            "startLen=2 startWin0=true startWin1=true " +
+            "afterAddLen=3 afterAddWin2=true afterAddIn2=true " +
+            "afterRemoveLen=2 afterRemoveWin0=true afterRemoveWin2=undefined afterRemoveIn2=false",
+            Run("""
+                (function () {
+                  var f1 = document.getElementById('f1'), f2 = document.getElementById('f2');
+                  var w1 = f1.contentWindow, w2 = f2.contentWindow;
+                  var startLen = window.length;
+                  var startWin0 = window[0] === w1;
+                  var startWin1 = window[1] === w2;
+
+                  var f3 = document.createElement('iframe');
+                  document.body.appendChild(f3);
+                  var w3 = f3.contentWindow;
+                  var afterAddLen = window.length;
+                  var afterAddWin2 = window[2] === w3;
+                  var afterAddIn2 = 2 in window;
+
+                  f1.remove();
+                  var afterRemoveLen = window.length;
+                  var afterRemoveWin0 = window[0] === w2;
+                  var afterRemoveWin2 = String(window[2]);
+                  var afterRemoveIn2 = 2 in window;
+
+                  return 'startLen=' + startLen +
+                         ' startWin0=' + startWin0 +
+                         ' startWin1=' + startWin1 +
+                         ' afterAddLen=' + afterAddLen +
+                         ' afterAddWin2=' + afterAddWin2 +
+                         ' afterAddIn2=' + afterAddIn2 +
+                         ' afterRemoveLen=' + afterRemoveLen +
+                         ' afterRemoveWin0=' + afterRemoveWin0 +
+                         ' afterRemoveWin2=' + afterRemoveWin2 +
+                         ' afterRemoveIn2=' + afterRemoveIn2;
+                })()
+                """));
+    }
+
+    [Fact]
+    public void NestedFrameNumericIndexAccessResolvesSubFrames()
+    {
+        Assert.Equal(
+            "parentHas0=true childHas0=false childLen=0 " +
+            "afterNestedChildLen=1 childHas0Now=true nestedMatch=true parentHas2=true",
+            Run("""
+                (function () {
+                  var f1 = document.getElementById('f1');
+                  var w1 = f1.contentWindow;
+                  var parentHas0 = window[0] === w1;
+                  var childHas0 = 0 in w1;
+                  var childLen = w1.length;
+
+                  var nested = f1.contentDocument.createElement('iframe');
+                  f1.contentDocument.body.appendChild(nested);
+                  var nestedWin = nested.contentWindow;
+
+                  var afterNestedChildLen = w1.length;
+                  var childHas0Now = 0 in w1;
+                  var nestedMatch = w1[0] === nestedWin;
+                  var parentHas2 = window.length === 2 && window[0] === w1;
+
+                  return 'parentHas0=' + parentHas0 +
+                         ' childHas0=' + childHas0 +
+                         ' childLen=' + childLen +
+                         ' afterNestedChildLen=' + afterNestedChildLen +
+                         ' childHas0Now=' + childHas0Now +
+                         ' nestedMatch=' + nestedMatch +
+                         ' parentHas2=' + parentHas2;
+                })()
+                """));
+    }
+
+    [Fact]
+    public void CreepJsFrameIsolationProbePattern()
+    {
+        Assert.Equal(
+            "start=2 length=3 indexed=true indexedType=object framesIndexed=true " +
+            "ownDocument=true ownWindow=true sharedFunction=true sentinelPreserved=true afterRemoveLen=2 afterRemoveIndexed=false",
+            Run("""
+                (function () {
+                  var start = window.length;
+                  var frame = document.createElement('iframe');
+                  document.body.appendChild(frame);
+                  var child = frame.contentWindow;
+                  var indexed = window[start] === child;
+                  var indexedType = typeof window[start];
+                  var framesIndexed = window.frames[start] === child;
+                  var ownDocument = child.document !== document;
+                  var ownWindow = child.window === child;
+                  var sharedFunction = child.Function === Function;
+                  child.document.body.innerHTML = '<p>child only</p>';
+                  var sentinelPreserved = document.getElementById('one') !== null;
+                  var length = window.length;
+                  frame.remove();
+                  var afterRemoveLen = window.length;
+                  var afterRemoveIndexed = window[start] === child;
+
+                  return 'start=' + start +
+                         ' length=' + length +
+                         ' indexed=' + indexed +
+                         ' indexedType=' + indexedType +
+                         ' framesIndexed=' + framesIndexed +
+                         ' ownDocument=' + ownDocument +
+                         ' ownWindow=' + ownWindow +
+                         ' sharedFunction=' + sharedFunction +
+                         ' sentinelPreserved=' + sentinelPreserved +
+                         ' afterRemoveLen=' + afterRemoveLen +
+                         ' afterRemoveIndexed=' + afterRemoveIndexed;
+                })()
+                """));
+    }
+
+    [Fact]
+    public void SubWindowExposesScreenMatchMediaAndCrypto()
+    {
+        Assert.Equal(
+            "hasScreen=object screenWidth=number hasMatchMedia=function hasCrypto=object hasCryptoCtor=function hasInnerWidth=number",
+            Run("""
+                (function () {
+                  var f1 = document.getElementById('f1');
+                  var w1 = f1.contentWindow;
+                  return 'hasScreen=' + (typeof w1.screen) +
+                         ' screenWidth=' + (typeof w1.screen.width) +
+                         ' hasMatchMedia=' + (typeof w1.matchMedia) +
+                         ' hasCrypto=' + (typeof w1.crypto) +
+                         ' hasCryptoCtor=' + (typeof w1.Crypto) +
+                         ' hasInnerWidth=' + (typeof w1.innerWidth);
                 })()
                 """));
     }

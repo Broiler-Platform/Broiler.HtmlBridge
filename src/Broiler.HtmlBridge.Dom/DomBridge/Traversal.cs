@@ -223,6 +223,17 @@ public sealed partial class DomBridge
             }
         }
 
+        List<DomElement>? fragmentElements = null;
+        if (node is DomDocumentFragment fragment && fragment.ChildNodes.Count > 0)
+        {
+            fragmentElements = new List<DomElement>(fragment.ChildNodes.Count);
+            foreach (var child in fragment.ChildNodes)
+            {
+                if (child is DomElement childEl)
+                    fragmentElements.Add(childEl);
+            }
+        }
+
         // A single canonical insert. The prior
         // SetParent(node, parent) appended node at the end first, so the InsertChildAt below then
         // re-moved it to `index` — firing spurious canonical add-at-end + remove records that the
@@ -233,9 +244,21 @@ public sealed partial class DomBridge
         if (parent is DomElement parentElement)
             InvalidateStyleScope(parentElement);
 
-        // Only elements carry a TagName / fire onloads; a
-        // canonical char-data node inserts with no sub-document side effects.
-        if (node is DomElement insertedElement)
+        if (fragmentElements is not null)
+        {
+            foreach (var insertedElement in fragmentElements)
+            {
+                var insertedTag = insertedElement.TagName?.ToLowerInvariant();
+                if (IsNestedBrowsingContextContainer(insertedTag))
+                    _eventLoop.QueueTask(() => FireInsertedContainerOnloads(insertedElement));
+                else
+                    _eventLoop.QueueTask(() => FireDescendantOnloads(insertedElement));
+
+                FireDescendantStylesheetLinkLoads(insertedElement);
+                EnforceRadioGroupExclusivityForInsertion(insertedElement);
+            }
+        }
+        else if (node is DomElement insertedElement)
         {
             var insertedTag = insertedElement.TagName?.ToLowerInvariant();
             if (IsNestedBrowsingContextContainer(insertedTag))
