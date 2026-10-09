@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -160,30 +160,13 @@ internal static class ElementGeometryBinding
     private static JsValue GetBoundingClientRect(IJsRealm realm, IElementGeometryHost host, DomElement element, bool isViewportElement)
     {
         var (Left, Top, Width, Height) = host.GetBoundingClientRectForDomElement(element, isViewportElement);
-        return BuildRect(realm, Left, Top, Width, Height);
+        return GeometryBinding.CreateDomRect(realm, Left, Top, Width, Height);
     }
 
     private static JsValue GetClientRects(IJsRealm realm, IElementGeometryHost host, DomElement element, bool isViewportElement)
     {
-        var (Left, Top, Width, Height) = host.GetBoundingClientRectForDomElement(element, isViewportElement);
-        var rect = BuildRect(realm, Left, Top, Width, Height);
-        return Width > 0 || Height > 0 || isViewportElement ? realm.NewArray([rect]) : realm.NewArray();
-    }
-
-    // Builds the DOMRect-like object (x/y/top/left/right/bottom/width/height) shared by
-    // getBoundingClientRect() and getClientRects().
-    private static JsValue BuildRect(IJsRealm realm, double left, double top, double width, double height)
-    {
-        var rect = realm.NewObject();
-        realm.DefineValue(rect, "x", JsValue.Number(left));
-        realm.DefineValue(rect, "y", JsValue.Number(top));
-        realm.DefineValue(rect, "top", JsValue.Number(top));
-        realm.DefineValue(rect, "left", JsValue.Number(left));
-        realm.DefineValue(rect, "right", JsValue.Number(left + width));
-        realm.DefineValue(rect, "bottom", JsValue.Number(top + height));
-        realm.DefineValue(rect, "width", JsValue.Number(width));
-        realm.DefineValue(rect, "height", JsValue.Number(height));
-        return rect;
+        var rects = host.GetClientRectsForDomElement(element, isViewportElement);
+        return GeometryBinding.CreateDomRectList(realm, rects);
     }
 
     private static JsValue ScrollIntoView(IElementGeometryHost host, DomElement element, in JsCall call)

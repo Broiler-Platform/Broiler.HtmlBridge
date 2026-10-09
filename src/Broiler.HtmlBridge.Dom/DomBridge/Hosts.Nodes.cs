@@ -268,7 +268,10 @@ public sealed partial class DomBridge : ITraversalHost
         GetClientRectsForRange(range);
 
     JsValue ITraversalHost.CreateDomRect((double Left, double Top, double Width, double Height) rectData) =>
-        CreateDomRectObject(rectData);
+        Dom.Features.GeometryBinding.CreateDomRect(Realm, rectData.Left, rectData.Top, rectData.Width, rectData.Height);
+
+    JsValue ITraversalHost.CreateDomRectList(IReadOnlyList<(double Left, double Top, double Width, double Height)> rects) =>
+        Dom.Features.GeometryBinding.CreateDomRectList(Realm, rects);
 
     JsValue ITraversalHost.CreateCommentNode(string data)
     {

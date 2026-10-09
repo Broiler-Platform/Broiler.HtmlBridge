@@ -598,6 +598,9 @@ public sealed partial class DomBridge : Dom.Features.IElementGeometryHost
     (double Left, double Top, double Width, double Height) Dom.Features.IElementGeometryHost.GetBoundingClientRectForDomElement(DomElement element, bool isRoot)
         => GetBoundingClientRectForDomElement(element, isRoot);
 
+    IReadOnlyList<(double Left, double Top, double Width, double Height)> Dom.Features.IElementGeometryHost.GetClientRectsForDomElement(DomElement element, bool isRoot)
+        => GetClientRectsForDomElement(element, isRoot);
+
     /// <summary>
     /// <c>scrollIntoView</c>'s argument, which is a dictionary, a boolean, or nothing at all.
     /// </summary>

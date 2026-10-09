@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Broiler.HtmlBridge.Dom.Runtime;
@@ -92,11 +92,30 @@ internal sealed class WorkerBinding : IDisposable
         var ctor = realm.NewConstructor("Worker", CreateWorker, 1);
         realm.DefineValue(window, "Worker", ctor);
         realm.SetProperty(realm.Global, "Worker", ctor);
+
+        realm.EvaluateHostScript("""
+            (function () {
+                if (typeof Worker === 'function' && Worker.prototype) {
+                    if (typeof EventTarget === 'function' && EventTarget.prototype) {
+                        Object.setPrototypeOf(Worker.prototype, EventTarget.prototype);
+                    }
+                    Object.defineProperty(Worker.prototype, Symbol.toStringTag, {
+                        value: 'Worker', configurable: true
+                    });
+                }
+            })();
+            """, "interfaces:worker-constructor");
     }
 
     private JsValue CreateWorker(in JsCall call)
     {
         var realm = call.Realm;
+        if (!call.NewTarget.IsObject && !call.NewTarget.IsFunction)
+        {
+            throw realm.Error(JsErrorKind.TypeError,
+                "Failed to construct 'Worker': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+        }
+
         var specifier = call.Length > 0 ? realm.ToJsString(call[0]) : string.Empty;
         if (string.IsNullOrWhiteSpace(specifier))
             throw realm.DomError("SyntaxError", "Worker requires a script URL.");
@@ -118,11 +137,21 @@ internal sealed class WorkerBinding : IDisposable
         // window's script: a frame's worker's listener sees the frame's document, not the page's.
         var ownerWindow = _host.CurrentWindow;
 
+        var targetProto = realm.GetProperty(call.NewTarget, "prototype");
+        if (!targetProto.IsObject)
+        {
+            var workerCtor = realm.GetProperty(realm.Global, "Worker");
+            if (workerCtor.IsObject)
+                targetProto = realm.GetProperty(workerCtor, "prototype");
+        }
+
         if (script is null && source is not WorkerScriptSource.Network)
         {
             // A worker whose script cannot be fetched fires `error` at the Worker object; it does
             // not throw from the constructor, and it must not take the page down.
             var failed = realm.NewObject();
+            if (targetProto.IsObject)
+                realm.SetPrototype(failed, targetProto);
             InstallWorkerHandle(realm, failed, worker: null, ownerWindow);
             _host.QueueFrameAction(() => FireErrorEvent(failed, $"Worker script not found: {specifier}"));
             return failed;
@@ -194,6 +223,8 @@ internal sealed class WorkerBinding : IDisposable
         }
 
         var handle = realm.NewObject();
+        if (targetProto.IsObject)
+            realm.SetPrototype(handle, targetProto);
         InstallWorkerHandle(realm, handle, worker, ownerWindow);
         worker.Attach(handle, this);
         return handle;

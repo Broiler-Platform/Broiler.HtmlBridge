@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 
 using Broiler.JSeal;
 
@@ -82,8 +82,12 @@ internal static class NavigatorSurfacesBinding
         "top-level-storage-access", "window-management", "xr-spatial-tracking",
     };
 
-    public static void Install(IJsRealm realm, JsValue navigator, string userAgent)
+    public static void EnsureInterfaces(IJsRealm realm, string userAgent)
     {
+        var existing = realm.GetProperty(realm.Global, "StorageManager");
+        if (existing.IsObject)
+            return;
+
         realm.EvaluateHostScript("""
             (function () {
                 // None of the four is constructible: they come from navigator, and from query().
@@ -91,6 +95,20 @@ internal static class NavigatorSurfacesBinding
                 function Permissions() { throw new TypeError("Failed to construct 'Permissions': Illegal constructor"); }
                 function PermissionStatus() { throw new TypeError("Failed to construct 'PermissionStatus': Illegal constructor"); }
                 function NavigatorUAData() { throw new TypeError("Failed to construct 'NavigatorUAData': Illegal constructor"); }
+
+                Object.defineProperty(StorageManager.prototype, Symbol.toStringTag, {
+                    value: 'StorageManager', writable: false, enumerable: false, configurable: true
+                });
+                Object.defineProperty(Permissions.prototype, Symbol.toStringTag, {
+                    value: 'Permissions', writable: false, enumerable: false, configurable: true
+                });
+                Object.defineProperty(PermissionStatus.prototype, Symbol.toStringTag, {
+                    value: 'PermissionStatus', writable: false, enumerable: false, configurable: true
+                });
+                Object.defineProperty(NavigatorUAData.prototype, Symbol.toStringTag, {
+                    value: 'NavigatorUAData', writable: false, enumerable: false, configurable: true
+                });
+
                 globalThis.StorageManager = StorageManager;
                 globalThis.Permissions = Permissions;
                 globalThis.PermissionStatus = PermissionStatus;
@@ -98,20 +116,37 @@ internal static class NavigatorSurfacesBinding
             })();
             """, "polyfill:navigator-surfaces");
 
-        var hasStorage = TryInstanceOf(realm, "StorageManager", out var storage, out var storagePrototype);
-        var hasPermissions = TryInstanceOf(realm, "Permissions", out var permissions, out var permissionsPrototype);
-        var hasUserAgentData = TryInstanceOf(realm, "NavigatorUAData", out var userAgentData, out var userAgentDataPrototype);
-        if (!hasStorage || !hasPermissions || !hasUserAgentData ||
-            !TryPrototypeOf(realm, "PermissionStatus", out var statusPrototype))
-            return;
+        if (TryPrototypeOf(realm, "StorageManager", out var storagePrototype))
+            InstallStorageManager(realm, storagePrototype);
+        if (TryPrototypeOf(realm, "Permissions", out var permissionsPrototype) &&
+            TryPrototypeOf(realm, "PermissionStatus", out var statusPrototype))
+            InstallPermissions(realm, permissionsPrototype, statusPrototype);
+        if (TryPrototypeOf(realm, "NavigatorUAData", out var userAgentDataPrototype))
+            InstallUserAgentData(realm, userAgentDataPrototype, userAgent);
+    }
 
-        InstallStorageManager(realm, storagePrototype);
-        InstallPermissions(realm, permissionsPrototype, statusPrototype);
-        InstallUserAgentData(realm, userAgentDataPrototype, userAgent);
+    public static JsValue BuildStorage(IJsRealm realm)
+    {
+        return TryInstanceOf(realm, "StorageManager", out var storage, out _) ? storage : realm.NewObject();
+    }
 
-        Add(realm, navigator, "storage", storage);
-        Add(realm, navigator, "permissions", permissions);
-        Add(realm, navigator, "userAgentData", userAgentData);
+    public static JsValue BuildPermissions(IJsRealm realm)
+    {
+        return TryInstanceOf(realm, "Permissions", out var permissions, out _) ? permissions : realm.NewObject();
+    }
+
+    public static JsValue BuildUserAgentData(IJsRealm realm, string userAgent)
+    {
+        EnsureInterfaces(realm, userAgent);
+        return TryInstanceOf(realm, "NavigatorUAData", out var userAgentData, out _) ? userAgentData : realm.NewObject();
+    }
+
+    public static void Install(IJsRealm realm, JsValue navigator, string userAgent)
+    {
+        EnsureInterfaces(realm, userAgent);
+        Add(realm, navigator, "storage", BuildStorage(realm));
+        Add(realm, navigator, "permissions", BuildPermissions(realm));
+        Add(realm, navigator, "userAgentData", BuildUserAgentData(realm, userAgent));
     }
 
     // -------- StorageManager --------

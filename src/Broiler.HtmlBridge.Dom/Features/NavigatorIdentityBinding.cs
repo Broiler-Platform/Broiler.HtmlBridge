@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -81,9 +81,15 @@ internal static class NavigatorIdentityBinding
         Add(realm, navigator, "maxTouchPoints", JsValue.Number(0));
 
         // Measured from the machine actually running the capture.
-        Add(realm, navigator, "hardwareConcurrency", JsValue.Number(Math.Max(1, Environment.ProcessorCount)));
-        Add(realm, navigator, "deviceMemory", JsValue.Number(ApproximateDeviceMemoryGiB()));
+        Add(realm, navigator, "hardwareConcurrency", JsValue.Number(HardwareConcurrency));
+        Add(realm, navigator, "deviceMemory", JsValue.Number(DeviceMemory));
     }
+
+    /// <summary>Measured logical processor count from the machine actually running the capture.</summary>
+    internal static int HardwareConcurrency => Math.Max(1, Environment.ProcessorCount);
+
+    /// <summary>Approximate memory in GiB per the Device Memory specification.</summary>
+    internal static double DeviceMemory => ApproximateDeviceMemoryGiB();
 
     /// <summary>
     /// One member, enumerable/configurable/writable — the WebIDL default the realm's
@@ -98,7 +104,7 @@ internal static class NavigatorIdentityBinding
     /// 0.25–8 — the coarsening the Device Memory specification mandates so the value cannot be used
     /// as a precise fingerprint.
     /// </summary>
-    private static double ApproximateDeviceMemoryGiB()
+    internal static double ApproximateDeviceMemoryGiB()
     {
         var totalBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
         if (totalBytes <= 0)

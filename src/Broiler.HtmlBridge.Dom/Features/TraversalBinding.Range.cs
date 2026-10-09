@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -60,9 +60,7 @@ internal sealed partial class TraversalBinding
     private JsValue RangeGetClientRects(BridgeDomRange state, in JsCall call)
     {
         var rects = _host.GetClientRectsForRange(state);
-        if (rects.Count == 0)
-            return call.Realm.NewArray();
-        return call.Realm.NewArray([.. rects.Select(rect => _host.CreateDomRect(rect))]);
+        return _host.CreateDomRectList(rects);
     }
 
     // -------- Argument and boundary validation --------

@@ -574,6 +574,45 @@ public sealed partial class DomBridge
             return ComputeRenderedRect(element);
         });
 
+    private IReadOnlyList<(double Left, double Top, double Width, double Height)> GetClientRectsForDomElement(DomElement element, bool isRoot) =>
+        WithLayoutGeometryCache(() =>
+        {
+            if (isRoot)
+            {
+                return new (double, double, double, double)[]
+                {
+                    (0, 0, GetViewportReferenceLength(element, vertical: false), GetViewportReferenceLength(element, vertical: true))
+                };
+            }
+
+            if (TryGetSvgClientRect(element, out var svgRect))
+                return new (double, double, double, double)[] { svgRect };
+
+            if (TryGetSharedLayoutGeometry(element, out var sharedGeometry))
+            {
+                var zoom = GetUsedZoomForElement(element);
+                var inverseZoom = zoom > 0.0001 ? 1.0 / zoom : 1.0;
+                var unzoomed = (
+                    (double)sharedGeometry.BorderBox.Left,
+                    (double)sharedGeometry.BorderBox.Top,
+                    sharedGeometry.BorderBox.Width * inverseZoom,
+                    sharedGeometry.BorderBox.Height * inverseZoom);
+                var rendered = ApplyTransformChain(element, (unzoomed.Item1, unzoomed.Item2, unzoomed.Item3 * zoom, unzoomed.Item4 * zoom));
+                return new (double, double, double, double)[] { rendered };
+            }
+
+            // Attached elements with an active box (not display: none) return their
+            // rendered bounding client rect even when zero-sized or when the renderer
+            // layout omitted an individual box.
+            if (element.IsConnected && !string.Equals(GetComputedProps(element).GetValueOrDefault("display"), "none", StringComparison.OrdinalIgnoreCase))
+            {
+                var fallbackRect = ComputeRenderedRect(element);
+                return new (double, double, double, double)[] { fallbackRect };
+            }
+
+            return Array.Empty<(double, double, double, double)>();
+        });
+
     private (double Left, double Top, double Width, double Height) ComputeRenderedRect(DomElement element)
     {
         var (Left, Top, Width, Height) = ComputeUnzoomedLayoutRect(element);

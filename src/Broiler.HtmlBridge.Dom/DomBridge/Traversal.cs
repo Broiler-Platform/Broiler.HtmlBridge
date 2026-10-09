@@ -27,30 +27,6 @@ public sealed partial class DomBridge
     // Call sites use the canonical Broiler.Dom.DomNode.CommonAncestorWith(b), which is
     // null-tolerant and returns null for nodes in different trees — matching the deleted helper.
 
-    /// <summary>
-    /// A CSSOM-View <c>DOMRect</c>-shaped object over a used-value rectangle, for
-    /// <c>Range.getBoundingClientRect</c> and <c>Range.getClientRects</c>.
-    /// </summary>
-    /// <remarks>
-    /// Eight data properties, enumerable, configurable and writable — the shape this has always
-    /// installed. A real <c>DOMRect</c> carries them on its prototype as accessors; that is a
-    /// separate change from this migration, and making it here would alter what
-    /// <c>Object.getOwnPropertyNames</c> of a rect answers.
-    /// </remarks>
-    private JsValue CreateDomRectObject((double Left, double Top, double Width, double Height) rectData)
-    {
-        var rect = Realm.NewObject();
-        Realm.DefineValue(rect, "x", JsValue.Number(rectData.Left));
-        Realm.DefineValue(rect, "y", JsValue.Number(rectData.Top));
-        Realm.DefineValue(rect, "top", JsValue.Number(rectData.Top));
-        Realm.DefineValue(rect, "left", JsValue.Number(rectData.Left));
-        Realm.DefineValue(rect, "right", JsValue.Number(rectData.Left + rectData.Width));
-        Realm.DefineValue(rect, "bottom", JsValue.Number(rectData.Top + rectData.Height));
-        Realm.DefineValue(rect, "width", JsValue.Number(rectData.Width));
-        Realm.DefineValue(rect, "height", JsValue.Number(rectData.Height));
-        return rect;
-    }
-
     private List<(double Left, double Top, double Width, double Height)> GetClientRectsForRange(DomRange state)
     {
         var rects = new List<(double Left, double Top, double Width, double Height)>();
@@ -65,9 +41,24 @@ public sealed partial class DomBridge
 
     private void CollectClientRectsForRangeNode(DomNode node, List<(double Left, double Top, double Width, double Height)> rects)
     {
-        // Character-data nodes contribute no client rect here (their text runs are measured
-        // elsewhere); after this guard the node is an element.
-        if (IsText(node) || IsComment(node) || node is not DomElement element)
+        if (IsComment(node))
+            return;
+
+        if (node is DomText text)
+        {
+            if (text.ParentElement is DomElement parent)
+            {
+                var parentRects = GetClientRectsForDomElement(parent, isRoot: false);
+                foreach (var r in parentRects)
+                {
+                    if (!rects.Contains(r))
+                        rects.Add(r);
+                }
+            }
+            return;
+        }
+
+        if (node is not DomElement element)
             return;
 
         var display = GetComputedProps(element).GetValueOrDefault("display");
@@ -79,9 +70,8 @@ public sealed partial class DomBridge
             return;
         }
 
-        var rect = GetBoundingClientRectForDomElement(element, isRoot: false);
-        if (rect.Width > 0 || rect.Height > 0)
-            rects.Add(rect);
+        var clientRects = GetClientRectsForDomElement(element, isRoot: false);
+        rects.AddRange(clientRects);
     }
 
     // The canonical DomCharacterData.Data setter publishes a CharacterData record to

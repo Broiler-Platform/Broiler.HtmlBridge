@@ -190,6 +190,10 @@ and where the fix would go.
   `waiting`, in a full Release-VM run on a busy machine, and passed in two more full runs and five on
   its own: the worker's answer can miss the load window when the machine is loaded.
 
+The separate [Sannysoft/CreepJS compatibility checklist](fingerprinting-compatibility-roadmap.md)
+records the completed practical scope, remaining API limits and deferred realm/media work. It complements the
+control-surface work below.
+
 ## What "finished" would mean
 
 A single `HtmlControl` type a host constructs, gives a surface to draw on and an

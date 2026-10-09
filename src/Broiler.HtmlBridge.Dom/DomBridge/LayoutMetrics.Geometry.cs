@@ -109,13 +109,20 @@ public sealed partial class DomBridge
         bool NativeZoom,
         double VisualViewportScale);
 
-    private LayoutSnapshotKey CurrentLayoutSnapshotKey() => new(
-        _document.Version,
-        BridgeRuntimeStateEpoch.Current,
-        _viewportWidth,
-        _viewportHeight,
-        Broiler.Layout.Engine.NativeZoom.Enabled,
-        NativeVisualViewport && HasActiveVisualViewport() ? GetVisualViewportScale() : 0.0);
+    private LayoutSnapshotKey CurrentLayoutSnapshotKey()
+    {
+        ulong version = _document.Version;
+        foreach (var subdoc in _browsingContexts.ContentDocuments)
+            version = (version * 31) + subdoc.Version;
+
+        return new(
+            version,
+            BridgeRuntimeStateEpoch.Current,
+            _viewportWidth,
+            _viewportHeight,
+            Broiler.Layout.Engine.NativeZoom.Enabled,
+            NativeVisualViewport && HasActiveVisualViewport() ? GetVisualViewportScale() : 0.0);
+    }
 
     // The most recently built snapshot and the key it was built under, held as one immutable pair so
     // that publishing it is a single reference write. Frame actions can run a geometry query on a
@@ -210,8 +217,8 @@ public sealed partial class DomBridge
                     _pageUrl,
                     projectedContainer =>
                     {
-                        var source = projection.SourceFor(projectedContainer);
-                        return source is null ? null : ResolveContentDocumentForRender(source);
+                        var source = projection.SourceFor(projectedContainer) ?? projectedContainer;
+                        return ResolveContentDocumentForRender(source);
                     });
                 var sourceGeometry = new Dictionary<DomElement, BoxGeometry>(ReferenceEqualityComparer.Instance);
                 foreach (var (projectedElement, geometry) in projectedGeometry)

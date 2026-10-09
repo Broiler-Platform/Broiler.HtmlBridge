@@ -174,6 +174,8 @@ public sealed partial class DomBridge
         // JsCapabilities.GlobalIsVariableScope is what a provider asserts it with.
         var window = realm.Global;
         WindowHandle = window;
+        Dom.Features.WindowBinding.Install(realm, window);
+        Dom.Features.GeometryBinding.Install(realm, window);
 
         var windowBasicsScope = Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Measure(Broiler.HtmlBridge.Core.Diagnostics.BridgePhaseTrace.Phases.RegWindowBasics);
         var console = RegisterWindowBasics(document, window);

@@ -1,4 +1,4 @@
-﻿using Broiler.Dom;
+using Broiler.Dom;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -53,6 +53,7 @@ internal interface IElementGeometryHost : INodeWrapperHost
     DomElement? GetScrollParentForDomElement(DomElement element);
 
     (double Left, double Top, double Width, double Height) GetBoundingClientRectForDomElement(DomElement element, bool isRoot);
+    IReadOnlyList<(double Left, double Top, double Width, double Height)> GetClientRectsForDomElement(DomElement element, bool isRoot);
 
     (string Block, string Inline, string? Behavior) GetScrollIntoViewOptions(in JsCall call);
     void ScrollElementIntoView(DomElement element, string? block = null, string? inline = null, string? behavior = null);

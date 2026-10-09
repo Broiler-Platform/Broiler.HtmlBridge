@@ -118,9 +118,8 @@ public class NonFiniteSvgDomLengthTests
                 $" viewBox=\"{viewBox}\""));
 
     /// <summary>
-    /// The text metrics multiply the <c>font-size</c> attribute by a character count, so a font
-    /// size that cannot be represented used to answer <c>Infinity</c> for a text length and a
-    /// character position of <c>{x: NaN, y: Infinity}</c> — one attribute, three stubs.
+    /// Invalid presentation values fall back to the inherited font. Metrics must remain finite
+    /// and agree with the same text without that invalid attribute.
     /// </summary>
     [Theory]
     [InlineData("1e400")]
@@ -129,13 +128,14 @@ public class NonFiniteSvgDomLengthTests
     [InlineData("NaN")]
     public void AFontSizeThatCannotBeRepresentedIsNotAFontSize(string fontSize) =>
         Assert.Equal(
-            "0|0,0|0",
+            "true",
             Answer(
-                $"<text id=\"tx\" font-size=\"{fontSize}\">hello</text>",
+                $"<text id=\"tx\" font-size=\"{fontSize}\">hello</text><text id=\"reference\">hello</text>",
                 "(function () { var t = document.getElementById('tx');" +
                 " var p = t.getStartPositionOfChar(0);" +
-                " return [t.getComputedTextLength(), p.x + ',' + p.y," +
-                " t.getSubStringLength(0, 2)].join('|'); })()"));
+                " var w=t.getComputedTextLength(), s=t.getSubStringLength(0,2);" +
+                " return isFinite(w)&&w>0&&isFinite(p.x)&&isFinite(p.y)&&s>0&&s<w&&" +
+                " w===document.getElementById('reference').getComputedTextLength(); })()"));
 
     /// <summary>
     /// What the refusal must not disturb, in one answer: an attribute this component reads is
@@ -154,8 +154,8 @@ public class NonFiniteSvgDomLengthTests
                 "0",     // absent
                 "-5",    // negative, and representable
                 "0,0,20,10", // a viewBox this component reads
-                "48",    // an absent font-size is the 16px default: 5 chars x 16 x 0.6
-                "0"),    // an unreadable font-size, which is the path a refused one takes
+                "true",  // the default font has a measured positive advance
+                "true"), // an invalid presentation value inherits that default
             Answer(
                 "<rect id=\"a\" width=\"100\" height=\"10\"></rect>" +
                 "<rect id=\"b\" width=\"1e2\" height=\"10\"></rect>" +
@@ -173,7 +173,7 @@ public class NonFiniteSvgDomLengthTests
                 " document.getElementById('f').width.baseVal.value," +
                 " (function () { var v = document.getElementById('v').viewBox.baseVal;" +
                 " return [v.x, v.y, v.width, v.height].join(','); })()," +
-                " document.getElementById('g').getComputedTextLength()," +
-                " document.getElementById('h').getComputedTextLength()].join('|')",
+                " document.getElementById('g').getComputedTextLength()>0," +
+                " document.getElementById('h').getComputedTextLength()===document.getElementById('g').getComputedTextLength()].join('|')",
                 " viewBox=\"0 0 20 10\""));
 }

@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Broiler.Dom;
 using Broiler.JSeal;
 
@@ -14,11 +14,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <c>SVGSVGElement</c> animation timeline (<c>getCurrentTime</c>/<c>setCurrentTime</c>) and the SMIL
 /// animation-element no-ops (<c>beginElement</c>/<c>endElement</c>/<c>getStartTime</c>).
 /// <para>
-/// Every accessor here is an attribute/font-size estimation stub — none reads layout geometry — so the
-/// module is a pure <c>internal static</c> class with <b>no host contract</b> (like
-/// <c>ClassListBinding</c> and <c>WebStorageBinding</c>). It reads content attributes through the
-/// bridge's neutral <c>internal static</c> <c>TryGetAttribute</c> helper and text through the
-/// canonical <see cref="DomNode.TextContent"/>.
+/// Text metrics and bounds use ISvgGeometryHost and the renderer font metrics. Character extents
+/// describe advance cells, not glyph ink outlines; animated-length accessors remain attribute based.
 /// </para>
 /// <para>
 /// The JavaScript vocabulary is JSEAL's (<see cref="IJsRealm"/>), so nothing here names an engine type:
@@ -38,7 +35,7 @@ internal static class SvgElementBinding
     /// <param name="obj">The element's JS wrapper.</param>
     /// <param name="element">The element the members read.</param>
     /// <param name="tag">The element's lower-cased tag name, which selects the interfaces.</param>
-    public static void Install(IJsRealm realm, JsValue obj, DomElement element, string tag)
+    public static void Install(ISvgGeometryHost host, IJsRealm realm, JsValue obj, DomElement element, string tag)
     {
         // -- SVG DOM interfaces --
 
@@ -49,6 +46,12 @@ internal static class SvgElementBinding
               tag == "text" || tag == "g" || tag == "use" || tag == "image" ||
               tag == "svg:svg" || tag == "svg:rect" || tag == "svg:text" || tag == "svg:g"))
             return;
+
+        realm.DefineMethod(obj, "getBBox", 0, (in call) =>
+        {
+            var rect = host.SvgBounds(element);
+            return GeometryBinding.CreateDomRect(call.Realm, rect.X, rect.Y, rect.Width, rect.Height);
+        });
 
         // For SVG dimensional attributes, provide SVGAnimatedLength objects with baseVal/animVal.
         // A null setter is how the read-only IDL attribute is spelled; the realm mints the accessor
@@ -74,18 +77,38 @@ internal static class SvgElementBinding
         {
             realm.DefineMethod(obj, "getNumberOfChars", 0, (in _) => GetNumberOfChars(element));
 
-            // getComputedTextLength() — returns estimated total advance width
-            realm.DefineMethod(obj, "getComputedTextLength", 0, (in _) => GetComputedTextLength(element));
+            // getComputedTextLength() — returns measured total advance width
+            realm.DefineMethod(obj, "getComputedTextLength", 0, (in _) =>
+            {
+                var text = host.SvgText(element);
+                return JsValue.Number(text.Measure(text.Text));
+            });
 
             // getSubStringLength(charnum, nchars) — returns advance width of substring
-            realm.DefineMethod(obj, "getSubStringLength", 2, (in call) => GetSubStringLength(element, in call));
+            realm.DefineMethod(obj, "getSubStringLength", 2, (in call) =>
+            {
+                var text = host.SvgText(element);
+                var index = CharacterIndex(text, in call);
+                var count = call.Length > 1 ? Math.Max(0, (int)call.Realm.ToNumber(call[1])) : 0;
+                return JsValue.Number(text.Measure(text.Text.Substring(index, Math.Min(count, text.Text.Length - index))));
+            });
+
+            realm.DefineMethod(obj, "getExtentOfChar", 1, (in call) =>
+            {
+                var text = host.SvgText(element);
+                var index = CharacterIndex(text, in call);
+                var left = text.Measure(text.Text[..index]);
+                var right = text.Measure(text.Text[..(index + 1)]);
+                return GeometryBinding.CreateDomRect(call.Realm, text.X + left, text.Y - text.Baseline,
+                    Math.Max(0, right - left), text.Height);
+            });
 
             // getStartPositionOfChar(charnum) — returns SVGPoint {x, y}
             realm.DefineMethod(obj, "getStartPositionOfChar", 1,
-                (in call) => GetStartPositionOfChar(element, in call));
+                (in call) => TextPosition(host, element, false, in call));
 
             // getEndPositionOfChar(charnum) — returns SVGPoint {x, y}
-            realm.DefineMethod(obj, "getEndPositionOfChar", 1, (in call) => GetEndPositionOfChar(element, in call));
+            realm.DefineMethod(obj, "getEndPositionOfChar", 1, (in call) => TextPosition(host, element, true, in call));
 
             // getRotationOfChar(charnum) — returns rotation angle in degrees
             realm.DefineMethod(obj, "getRotationOfChar", 1, (in call) => GetRotationOfChar(element, in call));
@@ -125,6 +148,25 @@ internal static class SvgElementBinding
     /// now calls the method factory: <c>el.beginElement.prototype</c> is <c>undefined</c> and
     /// <c>new el.beginElement()</c> throws, as a browser answers.
     /// </remarks>
+    private static int CharacterIndex(SvgTextMeasurement text, in JsCall call)
+    {
+        if (call.Length == 0) throw call.Realm.Error(JsErrorKind.TypeError, "A character index is required.");
+        var value = call.Realm.ToNumber(call[0]);
+        var index = double.IsFinite(value) ? (long)Math.Truncate(value) : 0;
+        if (index < 0 || index >= text.Text.Length) throw call.Realm.DomError("IndexSizeError", "Character index is out of range.");
+        return (int)index;
+    }
+
+    private static JsValue TextPosition(ISvgGeometryHost host, DomElement element, bool end, in JsCall call)
+    {
+        var text = host.SvgText(element);
+        var index = CharacterIndex(text, in call) + (end ? 1 : 0);
+        var point = call.Realm.NewObject();
+        call.Realm.DefineValue(point, "x", JsValue.Number(text.X + text.Measure(text.Text[..index])));
+        call.Realm.DefineValue(point, "y", JsValue.Number(text.Y));
+        return point;
+    }
+
     private static void InstallSmilNoOps(IJsRealm realm, JsValue obj)
     {
         realm.DefineMethod(obj, "beginElement", 0, static (in _) => JsValue.Undefined);
@@ -204,58 +246,6 @@ internal static class SvgElementBinding
         return JsValue.Number(element.TextContent.Length);
     }
 
-    private static JsValue GetComputedTextLength(DomElement element)
-    {
-        var length = element.TextContent.Length;
-        // Stub: estimate using font-size * character count * 0.6 average advance ratio
-        var fontSize = ReadFontSize(element);
-        return JsValue.Number(length * fontSize * 0.6);
-    }
-
-    private static JsValue GetSubStringLength(DomElement element, in JsCall call)
-    {
-        var length = element.TextContent.Length;
-        // The realm's ToNumber, not the handle's: the engine's DoubleValue on an argument *was* the
-        // ECMAScript coercion, so `getSubStringLength("1", "2")` has always counted from character 1,
-        // and an argument object's valueOf has always been allowed to run here.
-        var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
-        var nchars = call.Length > 1 ? (int)call.Realm.ToNumber(call[1]) : 0;
-        if (charnum < 0 || charnum >= length)
-            throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
-        if (nchars == 0)
-            return JsValue.Number(0);
-        var fontSize = ReadFontSize(element);
-        return JsValue.Number(nchars * fontSize * 0.6);
-    }
-
-    private static JsValue GetStartPositionOfChar(DomElement element, in JsCall call)
-    {
-        var length = element.TextContent.Length;
-        var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
-        if (charnum < 0 || charnum >= length)
-            throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
-        var fontSize = ReadFontSize(element);
-
-        var pt = call.Realm.NewObject();
-        call.Realm.DefineValue(pt, "x", JsValue.Number(charnum * fontSize * 0.6));
-        call.Realm.DefineValue(pt, "y", JsValue.Number(fontSize));
-        return pt;
-    }
-
-    private static JsValue GetEndPositionOfChar(DomElement element, in JsCall call)
-    {
-        var length = element.TextContent.Length;
-        var charnum = call.Length > 0 ? (int)call.Realm.ToNumber(call[0]) : 0;
-        if (charnum < 0 || charnum >= length)
-            throw call.Realm.Error(JsErrorKind.Error, "INDEX_SIZE_ERR");
-        var fontSize = ReadFontSize(element);
-
-        var pt = call.Realm.NewObject();
-        call.Realm.DefineValue(pt, "x", JsValue.Number((charnum + 1) * fontSize * 0.6));
-        call.Realm.DefineValue(pt, "y", JsValue.Number(fontSize));
-        return pt;
-    }
-
     private static JsValue GetRotationOfChar(DomElement element, in JsCall call)
     {
         var length = element.TextContent.Length;
@@ -271,23 +261,6 @@ internal static class SvgElementBinding
         if (call.Length > 0)
             currentTime = call.Realm.ToNumber(call[0]);
         return JsValue.Undefined;
-    }
-
-    // Reads the element's font-size presentation attribute (px/pt suffix tolerated), defaulting to 16.
-    // A font size this module cannot represent takes the same path as one it cannot read, which is
-    // what keeps every metric below a real number: the text-length and character-position stubs
-    // multiply this by a character count, so `font-size="1e400"` answered
-    // `getComputedTextLength() === Infinity` and a character position of `{x: NaN, y: Infinity}`.
-    private static double ReadFontSize(DomElement element)
-    {
-        double fontSize = 16;
-        if (DomBridgeUtils.TryGetAttribute(element, "font-size", out var fs))
-        {
-            var fsClean = fs.Replace("px", "").Replace("pt", "").Trim();
-            fontSize = ParseFiniteAttributeNumber(fsClean);
-        }
-
-        return fontSize;
     }
 
     // Builds the SVGLength value object (value/valueInSpecifiedUnits/unitType + the SVG_LENGTHTYPE_* constants).

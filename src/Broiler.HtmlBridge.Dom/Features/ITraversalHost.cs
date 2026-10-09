@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 using Broiler.Dom;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -31,8 +31,11 @@ internal interface ITraversalHost : IDocumentNodeHost, INodeWrapperHost, IRealmH
     /// <summary>The used-value client rectangles covering the range's content (bridge geometry).</summary>
     IReadOnlyList<(double Left, double Top, double Width, double Height)> GetClientRectsForRange(DomRange range);
 
-    /// <summary>Builds a CSSOM-View <c>DOMRect</c>-shaped JS object from a used-value rectangle.</summary>
+    /// <summary>Builds a CSSOM-View <c>DOMRect</c> JS object from a used-value rectangle.</summary>
     JsValue CreateDomRect((double Left, double Top, double Width, double Height) rectData);
+
+    /// <summary>Builds a CSSOM-View <c>DOMRectList</c> JS object from used-value rectangles.</summary>
+    JsValue CreateDomRectList(IReadOnlyList<(double Left, double Top, double Width, double Height)> rects);
 
     /// <summary>Mints a JS-wrapped comment node registered for wrapper lookup
     /// (<c>document.createComment</c>).</summary>

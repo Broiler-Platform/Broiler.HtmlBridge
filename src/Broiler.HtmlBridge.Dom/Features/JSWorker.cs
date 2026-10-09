@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
@@ -545,6 +545,9 @@ internal sealed class JSWorker
         realm.SetProperty(global, "addEventListener",
             realm.NewMethod("addEventListener", AddWorkerEventListener, 2));
 
+        realm.SetProperty(global, "removeEventListener",
+            realm.NewMethod("removeEventListener", RemoveWorkerEventListener, 2));
+
         realm.SetProperty(global, "setTimeout", realm.NewMethod("setTimeout",
             (in call) => JsValue.Number(_timers.Add(CallbackOf(in call), DelayOf(in call), repeating: false)), 1));
 
@@ -567,8 +570,17 @@ internal sealed class JSWorker
 
         // WorkerGlobalScope.location: the URL the worker's script came from, which a worker script
         // reads to find its own directory or origin. A worker read from a file has no URL to give.
+        JsValue? location = null;
         if (_script.Url is { } url)
-            realm.SetProperty(global, "location", BuildLocation(realm, url));
+        {
+            location = BuildLocation(realm, url);
+            realm.SetProperty(global, "location", location.Value);
+        }
+
+        // Worker global interfaces (WorkerGlobalScope, DedicatedWorkerGlobalScope, WorkerNavigator,
+        // WorkerLocation) and prototype hierarchy (HTML §10.1-10.3).
+        WorkerEnvironmentBinding.Install(realm, _name, location);
+        GeometryBinding.Install(realm, global, isWorker: true);
 
         // performance.now(), on the worker's own time origin: when it started (HR-Time §5). A worker
         // script times its work with it as readily as a page's does, and reCAPTCHA's threw on its
@@ -696,6 +708,41 @@ internal sealed class JSWorker
         var listeners = realm.GetProperty(realm.Global, ListenersProperty);
         if (listeners.IsArray)
             realm.DefineIndex(listeners, (uint)realm.GetProperty(listeners, "length").AsNumber, call[1]);
+
+        return JsValue.Undefined;
+    }
+
+    private static JsValue RemoveWorkerEventListener(in JsCall call)
+    {
+        var realm = call.Realm;
+        if (call.Length < 2 || !call[1].IsFunction ||
+            !string.Equals(realm.ToJsString(call[0]), "message", StringComparison.Ordinal))
+        {
+            return JsValue.Undefined;
+        }
+
+        var listeners = realm.GetProperty(realm.Global, ListenersProperty);
+        if (listeners.IsArray)
+        {
+            var elements = WorkerTransfer.ArrayElements(realm, listeners);
+            var targetIdentity = call[1].ObjectIdentity;
+            var remaining = new System.Collections.Generic.List<JsValue>();
+            var removed = false;
+            foreach (var element in elements)
+            {
+                if (!removed && element.IsObject && ReferenceEquals(element.ObjectIdentity, targetIdentity))
+                {
+                    removed = true;
+                    continue;
+                }
+                remaining.Add(element);
+            }
+
+            if (removed)
+            {
+                realm.SetProperty(realm.Global, ListenersProperty, realm.NewArray(remaining.ToArray()));
+            }
+        }
 
         return JsValue.Undefined;
     }

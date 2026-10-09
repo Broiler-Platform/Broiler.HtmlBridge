@@ -76,7 +76,7 @@ internal static class NavigatorCapabilityBinding
     /// remaining to give. The alternative, rejecting, is reserved for a document that is not
     /// allowed to ask.
     /// </summary>
-    private static JsValue GetBattery(IJsRealm realm)
+    internal static JsValue GetBattery(IJsRealm realm)
     {
         var battery = realm.NewObject();
 
@@ -109,7 +109,7 @@ internal static class NavigatorCapabilityBinding
     /// the rejection the specification defines for a key system the user agent does not support, so
     /// a player's existing <c>catch</c> takes its unencrypted path instead of waiting.
     /// </summary>
-    private static JsValue RequestMediaKeySystemAccess(in JsCall call)
+    internal static JsValue RequestMediaKeySystemAccess(in JsCall call)
     {
         var realm = call.Realm;
         string keySystem = call.Length > 0 ? realm.ToJsString(call[0]) : string.Empty;

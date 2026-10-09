@@ -124,14 +124,15 @@ internal sealed class SubWindowBinding(
         // timers already do.
         "requestIdleCallback", "cancelIdleCallback",
         "atob", "btoa", "structuredClone", "performance", "crypto",
-        "screen", "Screen", "matchMedia", "devicePixelRatio", "visualViewport", "Crypto",
+        "screen", "Screen", "Navigator", "Window", "matchMedia", "devicePixelRatio", "visualViewport", "Crypto",
         "innerWidth", "innerHeight", "outerWidth", "outerHeight",
 
         // Interface objects a framed page feature-tests before it uses the capability behind them.
         // Both answer "not available here" rather than throwing (NotificationBinding,
         // MediaCapabilityBinding), and that answer is worth as much inside a frame as outside one —
         // an embedded player is exactly the kind of document that probes MediaSource first.
-        "Notification", "MediaSource", "DocumentFragment",
+        "Notification", "MediaSource", "DocumentFragment", "DOMRect", "DOMRectReadOnly", "DOMRectList",
+        "MediaDevices", "MediaDeviceInfo",
 
         // Not the two storage areas: they were mirrored here once, so a frame of any origin had the
         // page's. A frame's window answers the areas of its own document instead (Build).
@@ -183,6 +184,16 @@ internal sealed class SubWindowBinding(
         var window = _browsingContexts.TryTakeRetiredSubWindow(containerElement, out var retired)
             ? retired
             : realm.NewObject();
+
+        var windowConstructor = realm.GetProperty(realm.Global, "Window");
+        if (windowConstructor.IsObject)
+        {
+            var windowProto = realm.GetProperty(windowConstructor, "prototype");
+            if (windowProto.IsObject)
+            {
+                realm.SetPrototype(window, windowProto);
+            }
+        }
 
         // All four take the handle, so the one object the realm minted above is what the sub-window
         // identity cache, the owner-window map and both messaging installations file, which is what

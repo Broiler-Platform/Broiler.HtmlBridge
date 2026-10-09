@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Broiler.Dom;
 using Broiler.Graphics;
@@ -35,7 +35,7 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// every <c>getImageData</c> pays.
 /// </para>
 /// </remarks>
-internal static class CanvasBinding
+internal static partial class CanvasBinding
 {
     // Keyed off the element: a DomElement can be handed a new JS wrapper (a re-projection, a re-entry
     // through a different accessor), and the pixels a page has already drawn must not depend on that.
@@ -167,20 +167,18 @@ internal static class CanvasBinding
         // The three string-valued drawing-state setters share one body (SetString); only the target
         // differs. They are bound here, once per context, rather than inside the setter lambdas,
         // where each assignment a drawing loop makes would allocate a fresh delegate.
-        Action<string> setFillStyle = s => context2d.FillStyle = s;
-        Action<string> setStrokeStyle = s => context2d.StrokeStyle = s;
         // A value that does not parse as a CSS font is ignored (HTML §canvas), which TrySetFont decides.
         Action<string> setFont = s => { context2d.TrySetFont(s); };
 
         // fillStyle (get/set)
         realm.DefineAccessor(ctx, "fillStyle",
-            (in _) => JsValue.String(context2d.FillStyle),
-            (in call) => SetString(in call, setFillStyle));
+            (in _) => context2d.FillGradient?.Handle ?? JsValue.String(context2d.FillStyle),
+            (in call) => SetPaint(context2d, false, in call));
 
         // strokeStyle (get/set)
         realm.DefineAccessor(ctx, "strokeStyle",
-            (in _) => JsValue.String(context2d.StrokeStyle),
-            (in call) => SetString(in call, setStrokeStyle));
+            (in _) => context2d.StrokeGradient?.Handle ?? JsValue.String(context2d.StrokeStyle),
+            (in call) => SetPaint(context2d, true, in call));
 
         // lineWidth (get/set)
         realm.DefineAccessor(ctx, "lineWidth",
@@ -224,6 +222,8 @@ internal static class CanvasBinding
         realm.DefineMethod(ctx, "moveTo", 2, (in call) => MoveTo(context2d, in call));
         realm.DefineMethod(ctx, "lineTo", 2, (in call) => LineTo(context2d, in call));
         realm.DefineMethod(ctx, "arc", 5, (in call) => Arc(context2d, in call));
+        InstallPaths(realm, ctx, context2d);
+        InstallTransforms(realm, ctx, context2d);
         realm.DefineMethod(ctx, "rect", 4, (in call) => Rect(context2d, in call));
         VoidMethod("closePath", static c => c.ClosePath());
         VoidMethod("fill", static c => c.Fill());
@@ -339,11 +339,11 @@ internal static class CanvasBinding
 
     private static JsValue Arc(CanvasRenderingContext2D context2d, in JsCall call)
     {
-        if (call.Length >= 5)
+        var v = Numbers(in call, 5);
+        if (v.All(double.IsFinite))
         {
-            context2d.Arc(
-                Coordinate(call, 0), Coordinate(call, 1), Coordinate(call, 2),
-                Coordinate(call, 3), Coordinate(call, 4));
+            if (v[2] < 0) throw call.Realm.DomError("IndexSizeError", "Arc radius must not be negative.");
+            context2d.Ellipse(v[0], v[1], v[2], v[2], 0, v[3], v[4], call.Length > 5 && call.Realm.ToBoolean(call[5]));
         }
         return JsValue.Undefined;
     }

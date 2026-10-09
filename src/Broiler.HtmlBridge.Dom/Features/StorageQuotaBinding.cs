@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -43,7 +43,7 @@ internal static class StorageQuotaBinding
         realm.DefineValue(navigator, "webkitPersistentStorage", BuildStorageQuota(realm));
     }
 
-    private static JsValue BuildStorageQuota(IJsRealm realm)
+    internal static JsValue BuildStorageQuota(IJsRealm realm)
     {
         var quota = realm.NewObject();
 

@@ -302,7 +302,7 @@ public sealed partial class DomBridge
         // SVGSVGElement animation timeline and the SMIL animation-element no-ops (the co-located
         // SvgElementBinding feature module). The module speaks JSEAL and the wrapper is a handle, so
         // it is passed straight through.
-        Dom.Features.SvgElementBinding.Install(Realm, handle, element, tag);
+        Dom.Features.SvgElementBinding.Install(this, Realm, handle, element, tag);
     }
 }
 

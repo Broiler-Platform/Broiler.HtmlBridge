@@ -2,6 +2,7 @@ using Broiler.CSS;
 using Broiler.Dom;
 using Broiler.Dom.Html;
 using Broiler.HtmlBridge.Dom.Runtime;
+using Broiler.Media.Image;
 using static Broiler.HtmlBridge.DomBridgeHostUtils;
 using static Broiler.HtmlBridge.DomBridgeUtils;
 
@@ -137,6 +138,17 @@ public sealed partial class DomBridge
             projectedToSource[projectedElement] = sourceElement;
             sourceToProjected[sourceElement] = projectedElement;
             CopyBridgeRuntimeStateTo(sourceElement, projectedElement);
+
+            if (sourceElement.LocalName.Equals("canvas", StringComparison.OrdinalIgnoreCase))
+            {
+                var bitmap = Dom.Features.CanvasBinding.ImageSource(sourceElement).Bitmap;
+                if (bitmap is not null && Broiler.Graphics.Imaging.BImageCodecs.IsRegistered
+                    && Broiler.Graphics.Imaging.BImageCodecs.Catalog.FindEncoder(Broiler.Media.Image.ImageEncodeFormat.Png) is not null)
+                {
+                    var png = bitmap.Encode(Broiler.Media.Image.ImageEncodeFormat.Png, 100);
+                    projectedElement.SetAttribute("data-broiler-canvas-bitmap", "data:image/png;base64," + Convert.ToBase64String(png));
+                }
+            }
 
             if (sourceElement.InternalShadowRoot is { } sourceShadow)
             {

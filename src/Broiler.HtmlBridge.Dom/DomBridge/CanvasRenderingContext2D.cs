@@ -41,9 +41,8 @@ namespace Broiler.HtmlBridge;
 /// drawn glyphs; both are unshaped (no kerning, no ligatures, no fallback along the family list). That
 /// holds only while no host has registered a platform text-metrics provider, and the shipping Windows
 /// browser does register one, so there measurement and placement follow DirectWrite rather than the drawn
-/// face (see <see cref="MeasureTextWidth"/>). There is no transform stack: the binding exposes no <c>translate</c>/<c>rotate</c>/
-/// <c>scale</c>, so none is needed, and <see cref="BCanvas"/> is a translate+uniform-scale rasteriser
-/// that could not carry a general affine anyway.
+/// face (see <see cref="MeasureTextWidth"/>). Affine transforms affect path coordinates, text and images;
+/// transformed image sampling is nearest-neighbour and path stroke widths remain in device pixels.
 /// </para>
 /// <para>
 /// <b>A zero-area canvas has no bitmap.</b> <c>&lt;canvas width="0"&gt;</c> is legal and
@@ -59,7 +58,7 @@ namespace Broiler.HtmlBridge;
 /// <c>ObjectDisposedException</c> on a canvas the page still holds.
 /// </para>
 /// </remarks>
-internal sealed class CanvasRenderingContext2D
+internal sealed partial class CanvasRenderingContext2D
 {
     /// <summary>
     /// Largest bitmap this context will allocate, in pixels (256 MiB of RGBA). A page is free to ask for
@@ -96,7 +95,10 @@ internal sealed class CanvasRenderingContext2D
                         }
                 }
             }
-            Draw(canvas => canvas.DrawBitmap(copy ?? source, destination, sourceRect));
+            if (Transform.IsIdentity)
+                Draw(canvas => canvas.DrawBitmap(copy ?? source, destination, sourceRect));
+            else
+                DrawTransformedImage(copy ?? source, destination, sourceRect);
         }
         finally { copy?.Dispose(); }
     }
@@ -148,6 +150,8 @@ internal sealed class CanvasRenderingContext2D
         _subpaths.Clear();
         FillStyle = "#000000";
         StrokeStyle = "#000000";
+        FillGradient = StrokeGradient = null;
+        Transform = BMatrix3x2.Identity;
         LineWidth = 1.0f;
         Font = "10px sans-serif";
         _resolvedFont = CanvasFont.Default;
@@ -187,13 +191,13 @@ internal sealed class CanvasRenderingContext2D
     {
         if (width == 0 || height == 0)
             return;
-        Draw(canvas => canvas.FillRect(Normalize(x, y, width, height), ResolveColor(FillStyle)));
+        Paint((canvas, color) => canvas.FillPolygon(RectPoints(x, y, width, height), color), FillStyle, FillGradient);
     }
 
     /// <summary>Strokes a rectangle outline at the specified position and size.</summary>
     public void StrokeRect(float x, float y, float width, float height) =>
-        Draw(canvas => canvas.DrawRectangleStroke(
-            Normalize(x, y, width, height), ResolveColor(StrokeStyle), Math.Max(LineWidth, 0f)));
+        Paint((canvas, color) => canvas.DrawPathStroke(
+            RectPoints(x, y, width, height, true), color, Math.Max(LineWidth, 0f)), StrokeStyle, StrokeGradient);
 
     /// <summary>
     /// Clears a rectangular area, making it fully transparent. This <em>replaces</em> the pixels rather
@@ -204,6 +208,16 @@ internal sealed class CanvasRenderingContext2D
     {
         if (_bitmap is null || width == 0 || height == 0)
             return;
+
+        if (!Transform.IsIdentity)
+        {
+            using var mask = new BBitmap(Width, Height);
+            using (var canvas = mask.OpenCanvas()) canvas.FillPolygon(RectPoints(x, y, width, height), BColor.White);
+            for (var py = 0; py < Height; py++)
+                for (var px = 0; px < Width; px++)
+                    if (mask.GetPixel(px, py).A != 0) _bitmap.SetPixel(px, py, BColor.Transparent);
+            return;
+        }
 
         RectangleF rect = Normalize(x, y, width, height);
         int minX = Math.Max(0, (int)MathF.Floor(rect.Left));
@@ -224,10 +238,10 @@ internal sealed class CanvasRenderingContext2D
     public void BeginPath() => _subpaths.Clear();
 
     /// <summary>Moves the pen to the specified point without drawing.</summary>
-    public void MoveTo(float x, float y) => _subpaths.Add([new PointF(x, y)]);
+    public void MoveTo(float x, float y) => _subpaths.Add([TransformPoint(x, y)]);
 
     /// <summary>Draws a straight line from the current point to the specified point.</summary>
-    public void LineTo(float x, float y) => CurrentSubpath().Add(new PointF(x, y));
+    public void LineTo(float x, float y) => CurrentSubpath().Add(TransformPoint(x, y));
 
     /// <summary>
     /// Draws an arc centered at (x, y) with the given radius and angles, flattened into line segments
@@ -274,15 +288,14 @@ internal sealed class CanvasRenderingContext2D
     {
         if (_subpaths.Count == 0)
             return;
-        Draw(canvas =>
+        Paint((canvas, color) =>
         {
-            BColor color = ResolveColor(FillStyle);
             foreach (List<PointF> subpath in _subpaths)
             {
                 if (subpath.Count >= 3)
                     canvas.FillPolygon([.. subpath], color);
             }
-        });
+        }, FillStyle, FillGradient);
     }
 
     /// <summary>Strokes the current path with the current stroke style.</summary>
@@ -290,28 +303,27 @@ internal sealed class CanvasRenderingContext2D
     {
         if (_subpaths.Count == 0 || LineWidth <= 0)
             return;
-        Draw(canvas =>
+        Paint((canvas, color) =>
         {
-            BColor color = ResolveColor(StrokeStyle);
             foreach (List<PointF> subpath in _subpaths)
             {
                 if (subpath.Count >= 2)
                     canvas.DrawPathStroke(subpath, color, LineWidth);
             }
-        });
+        }, StrokeStyle, StrokeGradient);
     }
 
     // ---- text -------------------------------------------------------------------------------------
 
     /// <summary>Fills text at the specified position, where <paramref name="y"/> is the baseline.</summary>
-    public void FillText(string text, float x, float y) => DrawText(text, x, y, ResolveColor(FillStyle));
+    public void FillText(string text, float x, float y) => DrawText(text, x, y, ResolveColor(FillStyle), FillGradient);
 
     /// <summary>
     /// Strokes text at the specified position. The glyph rasteriser fills outlines rather than stroking
     /// them, so this paints the same glyphs in the stroke colour — the shape is right and the hairline
     /// interior of an outlined glyph is not.
     /// </summary>
-    public void StrokeText(string text, float x, float y) => DrawText(text, x, y, ResolveColor(StrokeStyle));
+    public void StrokeText(string text, float x, float y) => DrawText(text, x, y, ResolveColor(StrokeStyle), StrokeGradient);
 
     /// <summary>
     /// Advance width of <paramref name="text"/> in the current font, after HTML's text preparation.
@@ -421,6 +433,9 @@ internal sealed class CanvasRenderingContext2D
     {
         FillStyle = FillStyle,
         StrokeStyle = StrokeStyle,
+        FillGradient = FillGradient,
+        StrokeGradient = StrokeGradient,
+        Transform = Transform,
         LineWidth = LineWidth,
         Font = Font,
         ResolvedFont = _resolvedFont,
@@ -437,6 +452,9 @@ internal sealed class CanvasRenderingContext2D
         var state = _stateStack.Pop();
         FillStyle = state.FillStyle;
         StrokeStyle = state.StrokeStyle;
+        FillGradient = state.FillGradient;
+        StrokeGradient = state.StrokeGradient;
+        Transform = state.Transform;
         LineWidth = state.LineWidth;
         Font = state.Font;
         _resolvedFont = state.ResolvedFont;
@@ -606,12 +624,22 @@ internal sealed class CanvasRenderingContext2D
     /// glyph. The run's extent is <see cref="MeasureTextWidth"/>, the advance the glyphs are drawn with,
     /// so the scratch's right edge does not cut off a run wider than an estimate of it.
     /// </remarks>
-    private void DrawText(string text, float x, float y, BColor color)
+    private void DrawText(string text, float x, float y, BColor color, CanvasGradientPaint? gradient)
     {
-        if (_bitmap is null || string.IsNullOrEmpty(text) || color.A == 0)
+        if (_bitmap is null || string.IsNullOrEmpty(text) || (gradient is null && color.A == 0))
             return;
 
         text = CanvasFont.PrepareText(text);
+        if (!Transform.IsIdentity || gradient is not null)
+        {
+            var list = new BRenderList();
+            list.PushTransform(Transform);
+            list.DrawText(new BTextRun(text, _resolvedFont, gradient is null ? color : BColor.White),
+                new BPoint(x - AlignmentOffset(MeasureTextWidth(text)), y - _resolvedFont.Size * 0.8));
+            list.PopTransform();
+            DrawTransformedList(list, gradient);
+            return;
+        }
         double fontSize = _resolvedFont.Size;
         double runWidth = MeasureTextWidth(text);
 
@@ -666,6 +694,9 @@ internal sealed class CanvasRenderingContext2D
     {
         public string FillStyle { get; init; } = string.Empty;
         public string StrokeStyle { get; init; } = string.Empty;
+        public CanvasGradientPaint? FillGradient { get; init; }
+        public CanvasGradientPaint? StrokeGradient { get; init; }
+        public BMatrix3x2 Transform { get; init; }
         public float LineWidth { get; init; }
         public string Font { get; init; } = string.Empty;
         public BFontStyle ResolvedFont { get; init; } = CanvasFont.Default;

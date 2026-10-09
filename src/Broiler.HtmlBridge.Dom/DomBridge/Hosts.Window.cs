@@ -100,6 +100,12 @@ public sealed partial class DomBridge : Dom.Features.IScreenHost
     int Dom.Features.IScreenHost.ScreenHeight => _viewportHeight;
 }
 
+// Explicit INavigatorHost implementation for the NavigatorBinding feature module:
+public sealed partial class DomBridge : Dom.Features.INavigatorHost
+{
+    JsValue Dom.Features.INavigatorHost.SendBeacon(in JsCall call) => _fetch.SendBeacon(in call);
+}
+
 // Explicit IWindowDocumentMiscHost implementation for the WindowDocumentMiscBinding feature module:
 // the bridge exposes the current page URL and the visual-viewport scale setter via explicit
 // interface members, so the module never reaches an arbitrary bridge private field and the public

@@ -121,6 +121,8 @@ Packages and `preview.2` on nuget.org, the next publish is `preview.4`, never a 
 
 ## Documentation
 
+- [Fingerprinting compatibility roadmap](docs/fingerprinting-compatibility-roadmap.md) —
+  completed Sannysoft/CreepJS compatibility scope, validation and deferred work, coordinated with Browser.
 - [docs/html-control.md](https://github.com/Broiler-Platform/Broiler.HtmlBridge/blob/main/docs/html-control.md) — the control surface: what WebView2 and
   MSHTML offer, what this component already does, and what is missing.
 - [docs/jseal.md](https://github.com/Broiler-Platform/Broiler.HtmlBridge/blob/main/docs/jseal.md) — engine neutrality, the contracts, the providers, the

@@ -38,8 +38,14 @@
     Object.defineProperty(UserActivation.prototype, Symbol.toStringTag, { value: 'UserActivation', configurable: true });
     Object.defineProperty(globalThis, 'UserActivation', { value: UserActivation, writable: true, enumerable: false, configurable: true });
 
-    Object.defineProperty(host.navigator, 'userActivation', {
-        get: Object.getOwnPropertyDescriptor({ get userActivation() { return activation; } }, 'userActivation').get,
+    var Nav = typeof Navigator !== 'undefined' ? Navigator : (typeof globalThis !== 'undefined' ? globalThis.Navigator : null);
+    var target = (Nav && Nav.prototype) || host.navigator;
+    Object.defineProperty(target, 'userActivation', {
+        get: Object.getOwnPropertyDescriptor({ get userActivation() {
+            if (this !== host.navigator)
+                throw new TypeError("Failed to read the 'userActivation' property from 'Navigator': Illegal invocation");
+            return activation;
+        } }, 'userActivation').get,
         enumerable: true,
         configurable: true
     });
