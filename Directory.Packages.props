@@ -4,14 +4,14 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Broiler component packages -->
-    <PackageVersion Include="Broiler.CSS.Dom" Version="0.1.0-preview.13" />
+    <PackageVersion Include="Broiler.CSS.Dom" Version="0.1.0-preview.16" />
     <PackageVersion Include="Broiler.Dom.Html" Version="0.1.0-preview.14" />
-    <PackageVersion Include="Broiler.JavaScript.Engine" Version="0.1.0-preview.6" />
-    <PackageVersion Include="Broiler.JavaScript.Modules" Version="0.1.0-preview.6" />
-    <PackageVersion Include="Broiler.JSeal" Version="0.1.0-preview.5" />
-    <PackageVersion Include="Broiler.JSeal.BroilerJs" Version="0.1.0-preview.5" />
-    <PackageVersion Include="Broiler.JSeal.Vm" Version="0.1.0-preview.5" />
-    <PackageVersion Include="Broiler.Layout" Version="0.1.0-preview.18" />
+    <PackageVersion Include="Broiler.JavaScript.Engine" Version="0.1.0-preview.7" />
+    <PackageVersion Include="Broiler.JavaScript.Modules" Version="0.1.0-preview.7" />
+    <PackageVersion Include="Broiler.JSeal" Version="0.1.0-preview.6" />
+    <PackageVersion Include="Broiler.JSeal.BroilerJs" Version="0.1.0-preview.6" />
+    <PackageVersion Include="Broiler.JSeal.Vm" Version="0.1.0-preview.6" />
+    <PackageVersion Include="Broiler.Layout" Version="0.1.0-preview.21" />
     <PackageVersion Include="Broiler.Net" Version="0.1.0-preview.2" />
     <!-- Test dependencies -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
