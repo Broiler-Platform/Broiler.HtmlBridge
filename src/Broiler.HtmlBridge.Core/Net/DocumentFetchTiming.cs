@@ -114,6 +114,13 @@ public sealed class DocumentFetchTiming
     /// <summary>The last byte of the response body has arrived.</summary>
     public void MarkResponseEnd() => _responseEnd ??= Now();
 
+    /// <summary>The negotiated protocol of the final response, or empty when no network hop was observed.</summary>
+    public string NextHopProtocol { get; private set; } = string.Empty;
+
+    /// <summary>Records the actual final response version, including HTTP/1.1 fallback.</summary>
+    public void RecordResponseVersion(Version? version) =>
+        NextHopProtocol = version is null ? string.Empty : ResourceTimingRequest.ProtocolOf(version);
+
     /// <summary>
     /// Records Resource Timing's body-size trio (§4.1). <paramref name="transferSize"/> is the
     /// payload plus the response header fields as they crossed the wire; it is <c>0</c> for a

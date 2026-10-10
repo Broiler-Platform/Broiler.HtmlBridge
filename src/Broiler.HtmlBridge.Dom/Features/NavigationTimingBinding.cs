@@ -76,8 +76,8 @@ internal static class NavigationTimingBinding
     /// network hop to name — which is what the specification asks for on a <c>file:</c> or
     /// <c>about:</c> document, and on HTML the bridge was handed directly as a string.
     /// </summary>
-    private static string NextHopProtocol(string pageProtocol) =>
-        pageProtocol is "http:" or "https:" ? global::Broiler.Net.Http.BroilerHttpProtocol.NextHopProtocol : string.Empty;
+    private static string NextHopProtocol(string pageProtocol, DocumentFetchTiming? fetchTiming) =>
+        pageProtocol is "http:" or "https:" ? fetchTiming?.NextHopProtocol ?? string.Empty : string.Empty;
 
     private static JsValue BuildNavigationEntry(
         IJsRealm realm,
@@ -105,10 +105,10 @@ internal static class NavigationTimingBinding
         AddTimingAccessor(realm, entry, "duration", () => timing.LoadEventEnd);
 
         // PerformanceResourceTiming (Resource Timing §4.1), of which a navigation entry is a
-        // subtype. `initiatorType` is fixed at "navigation" for one, and the protocol is the engine's
-        // own — see BroilerHttpProtocol, which pins the request version this names.
+        // subtype. The protocol comes from the final response, including fallback, rather than
+        // the preferred request version. An unobserved fetch has no protocol to report.
         realm.DefineValue(entry, "initiatorType", JsValue.String("navigation"));
-        realm.DefineValue(entry, "nextHopProtocol", JsValue.String(NextHopProtocol(pageProtocol)));
+        realm.DefineValue(entry, "nextHopProtocol", JsValue.String(NextHopProtocol(pageProtocol, fetchTiming)));
 
         // PerformanceNavigationTiming (Navigation Timing §4). "navigate" is the plain case — the
         // alternatives ("reload", "back_forward", "prerender") describe entries into a session
