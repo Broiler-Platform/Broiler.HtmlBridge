@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -61,6 +61,9 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
     /// body's <c>bodyUsed</c> is set from.</summary>
     private JsValue _streamOverObservedBytes;
 
+    private JsValue _streamOverNetwork;
+    private JsValue _readStreamToBytes;
+
     /// <summary>Answers a stream's <c>locked</c> — a prototype accessor, so it is read in JavaScript
     /// where the receiver is unambiguous rather than through host indexing.</summary>
     private JsValue _streamIsLocked;
@@ -83,10 +86,14 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
 
         _streamOverBytes = realm.GetProperty(realm.Global, "__broilerStreamOverBytes");
         _streamOverObservedBytes = realm.GetProperty(realm.Global, "__broilerStreamOverObservedBytes");
+        _streamOverNetwork = realm.GetProperty(realm.Global, "__broilerStreamOverNetwork");
+        _readStreamToBytes = realm.GetProperty(realm.Global, "__broilerReadStreamToBytes");
         _streamIsLocked = realm.GetProperty(realm.Global, "__broilerStreamIsLocked");
         realm.EvaluateHostScript(
             "delete globalThis.__broilerStreamOverBytes;" +
             "delete globalThis.__broilerStreamOverObservedBytes;" +
+            "delete globalThis.__broilerStreamOverNetwork;" +
+            "delete globalThis.__broilerReadStreamToBytes;" +
             "delete globalThis.__broilerStreamIsLocked;",
             "polyfill:streams-cleanup");
 
@@ -174,6 +181,98 @@ internal sealed class StreamsBinding(Func<IJsRealm> realm)
             _streamOverObservedBytes,
             JsValue.Undefined,
             [realm.NewArrayBuffer(bytes), report]);
+    }
+
+    /// <summary>
+    /// A <c>ReadableStream</c> that pulls chunks asynchronously from the network response stream
+    /// and reports the first read or cancellation.
+    /// </summary>
+    internal JsValue StreamOverNetwork(Func<CancellationToken, Task<byte[]?>> readChunk, Action cancel, Action onDisturbed, Dom.Runtime.BrowserEventLoop eventLoop, Action<Action> inDocument)
+    {
+        if (!_streamOverNetwork.IsObject)
+            return JsValue.Null;
+
+        var realm = _realm();
+        var reported = false;
+        void MarkDisturbed()
+        {
+            if (!reported)
+            {
+                reported = true;
+                onDisturbed();
+            }
+        }
+
+        var pullMethod = realm.NewMethod("pullChunk", (in JsCall call) =>
+        {
+            MarkDisturbed();
+            var controller = call[0];
+            var promise = realm.NewPromise(out var resolve, out var reject);
+            eventLoop.StartAsync(async token =>
+            {
+                return await readChunk(token).ConfigureAwait(false);
+            }, (chunk, error) => inDocument(() =>
+            {
+                if (error != null)
+                {
+                    var err = realm.NewObject();
+                    realm.SetProperty(err, "name", JsValue.String("TypeError"));
+                    realm.SetProperty(err, "message", JsValue.String(error.Message));
+                    var errorFn = realm.GetProperty(controller, "error");
+                    if (errorFn.IsFunction)
+                        realm.Invoke(errorFn, controller, [err]);
+                    reject(err);
+                    return;
+                }
+
+                if (chunk == null)
+                {
+                    var closeFn = realm.GetProperty(controller, "close");
+                    if (closeFn.IsFunction)
+                        realm.Invoke(closeFn, controller);
+                    resolve(JsValue.Undefined);
+                    return;
+                }
+
+                var arrayBuffer = realm.NewArrayBuffer(chunk);
+                var uint8ArrayCtor = realm.GetProperty(realm.Global, "Uint8Array");
+                var chunkValue = uint8ArrayCtor.IsFunction
+                    ? realm.Construct(uint8ArrayCtor, [arrayBuffer])
+                    : arrayBuffer;
+                var enqueueFn = realm.GetProperty(controller, "enqueue");
+                if (enqueueFn.IsFunction)
+                    realm.Invoke(enqueueFn, controller, [chunkValue]);
+                resolve(JsValue.Undefined);
+            }));
+
+            return promise;
+        }, 1);
+
+        var cancelMethod = realm.NewMethod("cancelStream", (in JsCall _) =>
+        {
+            MarkDisturbed();
+            cancel();
+            return JsValue.Undefined;
+        }, 0);
+
+        var disturbedMethod = realm.NewMethod("disturbed", (in _) =>
+        {
+            MarkDisturbed();
+            return JsValue.Undefined;
+        }, 0);
+
+        return realm.Invoke(_streamOverNetwork, JsValue.Undefined, [pullMethod, cancelMethod, disturbedMethod]);
+    }
+
+    /// <summary>
+    /// Reads all chunks from <paramref name="stream"/> to completion and returns a promise for a <c>Uint8Array</c>.
+    /// </summary>
+    internal JsValue ReadStreamToBytes(JsValue stream)
+    {
+        if (!_readStreamToBytes.IsObject || !stream.IsObject)
+            return JsValue.Null;
+
+        return _realm().Invoke(_readStreamToBytes, JsValue.Undefined, [stream]);
     }
 
     /// <summary>Whether a reader holds <paramref name="stream"/>. <see langword="false"/> for

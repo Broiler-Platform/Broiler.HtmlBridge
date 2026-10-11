@@ -31,10 +31,11 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// <see cref="IJsValues.NewMethod"/> would be a behaviour change, not a tidy-up.
 /// </para>
 /// </remarks>
-internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resources)
+internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resources, BrowserEventLoop eventLoop)
 {
     private readonly IFetchHost _host = host;
     private readonly ResourceLoader _resources = resources;
+    private readonly BrowserEventLoop _eventLoop = eventLoop;
 
     /// <summary>
     /// The realm's own <c>JSON.parse</c> and <c>JSON.stringify</c>, read once when the surface is
@@ -109,7 +110,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         realm.SetProperty(realm.Global, "Request", requestCtor);
         realm.SetProperty(realm.Global, "Response", responseCtor);
         // fetch(url, options) — polyfill backed by the injected ResourceLoader
-        JsValue NativeFetch(string initiatorType) => realm.NewMethod(
+        JsValue NativeFetch(string initiatorType, bool synchronous = false) => realm.NewMethod(
             "fetch",
             (in call) => JsRegistrationFetch120Core(
                 (obj, names) => TryGetJsPropertyString(realm, obj, names),
@@ -117,6 +118,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
                 signal => CreateAbortErrorValue(realm, signal),
                 createResponse,
                 initiatorType,
+                synchronous,
                 in call),
             1);
         var fetchFn = NativeFetch("fetch");
@@ -124,7 +126,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         // XMLHttpRequest — basic polyfill over a fetch function of its own, captured here so a page that
         // replaces window.fetch cannot see or redirect what XHR sends, and whose sends Resource Timing
         // records as XMLHttpRequest's.
-        RegisterXMLHttpRequest(realm, window, NativeFetch("xmlhttprequest"), realm.NewMethod("decodeText", DecodeXhrText, 2));
+        RegisterXMLHttpRequest(realm, window, NativeFetch("xmlhttprequest"), NativeFetch("xmlhttprequest", synchronous: true), realm.NewMethod("decodeText", DecodeXhrText, 2));
         return fetchFn;
     }
 
@@ -205,7 +207,7 @@ internal sealed partial class FetchBinding(IFetchHost host, ResourceLoader resou
         if (signalValue.IsObject)
         {
             var reason = realm.GetProperty(signalValue, "reason");
-            if (!reason.IsNullish)
+            if (!reason.IsMissing && !reason.IsUndefined)
                 return reason;
         }
 

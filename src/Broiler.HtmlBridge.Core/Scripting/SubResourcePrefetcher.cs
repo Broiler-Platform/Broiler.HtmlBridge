@@ -44,18 +44,54 @@ namespace Broiler.HtmlBridge;
 /// once per document.
 /// </para>
 /// </remarks>
-public sealed class SubResourcePrefetcher
+public sealed class SubResourcePrefetcher : IDisposable
 {
     /// <summary>
-    /// Concurrent requests allowed per host. Six is the browser convention for HTTP/1.1; more than
-    /// this is rude to the origin and, past the connection limit, buys nothing.
+    /// Legacy per-host concurrency cap for HTTP/1.1 connections. Six is the browser convention
+    /// for HTTP/1.1; more than this is rude to the origin and, past the connection limit, buys nothing.
     /// </summary>
-    public const int DefaultMaxConcurrentRequestsPerHost = 6;
+    public const int DefaultHttp1MaxConcurrentRequestsPerHost = 6;
+
+    /// <summary>
+    /// Concurrent requests allowed per host for multiplexed HTTP/2 or profile-managed transports.
+    /// Accommodates parallel streams without occupying unbounded resources or thread workers.
+    /// </summary>
+    public const int DefaultMaxConcurrentRequestsPerHost = 16;
 
     private readonly ConcurrentDictionary<string, Lazy<Task<string?>>> _entries = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _hostGates = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Func<string, string?> _fetch;
+    private readonly Func<string, CancellationToken, Task<string?>> _fetchAsync;
     private readonly int _maxConcurrentRequestsPerHost;
+    private readonly CancellationTokenSource _cts = new();
+    private readonly CancellationToken _externalToken;
+    private int _disposed;
+
+    /// <param name="fetchAsync">The asynchronous fetch function this prefetcher parallelizes.</param>
+    /// <param name="maxConcurrentRequestsPerHost">Per-host concurrency cap.</param>
+    /// <param name="cancellationToken">Cancellation token tied to document/session lifetime.</param>
+    public SubResourcePrefetcher(
+        Func<string, CancellationToken, Task<string?>> fetchAsync,
+        int maxConcurrentRequestsPerHost = DefaultMaxConcurrentRequestsPerHost,
+        CancellationToken cancellationToken = default)
+    {
+        _fetchAsync = fetchAsync ?? throw new ArgumentNullException(nameof(fetchAsync));
+        _maxConcurrentRequestsPerHost = Math.Max(1, maxConcurrentRequestsPerHost);
+        _externalToken = cancellationToken;
+    }
+
+    /// <summary>The per-host concurrency cap configured for this prefetcher.</summary>
+    public int MaxConcurrentRequestsPerHost => _maxConcurrentRequestsPerHost;
+
+    /// <param name="fetchAsync">The task-based asynchronous fetch function this prefetcher parallelizes.</param>
+    /// <param name="maxConcurrentRequestsPerHost">Per-host concurrency cap.</param>
+    /// <param name="cancellationToken">Cancellation token tied to document/session lifetime.</param>
+    public SubResourcePrefetcher(
+        Func<string, Task<string?>> fetchAsync,
+        int maxConcurrentRequestsPerHost = DefaultMaxConcurrentRequestsPerHost,
+        CancellationToken cancellationToken = default)
+        : this(fetchAsync is null ? null! : (url, _) => fetchAsync(url), maxConcurrentRequestsPerHost, cancellationToken)
+    {
+    }
 
     /// <param name="fetch">
     /// The blocking fetch this prefetcher parallelizes — the very function the consuming call site
@@ -64,12 +100,24 @@ public sealed class SubResourcePrefetcher
     /// (CSP checks, WPT host mapping, file:// handling) — that all stays in the caller.
     /// </param>
     /// <param name="maxConcurrentRequestsPerHost">Per-host concurrency cap.</param>
+    /// <param name="cancellationToken">Cancellation token tied to document/session lifetime.</param>
     public SubResourcePrefetcher(
         Func<string, string?> fetch,
-        int maxConcurrentRequestsPerHost = DefaultMaxConcurrentRequestsPerHost)
+        int maxConcurrentRequestsPerHost = DefaultMaxConcurrentRequestsPerHost,
+        CancellationToken cancellationToken = default)
     {
-        _fetch = fetch ?? throw new ArgumentNullException(nameof(fetch));
+        ArgumentNullException.ThrowIfNull(fetch);
+        _fetchAsync = (url, token) =>
+        {
+            token.ThrowIfCancellationRequested();
+            return Task.Run(() =>
+            {
+                token.ThrowIfCancellationRequested();
+                return fetch(url);
+            }, token);
+        };
         _maxConcurrentRequestsPerHost = Math.Max(1, maxConcurrentRequestsPerHost);
+        _externalToken = cancellationToken;
     }
 
     /// <summary>Number of URLs this prefetcher has issued a request for. For tests and diagnostics.</summary>
@@ -81,9 +129,16 @@ public sealed class SubResourcePrefetcher
     /// places — collapse onto one request, which is what makes prefetching safe to call
     /// generously.
     /// </summary>
-    public void Prefetch(IEnumerable<string> urls)
+    public void Prefetch(IEnumerable<string> urls) => Prefetch(urls, CancellationToken.None);
+
+    /// <summary>
+    /// Starts a fetch for each URL with the provided cancellation token.
+    /// </summary>
+    public void Prefetch(IEnumerable<string> urls, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(urls);
+        if (_disposed != 0)
+            return;
 
         foreach (var url in urls)
         {
@@ -91,13 +146,28 @@ public sealed class SubResourcePrefetcher
             // fetch to be forced by its own Consume — i.e. exactly the serial behaviour this
             // replaces, with extra machinery.
             if (!string.IsNullOrWhiteSpace(url))
-                _ = EntryFor(url).Value;
+                _ = EntryFor(url, cancellationToken).Value;
         }
     }
 
     /// <summary>
+    /// Asynchronously returns the content for <paramref name="url"/>.
+    /// </summary>
+    public async Task<string?> ConsumeAsync(string url, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return null;
+
+        var task = EntryFor(url, cancellationToken).Value;
+        if (cancellationToken.CanBeCanceled)
+            return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        return await task.ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Returns the content for <paramref name="url"/>, blocking until it arrives. A prefetched URL
-    /// has been in flight since <see cref="Prefetch"/>; one that was never prefetched is fetched
+    /// has been in flight since <see cref="Prefetch(IEnumerable{string})"/>; one that was never prefetched is fetched
     /// now, so a call site behaves identically whether or not a prefetch ran — which is what keeps
     /// this safe to adopt one call site at a time.
     /// </summary>
@@ -107,51 +177,66 @@ public sealed class SubResourcePrefetcher
             return null;
 
         // Not ConfigureAwait-able through a Lazy; GetAwaiter().GetResult() on a task that was
-        // started with Task.Run never has a captured context to deadlock against. The wait for the
-        // network is not the running task's time.
+        // started with Task.Run or async I/O never has a captured context to deadlock against.
+        // The wait for the network is not the running task's time.
         using var waiting = TaskClock.Waiting();
-        return EntryFor(url).Value.GetAwaiter().GetResult();
+        return EntryFor(url, CancellationToken.None).Value.GetAwaiter().GetResult();
     }
 
     /// <summary>True when a request for <paramref name="url"/> has already been issued.</summary>
     public bool IsPending(string url) => _entries.ContainsKey(url);
 
-    private Lazy<Task<string?>> EntryFor(string url) =>
+    private Lazy<Task<string?>> EntryFor(string url, CancellationToken cancellationToken) =>
         // LazyThreadSafetyMode.ExecutionAndPublication: GetOrAdd may run the factory more than
         // once under contention, and each extra run would be an extra HTTP request. The Lazy makes
         // the losing factory's value cheap to discard — only the published one ever starts a task.
         _entries.GetOrAdd(
             url,
             static (key, state) => new Lazy<Task<string?>>(
-                () => state.StartFetch(key),
+                () => state.self.StartFetch(key, state.cancellationToken),
                 LazyThreadSafetyMode.ExecutionAndPublication),
-            this);
+            (self: this, cancellationToken));
 
-    private Task<string?> StartFetch(string url)
+    private async Task<string?> StartFetch(string url, CancellationToken cancellationToken)
     {
         var gate = _hostGates.GetOrAdd(
             HostOf(url),
             static (_, maxPerHost) => new SemaphoreSlim(maxPerHost, maxPerHost),
             _maxConcurrentRequestsPerHost);
 
-        return Task.Run(() =>
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            _cts.Token, _externalToken, cancellationToken);
+        var token = linked.Token;
+
+        try
         {
-            gate.Wait();
-            try
-            {
-                return _fetch(url);
-            }
-            catch
-            {
-                // A failed sub-resource is not a failed page: the consumer sees null and applies
-                // whatever it already did for a fetch that came back empty.
-                return (string?)null;
-            }
-            finally
-            {
-                gate.Release();
-            }
-        });
+            await gate.WaitAsync(token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+
+        try
+        {
+            token.ThrowIfCancellationRequested();
+            return await _fetchAsync(url, token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch
+        {
+            // A failed sub-resource is not a failed page: the consumer sees null and applies
+            // whatever it already did for a fetch that came back empty.
+            return null;
+        }
+        finally
+        {
+            try { gate.Release(); }
+            catch (ObjectDisposedException) { }
+        }
     }
 
     /// <summary>
@@ -163,4 +248,23 @@ public sealed class SubResourcePrefetcher
         Uri.TryCreate(url, UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Host)
             ? uri.Host
             : string.Empty;
+
+    /// <summary>
+    /// Cancels all pending and in-flight prefetch requests and releases gate resources.
+    /// </summary>
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
+        try { _cts.Cancel(); }
+        catch (ObjectDisposedException) { }
+        _cts.Dispose();
+
+        foreach (var gate in _hostGates.Values)
+        {
+            try { gate.Dispose(); }
+            catch (ObjectDisposedException) { }
+        }
+    }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Broiler.Dom;
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Dom;
@@ -572,20 +573,25 @@ public sealed partial class DomBridge : IWorkerHost
     WorkerScript? IWorkerHost.FetchWorkerScript(
         Uri url, Broiler.Net.Http.DocumentRequestContext client, bool imported, CancellationToken cancellationToken, out string? failure)
     {
-        failure = null;
+        var (script, error) = ((IWorkerHost)this).FetchWorkerScriptAsync(url, client, imported, cancellationToken).GetAwaiter().GetResult();
+        failure = error;
+        return script;
+    }
+
+    async Task<(WorkerScript? Script, string? Failure)> IWorkerHost.FetchWorkerScriptAsync(
+        Uri url, Broiler.Net.Http.DocumentRequestContext client, bool imported, CancellationToken cancellationToken)
+    {
         if (string.Equals(url.Scheme, "data", StringComparison.OrdinalIgnoreCase))
         {
             if (Broiler.Net.Http.DataUrl.TryParse(url.OriginalString, out var data) && data is not null)
-                return new WorkerScript(data.DecodeUtf8(), null, url);
+                return (new WorkerScript(data.DecodeUtf8(), null, url), null);
 
-            failure = "it is not a well-formed data: URL";
-            return null;
+            return (null, "it is not a well-formed data: URL");
         }
 
         if (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps)
         {
-            failure = $"a worker cannot load {url.Scheme}: scripts";
-            return null;
+            return (null, $"a worker cannot load {url.Scheme}: scripts");
         }
 
         var context = new Broiler.Net.Http.RequestContext
@@ -603,38 +609,33 @@ public sealed partial class DomBridge : IWorkerHost
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            using var response = _resources.SendAsync(request, context, timing, cancellationToken).GetAwaiter().GetResult();
+            using var response = await _resources.SendAsync(request, context, timing, cancellationToken, blocksCaller: false).ConfigureAwait(false);
             if (response.StatusCode is < 200 or > 299)
             {
-                failure = $"the server answered {response.StatusCode}";
-                return null;
+                return (null, $"the server answered {response.StatusCode}");
             }
 
             if (!imported && !Broiler.Net.Sites.Origin.FromUrl(response.FinalUrl).IsSameOrigin(client.Origin))
             {
-                failure = $"it was redirected to another origin ({response.FinalUrl.AbsoluteUri})";
-                return null;
+                return (null, $"it was redirected to another origin ({response.FinalUrl.AbsoluteUri})");
             }
 
             var contentType = response.Message.Content.Headers.ContentType?.MediaType;
             if (!ScriptMimeType.IsClassicScript(contentType))
             {
-                failure = $"its MIME type ('{contentType}') is not a JavaScript one";
-                return null;
+                return (null, $"its MIME type ('{contentType}') is not a JavaScript one");
             }
 
-            var source = response.Message.Content.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult();
-            return new WorkerScript(source, null, response.FinalUrl);
+            var source = await response.Message.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return (new WorkerScript(source, null, response.FinalUrl), null);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            failure = "the worker was terminated";
-            return null;
+            return (null, "the worker was terminated");
         }
         catch (Exception ex)
         {
-            failure = ex.Message;
-            return null;
+            return (null, ex.Message);
         }
     }
 }
@@ -660,10 +661,26 @@ public sealed partial class DomBridge : IFetchHost
 
     bool IFetchHost.IsStreamLocked(JsValue stream) => _streams.IsStreamLocked(stream);
 
+    JsValue IFetchHost.StreamOverNetwork(Func<CancellationToken, Task<byte[]?>> readChunk, Action cancel, Action onDisturbed, Dom.Runtime.BrowserEventLoop eventLoop, Action<Action> inDocument) =>
+        _streams.StreamOverNetwork(readChunk, cancel, onDisturbed, eventLoop, inDocument);
+
+    JsValue IFetchHost.ReadStreamToBytes(JsValue stream) => _streams.ReadStreamToBytes(stream);
+
     JsValue IFetchHost.CreateBlob(byte[] bytes, string contentType) =>
         _blobs.CreateBlobFromBytes(Realm, bytes, contentType);
 
     Broiler.Net.Http.DocumentRequestContext IFetchHost.FetchClient => CurrentScriptDocumentContext();
+
+    Action<Action> IFetchHost.CaptureFetchCompletion()
+    {
+        var window = _windowContext.ResolveCurrentWindow();
+        var isLive = _windowContext.LivenessOf(window);
+        return action =>
+        {
+            if (!_disposed && (isLive is null || isLive()))
+                _windowContext.RunWithWindowContext(window, action);
+        };
+    }
 
     IResourceTimingSink IFetchHost.ResourceTimings => ResourceTimingSink;
 

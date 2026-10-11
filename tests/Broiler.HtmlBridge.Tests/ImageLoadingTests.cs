@@ -356,7 +356,10 @@ public class ImageLoadingTests
             var done = 0;
             function check() {
                 done++;
-                if (done === 2) out.textContent = events.join('|');
+                if (done === 2) {
+                    events.sort();
+                    out.textContent = events.join('|');
+                }
             }
             document.body.appendChild(bad); document.body.appendChild(good);
             bad.src = '{{server.LocalhostUrl("/nonexistent.png")}}';

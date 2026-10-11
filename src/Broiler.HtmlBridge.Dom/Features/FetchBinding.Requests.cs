@@ -1,7 +1,7 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
-
 using Broiler.HtmlBridge.Core.Diagnostics;
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.JSeal;
 using Broiler.Net.Http;
@@ -286,9 +286,7 @@ internal sealed partial class FetchBinding
     }
 
     /// <summary>
-    /// Sends an author request for <paramref name="client"/> and answers the complete response, its
-    /// body already buffered. Blocking: a page's <c>fetch()</c> has always settled before it returned.
-    /// The fetch is recorded as <paramref name="timing"/> says, for the calling document's Resource Timing.
+    /// Blocking compatibility path used only by synchronous XMLHttpRequest.
     /// </summary>
     private TransportResponse SendAuthorRequest(HttpRequestMessage message, RequestContext context, ResourceTimingRequest timing) =>
         _resources.SendAsync(message, context, timing).GetAwaiter().GetResult();
@@ -312,16 +310,22 @@ internal sealed partial class FetchBinding
         private readonly Lock _gate = new();
         private ResourceTimingRecord? _record;
         private bool _released;
+        private bool _delivered;
 
         public void Record(ResourceTimingRecord record)
         {
             lock (_gate)
             {
+                if (_delivered)
+                    return;
+
                 if (!_released)
                 {
                     _record = record;
                     return;
                 }
+
+                _delivered = true;
             }
 
             sink.Record(record);
@@ -335,8 +339,15 @@ internal sealed partial class FetchBinding
                 if (_released)
                     return;
                 _released = true;
+                if (_delivered)
+                    return;
+
                 record = _record;
-                _record = null;
+                if (record is not null)
+                {
+                    _delivered = true;
+                    _record = null;
+                }
             }
 
             if (record is not null)
@@ -344,30 +355,30 @@ internal sealed partial class FetchBinding
         }
     }
 
-    /// <summary>
-    /// The <c>Response</c> a page receives for <paramref name="response"/>: Fetch's filtered response
-    /// for the transport's tainting, never the privileged header list or status.
-    /// </summary>
-    private static JsValue ExposeResponse(
-        TransportResponse response,
-        ResponseFactory createResponse,
-        ResourceTrace.Attempt attempt,
-        string method)
+    private sealed record ResponseHead(
+        int Status,
+        string StatusText,
+        string Url,
+        string Type,
+        bool Redirected,
+        Dictionary<string, string> Headers,
+        string? ContentType,
+        bool HasNoBody);
+
+    private sealed record FetchResultHead(ResourceFetchResult Result, ResponseHead Head) : IDisposable
+    {
+        public void Dispose() => Result.Dispose();
+    }
+
+    private static ResponseHead ExtractResponseHead(TransportResponse response, string method)
     {
         var opaque = response.Tainting is ResponseTainting.Opaque or ResponseTainting.OpaqueRedirect;
         var message = response.Message;
 
-        // The bytes as received: text() decodes them, arrayBuffer() and blob() hand them back as they are.
-        var body = opaque ? [] : message.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
-        attempt.Completed(opaque ? null : DecodeUtf8(body), response.StatusCode, message.Content.Headers.ContentType?.MediaType, method);
-
-        // Headers joins repeated fields with ", ", which is what Headers.get answers for them.
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (name, value) in response.GetScriptVisibleHeaders())
             headers[name] = headers.TryGetValue(name, out var existing) ? $"{existing}, {value}" : value;
 
-        // An opaque response has an empty URL list; an opaque-redirect keeps the URL that redirected.
-        // Either way the URL a page reads carries no fragment.
         var url = response.Tainting == ResponseTainting.Opaque ? string.Empty : WithoutFragment(response.FinalUrl);
         var redirected = response.Tainting != ResponseTainting.Opaque && response.Redirected;
         var type = response.Tainting switch
@@ -378,16 +389,44 @@ internal sealed partial class FetchBinding
             _ => "basic",
         };
 
-        return createResponse(
-            body,
+        headers.TryGetValue("Content-Type", out var contentType);
+
+        return new ResponseHead(
             response.ScriptVisibleStatusCode,
             opaque ? string.Empty : message.ReasonPhrase ?? string.Empty,
             url,
             type,
             redirected,
-            headers);
+            headers,
+            contentType,
+            HasNoBodyToRead(response, method));
 
         static string WithoutFragment(Uri url) =>
             url.Fragment.Length == 0 ? url.AbsoluteUri : url.GetLeftPart(UriPartial.Query);
+    }
+
+    /// <summary>
+    /// The <c>Response</c> a page receives for <paramref name="response"/>: Fetch's filtered response
+    /// for the transport's tainting, never the privileged header list or status.
+    /// </summary>
+    private sealed record ResponseData(byte[] Body, ResponseHead Head)
+    {
+        public bool HasNoBody => Head.HasNoBody;
+
+        public JsValue Expose(ResponseFactory factory) =>
+            factory(Body, Head.Status, Head.StatusText, Head.Url, Head.Type, Head.Redirected, Head.Headers);
+    }
+
+    private static async Task<ResponseData> ReadResponseAsync(
+        TransportResponse response,
+        ResourceTrace.Attempt attempt,
+        string method,
+        CancellationToken cancellationToken = default)
+    {
+        var head = ExtractResponseHead(response, method);
+        var opaque = response.Tainting is ResponseTainting.Opaque or ResponseTainting.OpaqueRedirect;
+        var body = opaque ? [] : await response.Message.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        attempt.Completed(opaque ? null : DecodeUtf8(body), response.StatusCode, response.Message.Content.Headers.ContentType?.MediaType, method);
+        return new ResponseData(body, head);
     }
 }

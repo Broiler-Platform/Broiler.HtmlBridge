@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.HtmlBridge.Internal.Scripting;
 using Broiler.JSeal;
@@ -437,7 +437,7 @@ internal sealed partial class FetchBinding
             url = TryGetJsPropertyString(realm, inputValue, "url", "href") ?? string.Empty;
             methodName = TryGetJsPropertyString(realm, inputValue, "method");
             // A Request's body is the one it was made with; its headers already carry its type.
-            body = RequestBodyOf(inputValue) is { } stored ? new BodyWithType(stored.Bytes, null) : null;
+            body = RequestBodyOf(inputValue) is { } stored ? new BodyWithType(stored.BufferedBytes ?? [], null) : null;
             var inputHeaders = realm.GetProperty(inputValue, "headers");
             headersObject = inputHeaders.IsObject
                 ? CreateHeadersObject(realm, inputHeaders)
@@ -514,7 +514,7 @@ internal sealed partial class FetchBinding
         realm.SetProperty(requestObject, "bodyUsed", JsValue.False);
         realm.SetProperty(requestObject, "body", bytes == null ? JsValue.Null : CreateReadableStreamBody(realm, requestObject, bytes));
         if (bytes != null)
-            _requestBodies.AddOrUpdate(IdentityOf(requestObject), new StoredBody(bytes, null));
+            _requestBodies.AddOrUpdate(IdentityOf(requestObject), new BufferedStoredBody(bytes, null));
         realm.SetProperty(requestObject, "signal", signalValue);
         realm.SetProperty(requestObject, "mode", JsValue.String(mode));
         realm.SetProperty(requestObject, "credentials", JsValue.String(credentials));
@@ -540,7 +540,138 @@ internal sealed partial class FetchBinding
         return requestObject;
     }
 
-    private JsValue CreateResponse(IJsRealm realm, byte[] body, int statusCode, string statusText, string responseUrl, string type, bool redirected, Dictionary<string, string> headers)
+    private JsValue CreateNetworkStreamBody(IJsRealm realm, JsValue owner, StreamingStoredBody body)
+    {
+        body.OnStreamDisturbed = () => MarkBodyDisturbed(realm, owner);
+        return _host.StreamOverNetwork(
+            readChunk: token => body.ReadChunkAsync(token),
+            cancel: () => body.Dispose(),
+            onDisturbed: () => body.OnStreamDisturbed?.Invoke(),
+            _eventLoop,
+            _host.CaptureFetchCompletion());
+    }
+
+    private void DefineStreamingBodyReader(IJsRealm realm, JsValue owner, string ownerName, string member, Func<byte[], JsValue> decode, StoredBody stored)
+    {
+        JsValue JsRegistrationBodyReader(in JsCall call)
+        {
+            if (IsBodyUnavailable(realm, owner))
+                throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute body reader on '{ownerName}': body is already used.");
+            MarkBodyDisturbed(realm, owner);
+
+            if (stored.IsBuffered && stored.BufferedBytes is { } ready)
+            {
+                return CreateThenable(realm, () => decode(ready));
+            }
+
+            var promise = realm.NewPromise(out var resolve, out var reject);
+            var inDocument = _host.CaptureFetchCompletion();
+            _eventLoop.StartAsync(async token =>
+            {
+                return await stored.ConsumeBytesAsync(token).ConfigureAwait(false);
+            }, (bytes, error) => inDocument(() =>
+            {
+                if (error != null)
+                {
+                    if (error is OperationCanceledException)
+                    {
+                        var abortErr = realm.NewObject();
+                        realm.SetProperty(abortErr, "name", JsValue.String("AbortError"));
+                        realm.SetProperty(abortErr, "message", JsValue.String("The operation was aborted."));
+                        reject(abortErr);
+                    }
+                    else
+                    {
+                        reject(ErrorValue(realm, error.Message));
+                    }
+                    return;
+                }
+                try
+                {
+                    resolve(decode(bytes!));
+                }
+                catch (JsEngineException ex) when (!ex.Thrown.IsMissing)
+                {
+                    reject(ex.Thrown);
+                }
+                catch (Exception ex)
+                {
+                    reject(ErrorValue(realm, ex.Message));
+                }
+            }));
+
+            return promise;
+        }
+
+        realm.DefineMethod(owner, member, 0, JsRegistrationBodyReader);
+    }
+
+    private void DefineStreamBodyReaders(IJsRealm realm, JsValue owner, string ownerName, JsValue stream, JsValue headersObject)
+    {
+        void DefineReader(string member, Func<byte[], JsValue> decode)
+        {
+            JsValue JsRegistrationBodyReader(in JsCall call)
+            {
+                if (IsBodyUnavailable(realm, owner))
+                    throw call.Realm.Error(JsErrorKind.Error, $"Failed to execute body reader on '{ownerName}': body is already used.");
+                MarkBodyDisturbed(realm, owner);
+
+                var bytesPromise = _host.ReadStreamToBytes(stream);
+                var promise = realm.NewPromise(out var resolve, out var reject);
+                var thenFn = realm.GetProperty(bytesPromise, "then");
+                if (thenFn.IsFunction)
+                {
+                    var onFulfilled = realm.NewMethod("onFulfilled", (in JsCall c) =>
+                    {
+                        var uint8Array = c[0];
+                        if (BufferSources.TryGetBytes(realm, uint8Array, _isArrayBufferView, out var bytes))
+                        {
+                            try { resolve(decode(bytes)); }
+                            catch (Exception ex) { reject(ErrorValue(realm, ex.Message)); }
+                        }
+                        else
+                        {
+                            resolve(decode([]));
+                        }
+                        return JsValue.Undefined;
+                    }, 1);
+                    var onRejected = realm.NewMethod("onRejected", (in JsCall c) =>
+                    {
+                        reject(c.Length > 0 ? c[0] : ErrorValue(realm, "Failed to read stream"));
+                        return JsValue.Undefined;
+                    }, 1);
+                    realm.Invoke(thenFn, bytesPromise, [onFulfilled, onRejected]);
+                }
+                else
+                {
+                    reject(ErrorValue(realm, "Stream reading not supported"));
+                }
+                return promise;
+            }
+
+            realm.DefineMethod(owner, member, 0, JsRegistrationBodyReader);
+        }
+
+        DefineReader("text", bytes => JsValue.String(DecodeUtf8(bytes)));
+        DefineReader("json", bytes => ParseResponseJsonText(realm, DecodeUtf8(bytes)));
+        DefineReader("arrayBuffer", bytes => realm.NewArrayBuffer(bytes));
+        DefineReader("blob", bytes => CreateBlobBody(realm, bytes, headersObject));
+        DefineReader("formData", bytes => CreateFormDataObject(realm, JsValue.String(DecodeUtf8(bytes))));
+    }
+
+    private JsValue CreateResponse(IJsRealm realm, byte[] body, int statusCode, string statusText, string responseUrl, string type, bool redirected, Dictionary<string, string> headers) =>
+        CreateResponse(realm, new BufferedStoredBody(body, headers.TryGetValue("Content-Type", out var ct) ? ct : null), statusCode, statusText, responseUrl, type, redirected, headers);
+
+    private JsValue CreateResponse(
+        IJsRealm realm,
+        StoredBody body,
+        int statusCode,
+        string statusText,
+        string responseUrl,
+        string type,
+        bool redirected,
+        Dictionary<string, string> headers,
+        JsValue? customBodyStream = null)
     {
         var responseHeaders = realm.NewObject();
         foreach (var header in headers)
@@ -556,26 +687,68 @@ internal sealed partial class FetchBinding
         realm.SetProperty(responseObject, "type", JsValue.String(type));
         realm.SetProperty(responseObject, "bodyUsed", JsValue.False);
         realm.SetProperty(responseObject, "headers", headersObject);
-        realm.SetProperty(responseObject, "body", CreateReadableStreamBody(realm, responseObject, body));
-        headers.TryGetValue("Content-Type", out var contentType);
-        _responseBodies.AddOrUpdate(IdentityOf(responseObject), new StoredBody(body, contentType));
-        // A Response always has a body, even when it is empty, and json() reports a parse failure as
-        // its own message — hence ParseResponseJsonText rather than Request's ParseJsonText.
-        DefineBodyReader(realm, responseObject, "Response", "text", () => JsValue.String(DecodeUtf8(body)));
-        DefineBodyReader(realm, responseObject, "Response", "json", () => ParseResponseJsonText(realm, DecodeUtf8(body)));
-        DefineBodyReader(realm, responseObject, "Response", "arrayBuffer", () => realm.NewArrayBuffer(body));
-        DefineBodyReader(realm, responseObject, "Response", "blob", () => CreateBlobBody(realm, body, headersObject));
-        DefineBodyReader(realm, responseObject, "Response", "formData", () => CreateFormDataObject(realm, JsValue.String(DecodeUtf8(body))));
-        JsValue JsRegistrationClone109(in JsCall call)
+
+        _responseBodies.AddOrUpdate(IdentityOf(responseObject), body);
+
+        if (customBodyStream is { } customStream)
+        {
+            realm.SetProperty(responseObject, "body", customStream);
+            DefineStreamBodyReaders(realm, responseObject, "Response", customStream, headersObject);
+        }
+        else if (body is StreamingStoredBody streamingBody)
+        {
+            realm.SetProperty(responseObject, "body", streamingBody.HasNoBody ? JsValue.Null : CreateNetworkStreamBody(realm, responseObject, streamingBody));
+            DefineStreamingBodyReader(realm, responseObject, "Response", "text", bytes => JsValue.String(DecodeUtf8(bytes)), body);
+            DefineStreamingBodyReader(realm, responseObject, "Response", "json", bytes => ParseResponseJsonText(realm, DecodeUtf8(bytes)), body);
+            DefineStreamingBodyReader(realm, responseObject, "Response", "arrayBuffer", bytes => realm.NewArrayBuffer(bytes), body);
+            DefineStreamingBodyReader(realm, responseObject, "Response", "blob", bytes => CreateBlobBody(realm, bytes, headersObject), body);
+            DefineStreamingBodyReader(realm, responseObject, "Response", "formData", bytes => CreateFormDataObject(realm, JsValue.String(DecodeUtf8(bytes))), body);
+        }
+        else
+        {
+            var bytes = body.BufferedBytes ?? [];
+            realm.SetProperty(responseObject, "body", CreateReadableStreamBody(realm, responseObject, bytes));
+            DefineStreamingBodyReader(realm, responseObject, "Response", "text", bytes => JsValue.String(DecodeUtf8(bytes)), body);
+            DefineStreamingBodyReader(realm, responseObject, "Response", "json", bytes => ParseResponseJsonText(realm, DecodeUtf8(bytes)), body);
+            DefineStreamingBodyReader(realm, responseObject, "Response", "arrayBuffer", bytes => realm.NewArrayBuffer(bytes), body);
+            DefineStreamingBodyReader(realm, responseObject, "Response", "blob", bytes => CreateBlobBody(realm, bytes, headersObject), body);
+            DefineStreamingBodyReader(realm, responseObject, "Response", "formData", bytes => CreateFormDataObject(realm, JsValue.String(DecodeUtf8(bytes))), body);
+        }
+
+        JsValue JsRegistrationClone(in JsCall call)
         {
             if (IsBodyUnavailable(realm, responseObject))
                 throw call.Realm.Error(JsErrorKind.Error, "Failed to execute 'clone' on 'Response': body is already used.");
-            var clone = CreateResponse(realm, body, statusCode, statusText, responseUrl, type, redirected, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase));
-            if (_bodyReadCallbacks.TryGetValue(IdentityOf(responseObject), out var onRead))
-                ReleaseOnBodyRead(clone, onRead);
-            return clone;
+
+            var stream = realm.GetProperty(responseObject, "body");
+            if (body is StreamingStoredBody streamingBody && stream.IsObject)
+            {
+                var teeFn = realm.GetProperty(stream, "tee");
+                if (teeFn.IsFunction)
+                {
+                    streamingBody.OnStreamDisturbed = null;
+                    JsValue cloneObj = default;
+                    var onDisturbed1 = realm.NewMethod("disturbed1", (in _) => { MarkBodyDisturbed(realm, responseObject); return JsValue.Undefined; }, 0);
+                    var onDisturbed2 = realm.NewMethod("disturbed2", (in _) => { MarkBodyDisturbed(realm, cloneObj); return JsValue.Undefined; }, 0);
+                    var teed = realm.Invoke(teeFn, stream, [onDisturbed1, onDisturbed2]);
+                    var stream1 = realm.GetIndex(teed, 0);
+                    var stream2 = realm.GetIndex(teed, 1);
+                    realm.SetProperty(responseObject, "body", stream1);
+                    DefineStreamBodyReaders(realm, responseObject, "Response", stream1, headersObject);
+
+                    cloneObj = CreateResponse(realm, body, statusCode, statusText, responseUrl, type, redirected, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase), customBodyStream: stream2);
+                    if (_bodyReadCallbacks.TryGetValue(IdentityOf(responseObject), out var onRead))
+                        ReleaseOnBodyRead(cloneObj, onRead);
+                    return cloneObj;
+                }
+            }
+
+            var bufferedClone = CreateResponse(realm, body, statusCode, statusText, responseUrl, type, redirected, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase));
+            if (_bodyReadCallbacks.TryGetValue(IdentityOf(responseObject), out var onReadCb))
+                ReleaseOnBodyRead(bufferedClone, onReadCb);
+            return bufferedClone;
         }
-        realm.DefineMethod(responseObject, "clone", 0, JsRegistrationClone109);
+        realm.DefineMethod(responseObject, "clone", 0, JsRegistrationClone);
 
         return responseObject;
     }

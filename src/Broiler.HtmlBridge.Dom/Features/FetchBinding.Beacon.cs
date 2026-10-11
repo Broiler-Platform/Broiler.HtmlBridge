@@ -29,8 +29,8 @@ namespace Broiler.HtmlBridge.Dom.Features;
 /// (<see cref="ExtractBody"/>).
 /// </para>
 /// <para>
-/// <b>Sent synchronously</b>, as it always has been here: the call returns once the request has
-/// been answered or has failed. <c>true</c> means it was sent — a network error after that is not the
+/// <b>Queued asynchronously.</b> The call returns without waiting for the response.
+/// <c>true</c> means it was queued — a network error after that is not the
 /// page's to observe, as the Beacon API specifies — and <c>false</c> that it could not be queued
 /// because the body could not be read.
 /// </para>
@@ -68,7 +68,9 @@ internal sealed partial class FetchBinding
             : RequestMode.Cors;
 
         var attempt = ResourceTrace.Begin(ResourceTraceKind.Fetch, url.AbsoluteUri);
-        try
+        var client = _host.FetchClient;
+        var timing = new DeferredResourceTiming(_host.ResourceTimings);
+        _eventLoop.StartAsync(async token =>
         {
             using var message = new HttpRequestMessage(HttpMethod.Post, url);
             if (body is not null)
@@ -78,17 +80,20 @@ internal sealed partial class FetchBinding
                     message.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
             }
 
-            var client = _host.FetchClient;
-            using var response = SendAuthorRequest(
+            using var response = await _resources.SendAsync(
                 message, RequestContext.Fetch(client, mode, CredentialsMode.Include),
-                new ResourceTimingRequest("beacon", client, _host.ResourceTimings));
+                new ResourceTimingRequest("beacon", client, timing), token, blocksCaller: false).ConfigureAwait(false);
             attempt.Completed(null, response.StatusCode, response.Message.Content.Headers.ContentType?.MediaType, "POST");
-        }
-        catch (Exception ex)
+            return true;
+        }, (_, error) =>
         {
-            RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.navigator.sendBeacon", $"sendBeacon request failed: {ex.Message}", ex);
-            attempt.Failed(ex);
-        }
+            if (error is null) timing.Release();
+            else
+            {
+                RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.navigator.sendBeacon", $"sendBeacon request failed: {error.Message}", error);
+                attempt.Failed(error);
+            }
+        });
 
         return JsValue.True;
     }

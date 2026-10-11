@@ -108,29 +108,56 @@ public sealed partial class DomBridge
 
         // Like inserted scripts, loading is a due-now host task. The load window sees the work,
         // listeners can be assigned after src, and no JavaScript runs on a worker thread.
-        _eventLoop.QueueTask(() =>
+        if (string.IsNullOrWhiteSpace(source))
         {
-            if (!IsCurrent()) return;
-            string eventType;
-            try
-            {
-                if (string.IsNullOrWhiteSpace(source)) throw new InvalidDataException("Empty image source.");
-                var resource = _resources.LoadImage(url, request, timing);
-                var bitmap = _decodeImage(resource.Bytes);
-                if (!IsCurrent()) { bitmap.Dispose(); return; }
-                state.Bitmap = bitmap;
-                state.OriginClean = resource.OriginClean;
-                eventType = "load";
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException && ex is not StackOverflowException)
+            _eventLoop.QueueTask(() =>
             {
                 if (!IsCurrent()) return;
                 state.Broken = true;
-                eventType = "error";
-            }
-            state.Complete = true;
-            NoteRenderStateChange();
-            // Materialize inline handlers before dispatch; all event forms use the normal target.
+                state.Complete = true;
+                NoteRenderStateChange();
+                DispatchEvent("error");
+            });
+        }
+        else
+        {
+            _eventLoop.StartAsync(
+                token => _resources.LoadImageAsync(url, request, timing, token),
+                (resource, ex) =>
+                {
+                    if (!IsCurrent()) return;
+                    string eventType;
+                    if (ex is null && resource.Bytes is not null)
+                    {
+                        try
+                        {
+                            var bitmap = _decodeImage(resource.Bytes);
+                            if (!IsCurrent()) { bitmap.Dispose(); return; }
+                            state.Bitmap = bitmap;
+                            state.OriginClean = resource.OriginClean;
+                            eventType = "load";
+                        }
+                        catch (Exception decodeEx) when (decodeEx is not OutOfMemoryException && decodeEx is not StackOverflowException)
+                        {
+                            if (!IsCurrent()) return;
+                            state.Broken = true;
+                            eventType = "error";
+                        }
+                    }
+                    else
+                    {
+                        state.Broken = true;
+                        eventType = "error";
+                    }
+
+                    state.Complete = true;
+                    NoteRenderStateChange();
+                    DispatchEvent(eventType);
+                });
+        }
+
+        void DispatchEvent(string eventType)
+        {
             RunWithWindowContext(ownerWindow, () =>
             {
                 WrapNode(element);
@@ -139,7 +166,7 @@ public sealed partial class DomBridge
                 Realm.DefineValue(evt, "bubbles", JsValue.False);
                 _eventDispatch.DispatchEventOnElement(element, evt);
             });
-        });
+        }
 
         bool IsCurrent() => !_disposed && _images.TryGetValue(element, out var current) &&
             ReferenceEquals(current, state) && generation == state.Generation &&

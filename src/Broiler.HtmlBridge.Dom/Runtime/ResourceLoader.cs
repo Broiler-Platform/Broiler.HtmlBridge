@@ -1,6 +1,8 @@
 using System.Net.Http;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using Broiler.HtmlBridge.Core.Diagnostics;
+using Broiler.HtmlBridge.Net;
 using Broiler.Net.Http;
 
 namespace Broiler.HtmlBridge.Dom.Runtime;
@@ -81,7 +83,7 @@ internal sealed class ResourceLoader : IDisposable
             return;
 
         var previous = Interlocked.Exchange(ref _lifetime, new CancellationTokenSource());
-        _prefetcher = null;
+        Interlocked.Exchange(ref _prefetcher, null)?.Dispose();
         Cancel(previous);
     }
 
@@ -91,7 +93,7 @@ internal sealed class ResourceLoader : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _prefetcher = null;
+        Interlocked.Exchange(ref _prefetcher, null)?.Dispose();
         Cancel(Volatile.Read(ref _lifetime));
     }
 
@@ -186,6 +188,63 @@ internal sealed class ResourceLoader : IDisposable
         }
     }
 
+    /// <summary>Loads image bytes asynchronously as the element's document, preserving response tainting for canvas.</summary>
+    internal async Task<(byte[] Bytes, bool OriginClean)> LoadImageAsync(
+        string url, RequestContext context, ResourceTimingRequest timing, CancellationToken cancellationToken = default)
+    {
+        const int maxBytes = 32 * 1024 * 1024;
+        var attempt = ResourceTrace.Begin(ResourceTraceKind.Image, url);
+        try
+        {
+            Lifetime.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                throw new InvalidDataException("Invalid image URL.");
+            if (uri.Scheme == "data")
+            {
+                if (url.Length > maxBytes * 3 || !DataUrl.TryParse(url, out var data) || data.Body.Length > maxBytes)
+                    throw new InvalidDataException("Invalid or oversized image data URL.");
+                attempt.Completed(null);
+                return (data.Body.ToArray(), true);
+            }
+            if (uri.IsFile)
+            {
+                if (!LocalFileAccess.AllowedFor(context.Client?.DocumentUrl))
+                    throw new InvalidDataException("A web document cannot load a local image.");
+                if (new FileInfo(uri.LocalPath).Length > maxBytes)
+                    throw new InvalidDataException("Image is too large.");
+                var bytes = await File.ReadAllBytesAsync(uri.LocalPath, cancellationToken).ConfigureAwait(false);
+                attempt.Completed(null);
+                return (bytes, false);
+            }
+            if (uri.Scheme is not ("http" or "https") || !MayFetchOverNetwork(url))
+                throw new InvalidDataException("Image URL is not permitted.");
+
+            using var fallback = _network is null ? new BrowserNetworkSession(new BrowserNetworkSessionOptions()) : null;
+            var network = _network ?? fallback!;
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(Lifetime, cancellationToken);
+            budget.CancelAfter(FetchTimeout);
+            using var message = new HttpRequestMessage(HttpMethod.Get, uri);
+            var redirectEnd = new StrongBox<long>();
+            context = ResourceTimingRequest.NotingRedirects(context, redirectEnd);
+            var start = ResourceTimingRequest.Now();
+            using var response = await network.SendAsync(message, context, budget.Token).ConfigureAwait(false);
+            var headers = ResourceTimingRequest.Now();
+            await response.Message.Content.LoadIntoBufferAsync(maxBytes, budget.Token).ConfigureAwait(false);
+            var body = await response.Message.Content.ReadAsByteArrayAsync(budget.Token).ConfigureAwait(false);
+            timing.Sink.Record(timing.Describe(uri, start, redirectEnd.Value, headers,
+                ResourceTimingRequest.Now(), response, body.LongLength));
+            response.Message.EnsureSuccessStatusCode();
+            attempt.Completed(null);
+            return (body, response.Tainting is ResponseTainting.Basic or ResponseTainting.Cors);
+        }
+        catch (Exception ex)
+        {
+            attempt.Failed(ex);
+            throw;
+        }
+    }
+
     /// <summary>
     /// Loads an absolute stylesheet <paramref name="url"/> as text, applying the file/http dispatch
     /// policy in one place: a <c>file://</c> URL is read from disk, <c>http(s)</c> is fetched through
@@ -213,6 +272,25 @@ internal sealed class ResourceLoader : IDisposable
         _prefetcher is { } prefetcher && prefetcher.TryConsume(url, request, out var prefetched)
             ? prefetched
             : LoadTextDirect(url, request, Lifetime);
+
+    /// <summary>
+    /// Asynchronously loads the text of an external stylesheet or text subresource, awaiting the
+    /// prefetcher if pending or loading directly.
+    /// </summary>
+    public async Task<string?> LoadTextAsync(string url, StyleSheetRequest request, CancellationToken cancellationToken = default)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(Lifetime, cancellationToken);
+        var token = linked.Token;
+
+        if (_prefetcher is { } prefetcher)
+        {
+            var (consumed, content) = await prefetcher.TryConsumeAsync(url, request, token).ConfigureAwait(false);
+            if (consumed)
+                return content;
+        }
+
+        return await LoadTextDirectAsync(url, request, token).ConfigureAwait(false);
+    }
 
     private string? LoadTextDirect(string url, StyleSheetRequest request, CancellationToken lifetime)
     {
@@ -285,6 +363,70 @@ internal sealed class ResourceLoader : IDisposable
         }
     }
 
+    private async Task<string?> LoadTextDirectAsync(string url, StyleSheetRequest request, CancellationToken lifetime)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return null;
+
+        var attempt = ResourceTrace.Begin(ResourceTraceKind.Stylesheet, url);
+        try
+        {
+            if (uri.Scheme.Equals("file", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!LocalFileAccess.AllowedFor(request.Context.Client?.DocumentUrl))
+                {
+                    attempt.Completed(null);
+                    return null;
+                }
+
+                var path = uri.LocalPath;
+                var fileContent = File.Exists(path) ? await File.ReadAllTextAsync(path, lifetime).ConfigureAwait(false) : null;
+                attempt.Completed(fileContent);
+                return fileContent;
+            }
+
+            if (uri.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase) ||
+                uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!MayFetchOverNetwork(url))
+                {
+                    attempt.Completed(null);
+                    return null;
+                }
+
+                var quirksMode = request.QuirksMode;
+                string content;
+                if (_network is { } network)
+                {
+                    var tainting = ResponseTainting.Opaque;
+                    content = await BridgeTransport.GetTextAsync(
+                        network, uri, request.Context, FetchTimeout, lifetime,
+                        response =>
+                        {
+                            tainting = response.Tainting;
+                            return BridgeTransport.IsAcceptableStyleSheet(response, quirksMode);
+                        },
+                        request.Timing).ConfigureAwait(false);
+                    _styleSheetTainting[url] = tainting;
+                }
+                else
+                {
+                    content = await SharedClient.GetStringAsync(url, lifetime).ConfigureAwait(false);
+                }
+
+                attempt.Completed(content);
+                return content;
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            attempt.Failed(ex);
+            throw;
+        }
+    }
+
     /// <summary>
     /// Whether the stylesheet last loaded from <paramref name="url"/> through the transport came back
     /// CORS-same-origin -- basic or CORS tainting -- which is CSSOM's origin-clean flag. Null when the
@@ -329,9 +471,14 @@ internal sealed class ResourceLoader : IDisposable
         // A URL the host will not let the consume path fetch must not be speculated on either: the
         // prefetch is the same request, issued earlier and on a worker, so leaving it unfiltered
         // would keep the whole cost the policy exists to remove — and pay it before the parse.
-        Prefetcher().Prefetch(requests.Where(request =>
-            Uri.TryCreate(request.Url, UriKind.Absolute, out _) && MayFetchOverNetwork(request.Url)));
+        Prefetcher().Prefetch(
+            requests.Where(request =>
+                Uri.TryCreate(request.Url, UriKind.Absolute, out _) && MayFetchOverNetwork(request.Url)),
+            Lifetime);
     }
+
+    /// <summary>The navigation timing of the document, including the negotiated protocol.</summary>
+    internal DocumentFetchTiming? DocumentFetchTiming { get; set; }
 
     /// <summary>
     /// The document's prefetcher, created on first use.
@@ -356,13 +503,23 @@ internal sealed class ResourceLoader : IDisposable
             return existing;
 
         var lifetime = Lifetime;
+        var maxConcurrency = string.Equals(DocumentFetchTiming?.NextHopProtocol, "http/1.1", StringComparison.OrdinalIgnoreCase)
+            ? SubResourcePrefetcher.DefaultHttp1MaxConcurrentRequestsPerHost
+            : SubResourcePrefetcher.DefaultMaxConcurrentRequestsPerHost;
+
         return Interlocked.CompareExchange(
                    ref _prefetcher,
                    new RequestPrefetcher<StyleSheetRequest>(
-                       (url, request) => LoadTextDirect(url, request, lifetime), StyleSheetRequest.SameShape),
+                       (url, request, token) => LoadTextDirectAsync(url, request, token),
+                       StyleSheetRequest.SameShape,
+                       maxConcurrentRequestsPerHost: maxConcurrency,
+                       cancellationToken: lifetime),
                    null) ??
                _prefetcher!;
     }
+
+    /// <summary>The concurrency cap applied by the current document prefetcher.</summary>
+    internal int PrefetcherConcurrencyCap => Prefetcher().MaxConcurrentRequestsPerHost;
 
     /// <summary>
     /// Requests in flight for this document, created on the first <see cref="Prefetch"/>. Null
@@ -429,8 +586,8 @@ internal sealed class ResourceLoader : IDisposable
     /// As <see cref="SendAsync(HttpRequestMessage, RequestContext, CancellationToken)"/>, the fetch timed
     /// and its record handed to <paramref name="timing"/>'s sink once the body has arrived.
     /// </summary>
-    public Task<TransportResponse> SendAsync(HttpRequestMessage request, RequestContext context, ResourceTimingRequest? timing, CancellationToken cancellationToken = default) =>
-        SendCoreAsync(request, context, timing, cancellationToken);
+    public Task<TransportResponse> SendAsync(HttpRequestMessage request, RequestContext context, ResourceTimingRequest? timing, CancellationToken cancellationToken = default, bool blocksCaller = true) =>
+        SendCoreAsync(request, context, timing, cancellationToken, blocksCaller);
 
     /// <summary>
     /// GETs <paramref name="url"/> as a nested navigation (an iframe/frame/object sub-document) and
@@ -439,16 +596,97 @@ internal sealed class ResourceLoader : IDisposable
     /// </summary>
     public async Task<TransportResponse> GetAsync(string url, RequestContext context, ResourceTimingRequest? timing = null, CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url)
+        {
+            Version = BroilerHttpProtocol.Version,
+            VersionPolicy = BroilerHttpProtocol.VersionPolicy,
+        };
         return await SendCoreAsync(request, context, timing, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<TransportResponse> SendCoreAsync(HttpRequestMessage request, RequestContext context, ResourceTimingRequest? timing, CancellationToken cancellationToken)
+    /// <summary>
+    /// Sends a request and returns as soon as response headers arrive, without buffering the body.
+    /// The returned <see cref="ResourceFetchResult"/> owns the transport response, body cancellation,
+    /// and timing completion until disposed.
+    /// </summary>
+    public async Task<ResourceFetchResult> SendHeadersAsync(
+        HttpRequestMessage request,
+        RequestContext context,
+        ResourceTimingRequest? timing,
+        CancellationToken cancellationToken = default,
+        bool blocksCaller = false)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
-        // Taken on the caller's thread, before the first await: the task it is running waits.
-        using var waiting = TaskClock.Waiting();
+        using var waiting = blocksCaller ? TaskClock.Waiting() : default;
+        var bodyLifetime = CancellationTokenSource.CreateLinkedTokenSource(Lifetime);
+        using var headerBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, bodyLifetime.Token);
+        headerBudget.CancelAfter(FetchTimeout);
+
+        if (_network is { } network)
+        {
+            var timedUrl = request.RequestUri;
+            var redirectEnd = new StrongBox<long>();
+            if (timing is not null)
+                context = ResourceTimingRequest.NotingRedirects(context, redirectEnd);
+            var fetchStart = ResourceTimingRequest.Now();
+            TransportResponse response;
+            try
+            {
+                response = await network.SendAsync(request, context, headerBudget.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                bodyLifetime.Dispose();
+                throw;
+            }
+
+            var responseStart = ResourceTimingRequest.Now();
+            Action<long>? recordTiming = null;
+            if (timing is not null && timedUrl is not null)
+            {
+                var initialDecoded = response.Message.Content.Headers.ContentLength ?? 0;
+                timing.Sink.Record(timing.Describe(
+                    timedUrl, fetchStart, redirectEnd.Value, responseStart, ResourceTimingRequest.Now(), response, initialDecoded));
+
+                recordTiming = decoded =>
+                {
+                    var responseEnd = ResourceTimingRequest.Now();
+                    timing.Sink.Record(timing.Describe(
+                        timedUrl, fetchStart, redirectEnd.Value, responseStart, responseEnd, response, decoded));
+                };
+            }
+
+            return new ResourceFetchResult(response, recordTiming, bodyLifetime);
+        }
+
+        request.Version = BroilerHttpProtocol.Version;
+        request.VersionPolicy = BroilerHttpProtocol.VersionPolicy;
+        var requestUrl = request.RequestUri;
+        HttpResponseMessage message;
+        try
+        {
+            message = await SharedClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, headerBudget.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            bodyLifetime.Dispose();
+            throw;
+        }
+
+        var finalUrl = message.RequestMessage?.RequestUri;
+        IReadOnlyList<Uri> urlList = finalUrl is null || finalUrl == requestUrl ? [requestUrl!] : [requestUrl!, finalUrl];
+        var fallbackResponse = new TransportResponse(message, urlList, ResponseTainting.Basic, context.Credentials);
+        return new ResourceFetchResult(fallbackResponse, recordTiming: null, bodyLifetime);
+    }
+
+    private async Task<TransportResponse> SendCoreAsync(HttpRequestMessage request, RequestContext context, ResourceTimingRequest? timing, CancellationToken cancellationToken, bool blocksCaller = true)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        // Legacy callers block on this task. A script's asynchronous fetch instead lets
+        // its task keep running, so it must not pause that task's long-task clock.
+        using var waiting = blocksCaller ? TaskClock.Waiting() : default;
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Lifetime);
         budget.CancelAfter(FetchTimeout);
 
@@ -486,11 +724,54 @@ internal sealed class ResourceLoader : IDisposable
             }
         }
 
+        request.Version = BroilerHttpProtocol.Version;
+        request.VersionPolicy = BroilerHttpProtocol.VersionPolicy;
         var requestUrl = request.RequestUri;
         var message = await SharedClient.SendAsync(request, budget.Token).ConfigureAwait(false);
         var finalUrl = message.RequestMessage?.RequestUri;
         IReadOnlyList<Uri> urlList = finalUrl is null || finalUrl == requestUrl ? [requestUrl!] : [requestUrl!, finalUrl];
         return new TransportResponse(message, urlList, ResponseTainting.Basic, context.Credentials);
+    }
+}
+
+/// <summary>
+/// The result of an asynchronous fetch header resolution. Holds the active transport response,
+/// its cancellation token tied to document lifetime, and its Resource Timing completion action.
+/// Disposing this instance cancels and disposes the transport resources.
+/// </summary>
+internal sealed class ResourceFetchResult : IDisposable
+{
+    private int _disposed;
+    private readonly CancellationTokenRegistration _registration;
+    private readonly Action<long>? _recordTiming;
+    private readonly CancellationTokenSource _bodyLifetime;
+
+    public TransportResponse Response { get; }
+    public CancellationToken Token => _bodyLifetime.Token;
+
+    public ResourceFetchResult(
+        TransportResponse response,
+        Action<long>? recordTiming,
+        CancellationTokenSource bodyLifetime)
+    {
+        Response = response;
+        _recordTiming = recordTiming;
+        _bodyLifetime = bodyLifetime;
+        _registration = bodyLifetime.Token.Register(() => Dispose());
+    }
+
+    public void RecordTiming(long decodedBytes) => _recordTiming?.Invoke(decodedBytes);
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
+        _registration.Dispose();
+        try { _bodyLifetime.Cancel(); }
+        catch (ObjectDisposedException) { }
+        _bodyLifetime.Dispose();
+        Response.Dispose();
     }
 }
 

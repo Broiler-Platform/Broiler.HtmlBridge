@@ -37,9 +37,10 @@ public sealed class InteractiveSession : IDisposable
     /// <summary>
     /// Returns <c>true</c> when there are queued <c>setTimeout</c>,
     /// <c>setInterval</c>, or <c>requestAnimationFrame</c> callbacks
-    /// waiting to execute.
+    /// waiting to execute, or network/worker work still in flight.
     /// </summary>
-    public bool HasPendingWork => !_disposed && _bridge.HasPendingTimers;
+    public bool HasPendingWork => !_disposed && (_bridge.HasPendingTimers ||
+        _bridge is Dom.Runtime.IWorkInFlight { HasWorkInFlight: true });
 
     /// <summary>
     /// Whether the last <see cref="SettleLoadWindow(Action{Func{string}}?, CancellationToken)"/>
@@ -541,8 +542,9 @@ public sealed class InteractiveSession : IDisposable
     public string Complete()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        _bridge.FlushTimers();
-        _microTasks.Drain();
+        AsyncDrainLimitExhausted = AsyncDrainOperations.DrainUntilSettled(
+            _microTasks, _bridge, callerName: "InteractiveSession.Complete",
+            virtualTimeBudgetMs: double.PositiveInfinity) == AsyncDrainStatus.Exhausted;
         return _bridge.SerializeToHtml();
     }
 

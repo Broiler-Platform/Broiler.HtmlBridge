@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Threading;
+using System.Threading.Tasks;
 using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.JSeal;
 using Broiler.Net.Http;
@@ -103,6 +104,12 @@ internal interface IWorkerHost
     /// <param name="cancellationToken">The worker's: terminating it abandons the fetch.</param>
     /// <param name="failure">Why the script cannot be had, when it cannot.</param>
     WorkerScript? FetchWorkerScript(Uri url, DocumentRequestContext client, bool imported, CancellationToken cancellationToken, out string? failure);
+
+    /// <summary>
+    /// Asynchronously fetches a worker's script over the network, or decodes a <c>data:</c> one, as a request of
+    /// <paramref name="client"/>.
+    /// </summary>
+    Task<(WorkerScript? Script, string? Failure)> FetchWorkerScriptAsync(Uri url, DocumentRequestContext client, bool imported, CancellationToken cancellationToken);
 
     /// <summary>The window whose script is running, on the page's thread: the one a worker it constructs belongs to.</summary>
     JsValue CurrentWindow { get; }

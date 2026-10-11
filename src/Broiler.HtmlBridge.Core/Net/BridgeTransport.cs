@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Broiler.HtmlBridge;
 
@@ -115,6 +116,51 @@ internal static class BridgeTransport
     }
 
     /// <summary>
+    /// GETs <paramref name="url"/> through <paramref name="transport"/> and returns its body as text,
+    /// awaiting the response and content asynchronously without blocking worker threads.
+    /// </summary>
+    internal static async Task<string> GetTextAsync(
+        IBrowserRequestTransport transport,
+        Uri url,
+        RequestContext context,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        Func<TransportResponse, bool>? acceptResponse = null,
+        ResourceTimingRequest? timing = null)
+    {
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(timeout);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        var redirectEnd = new StrongBox<long>();
+        if (timing is not null)
+            context = ResourceTimingRequest.NotingRedirects(context, redirectEnd);
+        var fetchStart = ResourceTimingRequest.Now();
+        using var response = await transport.SendAsync(request, context, budget.Token).ConfigureAwait(false);
+        var responseStart = ResourceTimingRequest.Now();
+
+        // The body is read before the status is judged when the fetch is timed: the entry is the
+        // network's account of the fetch, which a browser records for an error status too.
+        byte[]? body = timing is null
+            ? null
+            : await response.Message.Content.ReadAsByteArrayAsync(budget.Token).ConfigureAwait(false);
+        if (timing is not null)
+            timing.Sink.Record(timing.Describe(url, fetchStart, redirectEnd.Value, responseStart, ResourceTimingRequest.Now(), response, body!.LongLength));
+
+        if (response.StatusCode is < 200 or > 299)
+            throw new HttpRequestException(
+                $"Response status code does not indicate success: {response.StatusCode}.",
+                inner: null,
+                (HttpStatusCode)response.StatusCode);
+
+        if (acceptResponse is not null && !acceptResponse(response))
+            throw new InvalidDataException(
+                $"The response for {context.Destination} is not acceptable: " +
+                $"{response.Message.Content.Headers.ContentType?.MediaType ?? "no Content-Type"}, {response.Tainting}.");
+
+        return await response.Message.Content.ReadAsStringAsync(budget.Token).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Whether a stylesheet's response may be applied — a <c>&lt;link rel="stylesheet"&gt;</c>'s
     /// (HTML "process the linked resource") or an <c>@import</c>'s (CSS Cascade "fetch an
     /// <c>@import</c>"), together with Fetch's nosniff check for destination <c>style</c>: its
@@ -181,31 +227,78 @@ internal static class BridgeTransport
 /// match the one in flight fetches on its own instead of reading a response sent under different rules.
 /// </para>
 /// </remarks>
-internal sealed class RequestPrefetcher<TRequest>
+internal sealed class RequestPrefetcher<TRequest> : IDisposable
 {
     private readonly ConcurrentDictionary<string, TRequest> _requests = new(StringComparer.Ordinal);
     private readonly SubResourcePrefetcher _inner;
     private readonly Func<TRequest, TRequest, bool> _sameRequest;
 
+    /// <param name="fetchAsync">The async fetch, given the URL, the request it was queued with, and cancellation token.</param>
+    /// <param name="sameRequest">Whether a queued request may serve a consumer's request.</param>
+    /// <param name="maxConcurrentRequestsPerHost">Per-host concurrency cap.</param>
+    /// <param name="cancellationToken">Cancellation token tied to document/session lifetime.</param>
+    public RequestPrefetcher(
+        Func<string, TRequest, CancellationToken, Task<string?>> fetchAsync,
+        Func<TRequest, TRequest, bool> sameRequest,
+        int maxConcurrentRequestsPerHost = SubResourcePrefetcher.DefaultMaxConcurrentRequestsPerHost,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(fetchAsync);
+        _sameRequest = sameRequest ?? throw new ArgumentNullException(nameof(sameRequest));
+        _inner = new SubResourcePrefetcher(
+            (url, token) => fetchAsync(url, _requests[url], token),
+            maxConcurrentRequestsPerHost,
+            cancellationToken);
+    }
+
+    /// <param name="fetchAsync">The task-based async fetch, given the URL and the request it was queued with.</param>
+    /// <param name="sameRequest">Whether a queued request may serve a consumer's request.</param>
+    /// <param name="maxConcurrentRequestsPerHost">Per-host concurrency cap.</param>
+    /// <param name="cancellationToken">Cancellation token tied to document/session lifetime.</param>
+    public RequestPrefetcher(
+        Func<string, TRequest, Task<string?>> fetchAsync,
+        Func<TRequest, TRequest, bool> sameRequest,
+        int maxConcurrentRequestsPerHost = SubResourcePrefetcher.DefaultMaxConcurrentRequestsPerHost,
+        CancellationToken cancellationToken = default)
+        : this(fetchAsync is null ? null! : (url, req, _) => fetchAsync(url, req), sameRequest, maxConcurrentRequestsPerHost, cancellationToken)
+    {
+    }
+
     /// <param name="fetch">The blocking fetch, given the URL and the request it was queued with.</param>
     /// <param name="sameRequest">Whether a queued request may serve a consumer's request.</param>
-    public RequestPrefetcher(Func<string, TRequest, string?> fetch, Func<TRequest, TRequest, bool> sameRequest)
+    /// <param name="maxConcurrentRequestsPerHost">Per-host concurrency cap.</param>
+    /// <param name="cancellationToken">Cancellation token tied to document/session lifetime.</param>
+    public RequestPrefetcher(
+        Func<string, TRequest, string?> fetch,
+        Func<TRequest, TRequest, bool> sameRequest,
+        int maxConcurrentRequestsPerHost = SubResourcePrefetcher.DefaultMaxConcurrentRequestsPerHost,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(fetch);
         _sameRequest = sameRequest ?? throw new ArgumentNullException(nameof(sameRequest));
-        // The entry is always recorded before the URL reaches the inner prefetcher, so the lookup
-        // cannot miss for a URL this instance issued.
-        _inner = new SubResourcePrefetcher(url => fetch(url, _requests[url]));
+        _inner = new SubResourcePrefetcher(
+            url => fetch(url, _requests[url]),
+            maxConcurrentRequestsPerHost,
+            cancellationToken);
     }
 
     /// <summary>Number of URLs a request has been issued for.</summary>
     public int RequestedCount => _inner.RequestedCount;
 
+    /// <summary>The per-host concurrency cap configured for this prefetcher.</summary>
+    public int MaxConcurrentRequestsPerHost => _inner.MaxConcurrentRequestsPerHost;
+
     /// <summary>
     /// Starts each request that has not been issued yet. A URL already issued keeps its first
     /// request: a later, different one is fetched by its consumer instead.
     /// </summary>
-    public void Prefetch(IEnumerable<(string Url, TRequest Request)> requests)
+    public void Prefetch(IEnumerable<(string Url, TRequest Request)> requests) =>
+        Prefetch(requests, CancellationToken.None);
+
+    /// <summary>
+    /// Starts each request that has not been issued yet, linked to the given cancellation token.
+    /// </summary>
+    public void Prefetch(IEnumerable<(string Url, TRequest Request)> requests, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(requests);
 
@@ -218,7 +311,7 @@ internal sealed class RequestPrefetcher<TRequest>
             urls.Add(url);
         }
 
-        _inner.Prefetch(urls);
+        _inner.Prefetch(urls, cancellationToken);
     }
 
     /// <summary>
@@ -236,4 +329,22 @@ internal sealed class RequestPrefetcher<TRequest>
         content = null;
         return false;
     }
+
+    /// <summary>
+    /// Asynchronously awaits the prefetched content for <paramref name="url"/> when a request for it is
+    /// in flight and was issued the way <paramref name="request"/> would be; otherwise returns (false, null).
+    /// </summary>
+    public async Task<(bool Consumed, string? Content)> TryConsumeAsync(string url, TRequest request, CancellationToken cancellationToken = default)
+    {
+        if (_inner.IsPending(url) && _requests.TryGetValue(url, out var issued) && _sameRequest(issued, request))
+        {
+            var content = await _inner.ConsumeAsync(url, cancellationToken).ConfigureAwait(false);
+            return (true, content);
+        }
+
+        return (false, null);
+    }
+
+    /// <summary>Cancels pending and in-flight prefetch requests and releases gate resources.</summary>
+    public void Dispose() => _inner.Dispose();
 }

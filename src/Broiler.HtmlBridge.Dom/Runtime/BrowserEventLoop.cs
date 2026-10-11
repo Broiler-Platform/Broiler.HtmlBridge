@@ -31,7 +31,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 /// what the realm minted.
 /// </para>
 /// </remarks>
-internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
+internal sealed partial class BrowserEventLoop(Func<IJsRealm?> realm)
 {
     private readonly Func<IJsRealm?> _realm = realm;
     private int _timerIdCounter;
@@ -86,7 +86,7 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     public ITaskMonitor? TaskMonitor { get; set; }
 
     /// <summary>The virtual clock's current time, in ms from document start.</summary>
-    public double VirtualNowMs => _virtualNowMs;
+    public double VirtualNowMs => CurrentTime;
 
     // ------------------------------------------------------------------
     //  Registration / cancellation
@@ -109,7 +109,7 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
         {
             var delay = double.IsNaN(delayMs) || delayMs < 0 ? 0 : delayMs;
             var seq = Interlocked.Increment(ref _timerSeqCounter);
-            _timers[id] = new TimerEntry(_virtualNowMs + delay, seq, callback, HostTask: null, Period: null, thisArg, arguments);
+            _timers[id] = new TimerEntry(CurrentTime + delay, seq, callback, HostTask: null, Period: null, thisArg, arguments);
         }
         return id;
     }
@@ -137,7 +137,7 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     {
         var id = Interlocked.Decrement(ref _hostTaskIdCounter);
         var seq = Interlocked.Increment(ref _timerSeqCounter);
-        _timers[id] = new TimerEntry(_virtualNowMs, seq, Fn: JsValue.Missing, task, Period: null, JsValue.Undefined, Args: null);
+        _timers[id] = new TimerEntry(CurrentTime, seq, Fn: JsValue.Missing, task, Period: null, JsValue.Undefined, Args: null);
     }
 
     /// <summary>Cancels a timeout and marks its id cleared so an in-flight drain skips it.</summary>
@@ -158,7 +158,7 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
         {
             var period = double.IsNaN(periodMs) || periodMs < 0 ? 0 : periodMs;
             var seq = Interlocked.Increment(ref _timerSeqCounter);
-            _timers[id] = new TimerEntry(_virtualNowMs + period, seq, callback, HostTask: null, period, thisArg, arguments);
+            _timers[id] = new TimerEntry(CurrentTime + period, seq, callback, HostTask: null, period, thisArg, arguments);
         }
         return id;
     }
@@ -244,12 +244,13 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     {
         get
         {
+            var now = CurrentTime;
             if (!_rafCallbacks.IsEmpty || !_frameActions.IsEmpty)
                 return true;
 
             foreach (var kv in _timers.ToArray())
             {
-                if (!_clearedTimerIds.ContainsKey(kv.Key) && kv.Value.Deadline <= _virtualNowMs)
+                if (!_clearedTimerIds.ContainsKey(kv.Key) && kv.Value.Deadline <= now)
                     return true;
             }
 
@@ -281,6 +282,7 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     /// </summary>
     public bool DrainStep(Action? taskCheckpoint)
     {
+        _ = CurrentTime;
         void RunTaskCheckpoint()
         {
             try
@@ -323,7 +325,7 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
             // waits for it: it runs this step, at the current time, and a later timer the next. Moving
             // the clock first ran the timer before the message: a page that posts and gives up after a
             // timeout gave up on an answer that was already there.
-            if (earliest > _virtualNowMs && _frameActions.IsEmpty) _virtualNowMs = earliest;
+            if (earliest > _virtualNowMs && _frameActions.IsEmpty && !HasAsyncWork) _virtualNowMs = earliest;
             foreach (var kv in timerSnapshot)
             {
                 if (kv.Value.Deadline <= _virtualNowMs && !_clearedTimerIds.ContainsKey(kv.Key)
@@ -448,6 +450,7 @@ internal sealed class BrowserEventLoop(Func<IJsRealm?> realm)
     /// pending work is discarded, never run.</summary>
     public void Clear()
     {
+        ClearAsyncWork();
         _timers.Clear();
         _clearedTimerIds.Clear();
         _inFlightTimerIds = null;

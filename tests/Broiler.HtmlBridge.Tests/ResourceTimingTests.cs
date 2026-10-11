@@ -207,8 +207,9 @@ public class ResourceTimingTests
                 "  var x = new XMLHttpRequest(); x.open('GET', '/xhr');" +
                 "  x.onload = function () {" +
                 "    navigator.sendBeacon('/beacon', 'x');" +
-                "    setTimeout(function () {" +
+                "    setTimeout(function checkBeacon() {" +
                 "      var xhr = entry('/xhr'), beacon = entry('/beacon');" +
+                "      if (!beacon) { setTimeout(checkBeacon, 10); return; }" +
                 "      done(result.join(', ') + ' | head ' + entries('/head').length + ', unread ' + entries('/unread').length +" +
                 "        ', reader ' + entries('/reader').length + ', clone ' + entries('/clone').length + ' | ' +" +
                 "        ['/read', '/head', '/reader', '/clone'].map(function (p) { return entry(p).initiatorType; }).join() + ' | ' +" +
@@ -319,12 +320,12 @@ public class ResourceTimingTests
                 "  if (events.length === 1) performance.setResourceTimingBufferSize(3); };" +
                 "performance.addEventListener('resourcetimingbufferfull', function () {" +
                 "  events.push('listener ' + performance.getEntriesByType('resource').length); });" +
-                "['/1', '/2', '/3', '/4'].forEach(function (p, i) { setTimeout(function () { navigator.sendBeacon(p, 'x'); }, i * 10); });" +
+                "['/1', '/2', '/3', '/4'].forEach(function (p, i) { setTimeout(function () { navigator.sendBeacon(p, 'x'); }, i * 40); });" +
                 "setTimeout(function () {" +
                 "  var names = performance.getEntriesByType('resource').map(function (e) { return e.name.replace(location.origin, ''); }).join(' ');" +
                 "  performance.clearResourceTimings();" +
                 "  done(head + ' | ' + events.join(', ') + ' | ' + names + ' | ' + seen.join(' ') + ' | ' +" +
-                "    performance.getEntriesByType('resource').length); }, 200);"));
+                "    performance.getEntriesByType('resource').length); }, 300);"));
     }
 
     /// <summary>

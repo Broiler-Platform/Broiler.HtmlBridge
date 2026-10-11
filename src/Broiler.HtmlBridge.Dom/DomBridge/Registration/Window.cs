@@ -222,7 +222,17 @@ public sealed partial class DomBridge
     /// is this bridge's own start. See <see cref="DocumentFetchTiming"/> for why the origin is the
     /// part that matters.
     /// </remarks>
-    public DocumentFetchTiming? DocumentFetchTiming { get; set; }
+    private DocumentFetchTiming? _documentFetchTiming;
+
+    public DocumentFetchTiming? DocumentFetchTiming
+    {
+        get => _documentFetchTiming;
+        set
+        {
+            _documentFetchTiming = value;
+            _resources.DocumentFetchTiming = value;
+        }
+    }
 
     private void RegisterPerformanceObject(JsValue window)
     {

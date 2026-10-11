@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 using Broiler.Net.Http;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -47,11 +47,11 @@ internal sealed partial class FetchBinding
     /// override MIME type's), where fetch's <c>text()</c> is always UTF-8.
     /// </para>
     /// </remarks>
-    private static void RegisterXMLHttpRequest(IJsRealm realm, JsValue window, JsValue nativeFetch, JsValue decodeText)
+    private static void RegisterXMLHttpRequest(IJsRealm realm, JsValue window, JsValue nativeFetch, JsValue syncFetch, JsValue decodeText)
     {
         var factory = realm.EvaluateHostScript(XMLHttpRequestFactorySource, "polyfill:xmlhttprequest");
         var checkRequestHeader = realm.NewMethod("setRequestHeader", (in call) => CheckXhrRequestHeader(in call), 2);
-        var constructor = realm.Invoke(factory, JsValue.Undefined, [nativeFetch, checkRequestHeader, decodeText]);
+        var constructor = realm.Invoke(factory, JsValue.Undefined, [nativeFetch, checkRequestHeader, decodeText, syncFetch]);
         realm.DefineValue(window, "XMLHttpRequest", constructor);
         realm.SetProperty(realm.Global, "XMLHttpRequest", constructor);
     }
@@ -80,7 +80,7 @@ internal sealed partial class FetchBinding
     /// <c>XMLHttpRequest</c> constructor.
     /// </summary>
     private const string XMLHttpRequestFactorySource = @"
-            (function (nativeFetch, checkRequestHeader, decodeText) {
+            (function (nativeFetch, checkRequestHeader, decodeText, syncFetch) {
                 function XMLHttpRequest() {
                     this.readyState = 0;
                     this.status = 0;
@@ -106,6 +106,9 @@ internal sealed partial class FetchBinding
                     this._method = 'GET';
                     this._url = '';
                     this._async = true;
+                    this._generation = 0;
+                    this._controller = null;
+                    this._sent = false;
                     this._headers = {};
                     this._listeners = {};
                     this._responseHeaders = {};
@@ -312,6 +315,11 @@ internal sealed partial class FetchBinding
                     this.dispatchEvent(this._createEvent('readystatechange'));
                 };
                 XMLHttpRequest.prototype.open = function(method, url, isAsync) {
+                    ++this._generation;
+                    if (this._controller) this._controller.abort();
+                    this._controller = null;
+                    this._sent = false;
+                    this._headers = {};
                     this._method = method;
                     this._url = url;
                     this._async = isAsync !== false;
@@ -366,6 +374,8 @@ internal sealed partial class FetchBinding
                 };
                 XMLHttpRequest.prototype.abort = function() {
                     this._aborted = true;
+                    this._sent = false;
+                    if (this._controller) this._controller.abort();
                     this._timedOut = false;
                     if (this._timeoutTimerId !== null) {
                         clearTimeout(this._timeoutTimerId);
@@ -382,18 +392,23 @@ internal sealed partial class FetchBinding
                 };
                 XMLHttpRequest.prototype.send = function(body) {
                     var self = this;
-                    if (self._aborted || self._timedOut) return;
+                    if (self.readyState !== 1 || self._sent) throw new DOMException('Invalid state', 'InvalidStateError');
+                    var generation = self._generation;
+                    self._sent = true;
+                    self._controller = new AbortController();
+                    if (generation !== self._generation || self._aborted || self._timedOut) return;
                     if (self._timeoutTimerId !== null) {
                         clearTimeout(self._timeoutTimerId);
                         self._timeoutTimerId = null;
                     }
                     self._timedOut = false;
                     function handleRequestError() {
-                        if (self._aborted || self._timedOut) return;
+                        if (generation !== self._generation || self._aborted || self._timedOut) return;
                         if (self._timeoutTimerId !== null) {
                             clearTimeout(self._timeoutTimerId);
                             self._timeoutTimerId = null;
                         }
+                        self._sent = false;
                         self.readyState = 4;
                         self.status = 0;
                         self.statusText = '';
@@ -407,6 +422,7 @@ internal sealed partial class FetchBinding
                     try {
                         // XHR's request: cors, with credentials only when withCredentials asks.
                         var opts = {
+                            signal: self._controller.signal,
                             method: self._method,
                             mode: 'cors',
                             credentials: self.withCredentials ? 'include' : 'same-origin'
@@ -425,11 +441,13 @@ internal sealed partial class FetchBinding
                         if (hasHeaders) {
                             opts.headers = requestHeaders;
                         }
-                        if (self.timeout > 0) {
+                        if (self._async && self.timeout > 0) {
                             self._timeoutTimerId = setTimeout(function() {
                                 self._timeoutTimerId = null;
-                                if (self._aborted || self._timedOut || self.readyState === 4) return;
+                                if (generation !== self._generation || self._aborted || self._timedOut || self.readyState === 4) return;
                                 self._timedOut = true;
+                                self._sent = false;
+                                self._controller.abort();
                                 self.readyState = 4;
                                 self.status = 0;
                                 self.statusText = '';
@@ -449,8 +467,8 @@ internal sealed partial class FetchBinding
                             self.upload.dispatchEvent(self._createProgressEvent('loadend', uploadProgress.loaded, uploadProgress.total, uploadProgress.lengthComputable, self.upload));
                         }
                         self.dispatchEvent(self._createProgressEvent('loadstart', 0, 0, false));
-                        nativeFetch(self._url, opts).then(function(response) {
-                            if (self._aborted || self._timedOut) return;
+                        function handleResponse(response) {
+                            if (generation !== self._generation || self._aborted || self._timedOut) return;
                             self.status = response.status;
                             self.statusText = response.statusText;
                             self.responseURL = response.url || self._url;
@@ -461,6 +479,10 @@ internal sealed partial class FetchBinding
                                 });
                             }
                             self._dispatchReadyStateChange();
+                            if (!self._async) {
+                                finishBody(decodeText(response, self._mimeOverride, self.responseType));
+                                return;
+                            }
                             var bodyPromise;
                             if (self.responseType === 'arraybuffer' &&
                                 response &&
@@ -476,10 +498,13 @@ internal sealed partial class FetchBinding
                                 bodyPromise = response.text();
                             } else {
                                 // By the response's charset, not text()'s UTF-8.
-                                bodyPromise = Promise.resolve(decodeText(response, self._mimeOverride));
+                                bodyPromise = response.arrayBuffer().then(function(buf) {
+                                    return decodeText(response, self._mimeOverride, self.responseType, buf);
+                                });
                             }
-                            bodyPromise.then(function(bodyValue) {
-                                if (self._aborted || self._timedOut) return;
+                            bodyPromise.then(finishBody, handleRequestError);
+                            function finishBody(bodyValue) {
+                                if (generation !== self._generation || self._aborted || self._timedOut) return;
                                 if (self._timeoutTimerId !== null) {
                                     clearTimeout(self._timeoutTimerId);
                                     self._timeoutTimerId = null;
@@ -537,17 +562,21 @@ internal sealed partial class FetchBinding
                                 }
                                 self.readyState = 3;
                                 self._dispatchReadyStateChange();
+                                if (generation !== self._generation || self._aborted) return;
                                 self.dispatchEvent(self._createProgressEvent('progress', progress.loaded, progress.total, progress.lengthComputable));
+                                if (generation !== self._generation || self._aborted) return;
+                                self._sent = false;
                                 self.readyState = 4;
                                 self._dispatchReadyStateChange();
+                                if (generation !== self._generation || self._aborted) return;
                                 self.dispatchEvent(self._createProgressEvent('load', progress.loaded, progress.total, progress.lengthComputable));
+                                if (generation !== self._generation || self._aborted) return;
                                 self.dispatchEvent(self._createProgressEvent('loadend', progress.loaded, progress.total, progress.lengthComputable));
-                            }, function() {
-                                handleRequestError();
-                            });
-                        }, function() {
-                            handleRequestError();
-                        });
+                            }
+                        }
+                        if (generation !== self._generation || self._aborted) return;
+                        if (self._async) nativeFetch(self._url, opts).then(handleResponse, handleRequestError);
+                        else handleResponse(syncFetch(self._url, opts));
                     } catch(e) {
                         handleRequestError();
                     }

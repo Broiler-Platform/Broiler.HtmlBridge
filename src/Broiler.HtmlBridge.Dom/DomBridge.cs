@@ -388,7 +388,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         _workers = new Dom.Features.WorkerBinding(this);
         // Every worker thread is stopped and joined when the bridge tears down; see WorkerBinding.
         _disposal.Add(_workers);
-        _fetch = new Dom.Features.FetchBinding(this, _resources);
+        _fetch = new Dom.Features.FetchBinding(this, _resources, _eventLoop);
         _attributes = new Dom.Features.AttributesBinding(this);
         _blobs = new Dom.Features.BlobBinding();
         _streams = new Dom.Features.StreamsBinding(() => Realm);
@@ -692,10 +692,11 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
         return _eventLoop.DrainStep(TaskCheckpointCallback);
     }
 
-    bool Dom.Runtime.IWorkInFlight.HasWorkInFlight => !_disposed && _workers.HasWorkInFlight;
+    bool Dom.Runtime.IWorkInFlight.HasWorkInFlight => !_disposed && (_eventLoop.HasAsyncWork || _workers.HasWorkInFlight);
 
     bool Dom.Runtime.IWorkInFlight.HasWorkDueNow => !_disposed && _eventLoop.HasWorkDueNow;
 
-    bool Dom.Runtime.IWorkInFlight.AwaitWorkInFlight(TimeSpan timeout) => _disposed || _workers.AwaitWorkInFlight(timeout);
+    bool Dom.Runtime.IWorkInFlight.AwaitWorkInFlight(TimeSpan timeout) => _disposed ||
+        (_eventLoop.HasAsyncWork ? _eventLoop.AwaitAsyncWork(timeout) : _workers.AwaitWorkInFlight(timeout));
 
 }

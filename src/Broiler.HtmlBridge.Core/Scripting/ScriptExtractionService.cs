@@ -53,7 +53,8 @@ public static partial class ScriptExtractionService
     /// </para>
     /// </remarks>
     private static readonly HttpClient SharedHttpClient =
-        BroilerUserAgent.Apply(new HttpClient(new HttpClientHandler { UseCookies = false }) { Timeout = ScriptFetchTimeout });
+        BroilerHttpProtocol.Apply(
+            BroilerUserAgent.Apply(new HttpClient(new HttpClientHandler { UseCookies = false }) { Timeout = ScriptFetchTimeout }));
 
     private static string? GetNonce(IReadOnlyDictionary<string, string> attrs) =>
         attrs.TryGetValue("nonce", out var nonce) ? nonce : null;

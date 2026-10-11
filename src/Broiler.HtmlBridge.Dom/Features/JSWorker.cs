@@ -301,7 +301,7 @@ internal sealed class JSWorker
             // event a browser fires at the Worker object.
             if (_fetch is { } fetch)
             {
-                var fetched = _host.FetchWorkerScript(fetch.Url, fetch.Client, imported: false, _cancel.Token, out var failure);
+                var (fetched, failure) = _host.FetchWorkerScriptAsync(fetch.Url, fetch.Client, imported: false, _cancel.Token).GetAwaiter().GetResult();
                 if (fetched is null)
                 {
                     if (!_cancel.IsCancellationRequested)
@@ -771,7 +771,7 @@ internal sealed class JSWorker
                 if (!Uri.TryCreate(workerUrl, specifier, out var url))
                     throw realm.DomError("SyntaxError", $"importScripts: '{specifier}' is not a valid URL.");
 
-                var fetched = _host.FetchWorkerScript(url, client, imported: true, _cancel.Token, out var failure);
+                var (fetched, failure) = _host.FetchWorkerScriptAsync(url, client, imported: true, _cancel.Token).GetAwaiter().GetResult();
                 if (fetched is null)
                     throw realm.DomError("NetworkError", $"importScripts: could not load '{specifier}': {failure}");
 

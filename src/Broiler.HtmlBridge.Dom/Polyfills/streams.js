@@ -348,7 +348,7 @@
     // copies independent without reading the source twice. Both branches share one reader, so the
     // original is locked from here on — measured, and the reason a page tees rather than reading
     // twice.
-    ReadableStream.prototype.tee = function () {
+    ReadableStream.prototype.tee = function (onDisturbed0, onDisturbed1) {
         var state = stateOf(streamState, this, 'tee', 'ReadableStream');
         var reader = this.getReader();
         var controllers = [];
@@ -378,20 +378,32 @@
             });
         }
 
-        function branch(index) {
+        function branch(index, onDisturbed) {
+            var branchDisturbed = onDisturbed;
+            function markDisturbed() {
+                if (typeof branchDisturbed === 'function') {
+                    var cb = branchDisturbed;
+                    branchDisturbed = null;
+                    cb();
+                }
+            }
             return new ReadableStream({
                 start: function (controller) { controllers[index] = controller; },
-                pull: function () { pump(); },
+                pull: function () {
+                    markDisturbed();
+                    pump();
+                },
                 cancel: function (reason) {
+                    markDisturbed();
                     cancelled[index] = true;
                     if (cancelled[0] && cancelled[1])
                         return cancelStream(state, reason);
                     return undefined;
                 },
-            });
+            }, { highWaterMark: 0 });
         }
 
-        return [branch(0), branch(1)];
+        return [branch(0, onDisturbed0), branch(1, onDisturbed1)];
     };
 
     // values() and @@asyncIterator, so `for await (const chunk of response.body)` works.
@@ -467,8 +479,51 @@
         }, { highWaterMark: 0 });
     }
 
+    function streamOverNetwork(pullChunk, cancelStream, onDisturbed) {
+        return new ReadableStream({
+            pull: function (controller) {
+                onDisturbed();
+                return pullChunk(controller);
+            },
+            cancel: function (reason) {
+                onDisturbed();
+                return cancelStream(reason);
+            },
+        }, { highWaterMark: 0 });
+    }
+
+    function readStreamToBytes(stream) {
+        var reader = stream.getReader();
+        var chunks = [];
+        var total = 0;
+        function pump() {
+            return reader.read().then(function (result) {
+                if (result.done) {
+                    var all = new Uint8Array(total);
+                    var offset = 0;
+                    for (var i = 0; i < chunks.length; i++) {
+                        all.set(chunks[i], offset);
+                        offset += chunks[i].length;
+                    }
+                    reader.releaseLock();
+                    return all;
+                }
+                var chunk = asBytes(result.value);
+                chunks.push(chunk);
+                total += chunk.length;
+                return pump();
+            }, function (err) {
+                reader.releaseLock();
+                throw err;
+            });
+        }
+        return pump();
+    }
+
     globalThis.__broilerStreamOverBytes = streamOverBytes;
     globalThis.__broilerStreamOverObservedBytes = streamOverObservedBytes;
+    globalThis.__broilerStreamOverNetwork = streamOverNetwork;
+    globalThis.__broilerReadStreamToBytes = readStreamToBytes;
     // `locked` is a prototype accessor, so asking for it from the host means invoking a getter with
     // the right receiver. Answering it here keeps that in JavaScript, where `this` is unambiguous.
     globalThis.__broilerStreamIsLocked = function (stream) {

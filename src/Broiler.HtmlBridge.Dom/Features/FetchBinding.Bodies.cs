@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
-
+using Broiler.HtmlBridge.Dom.Runtime;
 using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
@@ -73,13 +73,174 @@ internal sealed partial class FetchBinding
     private readonly ConditionalWeakTable<object, Action> _bodyReadCallbacks = new();
 
     /// <summary>A request's or response's body, held for the life of its object.</summary>
-    private sealed class StoredBody(byte[] bytes, string? contentType)
+    private abstract class StoredBody(string? contentType) : IDisposable
+    {
+        /// <summary>The <c>Content-Type</c> the object had when it was made: what XHR decodes a response's text by.</summary>
+        public string? ContentType { get; } = contentType;
+
+        public abstract bool IsBuffered { get; }
+
+        public abstract byte[]? BufferedBytes { get; }
+
+        public abstract Task<byte[]> ConsumeBytesAsync(CancellationToken cancellationToken = default);
+
+        public virtual void Dispose() { }
+    }
+
+    private sealed class BufferedStoredBody(byte[] bytes, string? contentType) : StoredBody(contentType)
     {
         public byte[] Bytes { get; } = bytes;
 
-        /// <summary>The <c>Content-Type</c> the object had when it was made: what XHR decodes a response's text by.</summary>
-        public string? ContentType { get; } = contentType;
+        public override bool IsBuffered => true;
+
+        public override byte[] BufferedBytes => Bytes;
+
+        public override Task<byte[]> ConsumeBytesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(Bytes);
     }
+
+    private sealed class StreamingStoredBody : StoredBody
+    {
+        private readonly ResourceFetchResult _fetchResult;
+        public bool HasNoBody { get; }
+        private readonly Lock _gate = new();
+        private byte[]? _consumedBytes;
+        private Stream? _responseStream;
+        private long _totalBytesRead;
+        private bool _completed;
+        public Action? OnStreamDisturbed { get; set; }
+
+        public StreamingStoredBody(ResourceFetchResult fetchResult, string? contentType, bool hasNoBody)
+            : base(contentType)
+        {
+            _fetchResult = fetchResult;
+            HasNoBody = hasNoBody;
+            if (hasNoBody)
+            {
+                _completed = true;
+                _fetchResult.RecordTiming(0);
+            }
+        }
+
+        public override bool IsBuffered => _consumedBytes is not null || HasNoBody;
+
+        public override byte[]? BufferedBytes => _consumedBytes ?? (HasNoBody ? [] : null);
+
+        public async Task<byte[]?> ReadChunkAsync(CancellationToken cancellationToken)
+        {
+            if (HasNoBody || _completed)
+                return null;
+
+            Stream stream;
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _fetchResult.Token);
+            lock (_gate)
+            {
+                if (_consumedBytes is not null)
+                    return null;
+                stream = _responseStream!;
+            }
+
+            if (stream is null)
+            {
+                Stream s;
+                try
+                {
+                    s = await _fetchResult.Response.Message.Content.ReadAsStreamAsync(linked.Token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    Dispose();
+                    throw;
+                }
+                lock (_gate)
+                {
+                    stream = _responseStream ??= s;
+                }
+            }
+
+            var buffer = new byte[65536];
+            int bytesRead;
+            try
+            {
+                bytesRead = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), linked.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                Dispose();
+                throw;
+            }
+
+            if (bytesRead == 0)
+            {
+                lock (_gate)
+                {
+                    if (!_completed)
+                    {
+                        _completed = true;
+                        _fetchResult.RecordTiming(_totalBytesRead);
+                    }
+                    _fetchResult.Dispose();
+                }
+                return null;
+            }
+
+            lock (_gate)
+            {
+                _totalBytesRead += bytesRead;
+            }
+
+            return buffer[..bytesRead];
+        }
+
+        public override async Task<byte[]> ConsumeBytesAsync(CancellationToken cancellationToken = default)
+        {
+            if (HasNoBody)
+                return [];
+
+            lock (_gate)
+            {
+                if (_consumedBytes is not null)
+                    return _consumedBytes;
+            }
+
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _fetchResult.Token);
+            byte[] bytes;
+            try
+            {
+                bytes = await _fetchResult.Response.Message.Content.ReadAsByteArrayAsync(linked.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                Dispose();
+                throw;
+            }
+
+            lock (_gate)
+            {
+                if (_consumedBytes is null)
+                {
+                    _consumedBytes = bytes;
+                    if (!_completed)
+                    {
+                        _completed = true;
+                        _fetchResult.RecordTiming(bytes.Length);
+                    }
+                    _fetchResult.Dispose();
+                }
+                return _consumedBytes;
+            }
+        }
+
+        public override void Dispose()
+        {
+            lock (_gate)
+            {
+                _completed = true;
+            }
+            _fetchResult.Dispose();
+        }
+    }
+
 
     /// <summary>
     /// Takes <c>URLSearchParams.prototype</c> from the global, which the content-rendering polyfill has
@@ -231,12 +392,30 @@ internal sealed partial class FetchBinding
         if (ResponseBodyOf(call[0]) is not { } stored)
             return JsValue.String(string.Empty);
 
+        byte[]? bytes = null;
+        if (call.Length > 3 && !call[3].IsNullish && BufferSources.TryGetBytes(call.Realm, call[3], _isArrayBufferView, out var passedBytes))
+        {
+            bytes = passedBytes;
+        }
+        else if (stored.BufferedBytes is { } ready)
+        {
+            bytes = ready;
+        }
+
+        if (bytes is null)
+            return JsValue.String(string.Empty);
+
+        var responseType = call.Length > 2 ? call.Realm.ToJsString(call[2]) : string.Empty;
+        if (responseType == "arraybuffer") return call.Length > 3 && !call[3].IsNullish ? call[3] : call.Realm.NewArrayBuffer(bytes);
+        if (responseType == "blob") return _host.CreateBlob(bytes, EssenceOf(stored.ContentType));
+        if (responseType == "json") return JsValue.String(DecodeUtf8(bytes));
+
         var mimeOverride = call.Length > 1 && !call[1].IsNullish ? call.Realm.ToJsString(call[1]) : null;
         var encoding = EncodingOf(CharsetOf(mimeOverride) ?? CharsetOf(stored.ContentType));
         if (encoding is null || encoding.CodePage == Encoding.UTF8.CodePage)
-            return JsValue.String(DecodeUtf8(stored.Bytes));
+            return JsValue.String(DecodeUtf8(bytes));
 
-        return JsValue.String(encoding.GetString(stored.Bytes));
+        return JsValue.String(encoding.GetString(bytes));
 
         static string? CharsetOf(string? contentType)
         {

@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 
 using Broiler.HtmlBridge.Core.Diagnostics;
 using Broiler.HtmlBridge.Internal.Scripting;
@@ -57,7 +57,7 @@ internal sealed partial class FetchBinding
 
 
     /// <param name="initiatorType">What the fetch is to Resource Timing: <c>fetch</c>, or <c>xmlhttprequest</c> for the XMLHttpRequest polyfill's sends.</param>
-    private JsValue JsRegistrationFetch120Core(JsPropertyStringGetter tryGetJsPropertyString, ObjectStringEntriesEnumerator enumerateObjectStringEntries, Func<JsValue, JsValue> createAbortErrorValue, ResponseFactory createResponse, string initiatorType, in JsCall call)
+    private JsValue JsRegistrationFetch120Core(JsPropertyStringGetter tryGetJsPropertyString, ObjectStringEntriesEnumerator enumerateObjectStringEntries, Func<JsValue, JsValue> createAbortErrorValue, ResponseFactory createResponse, string initiatorType, bool synchronous, in JsCall call)
     {
         var realm = call.Realm;
 
@@ -82,7 +82,7 @@ internal sealed partial class FetchBinding
             method = tryGetJsPropertyString(input, "method");
             // A Request's body is the one it was made with; its headers already carry its type.
             if (RequestBodyOf(input) is { } stored)
-                requestBody = new BodyWithType(stored.Bytes, null);
+                requestBody = new BodyWithType(stored.BufferedBytes ?? [], null);
             inputMode = tryGetJsPropertyString(input, "mode");
             inputCredentials = tryGetJsPropertyString(input, "credentials");
             inputRedirect = tryGetJsPropertyString(input, "redirect");
@@ -122,24 +122,7 @@ internal sealed partial class FetchBinding
         if (requestBody?.ContentType is { } bodyType && !requestHeaders.ContainsKey("Content-Type"))
             requestHeaders["Content-Type"] = bodyType;
 
-        // The outcome is settled before this returns — the send is synchronous — so the page gets a
-        // real, already-settled Promise.
-        //
-        // This used to be a hand-rolled object with a `then` and a `catch` that each invoked their
-        // callback and returned THEMSELVES. Four things were wrong with it, and returning `this` was
-        // the worst: `.then(a).then(b)` ran `b` against the original Response rather than `a`'s result,
-        // so a mapping chain — the ordinary `fetch(u).then(r => r.json()).then(useData)` shape — handed
-        // the second callback the Response instead of the parsed body. That is a silently wrong value,
-        // not an error. Beyond it: `.then`'s second (onRejected) argument was ignored entirely;
-        // `.finally` did not exist, so calling it was a TypeError; and a callback that threw was caught
-        // and logged rather than rejecting the derived promise, so an error inside a handler vanished.
-        // The object was also not `instanceof Promise`, which feature-detecting code checks.
-        //
-        // A real promise gets all of that from the engine. The capture pumps the microtask queue (a
-        // plain `Promise.resolve().then(...)` callback runs), so settling through the real machinery
-        // still delivers the callbacks. The realm hands back the settle functions rather than running
-        // an executor, so the arms below are reached directly instead of through a callback that
-        // only happened to run synchronously — see IJsJobs.NewPromise.
+        // Network completion settles this promise on the owning event loop.
         var promise = realm.NewPromise(out var resolve, out var reject);
 
         if (signalValue.IsObject && realm.GetProperty(signalValue, "aborted").AsBoolean)
@@ -170,6 +153,7 @@ internal sealed partial class FetchBinding
         }
         catch (AuthorRequestError error)
         {
+            if (synchronous) throw realm.Error(JsErrorKind.TypeError, error.Message);
             // Fetch's own TypeError: what the page asked for cannot be a request at all. Rejected
             // rather than thrown, as fetch() does — a throw would abort the whole calling script.
             RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.fetch", $"Fetch refused: {error.Message}");
@@ -183,31 +167,126 @@ internal sealed partial class FetchBinding
         // Begun before the try so a failure is recorded with the time it took to fail. Off by default;
         // see ResourceTrace.
         var attempt = ResourceTrace.Begin(ResourceTraceKind.Fetch, request.Url.AbsoluteUri);
-        try
+        var timing = new DeferredResourceTiming(_host.ResourceTimings);
+        var context = RequestContext.Fetch(client, request.Mode, request.Credentials, request.Redirect);
+        var timingRequest = new ResourceTimingRequest(initiatorType, client, timing);
+        if (synchronous)
         {
-            // Resource Timing's entry: an XMLHttpRequest's as soon as its response is complete, which is
-            // when it reads the body itself, and a fetch()'s once the page has read the body -- at once
-            // when there is none to read. A fetch whose body is never read has none (Chromium, measured).
-            var timing = new DeferredResourceTiming(_host.ResourceTimings);
-            using var message = CreateMessage(request);
-            using var response = SendAuthorRequest(
-                message, RequestContext.Fetch(client, request.Mode, request.Credentials, request.Redirect),
-                new ResourceTimingRequest(initiatorType, client, timing));
-            var exposed = ExposeResponse(response, createResponse, attempt, request.Method);
-            if (initiatorType != "fetch" || HasNoBodyToRead(response, request.Method))
+            try
+            {
+                using var message = CreateMessage(request);
+                using var response = SendAuthorRequest(message, context, timingRequest);
+                var data = ReadResponseAsync(response, attempt, request.Method).GetAwaiter().GetResult();
                 timing.Release();
-            else
-                ReleaseOnBodyRead(exposed, timing.Release);
-            resolve(exposed);
+                return data.Expose(createResponse);
+            }
+            catch (Exception ex)
+            {
+                attempt.Failed(ex);
+                throw realm.Error(JsErrorKind.TypeError, "Failed to fetch");
+            }
         }
-        catch (Exception ex)
+
+        var settled = false;
+        var inDocument = _host.CaptureFetchCompletion();
+        var abortListener = JsValue.Undefined;
+        void RemoveAbortListener()
         {
-            // A network error — no response at all, a CORS failure, a redirect the mode refused, the
-            // loader's budget running out — is a TypeError. What it was is the host's to log and not
-            // the page's to read: a CORS failure must tell a page no more than a refused connection.
-            RenderLogger.LogError(LogCategory.JavaScript, "DomBridge.fetch", $"Fetch error: {ex.Message}", ex);
-            attempt.Failed(ex);
-            reject(TypeErrorValue(realm, "Failed to fetch"));
+            if (!abortListener.IsFunction) return;
+            var listener = abortListener;
+            abortListener = JsValue.Undefined;
+            try
+            {
+                var remove = realm.GetProperty(signalValue, "removeEventListener");
+                if (remove.IsFunction)
+                    realm.Invoke(remove, signalValue, [JsValue.String("abort"), listener]);
+            }
+            catch (Exception ex)
+            {
+                RenderLogger.LogWarning(LogCategory.JavaScript, "DomBridge.fetch", $"Abort listener cleanup failed: {ex.Message}");
+            }
+        }
+
+        StreamingStoredBody? activeBody = null;
+        var cancel = _eventLoop.StartAsync(async token =>
+        {
+            using var message = CreateMessage(request);
+            var result = await _resources.SendHeadersAsync(message, context, timingRequest, token, blocksCaller: false).ConfigureAwait(false);
+            var head = ExtractResponseHead(result.Response, request.Method);
+            return new FetchResultHead(result, head);
+        }, (outcome, error) => inDocument(() =>
+        {
+            if (settled)
+            {
+                outcome?.Dispose();
+                return;
+            }
+            settled = true;
+            if (error is not null)
+            {
+                RemoveAbortListener();
+                RenderLogger.LogError(LogCategory.JavaScript, "DomBridge.fetch", $"Fetch error: {error.Message}", error);
+                attempt.Failed(error);
+                reject(TypeErrorValue(realm, "Failed to fetch"));
+                return;
+            }
+            try
+            {
+                var result = outcome.Result;
+                var head = outcome.Head;
+                var streamingBody = new StreamingStoredBody(result, head.ContentType, head.HasNoBody);
+                activeBody = streamingBody;
+                var exposed = CreateResponse(realm, streamingBody, head.Status, head.StatusText, head.Url, head.Type, head.Redirected, head.Headers);
+                if (initiatorType != "fetch" || head.HasNoBody)
+                {
+                    RemoveAbortListener();
+                    timing.Release();
+                }
+                else
+                {
+                    ReleaseOnBodyRead(exposed, () =>
+                    {
+                        timing.Release();
+                    });
+                }
+                resolve(exposed);
+            }
+            catch (Exception ex)
+            {
+                RemoveAbortListener();
+                outcome?.Dispose();
+                RenderLogger.LogError(LogCategory.JavaScript, "DomBridge.fetch", $"Response error: {ex.Message}", ex);
+                reject(TypeErrorValue(realm, "Failed to fetch"));
+            }
+        }), abandoned: () =>
+        {
+            settled = true;
+            RemoveAbortListener();
+        });
+
+        if (signalValue.IsObject)
+        {
+            var add = realm.GetProperty(signalValue, "addEventListener");
+            if (add.IsFunction)
+            {
+                abortListener = realm.NewMethod("abort", (in _) =>
+                {
+                    if (!settled)
+                    {
+                        settled = true;
+                        cancel();
+                        RemoveAbortListener();
+                        reject(createAbortErrorValue(signalValue));
+                    }
+                    else
+                    {
+                        activeBody?.Dispose();
+                        RemoveAbortListener();
+                    }
+                    return JsValue.Undefined;
+                }, 0);
+                realm.Invoke(add, signalValue, [JsValue.String("abort"), abortListener]);
+            }
         }
 
         return promise;

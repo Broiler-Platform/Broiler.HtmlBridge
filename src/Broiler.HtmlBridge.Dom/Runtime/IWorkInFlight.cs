@@ -3,7 +3,7 @@ using System;
 namespace Broiler.HtmlBridge.Dom.Runtime;
 
 /// <summary>
-/// Work a document handed to something running beside it -- a worker -- that will answer through the
+/// Work a document handed to a worker or asynchronous network operation that will answer through the
 /// document's event loop, and how a drain lets that answer arrive before the loop's clock moves on.
 /// </summary>
 /// <remarks>
@@ -23,8 +23,7 @@ namespace Broiler.HtmlBridge.Dom.Runtime;
 internal interface IWorkInFlight
 {
     /// <summary>
-    /// Whether a worker the document started is still working on what the document handed it, within
-    /// the time the document waits for one.
+    /// Whether bounded worker or network work remains, including network completions awaiting delivery.
     /// </summary>
     bool HasWorkInFlight { get; }
 
@@ -35,8 +34,8 @@ internal interface IWorkInFlight
     bool HasWorkDueNow { get; }
 
     /// <summary>
-    /// Waits up to <paramref name="timeout"/> for the work in flight to finish. Answers whether it has;
-    /// whatever it answered with is then queued on the event loop.
+    /// Waits up to <paramref name="timeout"/> for work or a timer to become runnable. May return early
+    /// so the host can observe cancellation; callers recheck the work predicates.
     /// </summary>
     bool AwaitWorkInFlight(TimeSpan timeout);
 }

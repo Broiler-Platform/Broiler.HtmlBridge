@@ -276,7 +276,8 @@ public class FetchBodyTests
             "done([navigator.sendBeacon('/sink', new Uint8Array([3, 4, 255])), navigator.sendBeacon('/sink', 'str')].join('|'));");
 
         Assert.Equal("true|true", result);
-        Assert.Equal([("0304ff", null), ("737472", TextPlain)], Sunk(server));
+        // Independent beacons may reach the server in either order.
+        Assert.Equal([("0304ff", null), ("737472", TextPlain)], Sunk(server).OrderBy(item => item.Hex));
     }
 
     // ---------------------------------------------------------------------

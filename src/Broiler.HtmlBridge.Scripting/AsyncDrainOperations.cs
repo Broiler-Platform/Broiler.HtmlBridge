@@ -29,7 +29,8 @@ internal static class AsyncDrainOperations
         IDomBridgeRuntime bridge,
         Action? onBatchCompleted = null,
         CancellationToken cancellationToken = default,
-        string callerName = "AsyncDrainOperations.DrainUntilSettled")
+        string callerName = "AsyncDrainOperations.DrainUntilSettled",
+        double virtualTimeBudgetMs = DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs)
     {
         ArgumentNullException.ThrowIfNull(microTasks);
         ArgumentNullException.ThrowIfNull(bridge);
@@ -48,18 +49,22 @@ internal static class AsyncDrainOperations
                 hadWork = true;
             }
 
-            // Before the virtual clock moves on, a worker working for the page finishes: in a browser it
-            // answers in milliseconds, long before a page timer of any length. Its answer is queued on
-            // the event loop by the time the wait ends, and the step below delivers it at the current
-            // time. Bounded per piece of work (WorkerBinding.InFlightAllowance), so a stuck worker holds
-            // the drain once.
+            // Workers retain their bounded allowance. Network I/O waits in short slices,
+            // waking for completion or a page timer; its clock advances with real time.
             if (inFlight is { HasWorkInFlight: true, HasWorkDueNow: false })
                 inFlight.AwaitWorkInFlight(WorkInFlightWait);
 
-            if (bridge.HasPendingTimersDueBy(DomBridgeRuntimeLimits.AsyncDrainVirtualTimeBudgetMs))
+            if (bridge.HasPendingTimersDueBy(virtualTimeBudgetMs) ||
+                inFlight is { HasWorkInFlight: true, HasWorkDueNow: true })
             {
-                bridge.FlushTimerStep();
-                hadWork = true;
+                hadWork |= bridge.FlushTimerStep();
+            }
+
+            if (!hadWork && inFlight is { HasWorkInFlight: true })
+            {
+                // Waiting for real I/O is not a runaway JavaScript task.
+                iteration--;
+                continue;
             }
 
             if (!hadWork)

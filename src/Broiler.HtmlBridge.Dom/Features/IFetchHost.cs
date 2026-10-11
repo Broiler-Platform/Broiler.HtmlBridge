@@ -1,4 +1,4 @@
-﻿using Broiler.JSeal;
+using Broiler.JSeal;
 
 namespace Broiler.HtmlBridge.Dom.Features;
 
@@ -32,10 +32,14 @@ internal interface IFetchHost : IPageUrlHost, IRealmHost
     /// <remarks>
     /// Read from trusted bridge state at the moment of the call, never from anything the page can
     /// set: every document shares one realm, so the window-context switch is the only witness to
-    /// which document is asking. A promise reaction a frame queued runs outside that switch and is
-    /// attributed to the top document.
+    /// which document is asking. Completions restore that context through
+    /// <see cref="CaptureFetchCompletion"/>; frame promise jobs retain their window's context.
     /// </remarks>
     Broiler.Net.Http.DocumentRequestContext FetchClient { get; }
+
+    /// <summary>Captures the caller's window and document identity for a later completion.
+    /// Invoke only on the realm's owning thread.</summary>
+    Action<Action> CaptureFetchCompletion();
 
     /// <summary>
     /// Where the records of the fetches this binding sends go: the Resource Timing of the document each
@@ -101,4 +105,16 @@ internal interface IFetchHost : IPageUrlHost, IRealmHost
 
     /// <summary>Whether a reader holds the given body stream — the Body mixin's "locked" half.</summary>
     bool IsStreamLocked(JsValue stream);
+
+    /// <summary>
+    /// A <c>ReadableStream</c> that pulls chunks asynchronously from the network response stream
+    /// and reports the first read or cancellation.
+    /// </summary>
+    JsValue StreamOverNetwork(Func<CancellationToken, Task<byte[]?>> readChunk, Action cancel, Action onDisturbed, Dom.Runtime.BrowserEventLoop eventLoop, Action<Action> inDocument);
+
+    /// <summary>
+    /// Reads all chunks from <paramref name="stream"/> to completion and returns a promise for a <c>Uint8Array</c>.
+    /// </summary>
+    JsValue ReadStreamToBytes(JsValue stream);
 }
+
