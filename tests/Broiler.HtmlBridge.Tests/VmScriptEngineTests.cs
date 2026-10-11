@@ -322,41 +322,73 @@ public partial class VmScriptEngineTests
     }
 
     /// <summary>
-    /// The async-function, generator and async-generator constructors are refused on the profile whatever
-    /// the policy: its realm builds each constructor as a native that always throws. Each script first
-    /// checks that the route reaches a function other than <c>Function</c>, so an error on the way there
-    /// does not read as the refusal. Only the refusal is pinned, not its name.
+    /// The async-function, generator and async-generator constructors are answered on the profile exactly
+    /// when the policy permits evaluation and refused when it withholds <c>'unsafe-eval'</c>: each route
+    /// reaches a constructor other than <c>Function</c>, and is gated by
+    /// <c>VmScriptEngine.AnswersGuestLoads</c>. Only the refusal is pinned, not its name.
     /// </summary>
     [Theory]
     [InlineData("async function () {}")]
     [InlineData("function* () {}")]
     [InlineData("async function* () {}")]
-    public void TheOtherFunctionConstructorsAreRefusedOnTheProfileWhateverThePolicy(string kind)
+    public void TheOtherFunctionConstructorsAreAnsweredExactlyWhenThePolicyPermitsEvaluation(string kind)
     {
-        foreach (var text in new string?[] { "script-src 'self'", "script-src 'self' 'unsafe-eval'", null })
-        {
-            var engine = Engine();
-            engine.Csp = CspFixture.Csp(text);
+        var forbidding = CspFixture.CspOf("script-src 'self'");
+        var refusing = Engine();
+        refusing.Csp = forbidding;
 
-            Assert.True(
-                engine.Execute(
-                [
-                    $"var C = Object.getPrototypeOf({kind}).constructor; " +
-                    "if (typeof C !== 'function' || C === Function) throw 0; " +
-                    $"var r = {AttemptOnTheProfile("typeof new C()")}; if (r.indexOf('refused:') !== 0) throw 0;"
-                ]),
-                $"did not reach a function other than Function, or it was not refused, under policy: {text ?? "(none)"}");
-        }
+        Assert.True(refusing.Execute(
+        [
+            $"var C = Object.getPrototypeOf({kind}).constructor; " +
+            "if (typeof C !== 'function' || C === Function) throw 0; " +
+            $"var r = {AttemptOnTheProfile("typeof new C()")}; if (r.indexOf('refused:') !== 0) throw 0;"
+        ]));
+
+        var permitting = CspFixture.CspOf("script-src 'self' 'unsafe-eval'");
+        var answering = Engine();
+        answering.Csp = permitting;
+
+        Assert.True(answering.Execute(
+        [
+            $"var C = Object.getPrototypeOf({kind}).constructor; " +
+            "if (typeof C !== 'function' || C === Function) throw 0; " +
+            $"var r = {AttemptOnTheProfile("typeof new C()")}; if (r !== 'ok:function') throw 0;"
+        ]));
+
+        Assert.True(Engine().Execute(
+        [
+            $"var C = Object.getPrototypeOf({kind}).constructor; " +
+            "if (typeof C !== 'function' || C === Function) throw 0; " +
+            $"var r = {AttemptOnTheProfile("typeof new C()")}; if (r !== 'ok:function') throw 0;"
+        ]));
     }
 
     /// <summary>
-    /// The profile has no <c>ShadowRealm</c>, so there is no <c>evaluate</c> for a policy to gate. One
-    /// arriving would fail this and would have to meet the policy.
+    /// <c>ShadowRealm.prototype.evaluate</c> is refused on the profile when the policy withholds
+    /// <c>'unsafe-eval'</c> and answered under a permitting policy or none, meeting the same policy
+    /// gate as <c>eval</c> and <c>Function</c>.
     /// </summary>
     [Fact]
-    public void TheProfileHasNoShadowRealmToGate()
+    public void TheShadowRealmEvaluateMethodIsAnsweredExactlyWhenThePolicyPermitsEvaluation()
     {
-        Assert.True(Engine().Execute(["if (typeof ShadowRealm !== 'undefined') throw 0;"]));
+        const string route = "new ShadowRealm().evaluate('6 * 7')";
+
+        var forbidding = CspFixture.CspOf("script-src 'self'");
+        var refusing = Engine();
+        refusing.Csp = forbidding;
+
+        Assert.True(refusing.Execute(
+            [$"var r = {AttemptOnTheProfile(route)}; if (r.indexOf('refused:') !== 0) throw 0;"]));
+
+        var permitting = CspFixture.CspOf("script-src 'self' 'unsafe-eval'");
+        var answering = Engine();
+        answering.Csp = permitting;
+
+        Assert.True(answering.Execute(
+            [$"var r = {AttemptOnTheProfile(route)}; if (r !== 'ok:42') throw 0;"]));
+
+        Assert.True(Engine().Execute(
+            [$"var r = {AttemptOnTheProfile(route)}; if (r !== 'ok:42') throw 0;"]));
     }
 
     /// <summary>

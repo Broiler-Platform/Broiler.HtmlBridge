@@ -520,9 +520,9 @@ public partial class VmScriptEngineTests
         /// </remarks>
         [Theory]
         [InlineData(typeof(JsScriptUnit), "Name,Options,Referrer,Text,ForceStrict,SourceName")]
-        [InlineData(typeof(JsModuleUnit), "Key,Options,Requests,Text")]
+        [InlineData(typeof(JsModuleUnit), "Key,Options,Requests,Text,Type")]
         [InlineData(typeof(JsResolvedRequest), "Key,Specifier")]
-        [InlineData(typeof(JsCompileRequest), "Backend,Form,Manifest")]
+        [InlineData(typeof(JsCompileRequest), "Backend,Form,KeepsSourceText,Manifest")]
         [InlineData(typeof(SliceParseOptions), "AllowTopLevelAwait,EvalFlags,Goal,GoalIsStrict,IsEval,MaximumNestingDepth")]
         public void TheKeyMirrorsEveryFieldOfTheCompilerInputs(Type shape, string expected)
         {

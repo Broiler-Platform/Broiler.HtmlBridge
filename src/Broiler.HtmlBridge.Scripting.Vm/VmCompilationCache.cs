@@ -277,6 +277,7 @@ internal sealed class VmCompilationCache
         Add(digest, request.Manifest.ToString());
         Add(digest, request.Form.ToString());
         Add(digest, request.Backend);
+        Add(digest, request.KeepsSourceText ? "keep-source" : "drop-source");
         Add(digest, units.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         foreach (var unit in units)
@@ -297,6 +298,7 @@ internal sealed class VmCompilationCache
         {
             Add(digest, module.Key);
             Add(digest, module.Text);
+            Add(digest, module.Type);
             AddOptions(digest, module.Options);
 
             var requests = module.Requests ?? [];
