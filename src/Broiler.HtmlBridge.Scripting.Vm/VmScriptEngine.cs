@@ -4,6 +4,7 @@ using System.Text;
 using Broiler.HtmlBridge.Logging;
 using Broiler.HtmlBridge.Scripting;
 using Broiler.VM;
+using Broiler.VM.Abstractions;
 using Broiler.VM.Profile.JavaScript;
 using Broiler.VM.Profile.JavaScript.Compiler;
 using Broiler.VM.Profile.JavaScript.Format;
