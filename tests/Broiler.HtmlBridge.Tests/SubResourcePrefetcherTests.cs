@@ -261,4 +261,100 @@ public class SubResourcePrefetcherTests
 
         Assert.Equal(expectedCap, loader.PrefetcherConcurrencyCap);
     }
+
+    // ------------------------------------------------------------------
+    //  The synchronous path: a blocking fetch function, consumed with Consume.
+    //  The tests above drive the asynchronous one.
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void SyncFetches_OverlapInsteadOfRunningOneAtATime()
+    {
+        // The point of prefetching: a page's sub-resources are on the wire together, so their round
+        // trips overlap. Asserted by observing concurrency rather than timing the batch, which would
+        // measure the thread pool's injection rate as much as the prefetcher.
+        int inFlight = 0, peak = 0;
+        var gate = new object();
+        using var release = new ManualResetEventSlim(false);
+        using var prefetcher = new SubResourcePrefetcher((Func<string, string?>)(_ =>
+        {
+            lock (gate)
+            {
+                inFlight++;
+                peak = Math.Max(peak, inFlight);
+            }
+
+            release.Wait(TimeSpan.FromSeconds(10));
+            lock (gate)
+                inFlight--;
+            return "content";
+        }), maxConcurrentRequestsPerHost: 4);
+        var urls = Enumerable.Range(0, 4).Select(i => $"https://example.com/{i}.js").ToList();
+
+        prefetcher.Prefetch(urls);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            lock (gate)
+            {
+                if (peak >= 2)
+                    break;
+            }
+
+            Thread.Sleep(10);
+        }
+
+        release.Set();
+        foreach (var url in urls)
+            prefetcher.Consume(url);
+
+        lock (gate)
+            Assert.True(peak >= 2, $"peak concurrency was {peak}: the prefetches are still serial");
+    }
+
+    [Fact]
+    public void SyncConsume_FetchesAUrlThatWasNeverPrefetched()
+    {
+        // What makes the prefetcher safe to adopt one call site at a time: a missed prefetch is a
+        // lost speedup, never a lost resource.
+        using var prefetcher = new SubResourcePrefetcher((Func<string, string?>)(url => $"body of {url}"));
+
+        Assert.Equal("body of https://example.com/late.js", prefetcher.Consume("https://example.com/late.js"));
+    }
+
+    [Fact]
+    public void SyncFetchFailure_IsReportedAsNoContentRatherThanThrown()
+    {
+        // A dead sub-resource is not a dead page; the consumer does what it already does for a fetch
+        // that came back empty.
+        using var prefetcher = new SubResourcePrefetcher(
+            (Func<string, string?>)(_ => throw new System.Net.Http.HttpRequestException("connection refused")));
+
+        prefetcher.Prefetch(["https://example.com/gone.js"]);
+
+        Assert.Null(prefetcher.Consume("https://example.com/gone.js"));
+    }
+
+    [Fact]
+    public void IsPending_ReportsWhetherARequestWasIssued()
+    {
+        using var prefetcher = new SubResourcePrefetcher((Func<string, string?>)(url => url));
+
+        prefetcher.Prefetch(["https://example.com/a.js"]);
+
+        Assert.True(prefetcher.IsPending("https://example.com/a.js"));
+        Assert.False(prefetcher.IsPending("https://example.com/b.js"));
+    }
+
+    [Fact]
+    public void BlankUrls_AreNotRequested()
+    {
+        using var prefetcher = new SubResourcePrefetcher(
+            (Func<string, string?>)(_ => throw new InvalidOperationException("should not fetch")));
+
+        prefetcher.Prefetch(["", "   "]);
+
+        Assert.Equal(0, prefetcher.RequestedCount);
+        Assert.Null(prefetcher.Consume(""));
+    }
 }
