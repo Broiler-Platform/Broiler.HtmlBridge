@@ -2,10 +2,21 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
+  <!--
+    The Broiler.Dom.Html pin is a property so a build can be pointed at a local pack
+    (-p:BroilerDomHtmlVersion=...). The packages after 0.1.0-preview.14 serialize by namespace:
+    HtmlSerializationAdapter gains GetNamespace, and their parser builds inline SVG and MathML in
+    those namespaces with camelCase names. The constant compiles the bridge's opt-in to that, which
+    preview.14 has no API for. Delete the constant and its #if blocks once the pin is past preview.14.
+  -->
+  <PropertyGroup>
+    <BroilerDomHtmlVersion Condition="'$(BroilerDomHtmlVersion)' == ''">0.1.0-preview.14</BroilerDomHtmlVersion>
+    <DefineConstants Condition="'$(BroilerDomHtmlVersion)' != '0.1.0-preview.14'">$(DefineConstants);BROILER_DOM_SERIALIZES_BY_NAMESPACE</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <!-- Broiler component packages -->
     <PackageVersion Include="Broiler.CSS.Dom" Version="0.1.0-preview.17" />
-    <PackageVersion Include="Broiler.Dom.Html" Version="0.1.0-preview.14" />
+    <PackageVersion Include="Broiler.Dom.Html" Version="$(BroilerDomHtmlVersion)" />
     <PackageVersion Include="Broiler.JavaScript.Engine" Version="0.1.0-preview.8" />
     <PackageVersion Include="Broiler.JavaScript.Modules" Version="0.1.0-preview.8" />
     <PackageVersion Include="Broiler.JSeal" Version="0.1.0-preview.7" />

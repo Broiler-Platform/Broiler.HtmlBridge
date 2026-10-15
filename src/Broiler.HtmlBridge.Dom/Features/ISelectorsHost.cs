@@ -40,8 +40,9 @@ internal interface ISelectorsHost : ISelectorMatchHost
     /// </summary>
     JsValue FindInDescendants(DomElement element, string selector, bool all);
 
-    /// <summary>A live <c>HTMLCollection</c> of <paramref name="element"/>'s descendants whose
-    /// lower-cased tag name matches <paramref name="tagName"/>.</summary>
+    /// <summary>A live <c>HTMLCollection</c> of <paramref name="element"/>'s descendants in DOM
+    /// §4.4's list of elements with qualified name <paramref name="tagName"/>
+    /// (<see cref="DomBridgeUtils.QualifiedNameFilter"/>).</summary>
     JsValue ElementsByTagName(DomElement element, string tagName);
 
     /// <summary>A live <c>HTMLCollection</c> of <paramref name="element"/>'s descendants carrying

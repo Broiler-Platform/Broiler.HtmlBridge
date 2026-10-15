@@ -502,6 +502,12 @@ public sealed partial class DomBridge
     // kinds off the canonical node types; everything else is an element. GetName/GetAttributes/
     // GetStyles are only invoked for element/doctype nodes (see HtmlSerializer.Append), so their
     // Broiler.Dom.DomElement narrowing is always satisfied.
+    //
+    // HTML §13.3 reads an element's namespace before its name: void and raw-text are HTML-only
+    // rules, and a foreign element keeps its name's case. GetNamespace hands the serializer that
+    // namespace, and GetName then answers the name the section writes. Without it every element
+    // is treated as HTML — lowercased, and an SVG <link> written as void. The raw-text half is
+    // the GetText predicate below, which needs no package API and so applies on every pin.
     private HtmlSerializationAdapter<DomNode> CreateSerializationAdapter(
         Func<DomElement, DomElement?>? sourceResolver = null) => new(
         GetKind: static node =>
@@ -510,8 +516,13 @@ public sealed partial class DomBridge
             : node is DomDocumentType ? HtmlSerializationNodeKind.DocumentType
             : node is DomDocumentFragment ? HtmlSerializationNodeKind.Fragment
             : HtmlSerializationNodeKind.Element,
+#if BROILER_DOM_SERIALIZES_BY_NAMESPACE
+        GetName: static node => node is DomDocumentType docType ? docType.Name
+            : node is DomElement element ? SerializationName(element) : string.Empty,
+#else
         GetName: static node => node is DomDocumentType docType ? docType.Name
             : node is DomElement element ? element.TagName : string.Empty,
+#endif
         // A materialised nested-browsing-context document is not an in-tree child (the
         // #subdoc-root element was severed); it is referenced off its <iframe>/<object>/<frame>
         // container and rasterised in isolation (srcdoc content round-trips via the srcdoc
@@ -539,7 +550,13 @@ public sealed partial class DomBridge
         },
         // The parallel InnerHtml string is gone — raw-text content is always a
         // canonical DomText child, serialized via GetChildren/GetText above. No raw fallback.
-        GetRawInnerHtml: static _ => null);
+        GetRawInnerHtml: static _ => null)
+#if BROILER_DOM_SERIALIZES_BY_NAMESPACE
+    {
+        GetNamespace = static node => node is DomElement element ? SerializationNamespace(element) : null,
+    }
+#endif
+    ;
 
     private IEnumerable<KeyValuePair<string, string>> GetSerializableAttributes(
         DomElement element,

@@ -70,10 +70,11 @@ internal static class SelectorsBinding
     /// <c>element.getElementsByTagName(name)</c> — a <b>live</b> <c>HTMLCollection</c> (DOM §4.9). It
     /// was a snapshot array, so the loop this method exists for —
     /// <c>for (var i = 0; i &lt; items.length; i++)</c> over a list the body mutates — walked a
-    /// different collection than a browser walks.
+    /// different collection than a browser walks. The name goes to the host as the page wrote it:
+    /// <see cref="DomBridgeUtils.QualifiedNameFilter"/> lowercases it for HTML elements only.
     /// </summary>
     public static JsValue GetElementsByTagName(ISelectorsHost host, DomElement element, string name) =>
-        host.ElementsByTagName(element, name.ToLowerInvariant());
+        host.ElementsByTagName(element, name);
 
     /// <summary>
     /// <c>element.getElementsByClassName(names)</c> — DOM §4.9 defines it on <c>Element</c> as well as

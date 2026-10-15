@@ -408,15 +408,13 @@ internal sealed partial class SubDocumentBinding(ISubDocumentHost host)
 
     /// <summary>
     /// <c>getElementsByTagName(name)</c> on a frame's document — a <b>live</b> <c>HTMLCollection</c>
-    /// (DOM §4.5), as the containing document's is.
+    /// (DOM §4.5), collected by the same <see cref="DomBridgeUtils.QualifiedNameFilter"/> as the
+    /// containing document's.
     /// </summary>
-    private JsValue GetElementsByTagName(DomNode docRoot, in JsCall call)
-    {
-        var tagName = call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty;
-        return LiveCollection(
+    private JsValue GetElementsByTagName(DomNode docRoot, in JsCall call) =>
+        LiveCollection(
             docRoot,
-            el => tagName == "*" || string.Equals(el.TagName, tagName, StringComparison.OrdinalIgnoreCase));
-    }
+            DomBridgeUtils.QualifiedNameFilter(call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty));
 
     /// <summary>
     /// <c>getElementsByClassName</c> on a frame's document — a <b>live</b> <c>HTMLCollection</c>

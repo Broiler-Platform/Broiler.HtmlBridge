@@ -106,6 +106,11 @@ internal static class NodeAccessorsBinding
         return JsValue.String(element.TagName.ToUpperInvariant());
     }
 
+    /// <summary>
+    /// <c>localName</c> — the element's local name as it holds it (DOM §4.9). It is not lowercased:
+    /// an HTML element's is lowercase already, and an SVG <c>foreignObject</c>'s is
+    /// <c>foreignObject</c>, which lowering turned into a name no element has.
+    /// </summary>
     public static JsValue GetLocalName(DomNode node, in JsCall call)
     {
         // localName is null for non-element nodes (text/comment/document).
@@ -113,11 +118,7 @@ internal static class NodeAccessorsBinding
             return JsValue.Null;
         if (element.TagName.StartsWith('#'))
             return JsValue.Null; // #comment, #document, etc.
-        var name = element.TagName;
-        var colonIdx = name.IndexOf(':');
-        if (colonIdx >= 0)
-            name = name[(colonIdx + 1)..];
-        return JsValue.String(name.ToLowerInvariant());
+        return JsValue.String(element.LocalName);
     }
 
     public static JsValue GetPrefix(DomNode node, in JsCall call)
