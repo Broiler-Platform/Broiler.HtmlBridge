@@ -402,6 +402,31 @@ public static partial class DomBridgeUtils
         string.Equals(element.NamespaceUri, "http://www.w3.org/1999/xhtml", StringComparison.OrdinalIgnoreCase)
             ? element.TagName.ToUpperInvariant()
             : element.TagName;
+
+    /// <summary>
+    /// The filter of DOM §4.4's "list of elements with qualified name" in an HTML document — the
+    /// rule <c>getElementsByTagName</c> collects by on a document, an element and a frame's
+    /// document alike. <c>*</c> takes every element. Otherwise an HTML element is taken when its
+    /// qualified name is <paramref name="qualifiedName"/> ASCII-lowercased, and any other element
+    /// when its qualified name is <paramref name="qualifiedName"/> as given.
+    /// </summary>
+    /// <remarks>
+    /// The two halves are what let a page find an SVG <c>foreignObject</c> by that name: lowering
+    /// the query for every element, or comparing without case, finds it by <c>foreignobject</c>
+    /// as well — which a browser does not — or, against an element named in its own case, not at
+    /// all.
+    /// </remarks>
+    internal static Func<DomElement, bool> QualifiedNameFilter(string qualifiedName)
+    {
+        if (qualifiedName == "*")
+            return static _ => true;
+
+        var htmlName = AsciiToLower(qualifiedName);
+        return element => string.Equals(
+            element.TagName,
+            IsHtmlNamespace(element) ? htmlName : qualifiedName,
+            StringComparison.Ordinal);
+    }
 }
 
 public static partial class DomBridgeUtils

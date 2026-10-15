@@ -150,9 +150,39 @@ public static partial class DomBridgeUtils
     /// content is serialized literally (not HTML-escaped). The standard raw-text element set is
     /// owned by <see cref="HtmlSerializer.RawTextElements"/> (§13.3); this bridge predicate
     /// only applies it to the node's parent.</summary>
+    /// <remarks>
+    /// Only an HTML element is raw text. The text of an SVG or MathML <c>style</c> or
+    /// <c>script</c> is escaped like any other, because in foreign content a parser reads it in
+    /// the data state: an end tag or an <c>&lt;img&gt;</c> written there literally is markup again,
+    /// and only escaping keeps it text. Once the parser builds inline SVG in its namespace and
+    /// decodes that text, matching the name alone hands decoded markup back out raw, and an
+    /// <c>innerHTML</c> round trip of <c>&lt;svg&gt;&lt;style&gt;&amp;lt;/style&amp;gt;&amp;lt;img&amp;gt;</c>
+    /// creates the <c>img</c>. This is the rule of
+    /// <c>HtmlSerializer.IsRawTextElement(localName, namespaceUri)</c>, which the
+    /// Broiler.Dom.Html packages after 0.1.0-preview.14 carry, applied to the bridge's namespace.
+    /// </remarks>
     internal static bool IsRawTextSerializationParent(DomNode node) =>
         node.ParentNode is DomElement parent &&
-        HtmlSerializer.IsRawTextElement(parent.TagName);
+        IsHtmlNamespace(parent) &&
+        HtmlSerializer.IsRawTextElement(parent.LocalName);
+
+    /// <summary>
+    /// The namespace the serializer applies HTML §13.3's rules by: the HTML namespace for an
+    /// element the bridge counts as HTML (<see cref="IsHtmlNamespace"/>, which takes in its
+    /// no-namespace sentinels), the element's own namespace otherwise.
+    /// </summary>
+    internal static string? SerializationNamespace(DomElement element) =>
+        IsHtmlNamespace(element) ? DomNamespaces.Html : element.NamespaceUri;
+
+    /// <summary>
+    /// The name HTML §13.3 writes for <paramref name="element"/>: the local name of an HTML, SVG
+    /// or MathML element, so an <c>svg:</c> prefix is dropped and <c>foreignObject</c> keeps its
+    /// case, and the qualified name of any other.
+    /// </summary>
+    internal static string SerializationName(DomElement element) =>
+        SerializationNamespace(element) is DomNamespaces.Html or DomNamespaces.Svg or DomNamespaces.MathMl
+            ? element.LocalName
+            : element.TagName;
 }
 
 public static partial class DomBridgeUtils

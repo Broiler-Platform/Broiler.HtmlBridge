@@ -33,10 +33,12 @@ internal static class DocumentQueryBinding
 
     /// <summary>
     /// <c>document.getElementsByTagName(name)</c> — a <b>live</b> <c>HTMLCollection</c> (DOM §4.5).
+    /// It collects by <see cref="DomBridgeUtils.QualifiedNameFilter"/>, so an SVG
+    /// <c>foreignObject</c> is found by that name and not by <c>foreignobject</c>.
     /// </summary>
     public static JsValue GetElementsByTagName(IDocumentQueryHost host, in JsCall call)
     {
-        var tag = call.Length > 0 ? call.Realm.ToJsString(call[0]).ToLowerInvariant() : string.Empty;
+        var matches = DomBridgeUtils.QualifiedNameFilter(call.Length > 0 ? call.Realm.ToJsString(call[0]) : string.Empty);
 
         // The realm is read out of the call frame here rather than inside the contents function: the
         // collection outlives this call, and a ref struct cannot be captured by the closure anyway.
@@ -46,7 +48,7 @@ internal static class DocumentQueryBinding
             var results = new List<JsValue>();
             foreach (var el in host.Elements)
             {
-                if (tag == "*" || el.TagName == tag)
+                if (matches(el))
                     results.Add(host.ToJsObject(el));
             }
 

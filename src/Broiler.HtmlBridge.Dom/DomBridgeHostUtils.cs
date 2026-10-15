@@ -154,16 +154,20 @@ internal static class DomBridgeHostUtils
     }
 
     /// <summary>
-    /// Collects descendant elements matching a tag name in tree order (depth-first).
+    /// Collects the descendant elements in DOM §4.4's list of elements with qualified name
+    /// <paramref name="tagName"/> (<see cref="DomBridgeUtils.QualifiedNameFilter"/>), in tree order
+    /// (depth-first).
     /// </summary>
     internal static void CollectDescendantsByTag(DomElement root, string tagName, List<JsValue> results, DomBridge bridge)
     {
+        var matches = DomBridgeUtils.QualifiedNameFilter(tagName);
+
         // Canonical Descendants() is document-order and level-snapshotted (WPT #1143: it operates on
         // the real child list, so it avoids the LegacyChildList projection overflow and is
         // mutation-safe where a live ChildElements iteration is not).
         foreach (var element in root.Descendants().OfType<DomElement>())
         {
-            if (tagName == "*" || string.Equals(element.TagName, tagName, StringComparison.OrdinalIgnoreCase))
+            if (matches(element))
                 results.Add(bridge.WrapNode(element));
         }
     }
