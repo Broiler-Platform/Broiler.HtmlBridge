@@ -177,7 +177,7 @@ public class DocumentFreeEvaluationPolicyTests
     [Fact]
     public void EveryRouteButEvalMeetsOneRefusal()
     {
-        var tries = string.Join(",", RefusedRoutes.Select(row => $"function () {{ return {(string)row[0]}; }}"));
+        var tries = string.Join(",", RefusedRoutes.Select(row => $"function () {{ return {row.Data}; }}"));
         var probe =
             "(function () {" +
             "  var keys = [];" +

@@ -10,23 +10,23 @@
     preview.14 has no API for. Delete the constant and its #if blocks once the pin is past preview.14.
   -->
   <PropertyGroup>
-    <BroilerDomHtmlVersion Condition="'$(BroilerDomHtmlVersion)' == ''">0.1.0-preview.14</BroilerDomHtmlVersion>
+    <BroilerDomHtmlVersion Condition="'$(BroilerDomHtmlVersion)' == ''">0.1.0-preview.17</BroilerDomHtmlVersion>
     <DefineConstants Condition="'$(BroilerDomHtmlVersion)' != '0.1.0-preview.14'">$(DefineConstants);BROILER_DOM_SERIALIZES_BY_NAMESPACE</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <!-- Broiler component packages -->
-    <PackageVersion Include="Broiler.CSS.Dom" Version="0.1.0-preview.17" />
+    <PackageVersion Include="Broiler.CSS.Dom" Version="0.1.0-preview.18" />
     <PackageVersion Include="Broiler.Dom.Html" Version="$(BroilerDomHtmlVersion)" />
-    <PackageVersion Include="Broiler.JavaScript.Engine" Version="0.1.0-preview.8" />
-    <PackageVersion Include="Broiler.JavaScript.Modules" Version="0.1.0-preview.8" />
+    <PackageVersion Include="Broiler.JavaScript.Engine" Version="0.1.0-preview.9" />
+    <PackageVersion Include="Broiler.JavaScript.Modules" Version="0.1.0-preview.9" />
     <PackageVersion Include="Broiler.JSeal" Version="0.1.0-preview.7" />
     <PackageVersion Include="Broiler.JSeal.BroilerJs" Version="0.1.0-preview.7" />
     <PackageVersion Include="Broiler.JSeal.Vm" Version="0.1.0-preview.7" />
-    <PackageVersion Include="Broiler.Layout" Version="0.1.0-preview.23" />
-    <PackageVersion Include="Broiler.Net" Version="0.1.0-preview.3" />
+    <PackageVersion Include="Broiler.Layout" Version="0.1.0-preview.24" />
+    <PackageVersion Include="Broiler.Net" Version="0.1.0-preview.4" />
     <!-- Test dependencies -->
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
-    <PackageVersion Include="xunit" Version="2.5.3" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="2.5.3" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
+    <PackageVersion Include="xunit.v3" Version="4.0.2" />
   </ItemGroup>
 </Project>

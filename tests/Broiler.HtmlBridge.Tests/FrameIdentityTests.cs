@@ -571,8 +571,8 @@ public class FrameIdentityTests
         if (navigate)
         {
             Assert.NotEmpty(server.RequestsFor("/same"));
-            Assert.Empty(server.RequestsFor("/report").Where(r => Query(r.Path)["k"] == kind));
-            Assert.Empty(server.RequestsFor("/rel").Where(r => Query(r.Path)["k"] == kind));
+            Assert.DoesNotContain(server.RequestsFor("/report"), r => Query(r.Path)["k"] == kind);
+            Assert.DoesNotContain(server.RequestsFor("/rel"), r => Query(r.Path)["k"] == kind);
         }
         else
         {

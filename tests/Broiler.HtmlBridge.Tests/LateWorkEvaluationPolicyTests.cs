@@ -233,10 +233,10 @@ public class LateWorkEvaluationPolicyTests
         { "(0, eval)('6 * 7')", "refused:other" },
     };
 
-    private static IEnumerable<string> ScheduleList => Schedules.Select(row => (string)row[0]);
+    private static IEnumerable<string> ScheduleList => Schedules.Select(row => row.Data);
 
     private static IEnumerable<(string Attempt, string Refusal)> AttemptList =>
-        Attempts.Select(row => ((string)row[0], (string)row[1]));
+        Attempts.Select(row => row.Data);
 
     /// <summary>Every schedule crossed with every attempt, pumped on either thread.</summary>
     public static TheoryData<string, string, string, Pump> RoutesAndAttempts()

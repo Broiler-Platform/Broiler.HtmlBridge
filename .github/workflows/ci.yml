@@ -27,7 +27,7 @@ env:
 jobs:
   neutrality:
     name: Engine neutrality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
@@ -57,12 +57,12 @@ jobs:
         # same sources. They run anyway because this component drives a JavaScript
         # engine and a DOM through it, and the two hosts have disagreed before about
         # culture, text and file-system case.
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest]
         configuration: [Release]
         include:
           # Link Scripting.Vm and the Broiler.JSeal.Vm package into the tests and define
           # BROILER_VM_JS, so this leg exercises the VM profile's additional cases.
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             configuration: Release-VM
 
     steps:
