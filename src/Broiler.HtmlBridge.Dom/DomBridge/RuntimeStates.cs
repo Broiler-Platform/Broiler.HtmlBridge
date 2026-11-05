@@ -140,6 +140,9 @@ internal sealed class StyleSheetRuntimeState
 {
     public RuntimeValue<string> FetchedCss { get; } = new();
 
+    // The original href of a stylesheet link the parser placed in the document head.
+    public string? ParserHeadHref { get; set; }
+
     /// <summary>
     /// Whether <see cref="FetchedCss"/> is not origin-clean (CSSOM): a linked sheet whose response was
     /// neither same-origin nor CORS-approved. Its rules apply, and <c>getComputedStyle</c> sees their

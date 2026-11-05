@@ -443,12 +443,15 @@ public sealed partial class DomBridge
 
     /// <summary>
     /// Whether a linked style sheet holds up its document's rendering (Resource Timing's
-    /// <c>renderBlockingStatus</c>): one in the head of a document that is still being parsed. Every
-    /// element of a document is in place before its scripts run here, so a link a script inserts into
-    /// the head while the document is loading is taken for one the parser inserted.
+    /// <c>renderBlockingStatus</c>). Remember parser-inserted head stylesheets even if their
+    /// first fetch occurs after readyState becomes interactive during load dispatch.
     /// </summary>
     private bool IsRenderBlockingLink(DomElement link)
     {
+        if (StyleSheetStateFor(link).ParserHeadHref is { } parserHref &&
+            string.Equals(parserHref, GetAttr(link, "href"), StringComparison.Ordinal))
+            return true;
+
         if (ReadyStateOf(GetOwningDocument(link)) != "loading")
             return false;
 

@@ -63,6 +63,17 @@ public sealed partial class DomBridge
         var parsed = HtmlDocumentParser.ParseDocument(html, document: null, NavigationParseOptions);
         var docElement = parsed.Document.DocumentElement ??
             throw new InvalidOperationException("The shared HTML parser did not produce a document element.");
+        var head = docElement.ChildNodes.OfType<DomElement>()
+            .FirstOrDefault(element => string.Equals(element.TagName, "head", StringComparison.OrdinalIgnoreCase));
+        if (head is not null)
+        {
+            foreach (var link in head.Descendants().OfType<DomElement>())
+            {
+                if (IsExternalStylesheet(link))
+                    StyleSheetStateFor(link).ParserHeadHref = GetAttr(link, "href");
+            }
+        }
+
         if (parsed.Document.DocumentType is { } doctype)
             _document.AppendChild(doctype);
         Title = parsed.Title;
