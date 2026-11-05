@@ -30,6 +30,29 @@ public class ResourceLoaderTests
     }
 
     [Fact]
+    public void ALatePrefetchDoesNotReissueAStyleSheetLoad()
+    {
+        const string css = "body { color: green; }";
+        using var server = new LoopbackStyleServer(new Dictionary<string, string> { ["/sheet.css"] = css });
+        using var loader = new ResourceLoader();
+        var url = new Uri(new Uri(server.PageUrl), "/sheet.css").AbsoluteUri;
+        var request = StyleSheetFrom(server.PageUrl);
+        var firstDocument = loader.Lifetime;
+
+        Assert.Equal(css, loader.LoadText(url, request));
+        loader.Prefetch([(url, request)], minimumToOverlap: 1, documentLifetime: firstDocument);
+        Assert.Equal(0, loader.PrefetchedStyleSheetCount);
+
+        loader.BeginDocument();
+        loader.Prefetch([(url, request)], minimumToOverlap: 1, documentLifetime: firstDocument);
+        Assert.Equal(0, loader.PrefetchedStyleSheetCount);
+        loader.Prefetch([(url, request)], minimumToOverlap: 1, documentLifetime: loader.Lifetime);
+        Assert.Equal(1, loader.PrefetchedStyleSheetCount);
+        Assert.Equal(css, loader.LoadText(url, request));
+        Assert.Equal(2, server.RequestCount("/sheet.css"));
+    }
+
+    [Fact]
     public void AFileDocumentsStyleSheetIsReadFromDisk()
     {
         var path = Path.Combine(Path.GetTempPath(), $"broiler-loadtext-{Guid.NewGuid():N}.css");

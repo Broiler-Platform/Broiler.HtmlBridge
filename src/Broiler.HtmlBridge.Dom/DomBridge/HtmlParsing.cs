@@ -203,6 +203,7 @@ public sealed partial class DomBridge
     private void StartSpeculativePreloadScan(string html)
     {
         var document = TopDocumentContext;
+        var documentLifetime = _resources.Lifetime;
         // The mode the parse below gives the document, from the same markup: a prefetch is checked
         // against it as the link's own load will be.
         var quirksMode = HtmlDocumentQueries.IsQuirksMode(html);
@@ -233,7 +234,7 @@ public sealed partial class DomBridge
                         [.. result.Candidates
                             .Where(candidate => candidate.Kind == PreloadKind.StyleSheet && candidate.ResolvedUrl is not null)
                             .Select(candidate => (candidate.ResolvedUrl!, SpeculativeStyleSheetRequest(document, candidate, quirksMode, html)))],
-                        minimumToOverlap: 1);
+                        minimumToOverlap: 1, documentLifetime: documentLifetime);
             });
     }
 

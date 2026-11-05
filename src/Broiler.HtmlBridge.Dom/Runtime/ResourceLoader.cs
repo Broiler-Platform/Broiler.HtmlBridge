@@ -51,6 +51,8 @@ internal sealed class ResourceLoader : IDisposable
 
     private readonly IBrowserRequestTransport? _network;
     private CancellationTokenSource _lifetime = new();
+    private readonly object _styleSheetPrefetchGate = new();
+    private readonly HashSet<string> _startedStyleSheetLoads = new(StringComparer.Ordinal);
 
     // The response tainting of each stylesheet the transport answered, by URL: what decides whether
     // the CSSOM may expose its rules (IsStyleSheetOriginClean). Written by the prefetch workers too.
@@ -79,11 +81,19 @@ internal sealed class ResourceLoader : IDisposable
     /// </summary>
     public void BeginDocument()
     {
-        if (Volatile.Read(ref _disposed) != 0)
-            return;
+        CancellationTokenSource previous;
+        RequestPrefetcher<StyleSheetRequest>? prefetcher;
+        lock (_styleSheetPrefetchGate)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
 
-        var previous = Interlocked.Exchange(ref _lifetime, new CancellationTokenSource());
-        Interlocked.Exchange(ref _prefetcher, null)?.Dispose();
+            previous = Interlocked.Exchange(ref _lifetime, new CancellationTokenSource());
+            prefetcher = Interlocked.Exchange(ref _prefetcher, null);
+            _startedStyleSheetLoads.Clear();
+        }
+
+        prefetcher?.Dispose();
         Cancel(previous);
     }
 
@@ -93,7 +103,10 @@ internal sealed class ResourceLoader : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        Interlocked.Exchange(ref _prefetcher, null)?.Dispose();
+        RequestPrefetcher<StyleSheetRequest>? prefetcher;
+        lock (_styleSheetPrefetchGate)
+            prefetcher = Interlocked.Exchange(ref _prefetcher, null);
+        prefetcher?.Dispose();
         Cancel(Volatile.Read(ref _lifetime));
     }
 
@@ -265,13 +278,13 @@ internal sealed class ResourceLoader : IDisposable
     /// response without <c>nosniff</c>. The fallback client keeps its old behaviour: it sends no
     /// cookies, so what it reads is what any unauthenticated client could read.
     /// </remarks>
-    public string? LoadText(string url, StyleSheetRequest request) =>
-        // Consume side of the prefetch/consume split: identical policy and identical result, but a
-        // URL that was prefetched has been in flight since the document named it rather than
-        // starting its round trip here — provided it was requested the way this caller would.
-        _prefetcher is { } prefetcher && prefetcher.TryConsume(url, request, out var prefetched)
+    public string? LoadText(string url, StyleSheetRequest request)
+    {
+        var prefetcher = StartStyleSheetLoad(url, out var lifetime);
+        return prefetcher is not null && prefetcher.TryConsume(url, request, out var prefetched)
             ? prefetched
-            : LoadTextDirect(url, request, Lifetime);
+            : LoadTextDirect(url, request, lifetime);
+    }
 
     /// <summary>
     /// Asynchronously loads the text of an external stylesheet or text subresource, awaiting the
@@ -279,10 +292,11 @@ internal sealed class ResourceLoader : IDisposable
     /// </summary>
     public async Task<string?> LoadTextAsync(string url, StyleSheetRequest request, CancellationToken cancellationToken = default)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(Lifetime, cancellationToken);
+        var prefetcher = StartStyleSheetLoad(url, out var lifetime);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(lifetime, cancellationToken);
         var token = linked.Token;
 
-        if (_prefetcher is { } prefetcher)
+        if (prefetcher is not null)
         {
             var (consumed, content) = await prefetcher.TryConsumeAsync(url, request, token).ConfigureAwait(false);
             if (consumed)
@@ -290,6 +304,18 @@ internal sealed class ResourceLoader : IDisposable
         }
 
         return await LoadTextDirectAsync(url, request, token).ConfigureAwait(false);
+    }
+
+    private RequestPrefetcher<StyleSheetRequest>? StartStyleSheetLoad(string url, out CancellationToken lifetime)
+    {
+        lock (_styleSheetPrefetchGate)
+        {
+            // Claim the URL before looking for a prefetch so the scanner cannot queue one
+            // between that lookup and the direct fetch. Network waits happen outside the gate.
+            _startedStyleSheetLoads.Add(url);
+            lifetime = Lifetime;
+            return _prefetcher;
+        }
     }
 
     private string? LoadTextDirect(string url, StyleSheetRequest request, CancellationToken lifetime)
@@ -461,21 +487,30 @@ internal sealed class ResourceLoader : IDisposable
     /// issued early, so it is sent for the document and with the credentials mode the consumer will
     /// ask for, and its response is checked against the same document mode. A consumer asking
     /// differently fetches on its own.
+    /// A URL whose normal load has already started is skipped by speculation.
+    /// A scan may supply its original document lifetime so it cannot enqueue work for a later document.
     /// </para>
     /// </remarks>
-    public void Prefetch(IReadOnlyCollection<(string Url, StyleSheetRequest Request)> requests, int minimumToOverlap = 2)
+    public void Prefetch(IReadOnlyCollection<(string Url, StyleSheetRequest Request)> requests, int minimumToOverlap = 2,
+        CancellationToken? documentLifetime = null)
     {
-        if (requests.Count < minimumToOverlap || Volatile.Read(ref _disposed) != 0)
+        if (requests.Count < minimumToOverlap)
             return;
 
-        // A URL the host will not let the consume path fetch must not be speculated on either: the
-        // prefetch is the same request, issued earlier and on a worker, so leaving it unfiltered
-        // would keep the whole cost the policy exists to remove — and pay it before the parse.
-        Prefetcher().Prefetch(
-            requests.Where(request =>
-                Uri.TryCreate(request.Url, UriKind.Absolute, out _) && MayFetchOverNetwork(request.Url)),
-            Lifetime);
+        lock (_styleSheetPrefetchGate)
+        {
+            var lifetime = Lifetime;
+            if (Volatile.Read(ref _disposed) != 0 || (documentLifetime.HasValue && documentLifetime.Value != lifetime))
+                return;
+
+            Prefetcher().Prefetch(
+                requests.Where(request => !_startedStyleSheetLoads.Contains(request.Url) &&
+                    Uri.TryCreate(request.Url, UriKind.Absolute, out _) && MayFetchOverNetwork(request.Url)),
+                lifetime);
+        }
     }
+
+    internal int PrefetchedStyleSheetCount => _prefetcher?.RequestedCount ?? 0;
 
     /// <summary>The navigation timing of the document, including the negotiated protocol.</summary>
     internal DocumentFetchTiming? DocumentFetchTiming { get; set; }
