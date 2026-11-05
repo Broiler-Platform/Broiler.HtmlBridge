@@ -207,7 +207,7 @@ public sealed partial class DomBridge
     /// A target, an interaction or an edit changed. What the bridge resolved styles from is stale, and
     /// what the page renders may have changed: it is a change of render state, as focus is.
     /// </summary>
-    private void NoteElementStateChange() => NoteUserActionStateChange();
+    private void NoteElementStateChange() => NoteUserActionStateChange(userActionOnly: false);
 
     private void ResetElementStates()
     {

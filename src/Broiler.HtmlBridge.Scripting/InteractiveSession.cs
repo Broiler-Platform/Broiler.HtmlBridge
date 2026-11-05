@@ -392,6 +392,9 @@ public sealed class InteractiveSession : IDisposable
     /// </summary>
     public long RenderVersion => _disposed || _bridge is not DomBridge bridge ? 0 : bridge.RenderVersion;
 
+    /// <summary>The render version without transient hover, active and focus styling changes.</summary>
+    public long RenderContentVersion => _disposed || _bridge is not DomBridge bridge ? 0 : bridge.RenderContentVersion;
+
     /// <summary>
     /// Sets the size, in CSS pixels, the page is shown at: what its scripts read as
     /// <c>innerWidth</c> and <c>innerHeight</c>, and what its layout -- and so the hit test of the

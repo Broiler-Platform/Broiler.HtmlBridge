@@ -44,6 +44,9 @@ public readonly record struct PointerInput(PointerInputKind Kind, double X, doub
     /// </summary>
     public int Buttons { get; init; }
 
+    /// <summary>Delivers the release without a click when the host consumed the gesture.</summary>
+    public bool SuppressClick { get; init; }
+
     /// <summary>
     /// Which press of a run of quick presses at one place this is -- 1, or 2 for the second of a
     /// double click -- as <c>MouseEvent.detail</c> reports it. A double click's second release is
@@ -79,4 +82,7 @@ public readonly record struct PointerInputResult(bool Delivered, bool DefaultPre
     /// or held back, a reset button's form reset -- so the host performs no activation of its own for it.
     /// </summary>
     public bool Handled { get; init; }
+
+    /// <summary>Whether the page cancelled the host's context menu.</summary>
+    public bool ContextMenuPrevented { get; init; }
 }

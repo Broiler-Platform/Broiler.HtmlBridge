@@ -17,8 +17,8 @@
     <!-- Broiler component packages -->
     <PackageVersion Include="Broiler.CSS.Dom" Version="0.1.0-preview.18" />
     <PackageVersion Include="Broiler.Dom.Html" Version="$(BroilerDomHtmlVersion)" />
-    <PackageVersion Include="Broiler.JavaScript.Engine" Version="0.1.0-preview.9" />
-    <PackageVersion Include="Broiler.JavaScript.Modules" Version="0.1.0-preview.9" />
+    <PackageVersion Include="Broiler.JavaScript.Engine" Version="0.1.0-preview.10" />
+    <PackageVersion Include="Broiler.JavaScript.Modules" Version="0.1.0-preview.10" />
     <PackageVersion Include="Broiler.JSeal" Version="0.1.0-preview.7" />
     <PackageVersion Include="Broiler.JSeal.BroilerJs" Version="0.1.0-preview.7" />
     <PackageVersion Include="Broiler.JSeal.Vm" Version="0.1.0-preview.7" />

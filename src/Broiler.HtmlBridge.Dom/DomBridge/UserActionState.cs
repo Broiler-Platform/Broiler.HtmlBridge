@@ -169,7 +169,7 @@ public sealed partial class DomBridge
     /// html5test.com that was a quarter of a second each time the row changed.
     /// </para>
     /// </remarks>
-    private void NoteUserActionStateChange(bool hoverOrActive = false, IReadOnlyCollection<DomElement>? hoverChanged = null)
+    private void NoteUserActionStateChange(bool hoverOrActive = false, IReadOnlyCollection<DomElement>? hoverChanged = null, bool userActionOnly = true)
     {
         if (_realm is null)
             return;
@@ -189,7 +189,7 @@ public sealed partial class DomBridge
             ClearComputedPropsCache();
         }
 
-        NoteRenderStateChange(affectsLayout: rules is null || rules.MovesBoxes);
+        NoteRenderStateChange(affectsLayout: rules is null || rules.MovesBoxes, userActionOnly: userActionOnly);
     }
 
     /// <summary>

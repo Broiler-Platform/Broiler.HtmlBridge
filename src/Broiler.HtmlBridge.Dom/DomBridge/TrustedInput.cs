@@ -164,14 +164,15 @@ public sealed partial class DomBridge
 
         // A click goes to the nearest element both the press and the release were over; a press in one
         // document and a release in another click nothing.
-        if (press is null || CommonInclusiveAncestor(press, hit.Target) is not { } clickTarget)
+        if (input.SuppressClick || press is null || CommonInclusiveAncestor(press, hit.Target) is not { } clickTarget)
             return new PointerInputResult(true, false);
 
         var clickHit = hit with { Target = clickTarget };
         if (input.Button != 0)
         {
+            bool contextMenuPrevented = input.Button == 2 && !FireInputEvent(clickHit, input, "contextmenu", detail: 0);
             allowed = FireInputEvent(clickHit, input, "auxclick", input.ClickCount);
-            return new PointerInputResult(true, !allowed);
+            return new PointerInputResult(true, !allowed) { ContextMenuPrevented = contextMenuPrevented };
         }
 
         // A disabled form control is not clicked (HTML §4.10.18.5).
@@ -689,7 +690,7 @@ public sealed partial class DomBridge
         // and its mouse event 0.
         var button = type switch
         {
-            "pointerdown" or "pointerup" or "mousedown" or "mouseup" or "click" or "dblclick" or "auxclick" => input.Button,
+            "pointerdown" or "pointerup" or "mousedown" or "mouseup" or "click" or "dblclick" or "auxclick" or "contextmenu" => input.Button,
             _ when isPointerEvent => -1,
             _ => 0,
         };

@@ -252,6 +252,7 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
     // style sheet's rules -- and how deep the bridge is in building a render projection, whose copies
     // of that state are not changes.
     private long _renderStateChanges;
+    private long _userActionRenderChanges;
     private int _renderProjectionDepth;
 
     /// <summary>Counts a change to what the page renders that its DOM does not record, unless it is a projection's copy.</summary>
@@ -260,12 +261,14 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
     /// on too, since what the page renders is what the snapshot lays out. Building the render projection
     /// that followed every such change used to move the epoch for it.
     /// </param>
-    private void NoteRenderStateChange(bool affectsLayout = true)
+    private void NoteRenderStateChange(bool affectsLayout = true, bool userActionOnly = false)
     {
         if (_renderProjectionDepth != 0)
             return;
 
         _renderStateChanges++;
+        if (userActionOnly)
+            _userActionRenderChanges++;
         if (affectsLayout)
             BridgeRuntimeStateEpoch.Bump();
     }
@@ -283,22 +286,23 @@ public sealed partial class DomBridge : IDomBridgeRuntime, Dom.Runtime.IWorkInFl
     /// it would serialize after every move. An inline style a script writes is in the DOM already: it
     /// is written through to the <c>style</c> attribute.
     /// </remarks>
-    internal long RenderVersion
-    {
-        get
-        {
-            unchecked
-            {
-                var version = (long)_document.Version + _renderStateChanges;
-                var frames = 0L;
-                foreach (var frameDocument in _browsingContexts.ContentDocuments)
-                {
-                    version += (long)frameDocument.Version + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(frameDocument);
-                    frames++;
-                }
+    internal long RenderVersion => GetRenderVersion(_renderStateChanges);
 
-                return version * 31 + frames;
+    internal long RenderContentVersion => GetRenderVersion(_renderStateChanges - _userActionRenderChanges);
+
+    private long GetRenderVersion(long stateChanges)
+        {
+        unchecked
+        {
+            var version = (long)_document.Version + stateChanges;
+            var frames = 0L;
+            foreach (var frameDocument in _browsingContexts.ContentDocuments)
+            {
+                version += (long)frameDocument.Version + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(frameDocument);
+                frames++;
             }
+
+            return version * 31 + frames;
         }
     }
 
