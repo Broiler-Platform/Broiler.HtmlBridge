@@ -55,6 +55,7 @@ TYPE Broiler.HtmlBridge.InteractiveSession : System.IDisposable
   property System.Boolean HasWorkDueInLoadWindow { get; }
   property System.Int64 FieldVersion { get; }
   property System.Int64 FocusVersion { get; }
+  property System.Int64 RenderContentVersion { get; }
   property System.Int64 RenderVersion { get; }
   property System.ValueTuple<System.Double, System.Double> ViewportScroll { get; }
 TYPE Broiler.HtmlBridge.JsEngineHosting

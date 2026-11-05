@@ -168,6 +168,7 @@ TYPE Broiler.HtmlBridge.PointerInput : System.IEquatable<Broiler.HtmlBridge.Poin
   property System.Boolean CtrlKey { get; set; }
   property System.Boolean MetaKey { get; set; }
   property System.Boolean ShiftKey { get; set; }
+  property System.Boolean SuppressClick { get; set; }
   property System.Double ScrollX { get; set; }
   property System.Double ScrollY { get; set; }
   property System.Double X { get; set; }
@@ -188,6 +189,7 @@ TYPE Broiler.HtmlBridge.PointerInputResult : System.IEquatable<Broiler.HtmlBridg
   method System.Int32 GetHashCode()
   method System.String ToString()
   method System.Void Deconstruct(ref System.Boolean, ref System.Boolean)
+  property System.Boolean ContextMenuPrevented { get; set; }
   property System.Boolean DefaultPrevented { get; set; }
   property System.Boolean Delivered { get; set; }
   property System.Boolean Handled { get; set; }
