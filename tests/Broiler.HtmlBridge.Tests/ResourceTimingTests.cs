@@ -307,11 +307,17 @@ public class ResourceTimingTests
             " | on Event false false true true 2, listener 2, on Event false false true true 3, listener 3" +
             " | /1 /2 /3 | /1 /2 /3 /4 | 0",
             Run(server,
-                "var events = [], seen = [], err;" +
+                "var events = [], seen = [], paths = ['/1', '/2', '/3', '/4'], err;" +
                 "try { performance.setResourceTimingBufferSize(); } catch (e) { err = e.name + ': ' + e.message; }" +
                 "var head = [performance instanceof EventTarget, performance.onresourcetimingbufferfull," +
                 "  typeof performance.clearResourceTimings, performance.setResourceTimingBufferSize.length, err].join();" +
-                "new PerformanceObserver(function (list) { list.getEntries().forEach(function (e) { seen.push(e.name.replace(location.origin, '')); }); })" +
+                // Wait for each beacon's timing entry and let the queued buffer-full task run
+                // before sending the next beacon or inspecting the final buffer.
+                "new PerformanceObserver(function (list) {" +
+                "  list.getEntries().forEach(function (e) { seen.push(e.name.replace(location.origin, '')); });" +
+                "  setTimeout(function () {" +
+                "    if (seen.length < paths.length) navigator.sendBeacon(paths[seen.length], 'x');" +
+                "    else finish(); }, 0); })" +
                 "  .observe({ type: 'resource' });" +
                 "performance.setResourceTimingBufferSize(2);" +
                 "performance.onresourcetimingbufferfull = function (ev) {" +
@@ -320,12 +326,12 @@ public class ResourceTimingTests
                 "  if (events.length === 1) performance.setResourceTimingBufferSize(3); };" +
                 "performance.addEventListener('resourcetimingbufferfull', function () {" +
                 "  events.push('listener ' + performance.getEntriesByType('resource').length); });" +
-                "['/1', '/2', '/3', '/4'].forEach(function (p, i) { setTimeout(function () { navigator.sendBeacon(p, 'x'); }, i * 40); });" +
-                "setTimeout(function () {" +
+                "function finish() {" +
                 "  var names = performance.getEntriesByType('resource').map(function (e) { return e.name.replace(location.origin, ''); }).join(' ');" +
                 "  performance.clearResourceTimings();" +
                 "  done(head + ' | ' + events.join(', ') + ' | ' + names + ' | ' + seen.join(' ') + ' | ' +" +
-                "    performance.getEntriesByType('resource').length); }, 300);"));
+                "    performance.getEntriesByType('resource').length); }" +
+                "navigator.sendBeacon(paths[0], 'x');"));
     }
 
     /// <summary>
